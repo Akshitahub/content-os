@@ -1,9 +1,16 @@
 import OpenAI from "openai"
 import type { FetchedPage } from "@/lib/web/fetch-page"
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
-
 export class ExtractionError extends Error {}
+
+function getClient(): OpenAI {
+  const apiKey = process.env.GEMINI_API_KEY
+  if (!apiKey) throw new ExtractionError("GEMINI_API_KEY is not configured on the server.")
+  return new OpenAI({
+    apiKey,
+    baseURL: "https://generativelanguage.googleapis.com/v1beta/openai/",
+  })
+}
 
 function buildPageContext(page: FetchedPage): string {
   const lines: string[] = [
@@ -33,8 +40,9 @@ export interface ExtractedBrandData {
 }
 
 export async function extractBrandFromPage(page: FetchedPage): Promise<ExtractedBrandData> {
+  const openai = getClient()
   const response = await openai.chat.completions.create({
-    model: "gpt-4o",
+    model: "gemini-2.0-flash",
     temperature: 0.3,
     response_format: { type: "json_object" },
     messages: [
@@ -90,8 +98,9 @@ export interface ExtractedProductData {
 }
 
 export async function extractProductFromPage(page: FetchedPage): Promise<ExtractedProductData> {
+  const openai = getClient()
   const response = await openai.chat.completions.create({
-    model: "gpt-4o",
+    model: "gemini-2.0-flash",
     temperature: 0.3,
     response_format: { type: "json_object" },
     messages: [
