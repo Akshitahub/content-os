@@ -1,0 +1,54 @@
+import OpenAI from "openai"
+import type { BrandRow, ProductRow } from "@/types/database"
+import type { GeneratedHook, HookType, Platform } from "@/types/app"
+import { buildHookSystemPrompt, buildHookUserPrompt } from "./prompts"
+
+export async function generateHooks(
+  brand: BrandRow,
+  options: {
+    hookTypes?: HookType[]
+    count?: number
+    platform?: Platform
+    additionalContext?: string
+    product?: ProductRow | null
+  }
+): Promise<{ hooks: GeneratedHook[]; model: string; usage: OpenAI.Completions.CompletionUsage | undefined }> {
+  const apiKey = process.env.GEMINI_API_KEY
+  if (!apiKey) throw new Error("GEMINI_API_KEY is not configured on the server.")
+  const openai = new OpenAI({
+    apiKey,
+    baseURL: "https://generativelanguage.googleapis.com/v1beta/openai/",
+  })
+
+  const hookTypes = options.hookTypes?.length
+    ? options.hookTypes
+    : (["question", "bold_statement", "story", "statistic", "controversial", "how_to"] as HookType[])
+
+  const count = options.count ?? 5
+  const model = "gemini-2.0-flash"
+
+  const response = await openai.chat.completions.create({
+    model,
+    temperature: 0.85,
+    max_tokens: 1500,
+    messages: [
+      { role: "system", content: buildHookSystemPrompt() },
+      { role: "user", content: buildHookUserPrompt(brand, { hookTypes, count, platform: options.platform, additionalContext: options.additionalContext, product: options.product }) },
+    ],
+  })
+
+  const raw = response.choices[0]?.message?.content ?? "{}"
+  let parsed: { hooks: GeneratedHook[] }
+
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    throw new Error("AI returned invalid JSON for hooks")
+  }
+
+  if (!Array.isArray(parsed.hooks)) {
+    throw new Error("AI response missing hooks array")
+  }
+
+  return { hooks: parsed.hooks, model, usage: response.usage ?? undefined }
+}
