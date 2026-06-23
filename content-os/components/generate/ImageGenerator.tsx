@@ -88,7 +88,7 @@ export function ImageGenerator({ brandId, products }: ImageGeneratorProps) {
           <Label className="text-xs">Describe the image</Label>
           <textarea
             rows={2}
-            placeholder="e.g. 'Rose quartz bracelet on a marble surface with soft morning light'"
+            placeholder="Describe the scene, not a command — e.g. 'Gift boxes with ribbons on a wooden table, warm festive lighting' or 'Product on marble surface, soft morning light, minimal studio style'"
             className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring resize-none"
             value={prompt}
             onChange={(e) => setImagePrompt(e.target.value)}
