@@ -13,11 +13,11 @@ export async function generateHooks(
     product?: ProductRow | null
   }
 ): Promise<{ hooks: GeneratedHook[]; model: string; usage: OpenAI.Completions.CompletionUsage | undefined }> {
-  const apiKey = process.env.GEMINI_API_KEY
-  if (!apiKey) throw new Error("GEMINI_API_KEY is not configured on the server.")
+  const apiKey = process.env.NVIDIA_API_KEY
+  if (!apiKey) throw new Error("NVIDIA_API_KEY is not configured on the server.")
   const openai = new OpenAI({
     apiKey,
-    baseURL: "https://generativelanguage.googleapis.com/v1beta/openai/",
+    baseURL: "https://integrate.api.nvidia.com/v1",
   })
 
   const hookTypes = options.hookTypes?.length
@@ -25,7 +25,7 @@ export async function generateHooks(
     : (["question", "bold_statement", "story", "statistic", "controversial", "how_to"] as HookType[])
 
   const count = options.count ?? 5
-  const model = "gemini-2.0-flash"
+  const model = "meta/llama-3.1-70b-instruct"
 
   const response = await openai.chat.completions.create({
     model,

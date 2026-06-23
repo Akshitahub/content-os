@@ -116,14 +116,14 @@ export async function generateContent(
   model: string
   usage: OpenAI.Completions.CompletionUsage | undefined
 }> {
-  const apiKey = process.env.GEMINI_API_KEY
-  if (!apiKey) throw new Error("GEMINI_API_KEY is not configured on the server.")
+  const apiKey = process.env.NVIDIA_API_KEY
+  if (!apiKey) throw new Error("NVIDIA_API_KEY is not configured on the server.")
   const openai = new OpenAI({
     apiKey,
-    baseURL: "https://generativelanguage.googleapis.com/v1beta/openai/",
+    baseURL: "https://integrate.api.nvidia.com/v1",
   })
 
-  const model = "gemini-2.0-flash"
+  const model = "meta/llama-3.1-70b-instruct"
   const { system, user, maxTokens } = buildPrompts(format, brand, options)
 
   const response = await openai.chat.completions.create({
