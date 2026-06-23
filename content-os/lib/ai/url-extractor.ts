@@ -4,11 +4,11 @@ import type { FetchedPage } from "@/lib/web/fetch-page"
 export class ExtractionError extends Error {}
 
 function getClient(): OpenAI {
-  const apiKey = process.env.GEMINI_API_KEY
-  if (!apiKey) throw new ExtractionError("GEMINI_API_KEY is not configured on the server.")
+  const apiKey = process.env.NVIDIA_API_KEY
+  if (!apiKey) throw new ExtractionError("NVIDIA_API_KEY is not configured on the server.")
   return new OpenAI({
     apiKey,
-    baseURL: "https://generativelanguage.googleapis.com/v1beta/openai/",
+    baseURL: "https://integrate.api.nvidia.com/v1",
   })
 }
 
@@ -42,7 +42,7 @@ export interface ExtractedBrandData {
 export async function extractBrandFromPage(page: FetchedPage): Promise<ExtractedBrandData> {
   const openai = getClient()
   const response = await openai.chat.completions.create({
-    model: "gemini-2.0-flash",
+    model: "meta/llama-3.1-70b-instruct",
     temperature: 0.3,
     response_format: { type: "json_object" },
     messages: [
@@ -100,7 +100,7 @@ export interface ExtractedProductData {
 export async function extractProductFromPage(page: FetchedPage): Promise<ExtractedProductData> {
   const openai = getClient()
   const response = await openai.chat.completions.create({
-    model: "gemini-2.0-flash",
+    model: "meta/llama-3.1-70b-instruct",
     temperature: 0.3,
     response_format: { type: "json_object" },
     messages: [
