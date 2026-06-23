@@ -44,6 +44,7 @@ export async function POST(request: Request) {
   try {
     result = await generateHooks(brand, { hookTypes, count, platform, additionalContext, product })
   } catch (err) {
+    console.error("HOOKS GEN ERROR:", err)
     // Log failure
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await (supabase.from("ai_generation_logs") as any).insert({
