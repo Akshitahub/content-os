@@ -1,5 +1,5 @@
 import Link from "next/link"
-import { Calendar, ArrowRight } from "lucide-react"
+import { Calendar } from "lucide-react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { getUpcomingOccasions } from "@/lib/occasions/get-upcoming-occasions"
@@ -75,7 +75,7 @@ export function UpcomingOccasions({ brandId }: Props) {
                     : "/brands/new"
                 }
               >
-                Generate <ArrowRight className="h-3 w-3" />
+                Create post →
               </Link>
             </Button>
           </div>

@@ -6,6 +6,8 @@ type GeneratedHookWithId = GeneratedHook & { id: string | null }
 type GeneratedCaptionWithId = GeneratedCaption & { id: string | null }
 type GeneratedImageWithId = GeneratedImage & { id: string | null }
 
+type OccasionContext = { id: string; name: string; angle: string }
+
 interface GenerationStore {
   // Generated content
   hooks: GeneratedHookWithId[]
@@ -16,6 +18,12 @@ interface GenerationStore {
   // Shared UI state
   selectedPlatform: Platform
   selectedProductId: string | null
+
+  // Active occasion (set when navigating from occasion calendar)
+  occasionContext: OccasionContext | null
+
+  // Hook tab state
+  hookAdditionalContext: string
 
   // Content tab state
   contentFormat: ContentFormat
@@ -34,6 +42,8 @@ interface GenerationStore {
   setSelectedHook: (hook: GeneratedHookWithId | null) => void
   setSelectedPlatform: (platform: Platform) => void
   setSelectedProductId: (id: string | null) => void
+  setOccasionContext: (ctx: OccasionContext | null) => void
+  setHookAdditionalContext: (ctx: string) => void
   setContentFormat: (format: ContentFormat) => void
   setContentAdditionalContext: (ctx: string) => void
   setContentResult: (result: ContentResult | null) => void
@@ -50,6 +60,8 @@ export const useGenerationStore = create<GenerationStore>((set) => ({
   selectedHook: null,
   selectedPlatform: "instagram",
   selectedProductId: null,
+  occasionContext: null,
+  hookAdditionalContext: "",
   contentFormat: "social_post",
   contentAdditionalContext: "",
   contentResult: null,
@@ -63,6 +75,8 @@ export const useGenerationStore = create<GenerationStore>((set) => ({
   setSelectedHook: (hook) => set({ selectedHook: hook }),
   setSelectedPlatform: (platform) => set({ selectedPlatform: platform }),
   setSelectedProductId: (id) => set({ selectedProductId: id }),
+  setOccasionContext: (ctx) => set({ occasionContext: ctx }),
+  setHookAdditionalContext: (ctx) => set({ hookAdditionalContext: ctx }),
   setContentFormat: (format) => set({ contentFormat: format }),
   setContentAdditionalContext: (ctx) => set({ contentAdditionalContext: ctx }),
   setContentResult: (result) => set({ contentResult: result }),

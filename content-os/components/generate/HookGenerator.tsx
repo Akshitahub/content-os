@@ -35,9 +35,8 @@ interface HookGeneratorProps {
 
 export function HookGenerator({ brandId, products }: HookGeneratorProps) {
   const { mutate: generateHooks, isPending, error } = useGenerateHooks()
-  const { hooks, selectedHook, setHooks, setSelectedHook, selectedPlatform, setSelectedPlatform, selectedProductId, setSelectedProductId } = useGenerationStore()
+  const { hooks, selectedHook, setHooks, setSelectedHook, selectedPlatform, setSelectedPlatform, selectedProductId, setSelectedProductId, hookAdditionalContext: additionalContext, setHookAdditionalContext: setAdditionalContext } = useGenerationStore()
   const [selectedHookTypes, setSelectedHookTypes] = useState<HookType[]>(["question", "bold_statement", "story"])
-  const [additionalContext, setAdditionalContext] = useState("")
   const [count, setCount] = useState(5)
 
   function toggleHookType(type: HookType) {
