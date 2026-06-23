@@ -220,15 +220,17 @@ export function ContentTypeGenerator({ brandId, products }: ContentTypeGenerator
     setSelectedPlatform,
     selectedProductId,
     setSelectedProductId,
+    contentFormat: selectedFormat,
+    setContentFormat,
+    contentAdditionalContext: additionalContext,
+    setContentAdditionalContext,
+    contentResult: result,
+    setContentResult,
   } = useGenerationStore()
 
-  const [selectedFormat, setSelectedFormat] = useState<ContentFormat>("social_post")
-  const [additionalContext, setAdditionalContext] = useState("")
-  const [result, setResult] = useState<ContentResult | null>(null)
-
   function handleFormatChange(format: ContentFormat) {
-    setSelectedFormat(format)
-    setResult(null)
+    setContentFormat(format)
+    setContentResult(null)
   }
 
   function handleGenerate() {
@@ -241,7 +243,7 @@ export function ContentTypeGenerator({ brandId, products }: ContentTypeGenerator
         hookText: selectedFormat === "social_post" ? (selectedHook?.hook_text ?? undefined) : undefined,
         additionalContext: additionalContext || undefined,
       },
-      { onSuccess: (data) => setResult(data) }
+      { onSuccess: (data) => setContentResult(data) }
     )
   }
 
@@ -339,7 +341,7 @@ export function ContentTypeGenerator({ brandId, products }: ContentTypeGenerator
             }
             className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring resize-none"
             value={additionalContext}
-            onChange={(e) => setAdditionalContext(e.target.value)}
+            onChange={(e) => setContentAdditionalContext(e.target.value)}
           />
         </div>
 

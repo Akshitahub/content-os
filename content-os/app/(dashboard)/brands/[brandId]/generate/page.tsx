@@ -24,7 +24,7 @@ export default function GeneratePage() {
       <div className="mb-8">
         <h1 className="text-2xl font-bold tracking-tight">Generate content</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          AI-powered hooks and captions crafted around your brand voice.
+          Generate hooks, captions, reel scripts, ad copy, blog posts and images — all in your brand voice.
         </p>
       </div>
 

@@ -31,11 +31,14 @@ export default async function DashboardPage() {
   const firstBrandId = firstBrandResult.data?.id ?? null
   const firstName = profile?.full_name?.split(" ")[0] ?? "there"
 
+  const hour = new Date().getHours()
+  const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening"
+
   return (
     <div className="p-8">
       <div className="mb-8">
         <h1 className="text-3xl font-bold tracking-tight">
-          Good morning, {firstName} 👋
+          {greeting}, {firstName} 👋
         </h1>
         <p className="mt-1 text-muted-foreground">
           Here&apos;s what&apos;s happening with your content today.
@@ -68,11 +71,29 @@ export default async function DashboardPage() {
           </a>
         </div>
       ) : (
-        <div className="grid gap-4 md:grid-cols-3">
-          <div className="rounded-lg border bg-card p-6">
-            <p className="text-sm text-muted-foreground">Brands</p>
-            <p className="mt-1 text-3xl font-bold">{brandCount ?? 0}</p>
+        <div className="space-y-4">
+          <div className="grid gap-4 md:grid-cols-3">
+            <div className="rounded-lg border bg-card p-6">
+              <p className="text-sm text-muted-foreground">Brands</p>
+              <p className="mt-1 text-3xl font-bold">{brandCount ?? 0}</p>
+            </div>
           </div>
+          {firstBrandId && (
+            <div className="flex flex-wrap gap-3">
+              <a
+                href={`/brands/${firstBrandId}/generate`}
+                className="inline-flex h-9 items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+              >
+                Generate content →
+              </a>
+              <a
+                href={`/brands/${firstBrandId}/products`}
+                className="inline-flex h-9 items-center justify-center rounded-md border border-input bg-background px-4 text-sm font-medium transition-colors hover:bg-secondary"
+              >
+                Add product →
+              </a>
+            </div>
+          )}
         </div>
       )}
 

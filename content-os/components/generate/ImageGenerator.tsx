@@ -1,7 +1,6 @@
 "use client"
 
-import { useState } from "react"
-import { ImageIcon, Download, RefreshCw } from "lucide-react"
+import { ImageIcon, Download, RefreshCw, Info } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { useGenerateImage, ApiResponseError } from "@/hooks/useGeneration"
@@ -32,10 +31,12 @@ interface ImageGeneratorProps {
 
 export function ImageGenerator({ brandId, products }: ImageGeneratorProps) {
   const { mutate: generateImage, isPending, error } = useGenerateImage()
-  const { selectedProductId, setSelectedProductId, images, addImage } = useGenerationStore()
-  const [prompt, setPrompt] = useState("")
-  const [style, setStyle] = useState<ImageStyle>("product_photography")
-  const [aspectRatio, setAspectRatio] = useState<AspectRatio>("1:1")
+  const {
+    selectedProductId, setSelectedProductId, images, addImage,
+    imagePrompt: prompt, setImagePrompt,
+    imageStyle: style, setImageStyle,
+    imageAspectRatio: aspectRatio, setImageAspectRatio,
+  } = useGenerationStore()
 
   function handleGenerate() {
     if (!prompt.trim()) return
@@ -55,6 +56,16 @@ export function ImageGenerator({ brandId, products }: ImageGeneratorProps) {
 
   return (
     <div className="space-y-6">
+      {products.length === 0 && (
+        <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 flex items-start gap-2">
+          <Info className="h-4 w-4 text-blue-500 shrink-0 mt-0.5" />
+          <p className="text-xs text-blue-700">
+            Add products to your brand to generate product-specific images.{" "}
+            <a href={`/brands/${brandId}/products`} className="underline font-medium">Add products →</a>
+          </p>
+        </div>
+      )}
+
       {/* Controls */}
       <div className="rounded-lg border bg-card p-5 space-y-4">
         <h3 className="text-sm font-semibold">Image Settings</h3>
@@ -80,7 +91,7 @@ export function ImageGenerator({ brandId, products }: ImageGeneratorProps) {
             placeholder="e.g. 'Rose quartz bracelet on a marble surface with soft morning light'"
             className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring resize-none"
             value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
+            onChange={(e) => setImagePrompt(e.target.value)}
           />
         </div>
 
@@ -91,7 +102,7 @@ export function ImageGenerator({ brandId, products }: ImageGeneratorProps) {
               <button
                 key={s.value}
                 type="button"
-                onClick={() => setStyle(s.value)}
+                onClick={() => setImageStyle(s.value as ImageStyle)}
                 className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
                   style === s.value
                     ? "bg-primary text-primary-foreground"
@@ -111,7 +122,7 @@ export function ImageGenerator({ brandId, products }: ImageGeneratorProps) {
               <button
                 key={a.value}
                 type="button"
-                onClick={() => setAspectRatio(a.value)}
+                onClick={() => setImageAspectRatio(a.value as AspectRatio)}
                 className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
                   aspectRatio === a.value
                     ? "bg-primary text-primary-foreground"

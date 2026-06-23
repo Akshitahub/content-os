@@ -184,6 +184,13 @@ export function ContentCalendar({ brandId }: ContentCalendarProps) {
         </div>
       )}
 
+      {/* Empty state */}
+      {!isLoading && entries.length === 0 && (
+        <div className="mt-6 rounded-lg border border-dashed p-10 text-center">
+          <p className="text-sm font-medium text-muted-foreground">Your calendar is empty — generate some content and save it here to plan your posts.</p>
+        </div>
+      )}
+
       {/* Legend */}
       <div className="mt-4 flex flex-wrap gap-3">
         {Object.entries(STATUS_COLORS).map(([status, classes]) => (
