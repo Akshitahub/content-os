@@ -1,7 +1,8 @@
 "use client"
 
 import { useState } from "react"
-import { Sparkles, Layers, ImageIcon, X } from "lucide-react"
+import { FileText, Sparkles, Layers, ImageIcon, X } from "lucide-react"
+import { FullPostGenerator } from "./FullPostGenerator"
 import { HookGenerator } from "./HookGenerator"
 import { ContentTypeGenerator } from "./ContentTypeGenerator"
 import { ImageGenerator } from "./ImageGenerator"
@@ -13,10 +14,10 @@ interface GenerationPanelProps {
   products: ProductRow[]
 }
 
-type Tab = "hooks" | "content" | "images"
+type Tab = "full_post" | "hooks" | "content" | "images"
 
 export function GenerationPanel({ brandId, products }: GenerationPanelProps) {
-  const [activeTab, setActiveTab] = useState<Tab>("hooks")
+  const [activeTab, setActiveTab] = useState<Tab>("full_post")
   const { occasionContext, setOccasionContext } = useGenerationStore()
 
   return (
@@ -41,6 +42,12 @@ export function GenerationPanel({ brandId, products }: GenerationPanelProps) {
 
       <div className="flex rounded-lg border overflow-hidden">
         <button
+          className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 text-sm font-medium transition-colors ${activeTab === "full_post" ? "bg-primary text-primary-foreground" : "hover:bg-secondary"}`}
+          onClick={() => setActiveTab("full_post")}
+        >
+          <FileText className="h-3.5 w-3.5" /> Full Post
+        </button>
+        <button
           className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 text-sm font-medium transition-colors ${activeTab === "hooks" ? "bg-primary text-primary-foreground" : "hover:bg-secondary"}`}
           onClick={() => setActiveTab("hooks")}
         >
@@ -60,9 +67,10 @@ export function GenerationPanel({ brandId, products }: GenerationPanelProps) {
         </button>
       </div>
 
-      {activeTab === "hooks"   && <HookGenerator          brandId={brandId} products={products} />}
-      {activeTab === "content" && <ContentTypeGenerator   brandId={brandId} products={products} />}
-      {activeTab === "images"  && <ImageGenerator         brandId={brandId} products={products} />}
+      {activeTab === "full_post" && <FullPostGenerator brandId={brandId} products={products} />}
+      {activeTab === "hooks"     && <HookGenerator     brandId={brandId} products={products} />}
+      {activeTab === "content"   && <ContentTypeGenerator brandId={brandId} products={products} />}
+      {activeTab === "images"    && <ImageGenerator    brandId={brandId} products={products} />}
     </div>
   )
 }

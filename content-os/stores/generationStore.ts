@@ -1,6 +1,6 @@
 import { create } from "zustand"
 import type { GeneratedHook, GeneratedCaption, GeneratedImage, Platform, ContentFormat, ImageStyle, AspectRatio } from "@/types/app"
-import type { ContentResult } from "@/hooks/useGeneration"
+import type { ContentResult, FullPostResult } from "@/hooks/useGeneration"
 
 type GeneratedHookWithId = GeneratedHook & { id: string | null }
 type GeneratedCaptionWithId = GeneratedCaption & { id: string | null }
@@ -35,6 +35,9 @@ interface GenerationStore {
   imageStyle: ImageStyle
   imageAspectRatio: AspectRatio
 
+  // Full post tab state
+  fullPostResult: FullPostResult | null
+
   // Actions
   setHooks: (hooks: GeneratedHookWithId[]) => void
   addCaption: (caption: GeneratedCaptionWithId) => void
@@ -50,6 +53,7 @@ interface GenerationStore {
   setImagePrompt: (prompt: string) => void
   setImageStyle: (style: ImageStyle) => void
   setImageAspectRatio: (ratio: AspectRatio) => void
+  setFullPostResult: (result: FullPostResult | null) => void
   clearGeneration: () => void
 }
 
@@ -68,6 +72,7 @@ export const useGenerationStore = create<GenerationStore>((set) => ({
   imagePrompt: "",
   imageStyle: "product_photography",
   imageAspectRatio: "1:1",
+  fullPostResult: null,
 
   setHooks: (hooks) => set({ hooks }),
   addCaption: (caption) => set((state) => ({ captions: [caption, ...state.captions] })),
@@ -83,7 +88,8 @@ export const useGenerationStore = create<GenerationStore>((set) => ({
   setImagePrompt: (prompt) => set({ imagePrompt: prompt }),
   setImageStyle: (style) => set({ imageStyle: style }),
   setImageAspectRatio: (ratio) => set({ imageAspectRatio: ratio }),
+  setFullPostResult: (result) => set({ fullPostResult: result }),
   clearGeneration: () => set({
-    hooks: [], captions: [], images: [], selectedHook: null, contentResult: null,
+    hooks: [], captions: [], images: [], selectedHook: null, contentResult: null, fullPostResult: null,
   }),
 }))

@@ -16,8 +16,10 @@ import type {
   CarouselContent,
   BlogPost,
   AdCopy,
+  ContentFormat,
+  Platform,
 } from "@/types/app"
-import type { GenerateHooksInput, GenerateCaptionsInput, GenerateImageInput, GenerateContentInput } from "@/lib/validations/ai"
+import type { GenerateHooksInput, GenerateCaptionsInput, GenerateImageInput, GenerateContentInput, GenerateFullPostInput } from "@/lib/validations/ai"
 
 // Discriminated union so components can narrow on result.format
 export type ContentResult =
@@ -27,6 +29,14 @@ export type ContentResult =
   | { format: "carousel"; content: CarouselContent }
   | { format: "blog_post"; content: BlogPost }
   | { format: "ad_copy"; content: AdCopy }
+
+export type FullPostResult = {
+  hook: GeneratedHook
+  content: ContentResult
+  postCardHtml: string | null
+  platform: Platform
+  format: ContentFormat
+}
 
 type GeneratedHookWithId = GeneratedHook & { id: string | null }
 type GeneratedCaptionWithId = GeneratedCaption & { id: string | null }
@@ -102,5 +112,22 @@ async function fetchContent(input: GenerateContentInput): Promise<ContentResult>
 export function useGenerateContent() {
   return useMutation({
     mutationFn: fetchContent,
+  })
+}
+
+async function fetchFullPost(input: GenerateFullPostInput): Promise<FullPostResult> {
+  const res = await fetch("/api/v1/ai/fullpost/generate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  })
+  const json = await res.json()
+  if (!res.ok || isApiError(json)) throwApiError(json, "Full post generation failed")
+  return json.data as FullPostResult
+}
+
+export function useGenerateFullPost() {
+  return useMutation({
+    mutationFn: fetchFullPost,
   })
 }

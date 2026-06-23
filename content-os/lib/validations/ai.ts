@@ -119,3 +119,18 @@ export const extractFromUrlSchema = z.object({
 })
 
 export type ExtractFromUrlInput = z.infer<typeof extractFromUrlSchema>
+
+export const generateFullPostSchema = z.object({
+  brandId: z.string().uuid("Invalid brand ID"),
+  productId: z.string().uuid("Invalid product ID").optional(),
+  format: contentFormatEnum,
+  platform: platformEnum,
+  occasionId: z.string().optional(),
+  additionalContext: z
+    .string()
+    .max(500, "Additional context must be under 500 characters")
+    .optional()
+    .transform((val) => val?.replace(/<[^>]*>/g, "").trim()),
+})
+
+export type GenerateFullPostInput = z.infer<typeof generateFullPostSchema>
