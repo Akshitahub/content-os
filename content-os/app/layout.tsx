@@ -14,16 +14,46 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 })
 
+const BASE_URL = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"
+
 export const metadata: Metadata = {
+  metadataBase: new URL(BASE_URL),
   title: {
-    default: "content/os — Stop staring at the blank caption box",
-    template: "%s | content/os",
+    default: "ContentOS — Your brand URL → 30 days of content",
+    template: "%s | ContentOS",
   },
   description:
-    "Teach it your brand voice once. Get AI-generated hooks, captions, and on-brand product images for Instagram in seconds.",
-  metadataBase: new URL(
-    process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"
-  ),
+    "ContentOS learns your brand voice from your website and generates hooks, captions, reels, carousels, and ad copy — tailored to you, not templates.",
+  keywords: [
+    "AI content generation",
+    "social media content",
+    "brand voice",
+    "ecommerce marketing",
+    "Instagram captions",
+    "content calendar",
+    "hooks generator",
+    "reel scripts",
+  ],
+  icons: {
+    icon: [{ url: "/favicon.svg", type: "image/svg+xml" }],
+    shortcut: "/favicon.svg",
+  },
+  openGraph: {
+    type: "website",
+    url: BASE_URL,
+    siteName: "ContentOS",
+    title: "ContentOS — Your brand URL → 30 days of content",
+    description:
+      "ContentOS learns your brand voice from your website and generates hooks, captions, reels, carousels, and ad copy — tailored to you, not templates.",
+    images: [{ url: "/og", width: 1200, height: 630, alt: "ContentOS" }],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "ContentOS — Your brand URL → 30 days of content",
+    description:
+      "ContentOS learns your brand voice and generates a full month of on-brand content in one click.",
+    images: ["/og"],
+  },
 }
 
 export default function RootLayout({

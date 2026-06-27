@@ -201,6 +201,50 @@ function PlanSection({ user }: { user: UserProps }) {
   const count = user.generation_count
   const pct = Math.min(100, Math.round((count / limit) * 100))
 
+  const [upgradeState, setUpgradeState] = useState<"idle" | "loading">("idle")
+  const [portalState, setPortalState] = useState<"idle" | "loading">("idle")
+  const [billingError, setBillingError] = useState<string | null>(null)
+
+  const handleUpgrade = useCallback(async (plan: "starter" | "pro") => {
+    setUpgradeState("loading")
+    setBillingError(null)
+    try {
+      const res = await fetch("/api/v1/billing/create-checkout-session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ plan }),
+      })
+      const json = await res.json() as { data?: { url: string }; error?: { message: string } }
+      if (!res.ok || !json.data?.url) {
+        setBillingError(json.error?.message ?? "Failed to start checkout.")
+        setUpgradeState("idle")
+        return
+      }
+      window.location.href = json.data.url
+    } catch {
+      setBillingError("Network error. Please try again.")
+      setUpgradeState("idle")
+    }
+  }, [])
+
+  const handleManageBilling = useCallback(async () => {
+    setPortalState("loading")
+    setBillingError(null)
+    try {
+      const res = await fetch("/api/v1/billing/create-portal-session", { method: "POST" })
+      const json = await res.json() as { data?: { url: string }; error?: { message: string } }
+      if (!res.ok || !json.data?.url) {
+        setBillingError(json.error?.message ?? "Failed to open billing portal.")
+        setPortalState("idle")
+        return
+      }
+      window.location.href = json.data.url
+    } catch {
+      setBillingError("Network error. Please try again.")
+      setPortalState("idle")
+    }
+  }, [])
+
   return (
     <Card>
       <CardHeader>
@@ -222,7 +266,7 @@ function PlanSection({ user }: { user: UserProps }) {
           </p>
           <div className="h-2 w-full overflow-hidden rounded-full bg-secondary">
             <div
-              className="h-full rounded-full bg-primary transition-all"
+              className={`h-full rounded-full transition-all ${pct >= 80 ? "bg-red-500" : "bg-primary"}`}
               style={{ width: `${pct}%` }}
             />
           </div>
@@ -248,11 +292,57 @@ function PlanSection({ user }: { user: UserProps }) {
           </ul>
         </div>
 
-        {/* Upgrade CTA */}
-        {user.plan !== "agency" && (
-          <Button asChild variant="outline">
-            <Link href="/#pricing">Upgrade plan</Link>
+        {/* Billing actions */}
+        {user.plan === "free" && (
+          <div className="flex flex-wrap gap-3">
+            <Button
+              onClick={() => handleUpgrade("starter")}
+              disabled={upgradeState === "loading"}
+              className="bg-violet-600 hover:bg-violet-700 text-white"
+            >
+              {upgradeState === "loading" ? "Redirecting…" : "Upgrade to Starter — ₹999/mo"}
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => handleUpgrade("pro")}
+              disabled={upgradeState === "loading"}
+            >
+              Upgrade to Pro — ₹2,999/mo
+            </Button>
+          </div>
+        )}
+
+        {user.plan === "starter" && (
+          <div className="flex flex-wrap gap-3">
+            <Button
+              onClick={() => handleUpgrade("pro")}
+              disabled={upgradeState === "loading"}
+              className="bg-violet-600 hover:bg-violet-700 text-white"
+            >
+              {upgradeState === "loading" ? "Redirecting…" : "Upgrade to Pro — ₹2,999/mo"}
+            </Button>
+            <Button
+              variant="outline"
+              onClick={handleManageBilling}
+              disabled={portalState === "loading"}
+            >
+              {portalState === "loading" ? "Opening…" : "Manage subscription"}
+            </Button>
+          </div>
+        )}
+
+        {(user.plan === "pro" || user.plan === "agency") && (
+          <Button
+            variant="outline"
+            onClick={handleManageBilling}
+            disabled={portalState === "loading"}
+          >
+            {portalState === "loading" ? "Opening…" : "Manage subscription"}
           </Button>
+        )}
+
+        {billingError && (
+          <p className="text-sm text-destructive">{billingError}</p>
         )}
       </CardContent>
     </Card>
