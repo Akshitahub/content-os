@@ -56,7 +56,7 @@ export async function POST(request: Request) {
     console.error("[ai/content/generate] generation failed:", err)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await (supabase.from("ai_generation_logs") as any).insert({
-      user_id: user.id, brand_id: brandId, feature: `content_${format}`, model: "nvidia-nemotron",
+      user_id: user.id, brand_id: brandId, feature: `content_${format}`, model: "meta/llama-3.1-70b-instruct",
       latency_ms: Date.now() - startTime, success: false,
       error_message: err instanceof Error ? err.message : "Unknown error",
     })

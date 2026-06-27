@@ -34,7 +34,7 @@ export async function generateHooks(
   })
 
   const raw = response.choices[0]?.message?.content ?? "{}"
-  const cleaned = raw.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim()
+  const cleaned = raw.replace(/```json\n?/g, "").replace(/```\n?/g, "").replace(/[\x00-\x1F\x7F]/g, " ").trim()
   let parsed: { hooks: GeneratedHook[] }
 
   try {

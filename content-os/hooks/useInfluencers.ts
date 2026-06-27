@@ -44,6 +44,30 @@ export function useInfluencer(brandId: string, influencerId: string) {
   })
 }
 
+// ─── Auto-discover ─────────────────────────────────────────────────────────────
+
+export function useAutoDiscoverInfluencers(brandId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (input: {
+      platform: "instagram" | "tiktok" | "youtube"
+      count?: number
+    }): Promise<{ data: InfluencerRow[]; count: number }> => {
+      const res = await fetch(`/api/v1/brands/${brandId}/influencers/auto-discover`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+      })
+      if (!res.ok) {
+        const err = await res.json() as { error?: { message?: string } }
+        throw new Error(err.error?.message ?? "Auto-discovery failed")
+      }
+      return res.json() as Promise<{ data: InfluencerRow[]; count: number }>
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: influencerKeys.all(brandId) }),
+  })
+}
+
 // ─── Discover (scrape + score + save) ─────────────────────────────────────────
 
 export function useDiscoverInfluencer(brandId: string) {

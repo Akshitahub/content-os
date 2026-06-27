@@ -1,6 +1,7 @@
 import Link from "next/link"
 import { Globe, Zap, Sparkles, Star, ArrowRight, Check } from "lucide-react"
 import { createClient } from "@/lib/supabase/server"
+import { ScrollNavHandler } from "@/components/landing/ScrollNavHandler"
 
 export default async function RootPage() {
   let primaryHref = "/signup"
@@ -44,29 +45,7 @@ export default async function RootPage() {
         .fill-bar { animation: fillBar 2s ease-out 0.3s forwards; width: 0%; }
       `}</style>
 
-      <script
-        dangerouslySetInnerHTML={{
-          __html: `
-            window.addEventListener('scroll', function() {
-              var nav = document.getElementById('landing-nav');
-              if (!nav) return;
-              if (window.scrollY > 60) {
-                nav.style.backgroundColor = '#ffffff';
-                nav.style.borderBottom = '1px solid #e5e7eb';
-                nav.querySelectorAll('.nav-logo-light').forEach(function(el){ el.style.display = 'flex'; });
-                nav.querySelectorAll('.nav-logo-dark').forEach(function(el){ el.style.display = 'none'; });
-                nav.querySelectorAll('.nav-link').forEach(function(el){ el.style.color = '#374151'; });
-              } else {
-                nav.style.backgroundColor = 'transparent';
-                nav.style.borderBottom = 'none';
-                nav.querySelectorAll('.nav-logo-light').forEach(function(el){ el.style.display = 'none'; });
-                nav.querySelectorAll('.nav-logo-dark').forEach(function(el){ el.style.display = 'flex'; });
-                nav.querySelectorAll('.nav-link').forEach(function(el){ el.style.color = '#ffffff'; });
-              }
-            });
-          `,
-        }}
-      />
+      <ScrollNavHandler />
 
       <div className="min-h-screen bg-white text-gray-900">
         {/* NAVBAR */}

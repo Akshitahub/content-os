@@ -60,7 +60,7 @@ export async function POST(request: Request) {
   } catch (err) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await (supabase.from("ai_generation_logs") as any).insert({
-      user_id: user.id, brand_id: brandId, feature: "captions", model: "gemini-2.0-flash",
+      user_id: user.id, brand_id: brandId, feature: "captions", model: "meta/llama-3.1-70b-instruct",
       latency_ms: Date.now() - startTime, success: false,
       error_message: err instanceof Error ? err.message : "Unknown error",
     })

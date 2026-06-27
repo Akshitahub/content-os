@@ -4,6 +4,14 @@ import type { BrandRow, ProductRow } from "@/types/database"
 import type { ContentStrategy, ContentSlot, FastlaneResult, Platform } from "@/types/app"
 import type { SupabaseClient } from "@supabase/supabase-js"
 
+function sanitizeJsonString(raw: string): string {
+  return raw
+    .replace(/```json\n?/g, "")
+    .replace(/```\n?/g, "")
+    .replace(/[\x00-\x1F\x7F]/g, " ")
+    .trim()
+}
+
 function buildStrategySystemPrompt(): string {
   return `You are a senior content strategist specializing in Indian D2C brands.
 You create 30-day content calendars that drive engagement, build brand equity, and convert followers to buyers.
@@ -39,18 +47,11 @@ Rules:
 }
 
 function buildSlotContentPrompt(brand: BrandRow, slot: ContentSlot, product: ProductRow | null): string {
-  const productCtx = product ? `\nProduct: ${product.name}\nDescription: ${product.description ?? ""}\nKey Benefits: ${product.key_benefits?.join(", ") ?? ""}` : ""
-  return `Generate ${slot.content_type} content for this brand for day ${slot.day}.
+  const productCtx = product ? ` Product: ${product.name}.` : ""
+  return `Write a ${slot.content_type} for ${brand.name} (${brand.niche ?? "D2C brand"}) for ${slot.platform} about: ${slot.theme}.${productCtx}
 
-Brand: ${brand.name} | Niche: ${brand.niche ?? "General"} | Tone: ${brand.tone_of_voice ?? "Conversational"}
-Platform: ${slot.platform} | Theme: ${slot.theme} | Priority: ${slot.priority}${productCtx}
-
-Return a JSON object with:
-{
-  "title": "Content title/heading",
-  "content": "Main content text (hook line, caption, script, etc.)",
-  "notes": "Brief production notes or tips"
-}`
+JSON format:
+{"title": "short title", "content": "the actual content text", "notes": "one tip"}`
 }
 
 export async function generateContentStrategy(brand: BrandRow, products: ProductRow[]): Promise<ContentStrategy> {
@@ -66,7 +67,7 @@ export async function generateContentStrategy(brand: BrandRow, products: Product
   })
 
   const raw = res.choices[0]?.message?.content ?? "{}"
-  const cleaned = raw.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim()
+  const cleaned = sanitizeJsonString(raw)
   let parsed: ContentStrategy
   try {
     parsed = JSON.parse(cleaned) as ContentStrategy
@@ -86,23 +87,21 @@ export async function generateContentStrategy(brand: BrandRow, products: Product
 async function generateSlotContent(
   brand: BrandRow,
   slot: ContentSlot,
-  product: ProductRow | null
+  product: ProductRow | null,
 ): Promise<{ title: string; content: string; notes: string }> {
   const openai = new OpenAI({ apiKey: getApiKey(), baseURL: NVIDIA_BASE_URL })
   const res = await openai.chat.completions.create({
-    model: MODELS.generation,
+    model: MODELS.extraction,
     temperature: 0.8,
     max_tokens: 800,
     messages: [
-      { role: "system", content: "You are an expert social media content writer. Respond with valid JSON only." },
+      { role: "system", content: "You are a content writer. Respond with valid JSON only. No markdown." },
       { role: "user", content: buildSlotContentPrompt(brand, slot, product) },
     ],
   })
+
   const raw = res.choices[0]?.message?.content ?? ""
-  const cleaned = raw
-    .replace(/```json\n?/g, "")
-    .replace(/```\n?/g, "")
-    .trim()
+  const cleaned = sanitizeJsonString(raw)
 
   try {
     return JSON.parse(cleaned)
@@ -126,11 +125,10 @@ export async function executeFastlane(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   supabase: SupabaseClient<any>,
   userId: string,
-  brandId: string
+  brandId: string,
 ): Promise<FastlaneResult> {
   const errors: string[] = []
 
-  // Fetch brand
   const { data: brand, error: brandErr } = await supabase
     .from("brands")
     .select("*")
@@ -140,7 +138,6 @@ export async function executeFastlane(
 
   if (brandErr || !brand) throw new Error("Brand not found")
 
-  // Fetch products
   const { data: products } = await supabase
     .from("products")
     .select("*")
@@ -149,11 +146,8 @@ export async function executeFastlane(
     .returns<ProductRow[]>()
 
   const productList: ProductRow[] = products ?? []
-
-  // Build product lookup by name
   const productByName = new Map(productList.map(p => [p.name.toLowerCase(), p]))
 
-  // Generate strategy
   let strategy: ContentStrategy
   try {
     strategy = await generateContentStrategy(brand, productList)
@@ -167,7 +161,6 @@ export async function executeFastlane(
   let slotsGenerated = 0
   let calendarEntriesCreated = 0
 
-  // Process in batches of 5 with 500ms delay between batches
   const batchSize = 5
   const baseDate = new Date()
   baseDate.setHours(0, 0, 0, 0)
@@ -188,7 +181,6 @@ export async function executeFastlane(
 
         const generated = await generateSlotContent(brand, slot, product)
 
-        // Insert calendar entry
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const { error: insertErr } = await (supabase.from("calendar_entries") as any).insert({
           brand_id: brandId,
@@ -205,9 +197,8 @@ export async function executeFastlane(
         })
 
         if (insertErr) throw new Error(`Calendar insert failed for day ${slot.day}: ${insertErr.message}`)
-
         return true
-      })
+      }),
     )
 
     for (const result of results) {

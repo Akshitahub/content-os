@@ -77,7 +77,7 @@ export async function POST(request: Request, { params }: RouteParams) {
     })
 
     const aiContent = res.choices[0]?.message?.content ?? "{}"
-    const aiCleaned = aiContent.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim()
+    const aiCleaned = aiContent.replace(/```json\n?/g, "").replace(/```\n?/g, "").replace(/[\x00-\x1F\x7F]/g, " ").trim()
     const aiParsed = JSON.parse(aiCleaned) as {
       score?: number
       reasoning?: string
@@ -91,6 +91,29 @@ export async function POST(request: Request, { params }: RouteParams) {
   } catch (err) {
     console.error("[influencers/discover] AI scoring failed:", err)
     // Non-fatal: we still insert the influencer without a score
+  }
+
+  // Step 2b: Extract niche from bio
+  let niche: string | null = null
+  if (scraped.bio) {
+    try {
+      const openaiNiche = new OpenAI({ apiKey: getApiKey(), baseURL: NVIDIA_BASE_URL })
+      const nicheRes = await openaiNiche.chat.completions.create({
+        model: MODELS.extraction,
+        temperature: 0.1,
+        max_tokens: 10,
+        messages: [
+          {
+            role: "user",
+            content: `Based on this bio: "${scraped.bio.slice(0, 200)}", what single niche word best describes this creator? Return only one lowercase word.`,
+          },
+        ],
+      })
+      const word = nicheRes.choices[0]?.message?.content?.trim().split(/\s+/)[0]?.toLowerCase()
+      niche = word ?? null
+    } catch {
+      // non-fatal
+    }
   }
 
   // Step 3: Build raw_scraped_data
@@ -117,6 +140,7 @@ export async function POST(request: Request, { params }: RouteParams) {
         profile_url: scraped.profile_url,
         fit_score,
         fit_reasoning,
+        niche,
         raw_scraped_data,
         status: "discovered",
       })

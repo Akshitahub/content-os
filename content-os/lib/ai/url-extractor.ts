@@ -66,7 +66,7 @@ Respond with this exact JSON shape:
   })
 
   const raw = response.choices[0]?.message?.content ?? "{}"
-  const cleaned = raw.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim()
+  const cleaned = raw.replace(/```json\n?/g, "").replace(/```\n?/g, "").replace(/[\x00-\x1F\x7F]/g, " ").trim()
   let parsed: Partial<ExtractedBrandData>
   try {
     parsed = JSON.parse(cleaned)
@@ -127,7 +127,7 @@ Respond with this exact JSON shape:
   })
 
   const raw = response.choices[0]?.message?.content ?? "{}"
-  const cleaned = raw.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim()
+  const cleaned = raw.replace(/```json\n?/g, "").replace(/```\n?/g, "").replace(/[\x00-\x1F\x7F]/g, " ").trim()
   let parsed: Partial<ExtractedProductData>
   try {
     parsed = JSON.parse(cleaned)

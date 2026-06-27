@@ -7,6 +7,7 @@ import { generatePostCardHtml } from "@/lib/design/post-card-generator"
 import { buildError, ErrorCodes } from "@/types/api"
 import { checkAndIncrementUsage } from "@/lib/usage/check-and-increment-usage"
 import type { BrandRow, ProductRow } from "@/types/database"
+import type { GeneratedCaption, ReelScript, CarouselContent, AdCopy } from "@/types/app"
 
 export async function POST(request: Request) {
   const supabase = await createClient()
@@ -61,6 +62,59 @@ export async function POST(request: Request) {
     })
 
     const postCardHtml = generatePostCardHtml(brand, hook, format, platform, contentResult.data)
+
+    // Persist hook
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await (supabase.from("hooks") as any).insert({
+      brand_id: brandId,
+      product_id: productId ?? null,
+      hook_text: hook.hook_text,
+      hook_type: hook.hook_type,
+      generation_prompt: `fullpost platform:${platform ?? "any"}`,
+      model_used: hookResult.model,
+    })
+
+    // Persist content to its table
+    try {
+      if (format === "social_post") {
+        const caption = contentResult.data as GeneratedCaption
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        await (supabase.from("captions") as any).insert({
+          brand_id: brandId, product_id: productId ?? null,
+          caption_text: caption.caption_text, hashtags: caption.hashtags,
+          cta: caption.cta, character_count: caption.character_count,
+          platform: platform ?? "instagram", model_used: contentResult.model,
+        })
+      } else if (format === "reel_script") {
+        const script = contentResult.data as ReelScript
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        await (supabase.from("reel_scripts") as any).insert({
+          brand_id: brandId, product_id: productId ?? null,
+          platform: platform ?? null, hook: script.hook,
+          scenes: script.scenes, caption: script.caption ?? null,
+          hashtags: script.hashtags ?? [],
+        })
+      } else if (format === "carousel") {
+        const carousel = contentResult.data as CarouselContent
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        await (supabase.from("carousels") as any).insert({
+          brand_id: brandId, product_id: productId ?? null,
+          platform: platform ?? null, slides: carousel.slides,
+          hashtags: carousel.hashtags ?? [],
+        })
+      } else if (format === "ad_copy") {
+        const ad = contentResult.data as AdCopy
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        await (supabase.from("ad_copies") as any).insert({
+          brand_id: brandId, product_id: productId ?? null,
+          platform: platform ?? null, headline: ad.headline,
+          primary_text: ad.primary_text, description: ad.description ?? null,
+          cta_button: ad.cta_button ?? null,
+        })
+      }
+    } catch (persistErr) {
+      console.error("[ai/fullpost/generate] persist failed (non-fatal):", persistErr)
+    }
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await (supabase.from("ai_generation_logs") as any).insert({
