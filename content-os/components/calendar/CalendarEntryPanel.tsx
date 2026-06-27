@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
-import { X, Copy, Check } from "lucide-react"
+import { X, Copy, Check, Download, ExternalLink } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import type { CalendarEntryRow } from "@/types/database"
 
@@ -179,6 +179,83 @@ export function CalendarEntryPanel({ entry, onClose, onUpdate }: CalendarEntryPa
 
             {/* Scrollable content */}
             <div className="flex-1 overflow-y-auto p-5 space-y-5">
+              {/* AI image or carousel preview */}
+              {(() => {
+                const platformData = entry.platform_specific_data as Record<string, unknown> | null
+                const imageUrl = typeof platformData?.image_url === "string" ? platformData.image_url : null
+                const carouselHtml = typeof platformData?.carousel_html === "string" ? platformData.carousel_html : null
+
+                if (imageUrl) {
+                  return (
+                    <div>
+                      <div className="mb-1.5 flex items-center justify-between">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">AI Image</p>
+                        <a
+                          href={imageUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+                        >
+                          <ExternalLink className="h-3 w-3" /> View full size
+                        </a>
+                      </div>
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={imageUrl}
+                        alt="AI generated post image"
+                        width={300}
+                        height={300}
+                        className="rounded-lg border object-cover"
+                        style={{ width: 300, height: 300 }}
+                      />
+                    </div>
+                  )
+                }
+
+                if (carouselHtml) {
+                  return (
+                    <div>
+                      <div className="mb-1.5 flex items-center justify-between">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Carousel Preview</p>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const blob = new Blob([carouselHtml], { type: "text/html" })
+                            const url = URL.createObjectURL(blob)
+                            const a = document.createElement("a")
+                            a.href = url
+                            a.download = "carousel.html"
+                            a.click()
+                            URL.revokeObjectURL(url)
+                          }}
+                          className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+                        >
+                          <Download className="h-3 w-3" /> Download graphic
+                        </button>
+                      </div>
+                      <div
+                        style={{ width: 300, height: 300, overflow: "hidden", borderRadius: 8, border: "1px solid hsl(var(--border))", flexShrink: 0 }}
+                      >
+                        <iframe
+                          srcDoc={carouselHtml}
+                          sandbox="allow-same-origin"
+                          title="Carousel preview"
+                          style={{
+                            width: 1080,
+                            height: 1080,
+                            border: "none",
+                            transform: "scale(0.278)",
+                            transformOrigin: "top left",
+                          }}
+                        />
+                      </div>
+                    </div>
+                  )
+                }
+
+                return null
+              })()}
+
               {/* Hook */}
               {entry.hook_text && (
                 <div>

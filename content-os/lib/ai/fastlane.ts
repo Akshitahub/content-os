@@ -1,5 +1,6 @@
 import OpenAI from "openai"
 import { MODELS, NVIDIA_BASE_URL, getApiKey } from "./models"
+import { generateCarouselHtml } from "@/lib/design/post-card-generator"
 import type { BrandRow, ProductRow } from "@/types/database"
 import type { ContentStrategy, ContentSlot, FastlaneResult, Platform } from "@/types/app"
 import type { SupabaseClient } from "@supabase/supabase-js"
@@ -10,6 +11,42 @@ function sanitizeJsonString(raw: string): string {
     .replace(/```\n?/g, "")
     .replace(/[\x00-\x1F\x7F]/g, " ")
     .trim()
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms))
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function generateWithRetry(openai: OpenAI, params: any, retries = 1): Promise<any> {
+  try {
+    return await openai.chat.completions.create(params)
+  } catch (err) {
+    const msg = err instanceof Error ? err.message.toLowerCase() : String(err).toLowerCase()
+    const isRateLimit = msg.includes("429") || msg.includes("rate_limit") || msg.includes("rate limit")
+    if (retries > 0 && isRateLimit) {
+      console.log("[fastlane] Rate limit hit, waiting 3000ms before retry...")
+      await sleep(3000)
+      return generateWithRetry(openai, params, retries - 1)
+    }
+    throw err
+  }
+}
+
+async function generatePostImage(
+  visual_direction: string,
+  brand_name: string,
+  platform: string,
+): Promise<string | null> {
+  try {
+    const safeDirection = visual_direction.slice(0, 200)
+    const prompt = `${safeDirection}, professional quality, ${brand_name}, ${platform} social media post, high quality`
+    const encodedPrompt = encodeURIComponent(prompt)
+    const seed = Math.floor(Math.random() * 100000)
+    return `https://image.pollinations.ai/prompt/${encodedPrompt}?width=1080&height=1080&seed=${seed}&nologo=true&model=flux`
+  } catch {
+    return null
+  }
 }
 
 function buildStrategySystemPrompt(): string {
@@ -46,6 +83,12 @@ Rules:
 - Vary content types and platforms across 30 days`
 }
 
+interface CarouselSlide {
+  slide_number: number
+  headline: string
+  body: string
+}
+
 interface SlotContent {
   title: string
   hook: string
@@ -54,6 +97,7 @@ interface SlotContent {
   visual_direction: string
   audio_suggestion: string
   call_to_action: string
+  slides?: CarouselSlide[]
 }
 
 function buildSlotContentPrompt(brand: BrandRow, slot: ContentSlot, product: ProductRow | null): string {
@@ -69,9 +113,22 @@ Return this exact JSON:
 {"title":"post title","hook":"attention-grabbing opening line","caption":"full post caption (2-4 sentences, brand voice)","hashtags":["hashtag1","hashtag2","hashtag3","hashtag4","hashtag5"],"visual_direction":"describe the ideal image/video for this post","audio_suggestion":"suggested background music mood or sound","call_to_action":"what you want the audience to do"}`
 }
 
+function buildCarouselSlotContentPrompt(brand: BrandRow, slot: ContentSlot, product: ProductRow | null): string {
+  const productCtx = product
+    ? `\nProduct: ${product.name}${product.description ? ` - ${product.description}` : ""}`
+    : ""
+  return `Create a 5-slide carousel post for ${brand.name} on ${slot.platform}.
+Brand niche: ${brand.niche ?? "D2C brand"}
+Brand tone: ${brand.tone_of_voice ?? "conversational"}
+Theme: ${slot.theme}${productCtx}
+
+Return this exact JSON (exactly 5 slides):
+{"title":"carousel title","hook":"compelling cover headline","slides":[{"slide_number":1,"headline":"Cover headline","body":"Teaser of what readers will learn"},{"slide_number":2,"headline":"Point 1 title","body":"First key insight in 1-2 sentences"},{"slide_number":3,"headline":"Point 2 title","body":"Second key insight in 1-2 sentences"},{"slide_number":4,"headline":"Point 3 title","body":"Third key insight in 1-2 sentences"},{"slide_number":5,"headline":"Save this post!","body":"Call to action and follow for more"}],"hashtags":["hashtag1","hashtag2","hashtag3","hashtag4","hashtag5"],"visual_direction":"visual style for the carousel","audio_suggestion":"background music mood","call_to_action":"what you want the audience to do"}`
+}
+
 export async function generateContentStrategy(brand: BrandRow, products: ProductRow[]): Promise<ContentStrategy> {
   const openai = new OpenAI({ apiKey: getApiKey(), baseURL: NVIDIA_BASE_URL })
-  const res = await openai.chat.completions.create({
+  const res = await generateWithRetry(openai, {
     model: MODELS.generation,
     temperature: 0.7,
     max_tokens: 8000,
@@ -81,7 +138,7 @@ export async function generateContentStrategy(brand: BrandRow, products: Product
     ],
   })
 
-  const raw = res.choices[0]?.message?.content ?? "{}"
+  const raw: string = res.choices[0]?.message?.content ?? "{}"
   const cleaned = sanitizeJsonString(raw)
   let parsed: ContentStrategy
   try {
@@ -105,24 +162,35 @@ async function generateSlotContent(
   product: ProductRow | null,
 ): Promise<SlotContent> {
   const openai = new OpenAI({ apiKey: getApiKey(), baseURL: NVIDIA_BASE_URL })
-  const res = await openai.chat.completions.create({
+  const isCarousel = slot.content_type === "carousel"
+
+  const res = await generateWithRetry(openai, {
     model: MODELS.extraction,
     temperature: 0.8,
-    max_tokens: 600,
+    max_tokens: isCarousel ? 900 : 600,
     messages: [
       {
         role: "system",
         content: "You are an expert social media content creator. Generate complete, ready-to-post content. Respond with valid JSON only. No markdown.",
       },
-      { role: "user", content: buildSlotContentPrompt(brand, slot, product) },
+      {
+        role: "user",
+        content: isCarousel
+          ? buildCarouselSlotContentPrompt(brand, slot, product)
+          : buildSlotContentPrompt(brand, slot, product),
+      },
     ],
   })
 
-  const raw = res.choices[0]?.message?.content ?? ""
+  const raw: string = res.choices[0]?.message?.content ?? ""
   const cleaned = sanitizeJsonString(raw)
 
   try {
-    return JSON.parse(cleaned) as SlotContent
+    const parsed = JSON.parse(cleaned) as SlotContent
+    if (isCarousel && parsed.slides !== undefined && !Array.isArray(parsed.slides)) {
+      parsed.slides = []
+    }
+    return parsed
   } catch {
     // Regex fallback for malformed JSON
     const titleMatch = cleaned.match(/"title"\s*:\s*"([^"]*)"/)
@@ -149,12 +217,9 @@ async function generateSlotContent(
       visual_direction: visualMatch?.[1] ?? "",
       audio_suggestion: audioMatch?.[1] ?? "",
       call_to_action: ctaMatch?.[1] ?? "",
+      slides: [],
     }
   }
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms))
 }
 
 export async function executeFastlane(
@@ -197,12 +262,12 @@ export async function executeFastlane(
   let slotsGenerated = 0
   let calendarEntriesCreated = 0
 
-  const batchSize = 5
+  const batchSize = 3
   const baseDate = new Date()
   baseDate.setHours(0, 0, 0, 0)
 
   for (let i = 0; i < slots.length; i += batchSize) {
-    if (i > 0) await sleep(500)
+    if (i > 0) await sleep(2000)
 
     const batch = slots.slice(i, i + batchSize)
     const results = await Promise.allSettled(
@@ -264,6 +329,34 @@ export async function executeFastlane(
           }
         }
 
+        // Generate AI image (non-blocking — just constructs a Pollinations URL)
+        let imageUrl: string | null = null
+        try {
+          imageUrl = await generatePostImage(
+            generated.visual_direction || "professional product photography",
+            brand.name,
+            slot.platform,
+          )
+        } catch {
+          // non-fatal
+        }
+
+        // Generate carousel HTML for carousel slots (non-blocking)
+        let carouselHtmlStr: string | null = null
+        const isCarousel = slot.content_type === "carousel"
+        if (isCarousel && Array.isArray(generated.slides) && generated.slides.length > 0) {
+          try {
+            carouselHtmlStr = generateCarouselHtml(brand, generated.hook, generated.slides)
+          } catch {
+            // non-fatal
+          }
+        }
+
+        // Build platform_specific_data JSONB
+        const platformData: Record<string, string> = {}
+        if (imageUrl) platformData.image_url = imageUrl
+        if (carouselHtmlStr) platformData.carousel_html = carouselHtmlStr
+
         // Insert calendar entry with full generated content
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const { error: insertErr } = await (supabase.from("calendar_entries") as any).insert({
@@ -271,8 +364,8 @@ export async function executeFastlane(
           title: generated.title || slot.theme,
           scheduled_date: scheduledDate,
           platform: slot.platform as Platform,
-          content_type: slot.content_type === "reel_script" ? "reel"
-            : slot.content_type === "carousel" ? "carousel"
+          content_type: isCarousel ? "carousel"
+            : slot.content_type === "reel_script" ? "reel"
             : "post",
           status: "content_ready",
           hook_text: generated.hook || null,
@@ -284,6 +377,7 @@ export async function executeFastlane(
           hook_id: hookId,
           caption_id: captionId,
           is_ready: true,
+          platform_specific_data: platformData,
           color: slot.priority === "high" ? "#6366f1"
             : slot.priority === "medium" ? "#8b5cf6"
             : "#a78bfa",
