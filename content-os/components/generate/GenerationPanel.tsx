@@ -6,6 +6,7 @@ import { FullPostGenerator } from "./FullPostGenerator"
 import { HookGenerator } from "./HookGenerator"
 import { ContentTypeGenerator } from "./ContentTypeGenerator"
 import { ImageGenerator } from "./ImageGenerator"
+import { SceneComposer } from "./SceneComposer"
 import { useGenerationStore } from "@/stores/generationStore"
 import type { ProductRow } from "@/types/database"
 
@@ -15,6 +16,13 @@ interface GenerationPanelProps {
 }
 
 type Tab = "full_post" | "hooks" | "content" | "images"
+
+const TABS: { id: Tab; label: string; icon: React.ElementType }[] = [
+  { id: "full_post", label: "Post Builder", icon: FileText },
+  { id: "hooks", label: "Scroll Stoppers", icon: Sparkles },
+  { id: "content", label: "Deep Content", icon: Layers },
+  { id: "images", label: "Visuals", icon: ImageIcon },
+]
 
 export function GenerationPanel({ brandId, products }: GenerationPanelProps) {
   const [activeTab, setActiveTab] = useState<Tab>("full_post")
@@ -40,37 +48,40 @@ export function GenerationPanel({ brandId, products }: GenerationPanelProps) {
         </div>
       )}
 
-      <div className="flex rounded-lg border overflow-hidden">
-        <button
-          className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 text-sm font-medium transition-colors ${activeTab === "full_post" ? "bg-primary text-primary-foreground" : "hover:bg-secondary"}`}
-          onClick={() => setActiveTab("full_post")}
-        >
-          <FileText className="h-3.5 w-3.5" /> Full Post
-        </button>
-        <button
-          className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 text-sm font-medium transition-colors ${activeTab === "hooks" ? "bg-primary text-primary-foreground" : "hover:bg-secondary"}`}
-          onClick={() => setActiveTab("hooks")}
-        >
-          <Sparkles className="h-3.5 w-3.5" /> Hooks
-        </button>
-        <button
-          className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 text-sm font-medium transition-colors ${activeTab === "content" ? "bg-primary text-primary-foreground" : "hover:bg-secondary"}`}
-          onClick={() => setActiveTab("content")}
-        >
-          <Layers className="h-3.5 w-3.5" /> Content
-        </button>
-        <button
-          className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 text-sm font-medium transition-colors ${activeTab === "images" ? "bg-primary text-primary-foreground" : "hover:bg-secondary"}`}
-          onClick={() => setActiveTab("images")}
-        >
-          <ImageIcon className="h-3.5 w-3.5" /> Images
-        </button>
+      {/* Pill tabs */}
+      <div className="flex flex-wrap gap-1.5">
+        {TABS.map((tab) => {
+          const Icon = tab.icon
+          const active = activeTab === tab.id
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setActiveTab(tab.id)}
+              className={`flex items-center gap-1.5 rounded-full px-4 py-1.5 text-sm font-medium transition-all duration-150 ${
+                active
+                  ? "bg-primary text-primary-foreground shadow-sm"
+                  : "bg-secondary text-secondary-foreground hover:bg-secondary/80 border border-transparent"
+              }`}
+            >
+              <Icon className="h-3.5 w-3.5" />
+              {tab.label}
+            </button>
+          )
+        })}
       </div>
 
       {activeTab === "full_post" && <FullPostGenerator brandId={brandId} products={products} />}
-      {activeTab === "hooks"     && <HookGenerator     brandId={brandId} products={products} />}
-      {activeTab === "content"   && <ContentTypeGenerator brandId={brandId} products={products} />}
-      {activeTab === "images"    && <ImageGenerator    brandId={brandId} products={products} />}
+      {activeTab === "hooks" && <HookGenerator brandId={brandId} products={products} />}
+      {activeTab === "content" && <ContentTypeGenerator brandId={brandId} products={products} />}
+      {activeTab === "images" && (
+        <div className="space-y-8">
+          <ImageGenerator brandId={brandId} products={products} />
+          <div className="border-t pt-8">
+            <SceneComposer brandId={brandId} />
+          </div>
+        </div>
+      )}
     </div>
   )
 }

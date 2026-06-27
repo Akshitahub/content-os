@@ -92,7 +92,7 @@ function EmptyState({ label, brandId }: { label: string; brandId: string }) {
       <p className="text-sm font-medium">No {label} yet</p>
       <p className="mt-1 text-xs text-muted-foreground mb-4">Generate content to build your library.</p>
       <Button size="sm" asChild variant="outline">
-        <Link href={`/brands/${brandId}/generate`}>Go to Generate</Link>
+        <Link href={`/brands/${brandId}/generate`}>Go to Create</Link>
       </Button>
     </div>
   )
@@ -134,7 +134,7 @@ function HookCard({ hook, brandId }: { hook: HookRow; brandId: string }) {
   const isLong = hook.hook_text.length > 180
   const displayText = isLong && !expanded ? hook.hook_text.slice(0, 180) + "…" : hook.hook_text
   return (
-    <Card>
+    <Card className="transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md">
       <CardHeader className="pb-2">
         <div className="flex items-start justify-between gap-2">
           <HookTypeBadge type={hook.hook_type} />
@@ -184,7 +184,7 @@ function CaptionCard({ caption, brandId }: { caption: CaptionRow; brandId: strin
   const isLong = caption.caption_text.length > 200
   const displayText = isLong && !expanded ? caption.caption_text.slice(0, 200) + "…" : caption.caption_text
   return (
-    <Card>
+    <Card className="transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md">
       <CardHeader className="pb-2">
         <div className="flex items-start justify-between gap-2">
           <div className="flex items-center gap-2">
@@ -236,7 +236,7 @@ function ReelScriptCard({ script, brandId }: { script: ReelScriptRow; brandId: s
     onSuccess: () => qc.invalidateQueries({ queryKey: ["library", "scripts", brandId] }),
   })
   return (
-    <Card>
+    <Card className="transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md">
       <CardHeader className="pb-2">
         <div className="flex items-start justify-between gap-2">
           <PlatformBadge platform={script.platform} />
@@ -278,7 +278,7 @@ function CarouselCard({ carousel, brandId }: { carousel: CarouselRow; brandId: s
     onSuccess: () => qc.invalidateQueries({ queryKey: ["library", "carousels", brandId] }),
   })
   return (
-    <Card>
+    <Card className="transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md">
       <CardHeader className="pb-2">
         <div className="flex items-start justify-between gap-2">
           <PlatformBadge platform={carousel.platform} />
@@ -322,7 +322,7 @@ function AdCopyCard({ ad, brandId }: { ad: AdCopyRow; brandId: string }) {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["library", "ad-copies", brandId] }),
   })
   return (
-    <Card>
+    <Card className="transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md">
       <CardHeader className="pb-2">
         <div className="flex items-start justify-between gap-2">
           <PlatformBadge platform={ad.platform} />
@@ -362,7 +362,7 @@ function EmailSequenceCard({ sequence, brandId }: { sequence: EmailSequenceRow; 
     onSuccess: () => qc.invalidateQueries({ queryKey: ["library", "emails", brandId] }),
   })
   return (
-    <Card>
+    <Card className="transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md">
       <CardHeader className="pb-2">
         <div className="flex items-start justify-between gap-2">
           {sequence.sequence_type && (
@@ -401,7 +401,7 @@ function ProductDescCard({ desc, brandId }: { desc: ProductDescriptionRow; brand
   })
   const preview = desc.short_description ?? desc.long_description?.slice(0, 200) ?? ""
   return (
-    <Card>
+    <Card className="transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md">
       <CardHeader className="pb-2">
         <div className="flex items-start justify-end gap-2">
           <span className="shrink-0 text-xs text-muted-foreground">{new Date(desc.created_at).toLocaleDateString()}</span>
@@ -608,7 +608,7 @@ export default function LibraryPage() {
         <div>
           <h1 className="flex items-center gap-2 text-3xl font-bold tracking-tight">
             <Archive className="h-7 w-7 text-primary" />
-            Content Library
+            My Content
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">All your saved content in one place.</p>
         </div>

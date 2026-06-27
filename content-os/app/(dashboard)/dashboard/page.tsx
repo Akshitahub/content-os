@@ -1,3 +1,4 @@
+import Link from "next/link"
 import { createClient } from "@/lib/supabase/server"
 import { OnboardingWizard } from "@/components/onboarding/OnboardingWizard"
 import { DashboardStats } from "@/components/dashboard/DashboardStats"
@@ -162,13 +163,31 @@ export default async function DashboardPage() {
 
   return (
     <div className="px-4 py-6 md:p-8">
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold tracking-tight">
-          {greeting}, {firstName} 👋
-        </h1>
-        <p className="mt-1 text-muted-foreground">
-          Here&apos;s what&apos;s happening with your content today.
-        </p>
+      <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">
+            {greeting}, {firstName} 👋
+          </h1>
+          <p className="mt-1 text-muted-foreground">
+            Here&apos;s what&apos;s happening with your content today.
+          </p>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <Link
+            href="/brands/new"
+            className="inline-flex h-9 items-center gap-1.5 rounded-md border border-input bg-background px-3 text-sm font-medium transition-colors hover:bg-secondary"
+          >
+            + Add brand
+          </Link>
+          {firstBrandId && (
+            <Link
+              href={`/brands/${firstBrandId}/fastlane`}
+              className="inline-flex h-9 items-center gap-1.5 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+            >
+              ⚡ Run Fastlane
+            </Link>
+          )}
+        </div>
       </div>
 
       <DashboardStats

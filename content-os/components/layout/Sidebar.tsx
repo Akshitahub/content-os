@@ -3,17 +3,8 @@
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import {
-  LayoutDashboard,
-  Briefcase,
-  Package,
-  Sparkles,
-  Calendar,
-  Settings,
-  ChevronRight,
-  Zap,
-  Users,
-  Archive,
-  X,
+  Home, Sparkles, Bookmark, Calendar, Zap, Users, Package,
+  Briefcase, Settings, ChevronDown, X, Plus,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useBrandStore } from "@/stores/brandStore"
@@ -23,46 +14,52 @@ interface SidebarProps {
   onClose?: () => void
 }
 
-const topNavItems = [
-  { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
-  { label: "Brands", href: "/brands", icon: Briefcase },
-]
-
-function BrandNavItems({ brandId, onClose }: { brandId: string; onClose?: () => void }) {
-  const pathname = usePathname()
-
-  const brandNav = [
-    { label: "Fastlane", href: `/brands/${brandId}/fastlane`, icon: Zap },
-    { label: "Products", href: `/brands/${brandId}/products`, icon: Package },
-    { label: "Generate", href: `/brands/${brandId}/generate`, icon: Sparkles },
-    { label: "Library", href: `/brands/${brandId}/library`, icon: Archive },
-    { label: "Calendar", href: `/brands/${brandId}/calendar`, icon: Calendar },
-    { label: "Influencers", href: `/brands/${brandId}/influencers`, icon: Users },
-  ]
-
+function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <div className="mt-1 space-y-0.5">
-      {brandNav.map((item) => {
-        const Icon = item.icon
-        const isActive = pathname.startsWith(item.href)
-        return (
-          <Link
-            key={item.href}
-            href={item.href}
-            onClick={onClose}
-            className={cn(
-              "flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors",
-              isActive
-                ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
-                : "text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
-            )}
-          >
-            <Icon className="h-4 w-4 shrink-0" />
-            {item.label}
-          </Link>
-        )
-      })}
-    </div>
+    <p className="mb-1 px-3 text-[10px] font-semibold uppercase tracking-widest text-sidebar-foreground/40">
+      {children}
+    </p>
+  )
+}
+
+function NavItem({
+  href,
+  label,
+  icon: Icon,
+  isActive,
+  onClose,
+  dotColor = "bg-muted-foreground/30",
+  faded = false,
+}: {
+  href: string
+  label: string
+  icon: React.ElementType
+  isActive: boolean
+  onClose?: () => void
+  dotColor?: string
+  faded?: boolean
+}) {
+  return (
+    <Link
+      href={href}
+      onClick={onClose}
+      className={cn(
+        "flex items-center gap-2.5 rounded-md px-3 py-2 text-sm transition-all duration-150",
+        isActive
+          ? "bg-violet-500/10 text-violet-700 dark:bg-violet-500/15 dark:text-violet-300 font-medium"
+          : "text-sidebar-foreground/70 hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
+        faded && "opacity-40"
+      )}
+    >
+      <div
+        className={cn(
+          "h-1.5 w-1.5 rounded-full shrink-0 transition-colors",
+          isActive ? "bg-violet-500" : dotColor
+        )}
+      />
+      <Icon className="h-4 w-4 shrink-0" />
+      <span className="truncate">{label}</span>
+    </Link>
   )
 }
 
@@ -70,22 +67,23 @@ export function Sidebar({ isOpen = false, onClose }: SidebarProps) {
   const pathname = usePathname()
   const { activeBrandId, activeBrand } = useBrandStore()
 
+  const brandHref = (path: string) =>
+    activeBrandId ? `/brands/${activeBrandId}${path}` : "/brands"
+  const brandActive = (path: string) =>
+    !!activeBrandId && pathname.startsWith(`/brands/${activeBrandId}${path}`)
+
   return (
     <aside
       className={cn(
-        // Base styles
-        "flex h-full w-60 shrink-0 flex-col bg-sidebar-background",
-        // Mobile: fixed overlay drawer
+        "flex h-full w-[220px] shrink-0 flex-col bg-sidebar-background",
         "fixed inset-y-0 left-0 z-50 transform transition-transform duration-300 ease-in-out",
-        // Desktop: static, always visible
         "lg:relative lg:translate-x-0 lg:z-auto lg:transition-none",
-        // Mobile open/closed state
         isOpen ? "translate-x-0" : "-translate-x-full"
       )}
     >
       {/* Logo */}
       <div className="flex h-14 items-center justify-between border-b border-sidebar-border px-4">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2.5">
           <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary">
             <svg
               className="h-4 w-4 text-primary-foreground"
@@ -94,12 +92,22 @@ export function Sidebar({ isOpen = false, onClose }: SidebarProps) {
               stroke="currentColor"
               strokeWidth={2.5}
             >
-              <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M13 10V3L4 14h7v7l9-11h-7z"
+              />
             </svg>
           </div>
-          <span className="text-sm font-semibold text-sidebar-foreground">ContentOS</span>
+          <div className="flex flex-col leading-none">
+            <span className="text-sm font-semibold text-sidebar-foreground">
+              ContentOS
+            </span>
+            <span className="text-[10px] text-sidebar-foreground/40 mt-0.5">
+              for creators
+            </span>
+          </div>
         </div>
-        {/* Close button — mobile only */}
         {onClose && (
           <button
             onClick={onClose}
@@ -110,61 +118,140 @@ export function Sidebar({ isOpen = false, onClose }: SidebarProps) {
         )}
       </div>
 
-      {/* Navigation */}
-      <nav className="flex-1 overflow-y-auto px-3 py-4">
-        {/* Top-level nav */}
-        <div className="space-y-0.5">
-          {topNavItems.map((item) => {
-            const Icon = item.icon
-            const isActive = pathname === item.href || pathname.startsWith(item.href + "/")
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                onClick={onClose}
-                className={cn(
-                  "flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors",
-                  isActive
-                    ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
-                    : "text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
-                )}
-              >
-                <Icon className="h-4 w-4 shrink-0" />
-                {item.label}
-              </Link>
-            )
-          })}
-        </div>
-
-        {/* Active brand sub-nav */}
-        {activeBrandId && activeBrand && (
-          <div className="mt-6">
-            <div className="mb-1 flex items-center gap-2 px-3">
-              <ChevronRight className="h-3 w-3 text-sidebar-foreground/40" />
-              <span className="truncate text-xs font-medium uppercase tracking-wider text-sidebar-foreground/50">
+      {/* Nav */}
+      <nav className="flex-1 overflow-y-auto px-3 py-3">
+        {/* Brand selector pill */}
+        <Link
+          href="/brands"
+          onClick={onClose}
+          className={cn(
+            "flex items-center gap-2 rounded-lg border px-3 py-2 mb-3 transition-colors",
+            activeBrand
+              ? "border-sidebar-border bg-sidebar-accent/40 hover:bg-sidebar-accent/60"
+              : "border-dashed border-sidebar-border/60 hover:bg-sidebar-accent/30"
+          )}
+        >
+          {activeBrand ? (
+            <>
+              <div className="h-2 w-2 rounded-full bg-green-500 shrink-0" />
+              <span className="truncate text-xs font-medium text-sidebar-foreground flex-1">
                 {activeBrand.name}
               </span>
-            </div>
-            <BrandNavItems brandId={activeBrandId} onClose={onClose} />
+              <ChevronDown className="h-3.5 w-3.5 text-sidebar-foreground/40 shrink-0" />
+            </>
+          ) : (
+            <>
+              <Plus className="h-3.5 w-3.5 text-sidebar-foreground/40 shrink-0" />
+              <span className="text-xs text-sidebar-foreground/50">
+                Select a brand
+              </span>
+            </>
+          )}
+        </Link>
+
+        {/* WORKSPACE */}
+        <div className="mb-2">
+          <SectionLabel>Workspace</SectionLabel>
+          <div className="space-y-0.5">
+            <NavItem
+              href="/dashboard"
+              label="Home"
+              icon={Home}
+              isActive={pathname === "/dashboard"}
+              onClose={onClose}
+              dotColor="bg-blue-400/60"
+            />
+            <NavItem
+              href={brandHref("/generate")}
+              label="Create"
+              icon={Sparkles}
+              isActive={brandActive("/generate")}
+              onClose={onClose}
+              dotColor="bg-violet-400/60"
+              faded={!activeBrandId}
+            />
+            <NavItem
+              href={brandHref("/library")}
+              label="My Content"
+              icon={Bookmark}
+              isActive={brandActive("/library")}
+              onClose={onClose}
+              dotColor="bg-pink-400/60"
+              faded={!activeBrandId}
+            />
+            <NavItem
+              href={brandHref("/calendar")}
+              label="Calendar"
+              icon={Calendar}
+              isActive={brandActive("/calendar")}
+              onClose={onClose}
+              dotColor="bg-green-400/60"
+              faded={!activeBrandId}
+            />
           </div>
-        )}
+        </div>
+
+        {/* GROWTH */}
+        <div className="mb-2">
+          <SectionLabel>Growth</SectionLabel>
+          <div className="space-y-0.5">
+            <NavItem
+              href={brandHref("/fastlane")}
+              label="Fastlane ⚡"
+              icon={Zap}
+              isActive={brandActive("/fastlane")}
+              onClose={onClose}
+              dotColor="bg-amber-400/60"
+              faded={!activeBrandId}
+            />
+            <NavItem
+              href={brandHref("/influencers")}
+              label="Creators"
+              icon={Users}
+              isActive={brandActive("/influencers")}
+              onClose={onClose}
+              dotColor="bg-teal-400/60"
+              faded={!activeBrandId}
+            />
+            <NavItem
+              href={brandHref("/products")}
+              label="Products"
+              icon={Package}
+              isActive={brandActive("/products")}
+              onClose={onClose}
+              dotColor="bg-orange-400/60"
+              faded={!activeBrandId}
+            />
+          </div>
+        </div>
+
+        {/* ACCOUNT */}
+        <div>
+          <SectionLabel>Account</SectionLabel>
+          <div className="space-y-0.5">
+            <NavItem
+              href="/brands"
+              label="My Brands"
+              icon={Briefcase}
+              isActive={
+                pathname === "/brands" || pathname.startsWith("/brands/new")
+              }
+              onClose={onClose}
+              dotColor="bg-indigo-400/60"
+            />
+          </div>
+        </div>
       </nav>
 
       {/* Bottom — settings */}
-      <div className="border-t border-sidebar-border px-3 py-4">
-        <Link
+      <div className="border-t border-sidebar-border px-3 py-3">
+        <NavItem
           href="/settings"
-          onClick={onClose}
-          className={cn(
-            "flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors",
-            pathname.startsWith("/settings")
-              ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
-              : "text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
-          )}
-        >
-          <Settings className="h-4 w-4 shrink-0" />
-          Settings
-        </Link>
+          label="Settings"
+          icon={Settings}
+          isActive={pathname.startsWith("/settings")}
+          onClose={onClose}
+        />
       </div>
     </aside>
   )

@@ -72,8 +72,10 @@ export async function POST(request: Request) {
     product_id: productId ?? null,
     hook_text: h.hook_text,
     hook_type: h.hook_type,
+    platform: platform ?? null,
     generation_prompt: `platform:${platform ?? "any"} count:${count}`,
     model_used: result.model,
+    is_saved: true,
   }))
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

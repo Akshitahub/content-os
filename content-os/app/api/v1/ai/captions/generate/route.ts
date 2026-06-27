@@ -81,6 +81,7 @@ export async function POST(request: Request) {
     character_count: result.caption.character_count,
     platform,
     model_used: result.model,
+    is_saved: true,
   }).select().single()
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

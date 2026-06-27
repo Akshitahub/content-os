@@ -70,7 +70,7 @@ function RecentGenerations({ brandId }: { brandId: string }) {
           className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
         >
           <Archive className="h-3.5 w-3.5" />
-          View library
+          View My Content
         </Link>
       </div>
 
@@ -157,9 +157,9 @@ export default function GeneratePage() {
   return (
     <div className="px-4 py-6 md:p-8">
       <div className="mb-8">
-        <h1 className="text-2xl font-bold tracking-tight">Generate content</h1>
+        <h1 className="text-2xl font-bold tracking-tight">Create content</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Generate hooks, captions, reel scripts, ad copy, blog posts and images — all in your brand voice.
+          Generate scroll-stopping content in your brand voice.
         </p>
       </div>
 
