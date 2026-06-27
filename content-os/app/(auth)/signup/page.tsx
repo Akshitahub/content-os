@@ -69,7 +69,7 @@ export default function SignupPage() {
       return
     }
 
-    router.push("/verify-email")
+    router.push(`/verify-email?email=${encodeURIComponent(data.email)}`)
   }
 
   async function handleGoogleSignup() {

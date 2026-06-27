@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import { useParams } from "next/navigation"
-import { Zap, Loader2, CheckCircle2, XCircle, Calendar, BarChart2 } from "lucide-react"
+import { Zap, Loader2, CheckCircle2, XCircle, Calendar, BarChart2, AlertTriangle, Trash2 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import Link from "next/link"
@@ -10,7 +10,12 @@ import posthog from "posthog-js"
 import { POSTHOG_KEY } from "@/lib/analytics/posthog"
 import type { FastlaneResult } from "@/types/app"
 
-type FastlaneState = "IDLE" | "RUNNING" | "DONE" | "ERROR"
+type FastlaneState = "IDLE" | "RUNNING" | "DONE" | "ERROR" | "WARNING"
+
+interface WarningData {
+  message: string
+  existing_count: number
+}
 
 export default function FastlanePage() {
   const params = useParams()
@@ -18,20 +23,34 @@ export default function FastlanePage() {
   const [state, setState] = useState<FastlaneState>("IDLE")
   const [result, setResult] = useState<FastlaneResult | null>(null)
   const [errorMsg, setErrorMsg] = useState<string>("")
+  const [warning, setWarning] = useState<WarningData | null>(null)
 
-  async function runFastlane() {
+  async function runFastlane(opts: { force?: boolean; clearAndRegenerate?: boolean } = {}) {
     setState("RUNNING")
     setResult(null)
     setErrorMsg("")
+    setWarning(null)
 
     try {
       const res = await fetch("/api/v1/brands/fastlane", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ brandId }),
+        body: JSON.stringify({ brandId, ...opts }),
       })
 
-      const json = await res.json() as { data?: FastlaneResult; error?: { message?: string } }
+      const json = await res.json() as {
+        data?: FastlaneResult
+        error?: { message?: string }
+        warning?: boolean
+        message?: string
+        existing_count?: number
+      }
+
+      if (json.warning) {
+        setWarning({ message: json.message ?? "", existing_count: json.existing_count ?? 0 })
+        setState("WARNING")
+        return
+      }
 
       if (!res.ok) {
         throw new Error(json.error?.message ?? "Fastlane failed")
@@ -81,13 +100,58 @@ export default function FastlanePage() {
             ))}
           </div>
 
-          <Button size="lg" className="mt-8 w-full gap-2" onClick={runFastlane}>
+          <Button size="lg" className="mt-8 w-full gap-2" onClick={() => runFastlane()}>
             <Zap className="h-5 w-5" />
             Run Fastlane
           </Button>
 
           <p className="mt-4 text-xs text-muted-foreground">
             This will use 30 generation credits and add entries to your content calendar.
+          </p>
+        </div>
+      )}
+
+      {/* WARNING — existing content detected */}
+      {state === "WARNING" && warning && (
+        <div className="w-full max-w-lg">
+          <div className="mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-2xl bg-amber-100 shadow-lg">
+            <AlertTriangle className="h-10 w-10 text-amber-600" />
+          </div>
+          <h2 className="text-center text-2xl font-bold">You already have content planned</h2>
+          <p className="mt-2 text-center text-muted-foreground">
+            You have <strong>{warning.existing_count} posts</strong> scheduled for the next 30 days.
+            Running Fastlane again will add more entries on top of existing ones.
+          </p>
+
+          <div className="mt-8 space-y-3">
+            <Button
+              className="w-full gap-2"
+              onClick={() => runFastlane({ force: true })}
+            >
+              <Zap className="h-4 w-4" />
+              Add more anyway →
+            </Button>
+
+            <Button
+              variant="outline"
+              className="w-full gap-2 border-destructive/30 text-destructive hover:bg-destructive/5"
+              onClick={() => runFastlane({ clearAndRegenerate: true })}
+            >
+              <Trash2 className="h-4 w-4" />
+              Clear calendar and regenerate fresh
+            </Button>
+
+            <Button
+              variant="ghost"
+              className="w-full"
+              onClick={() => setState("IDLE")}
+            >
+              Cancel
+            </Button>
+          </div>
+
+          <p className="mt-4 text-center text-xs text-muted-foreground">
+            "Clear and regenerate" will delete all upcoming calendar entries and create a fresh 30-day plan.
           </p>
         </div>
       )}
@@ -164,7 +228,7 @@ export default function FastlanePage() {
             </Card>
           )}
 
-          <div className="mt-6 flex gap-3">
+          <div className="mt-6 flex flex-col gap-3 sm:flex-row">
             <Button asChild className="flex-1">
               <Link href={`/brands/${brandId}/calendar`}>
                 <Calendar className="mr-2 h-4 w-4" />

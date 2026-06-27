@@ -32,7 +32,7 @@ export async function POST(request: Request) {
     return NextResponse.json(buildError(ErrorCodes.VALIDATION_ERROR, "Validation failed.", parsed.error.message), { status: 400 })
   }
 
-  const { brandId } = parsed.data
+  const { brandId, force, clearAndRegenerate } = parsed.data
 
   try {
     // Verify brand ownership
@@ -45,6 +45,36 @@ export async function POST(request: Request) {
 
     if (!brand) {
       return NextResponse.json(buildError(ErrorCodes.BRAND_NOT_FOUND, "Brand not found."), { status: 404 })
+    }
+
+    const today = new Date().toISOString().split("T")[0]!
+    const thirtyDaysLater = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split("T")[0]!
+
+    if (clearAndRegenerate) {
+      // Delete all upcoming entries before regenerating
+      await supabase
+        .from("calendar_entries")
+        .delete()
+        .eq("brand_id", brandId)
+        .gte("scheduled_date", today)
+        .lte("scheduled_date", thirtyDaysLater)
+    } else if (!force) {
+      // Check for existing content
+      const { count } = await supabase
+        .from("calendar_entries")
+        .select("*", { count: "exact", head: true })
+        .eq("brand_id", brandId)
+        .gte("scheduled_date", today)
+        .lte("scheduled_date", thirtyDaysLater)
+
+      if ((count ?? 0) > 10) {
+        return NextResponse.json({
+          warning: true,
+          message: "You already have content planned for the next 30 days.",
+          existing_count: count ?? 0,
+          can_override: true,
+        }, { status: 200 })
+      }
     }
 
     // Check usage limits

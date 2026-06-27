@@ -1,9 +1,10 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
-import { Sparkles, RefreshCw, Copy, Check, Download } from "lucide-react"
+import { Sparkles, RefreshCw, Copy, Check, Download, ExternalLink, Archive } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
+import Link from "next/link"
 import { useGenerateFullPost, ApiResponseError } from "@/hooks/useGeneration"
 import { useGenerationStore } from "@/stores/generationStore"
 import type { FullPostResult, ContentResult } from "@/hooks/useGeneration"
@@ -185,6 +186,7 @@ export function FullPostGenerator({ brandId, products }: Props) {
           copied={copied}
           onCopy={copy}
           onDownload={downloadCard}
+          brandId={brandId}
         />
       )}
     </div>
@@ -243,7 +245,7 @@ function ContentDisplay({ content, copied, onCopy }: { content: ContentResult; c
     return (
       <div className="rounded-lg border bg-card p-4 space-y-3">
         <div className="flex items-center justify-between">
-          <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Reel Script</span>
+          <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Reel Script · Storyboard</span>
           <CopyBtn
             text={`HOOK: ${c.hook}\n\n${c.scenes.map((s, i) => `Scene ${i + 1} (${s.duration_seconds}s)\nVisual: ${s.visual_direction}\nVoiceover: ${s.voiceover_or_text_overlay}`).join("\n\n")}\n\nCAPTION:\n${c.caption}\n\n${c.hashtags.map((h) => `#${h}`).join(" ")}`}
             id="reel"
@@ -251,17 +253,45 @@ function ContentDisplay({ content, copied, onCopy }: { content: ContentResult; c
             onCopy={onCopy}
           />
         </div>
-        <p className="text-xs font-semibold text-muted-foreground">Hook</p>
-        <p className="text-sm font-medium">{c.hook}</p>
-        <div className="space-y-2">
-          {c.scenes.map((scene, i) => (
-            <div key={i} className="rounded-md bg-secondary/50 p-3 space-y-1">
-              <p className="text-xs font-semibold text-muted-foreground">Scene {i + 1} · {scene.duration_seconds}s</p>
-              <p className="text-xs"><span className="font-medium">Visual:</span> {scene.visual_direction}</p>
-              <p className="text-xs"><span className="font-medium">Voiceover:</span> {scene.voiceover_or_text_overlay}</p>
-            </div>
-          ))}
+        <div className="rounded-md bg-primary/5 border border-primary/10 p-3">
+          <p className="text-xs font-semibold text-muted-foreground mb-1">Opening Hook</p>
+          <p className="text-sm font-semibold">{c.hook}</p>
         </div>
+        {/* Storyboard scene cards */}
+        <div className="grid gap-3 sm:grid-cols-2">
+          {c.scenes.map((scene, i) => {
+            const imgPrompt = encodeURIComponent(`${scene.visual_direction}, cinematic, vertical video frame, 9:16`)
+            const imgUrl = `https://image.pollinations.ai/prompt/${imgPrompt}?width=360&height=640&seed=${i + 1}&nologo=true&model=flux`
+            return (
+              <div key={i} className="rounded-md border overflow-hidden">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={imgUrl}
+                  alt={`Scene ${i + 1}`}
+                  width={360}
+                  height={180}
+                  className="w-full object-cover"
+                  style={{ height: 120 }}
+                  loading="lazy"
+                />
+                <div className="p-2.5 space-y-1 bg-secondary/30">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-semibold">Scene {i + 1}</p>
+                    <span className="text-xs text-muted-foreground">{scene.duration_seconds}s</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground line-clamp-2">{scene.voiceover_or_text_overlay}</p>
+                  <p className="text-xs text-muted-foreground/70 italic line-clamp-1">{scene.visual_direction}</p>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+        {c.caption && (
+          <div className="rounded-md bg-secondary/50 p-3">
+            <p className="text-xs font-semibold text-muted-foreground mb-1">Caption</p>
+            <p className="text-xs">{c.caption}</p>
+          </div>
+        )}
         {c.hashtags.length > 0 && (
           <p className="text-xs text-primary font-medium">{c.hashtags.map((h) => `#${h}`).join(" ")}</p>
         )}
@@ -350,20 +380,35 @@ function ContentDisplay({ content, copied, onCopy }: { content: ContentResult; c
 }
 
 function PostCardPreview({ html, onDownload }: { html: string; onDownload: (html: string) => void }) {
+  function openInBrowser() {
+    const blob = new Blob([html], { type: "text/html" })
+    const url = URL.createObjectURL(blob)
+    window.open(url, "_blank")
+  }
+
   return (
     <div className="rounded-lg border bg-card p-4 space-y-3">
       <div className="flex items-center justify-between">
         <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Post Graphic</span>
-        <button
-          type="button"
-          onClick={() => onDownload(html)}
-          className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
-        >
-          <Download className="h-3.5 w-3.5" /> Download HTML
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={openInBrowser}
+            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <ExternalLink className="h-3.5 w-3.5" /> Open full size
+          </button>
+          <button
+            type="button"
+            onClick={() => onDownload(html)}
+            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <Download className="h-3.5 w-3.5" /> Download HTML
+          </button>
+        </div>
       </div>
       <div
-        style={{ width: 360, height: 360, overflow: "hidden", borderRadius: 8, flexShrink: 0 }}
+        style={{ width: "100%", maxWidth: 360, height: 360, overflow: "hidden", borderRadius: 8, flexShrink: 0 }}
         className="border"
       >
         <iframe
@@ -380,7 +425,7 @@ function PostCardPreview({ html, onDownload }: { html: string; onDownload: (html
         />
       </div>
       <p className="text-xs text-muted-foreground">
-        Download the HTML file and open in a browser to screenshot at 1080×1080px.
+        Click &quot;Open full size&quot; to view at 1080×1080px, or download the HTML file.
       </p>
     </div>
   )
@@ -391,11 +436,13 @@ function FullPostResults({
   copied,
   onCopy,
   onDownload,
+  brandId,
 }: {
   result: FullPostResult
   copied: string | null
   onCopy: (text: string, key: string) => void
   onDownload: (html: string) => void
+  brandId: string
 }) {
   return (
     <div className="space-y-4">
@@ -404,6 +451,15 @@ function FullPostResults({
       {result.postCardHtml && (
         <PostCardPreview html={result.postCardHtml} onDownload={onDownload} />
       )}
+      <div className="flex justify-end">
+        <Link
+          href={`/brands/${brandId}/library`}
+          className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+        >
+          <Archive className="h-3.5 w-3.5" />
+          View in library →
+        </Link>
+      </div>
     </div>
   )
 }
