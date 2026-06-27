@@ -132,10 +132,12 @@ export async function generateContent(
   })
 
   const raw = response.choices[0]?.message?.content ?? "{}"
+  const cleaned = raw.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim()
   let parsed: unknown
   try {
-    parsed = JSON.parse(raw)
+    parsed = JSON.parse(cleaned)
   } catch {
+    console.error(`[content-generator] JSON parse failed for "${format}". Raw:`, raw.slice(0, 500))
     throw new Error(`AI returned invalid JSON for format "${format}"`)
   }
 

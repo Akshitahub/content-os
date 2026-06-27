@@ -66,10 +66,12 @@ Respond with this exact JSON shape:
   })
 
   const raw = response.choices[0]?.message?.content ?? "{}"
+  const cleaned = raw.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim()
   let parsed: Partial<ExtractedBrandData>
   try {
-    parsed = JSON.parse(raw)
+    parsed = JSON.parse(cleaned)
   } catch {
+    console.error("[url-extractor/brand] JSON parse failed. Raw:", raw.slice(0, 500))
     throw new ExtractionError("Couldn't parse brand details from that page.")
   }
 
@@ -125,10 +127,12 @@ Respond with this exact JSON shape:
   })
 
   const raw = response.choices[0]?.message?.content ?? "{}"
+  const cleaned = raw.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim()
   let parsed: Partial<ExtractedProductData>
   try {
-    parsed = JSON.parse(raw)
+    parsed = JSON.parse(cleaned)
   } catch {
+    console.error("[url-extractor/product] JSON parse failed. Raw:", raw.slice(0, 500))
     throw new ExtractionError("Couldn't parse product details from that page.")
   }
 

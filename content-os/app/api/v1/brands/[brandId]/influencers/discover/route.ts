@@ -77,7 +77,8 @@ export async function POST(request: Request, { params }: RouteParams) {
     })
 
     const aiContent = res.choices[0]?.message?.content ?? "{}"
-    const aiParsed = JSON.parse(aiContent) as {
+    const aiCleaned = aiContent.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim()
+    const aiParsed = JSON.parse(aiCleaned) as {
       score?: number
       reasoning?: string
       fit_score?: number

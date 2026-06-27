@@ -12,33 +12,30 @@ Always respond with valid JSON only. No markdown, no explanation outside the JSO
 }
 
 function buildStrategyUserPrompt(brand: BrandRow, products: ProductRow[]): string {
-  const productList = products.map(p => `- ${p.name}${p.description ? `: ${p.description}` : ""}`).join("\n")
-  return `Create a comprehensive 30-day content strategy for this brand.
+  const productNames = products.map(p => p.name).join(", ")
+  return `Create a 30-day content strategy for this brand.
 
 Brand: ${brand.name}
 Niche: ${brand.niche ?? "General"}
-Target Audience: ${brand.target_audience ?? "General audience"}
-Tone of Voice: ${brand.tone_of_voice ?? "Conversational"}
-Brand Values: ${brand.brand_values?.join(", ") ?? "Quality, Trust"}
-AI Persona: ${brand.ai_persona ?? "Friendly brand voice"}
-${productList ? `\nProducts:\n${productList}` : ""}
+Audience: ${brand.target_audience ?? "General audience"}
+Tone: ${brand.tone_of_voice ?? "Conversational"}
+${productNames ? `Products: ${productNames}` : ""}
 
-Return a JSON object with this exact shape:
+Return ONLY this JSON (no markdown, no explanation):
 {
-  "strategy_summary": "2-3 sentence overview of the strategy",
-  "recommended_platforms": ["instagram", "tiktok"],
-  "posting_frequency": [{ "platform": "instagram", "posts_per_week": 5 }],
-  "content_mix": [{ "type": "educational", "percentage": 30, "reasoning": "..." }],
-  "monthly_themes": [{ "week": 1, "theme": "Brand Story", "rationale": "..." }, { "week": 2, "theme": "...", "rationale": "..." }, { "week": 3, "theme": "...", "rationale": "..." }, { "week": 4, "theme": "...", "rationale": "..." }],
+  "strategy_summary": "2-3 sentences on the strategy",
   "slots": [
-    { "day": 1, "platform": "instagram", "content_type": "hooks", "theme": "Brand intro", "product_focus": "product name or null", "priority": "high" }
+    { "day": 1, "platform": "instagram", "content_type": "hooks", "theme": "Brand intro", "product_focus": null, "priority": "high" }
   ]
 }
 
-Generate exactly 30 slots (one per day). Vary platforms, content types (hooks/caption/reel_script/carousel/ad_copy), and themes across the 30 days.
-content_type must be one of: "hooks", "caption", "reel_script", "carousel", "ad_copy"
-platform must be one of: "instagram", "tiktok", "youtube", "facebook", "linkedin", "twitter"
-priority must be one of: "high", "medium", "low"`
+Rules:
+- Exactly 30 slots, days 1-30
+- content_type: "hooks" | "caption" | "reel_script" | "carousel" | "ad_copy"
+- platform: "instagram" | "tiktok" | "youtube" | "facebook" | "linkedin" | "twitter"
+- priority: "high" | "medium" | "low"
+- product_focus: product name string or null
+- Vary content types and platforms across 30 days`
 }
 
 function buildSlotContentPrompt(brand: BrandRow, slot: ContentSlot, product: ProductRow | null): string {
@@ -61,7 +58,7 @@ export async function generateContentStrategy(brand: BrandRow, products: Product
   const res = await openai.chat.completions.create({
     model: MODELS.generation,
     temperature: 0.7,
-    max_tokens: 4000,
+    max_tokens: 8000,
     messages: [
       { role: "system", content: buildStrategySystemPrompt() },
       { role: "user", content: buildStrategyUserPrompt(brand, products) },
@@ -69,10 +66,18 @@ export async function generateContentStrategy(brand: BrandRow, products: Product
   })
 
   const raw = res.choices[0]?.message?.content ?? "{}"
-  const parsed = JSON.parse(raw) as ContentStrategy
+  const cleaned = raw.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim()
+  let parsed: ContentStrategy
+  try {
+    parsed = JSON.parse(cleaned) as ContentStrategy
+  } catch {
+    console.error("[fastlane] JSON parse failed. Raw:", raw.slice(0, 500))
+    throw new Error("AI returned invalid JSON for content strategy")
+  }
 
-  if (!Array.isArray(parsed.slots)) {
-    throw new Error("Strategy response missing slots array")
+  if (!Array.isArray(parsed.slots) || parsed.slots.length === 0) {
+    console.error("[fastlane] No slots in response:", JSON.stringify(parsed).slice(0, 300))
+    throw new Error("AI returned strategy with no content slots")
   }
 
   return parsed
@@ -87,13 +92,15 @@ async function generateSlotContent(
   const res = await openai.chat.completions.create({
     model: MODELS.generation,
     temperature: 0.8,
-    max_tokens: 600,
+    max_tokens: 800,
     messages: [
       { role: "system", content: "You are an expert social media content writer. Respond with valid JSON only." },
       { role: "user", content: buildSlotContentPrompt(brand, slot, product) },
     ],
   })
-  return JSON.parse(res.choices[0]?.message?.content ?? '{"title":"","content":"","notes":""}')
+  const raw = res.choices[0]?.message?.content ?? '{"title":"","content":"","notes":""}'
+  const cleaned = raw.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim()
+  return JSON.parse(cleaned)
 }
 
 function sleep(ms: number): Promise<void> {

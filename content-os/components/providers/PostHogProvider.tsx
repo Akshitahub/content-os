@@ -11,22 +11,25 @@ export function PostHogProvider({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
 
   useEffect(() => {
-    if (!POSTHOG_KEY || initialized) return
-    initialized = true
-    posthog.init(POSTHOG_KEY, {
-      api_host: POSTHOG_HOST,
-      loaded: (ph) => {
-        if (process.env.NODE_ENV === "development") ph.debug()
-      },
-    })
+    try {
+      if (!POSTHOG_KEY || initialized) return
+      initialized = true
+      posthog.init(POSTHOG_KEY, {
+        api_host: POSTHOG_HOST,
+        loaded: (ph) => {
+          if (process.env.NODE_ENV === "development") ph.opt_out_capturing()
+        },
+      })
+    } catch {
+      // analytics blocked (e.g. Brave), ignore silently
+    }
   }, [])
 
   useEffect(() => {
-    if (!POSTHOG_KEY) return
     try {
-      posthog.capture("$pageview", { path: pathname })
+      if (POSTHOG_KEY) posthog.capture("$pageview", { path: pathname })
     } catch {
-      // analytics must never break the app
+      // ignore
     }
   }, [pathname])
 

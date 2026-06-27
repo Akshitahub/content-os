@@ -34,11 +34,13 @@ export async function generateHooks(
   })
 
   const raw = response.choices[0]?.message?.content ?? "{}"
+  const cleaned = raw.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim()
   let parsed: { hooks: GeneratedHook[] }
 
   try {
-    parsed = JSON.parse(raw)
+    parsed = JSON.parse(cleaned)
   } catch {
+    console.error("[hooks-generator] JSON parse failed. Raw:", raw.slice(0, 500))
     throw new Error("AI returned invalid JSON for hooks")
   }
 

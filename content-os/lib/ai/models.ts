@@ -2,8 +2,8 @@ export const NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1"
 
 export const MODELS = {
   extraction: "meta/llama-3.1-8b-instruct",
-  generation: "nvidia/llama-3.1-nemotron-70b-instruct",
-  scoring: "meta/llama-3.3-70b-instruct",
+  generation: "meta/llama-3.1-70b-instruct",
+  scoring: "meta/llama-3.1-70b-instruct",
 } as const
 
 export type ModelKey = keyof typeof MODELS
