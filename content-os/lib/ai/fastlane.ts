@@ -98,9 +98,24 @@ async function generateSlotContent(
       { role: "user", content: buildSlotContentPrompt(brand, slot, product) },
     ],
   })
-  const raw = res.choices[0]?.message?.content ?? '{"title":"","content":"","notes":""}'
-  const cleaned = raw.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim()
-  return JSON.parse(cleaned)
+  const raw = res.choices[0]?.message?.content ?? ""
+  const cleaned = raw
+    .replace(/```json\n?/g, "")
+    .replace(/```\n?/g, "")
+    .trim()
+
+  try {
+    return JSON.parse(cleaned)
+  } catch {
+    const titleMatch = cleaned.match(/"title"\s*:\s*"([^"]*)"/)
+    const contentMatch = cleaned.match(/"content"\s*:\s*"([\s\S]*?)"(?:\s*,|\s*\})/)
+    const notesMatch = cleaned.match(/"notes"\s*:\s*"([^"]*)"/)
+    return {
+      title: titleMatch?.[1] ?? "Content piece",
+      content: contentMatch?.[1]?.replace(/\\n/g, " ") ?? "Generated content",
+      notes: notesMatch?.[1] ?? "",
+    }
+  }
 }
 
 function sleep(ms: number): Promise<void> {
