@@ -4,13 +4,17 @@ import Link from "next/link"
 import { Zap, Bookmark, Calendar, Layers } from "lucide-react"
 import type { CalendarEntryRow, HookRow } from "@/types/database"
 
+type RecentCalendarEntry = Pick<CalendarEntryRow, "id" | "title" | "scheduled_date" | "platform" | "status" | "hook_text" | "caption_text" | "is_ready" | "color">
+type TodayEntry = Pick<CalendarEntryRow, "id" | "title" | "platform" | "scheduled_date" | "status" | "is_ready" | "color">
+
 interface DashboardStatsProps {
   generationsThisMonth: number
   savedContentCount: number
   calendarEntriesThisWeek: number
   activeBrands: number
-  recentCalendar: Pick<CalendarEntryRow, "id" | "title" | "scheduled_date" | "platform" | "status">[]
+  recentCalendar: RecentCalendarEntry[]
   recentHooks: Pick<HookRow, "id" | "hook_text" | "hook_type" | "created_at">[]
+  todayEntries: TodayEntry[]
   firstBrandId: string | null
 }
 
@@ -22,6 +26,15 @@ const STATUS_COLORS: Record<string, string> = {
   missed: "bg-red-900/50 text-red-300",
 }
 
+const PLATFORM_EMOJIS: Record<string, string> = {
+  instagram: "📸",
+  tiktok: "🎵",
+  facebook: "👤",
+  youtube: "▶️",
+  linkedin: "💼",
+  twitter: "🐦",
+}
+
 export function DashboardStats({
   generationsThisMonth,
   savedContentCount,
@@ -29,6 +42,7 @@ export function DashboardStats({
   activeBrands,
   recentCalendar,
   recentHooks,
+  todayEntries,
   firstBrandId,
 }: DashboardStatsProps) {
   const stats = [
@@ -40,6 +54,26 @@ export function DashboardStats({
 
   return (
     <div className="space-y-6">
+      {/* Today's content banner */}
+      {todayEntries.length > 0 && firstBrandId && (
+        <div className="flex items-start justify-between gap-4 rounded-lg border border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950/20 px-5 py-4">
+          <div>
+            <p className="font-medium text-blue-800 dark:text-blue-300">
+              📅 {todayEntries.length} post{todayEntries.length !== 1 ? "s" : ""} ready for today
+            </p>
+            <p className="mt-0.5 text-xs text-blue-600/80 dark:text-blue-400/70 truncate max-w-sm">
+              {todayEntries.map(e => e.title).join(" · ")}
+            </p>
+          </div>
+          <Link
+            href={`/brands/${firstBrandId}/calendar`}
+            className="shrink-0 text-xs font-medium text-blue-700 dark:text-blue-300 hover:text-blue-900 dark:hover:text-blue-100 transition-colors"
+          >
+            View posts →
+          </Link>
+        </div>
+      )}
+
       {/* Stat cards */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {stats.map(({ label, value, icon: Icon, color }) => (
@@ -86,16 +120,33 @@ export function DashboardStats({
           ) : (
             <ul className="space-y-3">
               {recentCalendar.map((entry) => (
-                <li key={entry.id} className="flex items-center justify-between gap-3">
-                  <span className="min-w-0 flex-1 truncate text-sm font-medium">{entry.title}</span>
-                  <div className="flex items-center gap-2 shrink-0">
-                    {entry.status && (
-                      <span className={`rounded px-1.5 py-0.5 text-xs font-medium ${STATUS_COLORS[entry.status] ?? "bg-zinc-700 text-zinc-300"}`}>
-                        {entry.status.replace("_", " ")}
-                      </span>
-                    )}
-                    <span className="text-xs text-muted-foreground">{entry.scheduled_date}</span>
+                <li key={entry.id} className="space-y-0.5">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                      {entry.platform && (
+                        <span className="shrink-0 text-xs">{PLATFORM_EMOJIS[entry.platform]}</span>
+                      )}
+                      <span className="truncate text-sm font-medium">{entry.title}</span>
+                    </div>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {entry.is_ready && (
+                        <span className="rounded bg-green-900/40 px-1.5 py-0.5 text-xs font-medium text-green-300">
+                          Ready
+                        </span>
+                      )}
+                      {entry.status && (
+                        <span className={`rounded px-1.5 py-0.5 text-xs font-medium ${STATUS_COLORS[entry.status] ?? "bg-zinc-700 text-zinc-300"}`}>
+                          {entry.status.replace("_", " ")}
+                        </span>
+                      )}
+                      <span className="text-xs text-muted-foreground">{entry.scheduled_date}</span>
+                    </div>
                   </div>
+                  {entry.hook_text && (
+                    <p className="text-xs text-muted-foreground truncate pl-5">
+                      {entry.hook_text.length > 80 ? `${entry.hook_text.slice(0, 80)}…` : entry.hook_text}
+                    </p>
+                  )}
                 </li>
               ))}
             </ul>

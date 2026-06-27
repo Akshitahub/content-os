@@ -33,11 +33,21 @@ export async function discoverInfluencersByNiche(
     messages: [
       {
         role: "system",
-        content: "You are an influencer marketing expert. Respond with valid JSON only. No markdown.",
+        content: "You are an influencer marketing expert specializing in Indian D2C brands. Respond with valid JSON only. No markdown.",
       },
       {
         role: "user",
-        content: `For the niche "${niche}" on ${platform}, suggest ${count} real influencer handles (without @) that are likely to exist and be relevant. Focus on Indian creators and micro-influencers (10k-500k followers). Return ONLY a JSON array of handle strings: ["handle1", "handle2", ...]`,
+        content: `For the niche "${niche}" on ${platform}, suggest ${count} handles of MICRO-INFLUENCERS (10,000 to 200,000 followers) who are:
+- Based in India
+- Actively posting about ${niche}
+- NOT celebrities (no Bollywood actors, no cricket players, no major TV personalities)
+- Real content creators who work with small D2C brands
+- Handles that are realistic and likely to actually exist
+
+Focus on niches like: food bloggers, lifestyle creators, regional language creators, small business owners who post content, niche hobby creators.
+
+Return ONLY a JSON array of handle strings (without @): ["handle1", "handle2", ...]
+Make the handles realistic and specific, not generic.`,
       },
     ],
   })
@@ -75,8 +85,20 @@ export async function autoDiscoverAndScoreInfluencers(
     const batch = handles.slice(i, i + batchSize)
 
     const results = await Promise.allSettled(
-      batch.map(async (handle) => {
+      batch.map(async (handle): Promise<InfluencerRow | null> => {
         const scraped = await scrapeInfluencerProfile(platform, handle)
+
+        // Skip accounts that are too big (celebrity) or too small (spam/unused)
+        if (scraped.follower_count !== null) {
+          if (scraped.follower_count > 1_000_000) {
+            console.log(`[influencer-discovery] Skipping @${handle}: ${scraped.follower_count} followers (too large — likely celebrity)`)
+            return null
+          }
+          if (scraped.follower_count < 1_000) {
+            console.log(`[influencer-discovery] Skipping @${handle}: ${scraped.follower_count} followers (too small)`)
+            return null
+          }
+        }
 
         let fit_score: number | null = null
         let fit_reasoning: string | null = null
@@ -165,14 +187,14 @@ export async function autoDiscoverAndScoreInfluencers(
           .single() as { data: InfluencerRow | null; error: { message: string } | null }
 
         if (error) throw new Error(`Insert failed for @${handle}: ${error.message}`)
-        return data!
+        return data
       }),
     )
 
     for (const result of results) {
-      if (result.status === "fulfilled") {
+      if (result.status === "fulfilled" && result.value !== null) {
         inserted.push(result.value)
-      } else {
+      } else if (result.status === "rejected") {
         console.error("[influencer-discovery] slot error:", result.reason)
       }
     }

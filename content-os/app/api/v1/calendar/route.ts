@@ -107,6 +107,71 @@ export async function POST(request: Request) {
   }
 }
 
+export async function PATCH(request: Request) {
+  console.log("[calendar] PATCH called")
+  let supabase
+  try {
+    supabase = await createClient()
+  } catch (err) {
+    console.error("[calendar] createClient failed:", err)
+    return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Server error initializing request."), { status: 500 })
+  }
+
+  const { data: { user }, error: authError } = await supabase.auth.getUser()
+  if (authError || !user) return NextResponse.json(buildError(ErrorCodes.UNAUTHENTICATED, "You must be logged in."), { status: 401 })
+
+  let body: unknown
+  try { body = await request.json() } catch {
+    return NextResponse.json(buildError(ErrorCodes.VALIDATION_ERROR, "Invalid JSON."), { status: 400 })
+  }
+
+  const patchSchema = z.object({
+    id: z.string().uuid(),
+    status: z.enum(["planned", "content_ready", "scheduled", "published", "missed"]).optional(),
+    caption_text: z.string().max(5000).optional().nullable(),
+    hashtags: z.array(z.string().max(200)).optional(),
+  })
+
+  const parsed = patchSchema.safeParse(body)
+  if (!parsed.success) return NextResponse.json(buildError(ErrorCodes.VALIDATION_ERROR, "Validation failed.", parsed.error.message), { status: 400 })
+
+  const { id, ...updates } = parsed.data
+
+  try {
+    const { data: entry } = await supabase
+      .from("calendar_entries")
+      .select("brand_id")
+      .eq("id", id)
+      .single<{ brand_id: string }>()
+    if (!entry) return NextResponse.json(buildError(ErrorCodes.NOT_FOUND, "Entry not found."), { status: 404 })
+
+    const { data: brand } = await supabase
+      .from("brands")
+      .select("user_id")
+      .eq("id", entry.brand_id)
+      .single<{ user_id: string }>()
+    if (!brand || brand.user_id !== user.id) {
+      return NextResponse.json(buildError(ErrorCodes.UNAUTHORIZED, "Access denied."), { status: 403 })
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data: updated, error: updateError } = await (supabase.from("calendar_entries") as any)
+      .update({ ...updates, updated_at: new Date().toISOString() })
+      .eq("id", id)
+      .select()
+      .single() as { data: CalendarEntryRow | null; error: { message: string } | null }
+
+    if (updateError) {
+      return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Failed to update entry.", updateError.message), { status: 500 })
+    }
+
+    return NextResponse.json({ data: updated })
+  } catch (err) {
+    console.error("[calendar] PATCH unexpected error:", err)
+    return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Failed to update entry."), { status: 500 })
+  }
+}
+
 export async function DELETE(request: Request) {
   console.log("[calendar] DELETE called")
   let supabase

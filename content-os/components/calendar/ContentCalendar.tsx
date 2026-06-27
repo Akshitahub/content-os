@@ -1,11 +1,12 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { ChevronLeft, ChevronRight, Plus, X, Loader2 } from "lucide-react"
-import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameMonth, isToday, parseISO } from "date-fns"
+import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameMonth, isToday } from "date-fns"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { CalendarEntryPanel } from "@/components/calendar/CalendarEntryPanel"
 import type { CalendarEntryRow } from "@/types/database"
 
 const STATUS_COLORS: Record<string, string> = {
@@ -43,7 +44,7 @@ export function ContentCalendar({ brandId }: ContentCalendarProps) {
   const [entries, setEntries] = useState<CalendarEntryRow[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [showNewEntryModal, setShowNewEntryModal] = useState(false)
-  const [selectedDate, setSelectedDate] = useState<string | null>(null)
+  const [selectedEntry, setSelectedEntry] = useState<CalendarEntryRow | null>(null)
   const [isSaving, setIsSaving] = useState(false)
   const [form, setForm] = useState<NewEntryForm>({
     title: "", scheduled_date: "", platform: "instagram",
@@ -52,30 +53,30 @@ export function ContentCalendar({ brandId }: ContentCalendarProps) {
 
   const month = format(currentDate, "yyyy-MM")
 
-  async function fetchEntries() {
+  const fetchEntries = useCallback(async () => {
     setIsLoading(true)
     try {
       const res = await fetch(`/api/v1/calendar?brandId=${brandId}&month=${month}`)
-      const json = await res.json()
+      const json = await res.json() as { data?: CalendarEntryRow[] }
       if (json.data) setEntries(json.data)
     } catch {
       // silent
     } finally {
       setIsLoading(false)
     }
-  }
+  }, [brandId, month])
 
-  useEffect(() => { fetchEntries() }, [brandId, month]) // eslint-disable-line
+  useEffect(() => { fetchEntries() }, [fetchEntries])
 
   const days = eachDayOfInterval({ start: startOfMonth(currentDate), end: endOfMonth(currentDate) })
   const startDayOfWeek = startOfMonth(currentDate).getDay()
 
   function openNewEntry(dateStr?: string) {
+    setSelectedEntry(null)
     setForm({
       title: "", scheduled_date: dateStr ?? format(new Date(), "yyyy-MM-dd"),
       platform: "instagram", content_type: "reel", notes: "", status: "planned",
     })
-    setSelectedDate(dateStr ?? null)
     setShowNewEntryModal(true)
   }
 
@@ -88,9 +89,9 @@ export function ContentCalendar({ brandId }: ContentCalendarProps) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ...form, brand_id: brandId }),
       })
-      const json = await res.json()
+      const json = await res.json() as { data?: CalendarEntryRow }
       if (json.data) {
-        setEntries((prev) => [...prev, json.data])
+        setEntries(prev => [...prev, json.data!])
         setShowNewEntryModal(false)
       }
     } catch {
@@ -100,26 +101,43 @@ export function ContentCalendar({ brandId }: ContentCalendarProps) {
     }
   }
 
-  async function handleDelete(entryId: string) {
+  async function handleDelete(entryId: string, e: React.MouseEvent) {
+    e.stopPropagation()
     await fetch(`/api/v1/calendar?id=${entryId}`, { method: "DELETE" })
-    setEntries((prev) => prev.filter((e) => e.id !== entryId))
+    setEntries(prev => prev.filter(e => e.id !== entryId))
+    if (selectedEntry?.id === entryId) setSelectedEntry(null)
+  }
+
+  function handleEntryUpdate(updated: CalendarEntryRow) {
+    setEntries(prev => prev.map(e => e.id === updated.id ? updated : e))
+    setSelectedEntry(updated)
   }
 
   function getEntriesForDay(date: Date): CalendarEntryRow[] {
     const dateStr = format(date, "yyyy-MM-dd")
-    return entries.filter((e) => e.scheduled_date === dateStr)
+    return entries.filter(e => e.scheduled_date === dateStr)
   }
 
   return (
-    <div>
+    <div className="relative">
       {/* Header */}
       <div className="mb-6 flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setCurrentDate((d) => new Date(d.getFullYear(), d.getMonth() - 1, 1))}>
+          <Button
+            variant="outline"
+            size="icon"
+            className="h-8 w-8"
+            onClick={() => setCurrentDate(d => new Date(d.getFullYear(), d.getMonth() - 1, 1))}
+          >
             <ChevronLeft className="h-4 w-4" />
           </Button>
           <h2 className="text-lg font-semibold">{format(currentDate, "MMMM yyyy")}</h2>
-          <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setCurrentDate((d) => new Date(d.getFullYear(), d.getMonth() + 1, 1))}>
+          <Button
+            variant="outline"
+            size="icon"
+            className="h-8 w-8"
+            onClick={() => setCurrentDate(d => new Date(d.getFullYear(), d.getMonth() + 1, 1))}
+          >
             <ChevronRight className="h-4 w-4" />
           </Button>
         </div>
@@ -130,7 +148,7 @@ export function ContentCalendar({ brandId }: ContentCalendarProps) {
 
       {/* Day labels */}
       <div className="mb-1 grid grid-cols-7 gap-px">
-        {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => (
+        {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map(d => (
           <div key={d} className="py-2 text-center text-xs font-medium text-muted-foreground">{d}</div>
         ))}
       </div>
@@ -142,12 +160,11 @@ export function ContentCalendar({ brandId }: ContentCalendarProps) {
         </div>
       ) : (
         <div className="grid grid-cols-7 gap-px bg-border rounded-lg overflow-hidden border">
-          {/* Empty cells before month starts */}
           {Array.from({ length: startDayOfWeek }).map((_, i) => (
             <div key={`empty-${i}`} className="bg-muted/30 min-h-[100px] p-1" />
           ))}
 
-          {days.map((day) => {
+          {days.map(day => {
             const dayEntries = getEntriesForDay(day)
             const dateStr = format(day, "yyyy-MM-dd")
             const isCurrentMonth = isSameMonth(day, currentDate)
@@ -163,15 +180,25 @@ export function ContentCalendar({ brandId }: ContentCalendarProps) {
                   {format(day, "d")}
                 </div>
                 <div className="space-y-0.5">
-                  {dayEntries.slice(0, 3).map((entry) => (
+                  {dayEntries.slice(0, 3).map(entry => (
                     <div
                       key={entry.id}
-                      className={`flex items-center gap-1 rounded px-1 py-0.5 text-xs border truncate ${STATUS_COLORS[entry.status] ?? STATUS_COLORS.planned}`}
-                      onClick={(e) => { e.stopPropagation(); handleDelete(entry.id) }}
-                      title={`${entry.title} — click to delete`}
+                      className={`group relative flex items-center gap-1 rounded px-1 py-0.5 text-xs border truncate cursor-pointer ${STATUS_COLORS[entry.status] ?? STATUS_COLORS.planned} ${entry.is_ready ? "ring-1 ring-inset ring-current/20" : ""}`}
+                      onClick={e => { e.stopPropagation(); setSelectedEntry(entry) }}
+                      title={`${entry.title}${entry.is_ready ? " — content ready" : ""}`}
                     >
-                      {entry.platform && <span>{PLATFORM_EMOJIS[entry.platform]}</span>}
-                      <span className="truncate">{entry.title}</span>
+                      {entry.platform && <span className="shrink-0">{PLATFORM_EMOJIS[entry.platform]}</span>}
+                      <span className="truncate flex-1">{entry.title}</span>
+                      {entry.is_ready && (
+                        <span className="shrink-0 h-1.5 w-1.5 rounded-full bg-current opacity-70" />
+                      )}
+                      <button
+                        className="shrink-0 hidden group-hover:flex items-center justify-center h-3.5 w-3.5 rounded-full hover:bg-black/10"
+                        onClick={e => handleDelete(entry.id, e)}
+                        title="Delete"
+                      >
+                        <X className="h-2.5 w-2.5" />
+                      </button>
                     </div>
                   ))}
                   {dayEntries.length > 3 && (
@@ -187,7 +214,9 @@ export function ContentCalendar({ brandId }: ContentCalendarProps) {
       {/* Empty state */}
       {!isLoading && entries.length === 0 && (
         <div className="mt-6 rounded-lg border border-dashed p-10 text-center">
-          <p className="text-sm font-medium text-muted-foreground">Your calendar is empty — generate some content and save it here to plan your posts.</p>
+          <p className="text-sm font-medium text-muted-foreground">
+            Your calendar is empty — use Fastlane to generate 30 days of content with full captions, hooks, and hashtags.
+          </p>
         </div>
       )}
 
@@ -199,6 +228,10 @@ export function ContentCalendar({ brandId }: ContentCalendarProps) {
             <span className="text-xs text-muted-foreground capitalize">{status.replace("_", " ")}</span>
           </div>
         ))}
+        <div className="flex items-center gap-1.5">
+          <div className="h-3 w-3 rounded border bg-blue-100 border-blue-200 ring-1 ring-inset ring-blue-500/20" />
+          <span className="text-xs text-muted-foreground">Content ready</span>
+        </div>
       </div>
 
       {/* New entry modal */}
@@ -214,39 +247,73 @@ export function ContentCalendar({ brandId }: ContentCalendarProps) {
             <div className="p-5 space-y-4">
               <div className="space-y-1.5">
                 <Label className="text-xs">Title <span className="text-destructive">*</span></Label>
-                <Input placeholder="e.g. Diwali product reel" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />
+                <Input
+                  placeholder="e.g. Diwali product reel"
+                  value={form.title}
+                  onChange={e => setForm({ ...form, title: e.target.value })}
+                />
               </div>
               <div className="space-y-1.5">
                 <Label className="text-xs">Date</Label>
-                <Input type="date" value={form.scheduled_date} onChange={(e) => setForm({ ...form, scheduled_date: e.target.value })} />
+                <Input
+                  type="date"
+                  value={form.scheduled_date}
+                  onChange={e => setForm({ ...form, scheduled_date: e.target.value })}
+                />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
                   <Label className="text-xs">Platform</Label>
-                  <select className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring" value={form.platform} onChange={(e) => setForm({ ...form, platform: e.target.value })}>
-                    {["instagram","tiktok","facebook","youtube","linkedin","twitter"].map((p) => <option key={p} value={p}>{p.charAt(0).toUpperCase() + p.slice(1)}</option>)}
+                  <select
+                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                    value={form.platform}
+                    onChange={e => setForm({ ...form, platform: e.target.value })}
+                  >
+                    {["instagram", "tiktok", "facebook", "youtube", "linkedin", "twitter"].map(p => (
+                      <option key={p} value={p}>{p.charAt(0).toUpperCase() + p.slice(1)}</option>
+                    ))}
                   </select>
                 </div>
                 <div className="space-y-1.5">
                   <Label className="text-xs">Content type</Label>
-                  <select className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring" value={form.content_type} onChange={(e) => setForm({ ...form, content_type: e.target.value })}>
-                    {["reel","post","story","carousel","thread"].map((t) => <option key={t} value={t}>{t.charAt(0).toUpperCase() + t.slice(1)}</option>)}
+                  <select
+                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                    value={form.content_type}
+                    onChange={e => setForm({ ...form, content_type: e.target.value })}
+                  >
+                    {["reel", "post", "story", "carousel", "thread"].map(t => (
+                      <option key={t} value={t}>{t.charAt(0).toUpperCase() + t.slice(1)}</option>
+                    ))}
                   </select>
                 </div>
               </div>
               <div className="space-y-1.5">
                 <Label className="text-xs">Status</Label>
-                <select className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring" value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}>
-                  {["planned","content_ready","scheduled","published","missed"].map((s) => <option key={s} value={s}>{s.replace("_"," ").replace(/\b\w/g, (c) => c.toUpperCase())}</option>)}
+                <select
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  value={form.status}
+                  onChange={e => setForm({ ...form, status: e.target.value })}
+                >
+                  {["planned", "content_ready", "scheduled", "published", "missed"].map(s => (
+                    <option key={s} value={s}>{s.replace("_", " ").replace(/\b\w/g, c => c.toUpperCase())}</option>
+                  ))}
                 </select>
               </div>
               <div className="space-y-1.5">
                 <Label className="text-xs">Notes</Label>
-                <textarea rows={2} placeholder="Any notes about this piece of content" className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring resize-none" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
+                <textarea
+                  rows={2}
+                  placeholder="Any notes about this piece of content"
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring resize-none"
+                  value={form.notes}
+                  onChange={e => setForm({ ...form, notes: e.target.value })}
+                />
               </div>
             </div>
             <div className="flex justify-end gap-2 p-5 border-t">
-              <Button variant="outline" onClick={() => setShowNewEntryModal(false)} disabled={isSaving}>Cancel</Button>
+              <Button variant="outline" onClick={() => setShowNewEntryModal(false)} disabled={isSaving}>
+                Cancel
+              </Button>
               <Button onClick={handleSave} disabled={isSaving || !form.title}>
                 {isSaving ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Saving…</> : "Save entry"}
               </Button>
@@ -254,6 +321,13 @@ export function ContentCalendar({ brandId }: ContentCalendarProps) {
           </div>
         </div>
       )}
+
+      {/* Entry detail panel */}
+      <CalendarEntryPanel
+        entry={selectedEntry}
+        onClose={() => setSelectedEntry(null)}
+        onUpdate={handleEntryUpdate}
+      />
     </div>
   )
 }

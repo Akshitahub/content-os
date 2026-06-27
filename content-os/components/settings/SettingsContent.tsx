@@ -462,6 +462,60 @@ function DangerZoneSection() {
 }
 
 // ---------------------------------------------------------------------------
+// Section 5: Connections (coming soon)
+// ---------------------------------------------------------------------------
+
+const PLATFORMS_COMING_SOON = [
+  { name: "Instagram", icon: "📸", note: "Requires Meta app review" },
+  { name: "TikTok", icon: "🎵", note: "Requires TikTok developer account" },
+  { name: "LinkedIn", icon: "💼", note: "Requires LinkedIn app" },
+  { name: "YouTube", icon: "▶️", note: "Requires Google OAuth" },
+  { name: "Twitter / X", icon: "🐦", note: "Requires X developer account" },
+] as const
+
+function ConnectionsSection() {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Connect &amp; publish</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <p className="text-sm text-muted-foreground">
+          Connect your social accounts to auto-post directly from the calendar. Until then, copy content from any calendar entry and post manually.
+        </p>
+        <ul className="space-y-2">
+          {PLATFORMS_COMING_SOON.map(platform => (
+            <li key={platform.name} className="flex items-center justify-between rounded-md border px-4 py-3">
+              <div className="flex items-center gap-3">
+                <span className="text-lg">{platform.icon}</span>
+                <div>
+                  <p className="text-sm font-medium">{platform.name}</p>
+                  <p className="text-xs text-muted-foreground">{platform.note}</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">Not connected</span>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled
+                  title="Coming soon — deploy your app first to enable OAuth callbacks"
+                >
+                  Connect
+                </Button>
+              </div>
+            </li>
+          ))}
+        </ul>
+        <p className="text-xs text-muted-foreground">
+          Auto-posting requires a deployed domain for OAuth callbacks. Feature coming soon.
+        </p>
+      </CardContent>
+    </Card>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Root client component
 // ---------------------------------------------------------------------------
 
@@ -471,6 +525,8 @@ export function SettingsContent({ user, brands }: SettingsContentProps) {
       <ProfileSection user={user} />
       <Separator />
       <PlanSection user={user} />
+      <Separator />
+      <ConnectionsSection />
       <Separator />
       <BrandsSection initialBrands={brands} />
       <Separator />

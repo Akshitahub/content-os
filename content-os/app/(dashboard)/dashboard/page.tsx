@@ -26,6 +26,7 @@ export default async function DashboardPage() {
   }
 
   const now = new Date()
+  const todayStr = now.toISOString().split("T")[0]!
   const firstOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString()
   const dayOfWeek = now.getDay()
   const startOfWeek = new Date(now)
@@ -44,15 +45,20 @@ export default async function DashboardPage() {
 
   const generationsThisMonth = generationsResult.count ?? 0
 
+  type RecentCalendarEntry = Pick<CalendarEntryRow, "id" | "title" | "scheduled_date" | "platform" | "status" | "hook_text" | "caption_text" | "is_ready" | "color">
+  type TodayEntry = Pick<CalendarEntryRow, "id" | "title" | "platform" | "scheduled_date" | "status" | "is_ready" | "color">
+
   let calendarEntriesThisWeek = 0
-  let recentCalendar: Pick<CalendarEntryRow, "id" | "title" | "scheduled_date" | "platform" | "status">[] = []
+  let recentCalendar: RecentCalendarEntry[] = []
   let recentHooks: Pick<HookRow, "id" | "hook_text" | "hook_type" | "created_at">[] = []
   let savedContentCount = 0
+  let todayEntries: TodayEntry[] = []
 
   if (brandIds.length > 0) {
     const [
       calendarCountResult,
       recentCalendarResult,
+      todayReadyResult,
       recentHooksResult,
       savedHooksResult,
       savedCaptionsResult,
@@ -75,10 +81,17 @@ export default async function DashboardPage() {
         .lte("scheduled_date", endOfWeekStr),
       supabase
         .from("calendar_entries")
-        .select("id, title, scheduled_date, platform, status")
+        .select("id, title, scheduled_date, platform, status, hook_text, caption_text, is_ready, color")
         .in("brand_id", brandIds)
         .gte("scheduled_date", startOfWeekStr)
         .order("scheduled_date", { ascending: true })
+        .limit(5),
+      supabase
+        .from("calendar_entries")
+        .select("id, title, platform, scheduled_date, status, is_ready, color")
+        .in("brand_id", brandIds)
+        .eq("scheduled_date", todayStr)
+        .eq("is_ready", true)
         .limit(5),
       supabase
         .from("hooks")
@@ -124,7 +137,8 @@ export default async function DashboardPage() {
     ])
 
     calendarEntriesThisWeek = calendarCountResult.count ?? 0
-    recentCalendar = (recentCalendarResult.data ?? []) as Pick<CalendarEntryRow, "id" | "title" | "scheduled_date" | "platform" | "status">[]
+    recentCalendar = (recentCalendarResult.data ?? []) as RecentCalendarEntry[]
+    todayEntries = (todayReadyResult.data ?? []) as TodayEntry[]
     recentHooks = (recentHooksResult.data ?? []) as Pick<HookRow, "id" | "hook_text" | "hook_type" | "created_at">[]
 
     savedContentCount =
@@ -164,6 +178,7 @@ export default async function DashboardPage() {
         activeBrands={activeBrandCount}
         recentCalendar={recentCalendar}
         recentHooks={recentHooks}
+        todayEntries={todayEntries}
         firstBrandId={firstBrandId}
       />
 

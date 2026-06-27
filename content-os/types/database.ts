@@ -307,6 +307,16 @@ export type Database = {
           status: "planned" | "content_ready" | "scheduled" | "published" | "missed"
           color: string
           notes: string | null
+          hook_text: string | null
+          caption_text: string | null
+          hashtags: string[]
+          visual_direction: string | null
+          audio_suggestion: string | null
+          content_type_detail: string | null
+          hook_id: string | null
+          caption_id: string | null
+          is_ready: boolean
+          platform_specific_data: Json
           created_at: string
           updated_at: string
         }
@@ -322,6 +332,16 @@ export type Database = {
           status?: "planned" | "content_ready" | "scheduled" | "published" | "missed"
           color?: string
           notes?: string | null
+          hook_text?: string | null
+          caption_text?: string | null
+          hashtags?: string[]
+          visual_direction?: string | null
+          audio_suggestion?: string | null
+          content_type_detail?: string | null
+          hook_id?: string | null
+          caption_id?: string | null
+          is_ready?: boolean
+          platform_specific_data?: Json
           created_at?: string
           updated_at?: string
         }
@@ -334,6 +354,16 @@ export type Database = {
           status?: "planned" | "content_ready" | "scheduled" | "published" | "missed"
           color?: string
           notes?: string | null
+          hook_text?: string | null
+          caption_text?: string | null
+          hashtags?: string[]
+          visual_direction?: string | null
+          audio_suggestion?: string | null
+          content_type_detail?: string | null
+          hook_id?: string | null
+          caption_id?: string | null
+          is_ready?: boolean
+          platform_specific_data?: Json
           updated_at?: string
         }
       }
