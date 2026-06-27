@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server"
-import OpenAI from "openai"
 import { createClient } from "@/lib/supabase/server"
-import { MODELS, NVIDIA_BASE_URL, getApiKey } from "@/lib/ai/models"
+import { MODELS, getGroqClient } from "@/lib/ai/models"
 import { buildError, ErrorCodes } from "@/types/api"
 import { z } from "zod"
 import type { BrandRow } from "@/types/database"
@@ -66,7 +65,7 @@ export async function POST(request: Request, { params }: RouteParams) {
 
   const { occasionName, occasionAngle } = parsed.data
 
-  const openai = new OpenAI({ apiKey: getApiKey(), baseURL: NVIDIA_BASE_URL })
+  const groq = getGroqClient()
 
   let generated: {
     hook: string
@@ -76,7 +75,7 @@ export async function POST(request: Request, { params }: RouteParams) {
   }
 
   try {
-    const res = await openai.chat.completions.create({
+    const res = await groq.chat.completions.create({
       model: MODELS.generation,
       temperature: 0.7,
       max_tokens: 600,

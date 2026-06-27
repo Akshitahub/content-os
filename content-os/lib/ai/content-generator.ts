@@ -1,7 +1,6 @@
-import OpenAI from "openai"
 import type { BrandRow, ProductRow } from "@/types/database"
 import type { ContentFormat, ContentFormatOutputMap, Platform } from "@/types/app"
-import { MODELS, NVIDIA_BASE_URL, getApiKey } from "./models"
+import { MODELS, getGroqClient } from "./models"
 import {
   buildCaptionSystemPrompt,
   buildCaptionUserPrompt,
@@ -42,37 +41,37 @@ function buildPrompts(
           additionalContext: options.additionalContext,
           product: options.product,
         }),
-        maxTokens: 1200,
+        maxTokens: 400,
       }
     case "reel_script":
       return {
         system: buildReelScriptSystemPrompt(),
         user: buildReelScriptUserPrompt(brand, options),
-        maxTokens: 1500,
+        maxTokens: 800,
       }
     case "story":
       return {
         system: buildStorySystemPrompt(),
         user: buildStoryUserPrompt(brand, options),
-        maxTokens: 300,
+        maxTokens: 200,
       }
     case "carousel":
       return {
         system: buildCarouselSystemPrompt(),
         user: buildCarouselUserPrompt(brand, options),
-        maxTokens: 2000,
+        maxTokens: 800,
       }
     case "blog_post":
       return {
         system: buildBlogPostSystemPrompt(),
         user: buildBlogPostUserPrompt(brand, options),
-        maxTokens: 2000,
+        maxTokens: 800,
       }
     case "ad_copy":
       return {
         system: buildAdCopySystemPrompt(),
         user: buildAdCopyUserPrompt(brand, options),
-        maxTokens: 600,
+        maxTokens: 400,
       }
   }
 }
@@ -115,13 +114,13 @@ export async function generateContent(
 ): Promise<{
   data: ContentFormatOutputMap[ContentFormat]
   model: string
-  usage: OpenAI.Completions.CompletionUsage | undefined
+  usage: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } | undefined
 }> {
-  const openai = new OpenAI({ apiKey: getApiKey(), baseURL: NVIDIA_BASE_URL })
+  const groq = getGroqClient()
   const model = MODELS.generation
   const { system, user, maxTokens } = buildPrompts(format, brand, options)
 
-  const response = await openai.chat.completions.create({
+  const response = await groq.chat.completions.create({
     model,
     temperature: 0.8,
     max_tokens: maxTokens,
@@ -143,7 +142,6 @@ export async function generateContent(
 
   const data = validateAndCast(format, parsed)
 
-  // Ensure character_count is accurate for social posts
   if (format === "social_post") {
     const caption = data as ContentFormatOutputMap["social_post"]
     caption.character_count = caption.caption_text.length

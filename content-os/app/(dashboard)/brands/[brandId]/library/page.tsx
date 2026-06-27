@@ -1,9 +1,9 @@
 "use client"
 
 import { useState, useCallback } from "react"
-import { useParams } from "next/navigation"
+import { useParams, useSearchParams } from "next/navigation"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
-import { Archive, Copy, Check, Star, Sparkles, BookOpen, ChevronDown, ChevronUp, Film, LayoutGrid, Megaphone, Mail, FileText } from "lucide-react"
+import { Archive, Copy, Check, Star, Sparkles, BookOpen, ChevronDown, ChevronUp, Film, LayoutGrid, Megaphone, Mail, FileText, ImageIcon, Download } from "lucide-react"
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import Link from "next/link"
@@ -583,9 +583,96 @@ function ProductDescTab({ brandId }: { brandId: string }) {
   )
 }
 
+// ─── Image card ───────────────────────────────────────────────────────────────
+
+interface GeneratedImage {
+  id: string
+  prompt: string
+  style: string | null
+  aspect_ratio: string
+  public_url: string
+  created_at: string
+}
+
+function ImageCard({ image, brandId }: { image: GeneratedImage; brandId: string }) {
+  const qc = useQueryClient()
+  const unsaveMutation = useMutation({
+    mutationFn: async () => {
+      await fetch(`/api/v1/brands/${brandId}/images/${image.id}`, {
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ is_saved: false }),
+      })
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["library", "images", brandId] }),
+  })
+  return (
+    <Card className="overflow-hidden transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md">
+      <div className="relative group aspect-square bg-secondary">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={image.public_url} alt={image.prompt} className="w-full h-full object-cover" />
+        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors" />
+        <a
+          href={image.public_url}
+          download
+          target="_blank"
+          rel="noopener noreferrer"
+          className="absolute top-2 right-2 rounded-full bg-background/90 p-1.5 opacity-0 group-hover:opacity-100 transition-opacity"
+        >
+          <Download className="h-3.5 w-3.5" />
+        </a>
+      </div>
+      <CardContent className="p-3 space-y-2">
+        <p className="text-xs text-muted-foreground line-clamp-2 leading-relaxed">{image.prompt}</p>
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5">
+            {image.style && (
+              <span className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-xs font-medium capitalize">
+                {image.style.replace(/_/g, " ")}
+              </span>
+            )}
+            <span className="text-xs text-muted-foreground">{image.aspect_ratio}</span>
+          </div>
+          <span className="text-xs text-muted-foreground">{new Date(image.created_at).toLocaleDateString()}</span>
+        </div>
+        <div className="flex gap-1 pt-1 border-t">
+          <CopyButton text={image.public_url} className="flex-1 justify-start" />
+          <Button variant="ghost" size="sm" onClick={() => unsaveMutation.mutate()} disabled={unsaveMutation.isPending}>
+            Unsave
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+function ImagesTab({ brandId }: { brandId: string }) {
+  const { data: images = [], isLoading } = useQuery({
+    queryKey: ["library", "images", brandId],
+    queryFn: async (): Promise<GeneratedImage[]> => {
+      const res = await fetch(`/api/v1/brands/${brandId}/images`)
+      if (!res.ok) throw new Error("Failed to fetch images")
+      return ((await res.json()) as { data: GeneratedImage[] }).data
+    },
+    enabled: !!brandId,
+  })
+  return isLoading ? (
+    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      {[1, 2, 3].map(i => <div key={i} className="aspect-square animate-pulse rounded-lg bg-secondary" />)}
+    </div>
+  ) : images.length === 0 ? (
+    <EmptyState label="generated images" brandId={brandId} />
+  ) : (
+    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      {images.map(img => <ImageCard key={img.id} image={img} brandId={brandId} />)}
+    </div>
+  )
+}
+
 // ─── Page ──────────────────────────────────────────────────────────────────────
 
-type LibraryTab = "hooks" | "captions" | "scripts" | "carousels" | "ad_copy" | "emails" | "product_descriptions"
+type LibraryTab = "hooks" | "captions" | "scripts" | "carousels" | "ad_copy" | "emails" | "product_descriptions" | "images"
+
+const VALID_TABS = new Set<LibraryTab>(["hooks", "captions", "scripts", "carousels", "ad_copy", "emails", "product_descriptions", "images"])
 
 const TABS: { id: LibraryTab; label: string; icon: React.ElementType }[] = [
   { id: "hooks", label: "Hooks", icon: Sparkles },
@@ -595,12 +682,17 @@ const TABS: { id: LibraryTab; label: string; icon: React.ElementType }[] = [
   { id: "ad_copy", label: "Ad Copy", icon: Megaphone },
   { id: "emails", label: "Emails", icon: Mail },
   { id: "product_descriptions", label: "Descriptions", icon: FileText },
+  { id: "images", label: "Images", icon: ImageIcon },
 ]
 
 export default function LibraryPage() {
   const params = useParams()
+  const searchParams = useSearchParams()
   const brandId = params.brandId as string
-  const [activeTab, setActiveTab] = useState<LibraryTab>("hooks")
+  const tabParam = searchParams.get("tab") as LibraryTab | null
+  const [activeTab, setActiveTab] = useState<LibraryTab>(
+    tabParam && VALID_TABS.has(tabParam) ? tabParam : "hooks"
+  )
 
   return (
     <div className="px-4 py-6 md:p-8">
@@ -648,6 +740,7 @@ export default function LibraryPage() {
       {activeTab === "ad_copy" && <AdCopyTab brandId={brandId} />}
       {activeTab === "emails" && <EmailsTab brandId={brandId} />}
       {activeTab === "product_descriptions" && <ProductDescTab brandId={brandId} />}
+      {activeTab === "images" && <ImagesTab brandId={brandId} />}
     </div>
   )
 }

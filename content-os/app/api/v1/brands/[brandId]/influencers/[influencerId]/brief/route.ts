@@ -1,11 +1,10 @@
 import { NextResponse } from "next/server"
-import OpenAI from "openai"
 import { createClient } from "@/lib/supabase/server"
 import {
   buildCollaborationBriefSystemPrompt,
   buildCollaborationBriefUserPrompt,
 } from "@/lib/ai/prompts"
-import { MODELS, NVIDIA_BASE_URL, getApiKey } from "@/lib/ai/models"
+import { MODELS, getGroqClient } from "@/lib/ai/models"
 import { generateBriefSchema } from "@/lib/validations/influencer"
 import { buildError, ErrorCodes } from "@/types/api"
 import type { BrandRow, InfluencerRow, InfluencerPartnershipRow, ProductRow } from "@/types/database"
@@ -89,7 +88,7 @@ export async function POST(request: Request, { params }: RouteParams) {
   let key_hashtags: string[] = []
 
   try {
-    const openai = new OpenAI({ apiKey: getApiKey(), baseURL: NVIDIA_BASE_URL })
+    const groq = getGroqClient()
     const systemPrompt = buildCollaborationBriefSystemPrompt()
     const userPrompt = buildCollaborationBriefUserPrompt(
       brand,
@@ -103,7 +102,7 @@ export async function POST(request: Request, { params }: RouteParams) {
       product,
     )
 
-    const res = await openai.chat.completions.create({
+    const res = await groq.chat.completions.create({
       model: MODELS.generation,
       temperature: 0.3,
       max_tokens: 800,

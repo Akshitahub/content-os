@@ -1,5 +1,4 @@
-import OpenAI from "openai"
-import { MODELS, NVIDIA_BASE_URL, getApiKey } from "./models"
+import { MODELS, getGroqClient } from "./models"
 import { scrapeInfluencerProfile } from "./scraper"
 import {
   buildInfluencerFitScoringSystemPrompt,
@@ -25,8 +24,8 @@ export async function discoverInfluencersByNiche(
   platform: "instagram" | "tiktok" | "youtube",
   count: number = 10,
 ): Promise<string[]> {
-  const openai = new OpenAI({ apiKey: getApiKey(), baseURL: NVIDIA_BASE_URL })
-  const res = await openai.chat.completions.create({
+  const groq = getGroqClient()
+  const res = await groq.chat.completions.create({
     model: MODELS.extraction,
     temperature: 0.7,
     max_tokens: 500,
@@ -73,7 +72,7 @@ export async function autoDiscoverAndScoreInfluencers(
   platform: "instagram" | "tiktok" | "youtube",
   count: number = 10,
 ): Promise<InfluencerRow[]> {
-  const openai = new OpenAI({ apiKey: getApiKey(), baseURL: NVIDIA_BASE_URL })
+  const groq = getGroqClient()
   const handles = await discoverInfluencersByNiche(brand.niche ?? "general", platform, count)
   if (handles.length === 0) return []
 
@@ -105,7 +104,7 @@ export async function autoDiscoverAndScoreInfluencers(
         let niche: string | null = null
 
         try {
-          const scoreRes = await openai.chat.completions.create({
+          const scoreRes = await groq.chat.completions.create({
             model: MODELS.scoring,
             temperature: 0.3,
             max_tokens: 400,
@@ -141,7 +140,7 @@ export async function autoDiscoverAndScoreInfluencers(
 
         if (scraped.bio) {
           try {
-            const nicheRes = await openai.chat.completions.create({
+            const nicheRes = await groq.chat.completions.create({
               model: MODELS.extraction,
               temperature: 0.1,
               max_tokens: 10,

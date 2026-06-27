@@ -1,10 +1,11 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useRef } from "react"
 import { Sparkles, RefreshCw, Copy, Check, Download, ExternalLink, Archive } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import Link from "next/link"
+import { GeneratingState } from "@/components/shared/GeneratingState"
 import { useGenerateFullPost, ApiResponseError } from "@/hooks/useGeneration"
 import { useGenerationStore } from "@/stores/generationStore"
 import type { FullPostResult, ContentResult } from "@/hooks/useGeneration"
@@ -48,10 +49,35 @@ export function FullPostGenerator({ brandId, products }: Props) {
   const [format, setFormat] = useState<ContentFormat>("social_post")
   const [additionalContext, setAdditionalContext] = useState("")
   const [copied, setCopied] = useState<string | null>(null)
+  const [justSaved, setJustSaved] = useState(false)
+  const abortControllerRef = useRef<AbortController | null>(null)
 
   useEffect(() => {
     if (occasionContext) setAdditionalContext(occasionContext.angle)
   }, [occasionContext])
+
+  // Restore from sessionStorage on mount
+  useEffect(() => {
+    if (!fullPostResult) {
+      const saved = sessionStorage.getItem(`fullpost_${brandId}`)
+      if (saved) {
+        try { setFullPostResult(JSON.parse(saved)) } catch {}
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [brandId])
+
+  // Persist to sessionStorage when result changes
+  useEffect(() => {
+    if (fullPostResult) {
+      sessionStorage.setItem(`fullpost_${brandId}`, JSON.stringify(fullPostResult))
+    }
+  }, [fullPostResult, brandId])
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => abortControllerRef.current?.abort()
+  }, [])
 
   const copy = useCallback((text: string, key: string) => {
     navigator.clipboard.writeText(text)
@@ -70,6 +96,10 @@ export function FullPostGenerator({ brandId, products }: Props) {
   }
 
   function handleGenerate() {
+    abortControllerRef.current?.abort()
+    abortControllerRef.current = new AbortController()
+    setJustSaved(false)
+
     generate(
       {
         brandId,
@@ -78,7 +108,13 @@ export function FullPostGenerator({ brandId, products }: Props) {
         platform: selectedPlatform,
         additionalContext: additionalContext || undefined,
       },
-      { onSuccess: setFullPostResult }
+      {
+        onSuccess: (data) => {
+          setFullPostResult(data)
+          setJustSaved(true)
+          setTimeout(() => setJustSaved(false), 5000)
+        },
+      }
     )
   }
 
@@ -179,8 +215,25 @@ export function FullPostGenerator({ brandId, products }: Props) {
         )}
       </div>
 
+      {isPending && <GeneratingState message="Writing your full post…" />}
+
+      {justSaved && (
+        <div className="flex items-center justify-between rounded-lg border border-green-200 bg-green-50 px-4 py-3">
+          <div className="flex items-center gap-2 text-green-700">
+            <Check className="h-4 w-4 shrink-0" />
+            <span className="text-sm font-medium">Post saved to My Content</span>
+          </div>
+          <Link
+            href={`/brands/${brandId}/library`}
+            className="text-xs font-medium text-green-700 underline underline-offset-2 hover:text-green-900 shrink-0"
+          >
+            View in My Content →
+          </Link>
+        </div>
+      )}
+
       {/* Results */}
-      {fullPostResult && (
+      {fullPostResult && !isPending && (
         <FullPostResults
           result={fullPostResult}
           copied={copied}

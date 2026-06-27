@@ -1,5 +1,4 @@
-import OpenAI from "openai"
-import { MODELS, NVIDIA_BASE_URL, getApiKey } from "./models"
+import { MODELS, getGroqClient } from "./models"
 import { generateCarouselHtml } from "@/lib/design/post-card-generator"
 import type { BrandRow, ProductRow } from "@/types/database"
 import type { ContentStrategy, ContentSlot, FastlaneResult, Platform } from "@/types/app"
@@ -18,16 +17,16 @@ function sleep(ms: number): Promise<void> {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function generateWithRetry(openai: OpenAI, params: any, retries = 1): Promise<any> {
+async function generateWithRetry(groq: ReturnType<typeof getGroqClient>, params: any, retries = 1): Promise<any> {
   try {
-    return await openai.chat.completions.create(params)
+    return await groq.chat.completions.create(params)
   } catch (err) {
     const msg = err instanceof Error ? err.message.toLowerCase() : String(err).toLowerCase()
     const isRateLimit = msg.includes("429") || msg.includes("rate_limit") || msg.includes("rate limit")
     if (retries > 0 && isRateLimit) {
       console.log("[fastlane] Rate limit hit, waiting 3000ms before retry...")
       await sleep(3000)
-      return generateWithRetry(openai, params, retries - 1)
+      return generateWithRetry(groq, params, retries - 1)
     }
     throw err
   }
@@ -127,8 +126,8 @@ Return this exact JSON (exactly 5 slides):
 }
 
 export async function generateContentStrategy(brand: BrandRow, products: ProductRow[]): Promise<ContentStrategy> {
-  const openai = new OpenAI({ apiKey: getApiKey(), baseURL: NVIDIA_BASE_URL })
-  const res = await generateWithRetry(openai, {
+  const groq = getGroqClient()
+  const res = await generateWithRetry(groq, {
     model: MODELS.generation,
     temperature: 0.7,
     max_tokens: 8000,
@@ -161,13 +160,13 @@ async function generateSlotContent(
   slot: ContentSlot,
   product: ProductRow | null,
 ): Promise<SlotContent> {
-  const openai = new OpenAI({ apiKey: getApiKey(), baseURL: NVIDIA_BASE_URL })
+  const groq = getGroqClient()
   const isCarousel = slot.content_type === "carousel"
 
-  const res = await generateWithRetry(openai, {
+  const res = await generateWithRetry(groq, {
     model: MODELS.extraction,
     temperature: 0.8,
-    max_tokens: isCarousel ? 900 : 600,
+    max_tokens: isCarousel ? 600 : 400,
     messages: [
       {
         role: "system",
@@ -262,12 +261,12 @@ export async function executeFastlane(
   let slotsGenerated = 0
   let calendarEntriesCreated = 0
 
-  const batchSize = 3
+  const batchSize = 5
   const baseDate = new Date()
   baseDate.setHours(0, 0, 0, 0)
 
   for (let i = 0; i < slots.length; i += batchSize) {
-    if (i > 0) await sleep(2000)
+    if (i > 0) await sleep(500)
 
     const batch = slots.slice(i, i + batchSize)
     const results = await Promise.allSettled(

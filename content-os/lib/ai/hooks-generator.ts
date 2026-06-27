@@ -1,8 +1,7 @@
-import OpenAI from "openai"
 import type { BrandRow, ProductRow } from "@/types/database"
 import type { GeneratedHook, HookType, Platform } from "@/types/app"
 import { buildHookSystemPrompt, buildHookUserPrompt } from "./prompts"
-import { MODELS, NVIDIA_BASE_URL, getApiKey } from "./models"
+import { MODELS, getGroqClient } from "./models"
 
 export async function generateHooks(
   brand: BrandRow,
@@ -13,20 +12,20 @@ export async function generateHooks(
     additionalContext?: string
     product?: ProductRow | null
   }
-): Promise<{ hooks: GeneratedHook[]; model: string; usage: OpenAI.Completions.CompletionUsage | undefined }> {
-  const openai = new OpenAI({ apiKey: getApiKey(), baseURL: NVIDIA_BASE_URL })
+): Promise<{ hooks: GeneratedHook[]; model: string; usage: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } | undefined }> {
+  const groq = getGroqClient()
 
   const hookTypes = options.hookTypes?.length
     ? options.hookTypes
     : (["question", "bold_statement", "story", "statistic", "controversial", "how_to"] as HookType[])
 
-  const count = options.count ?? 5
+  const count = options.count ?? 3
   const model = MODELS.generation
 
-  const response = await openai.chat.completions.create({
+  const response = await groq.chat.completions.create({
     model,
     temperature: 0.85,
-    max_tokens: 1500,
+    max_tokens: 600,
     messages: [
       { role: "system", content: buildHookSystemPrompt() },
       { role: "user", content: buildHookUserPrompt(brand, { hookTypes, count, platform: options.platform, additionalContext: options.additionalContext, product: options.product }) },

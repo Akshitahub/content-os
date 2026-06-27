@@ -1,12 +1,11 @@
 import { NextResponse } from "next/server"
-import OpenAI from "openai"
 import { createClient } from "@/lib/supabase/server"
 import { scrapeInfluencerProfile } from "@/lib/ai/scraper"
 import {
   buildInfluencerFitScoringSystemPrompt,
   buildInfluencerFitScoringUserPrompt,
 } from "@/lib/ai/prompts"
-import { MODELS, NVIDIA_BASE_URL, getApiKey } from "@/lib/ai/models"
+import { MODELS, getGroqClient } from "@/lib/ai/models"
 import { discoverInfluencerSchema } from "@/lib/validations/influencer"
 import { buildError, ErrorCodes } from "@/types/api"
 import type { BrandRow, InfluencerRow } from "@/types/database"
@@ -54,7 +53,7 @@ export async function POST(request: Request, { params }: RouteParams) {
   let fit_reasoning: string | null = null
 
   try {
-    const openai = new OpenAI({ apiKey: getApiKey(), baseURL: NVIDIA_BASE_URL })
+    const groq = getGroqClient()
     const systemPrompt = buildInfluencerFitScoringSystemPrompt()
     const userPrompt = buildInfluencerFitScoringUserPrompt(brand, {
       handle: scraped.handle,
@@ -66,7 +65,7 @@ export async function POST(request: Request, { params }: RouteParams) {
       niche: null,
     })
 
-    const res = await openai.chat.completions.create({
+    const res = await groq.chat.completions.create({
       model: MODELS.scoring,
       temperature: 0.3,
       max_tokens: 800,
@@ -97,8 +96,8 @@ export async function POST(request: Request, { params }: RouteParams) {
   let niche: string | null = null
   if (scraped.bio) {
     try {
-      const openaiNiche = new OpenAI({ apiKey: getApiKey(), baseURL: NVIDIA_BASE_URL })
-      const nicheRes = await openaiNiche.chat.completions.create({
+      const groqNiche = getGroqClient()
+      const nicheRes = await groqNiche.chat.completions.create({
         model: MODELS.extraction,
         temperature: 0.1,
         max_tokens: 10,

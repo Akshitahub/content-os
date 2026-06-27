@@ -1,14 +1,16 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useRef, useEffect } from "react"
 import {
   FileText, Film, LayoutGrid, Zap, BookOpen, Megaphone,
-  RefreshCw, Copy, Check, Loader2,
+  RefreshCw, Copy, Check,
 } from "lucide-react"
+import Link from "next/link"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { Separator } from "@/components/ui/separator"
+import { GeneratingState } from "@/components/shared/GeneratingState"
 import { useGenerateContent, ApiResponseError, type ContentResult } from "@/hooks/useGeneration"
 import { useGenerationStore } from "@/stores/generationStore"
 import type { ProductRow } from "@/types/database"
@@ -227,6 +229,31 @@ export function ContentTypeGenerator({ brandId, products }: ContentTypeGenerator
     contentResult: result,
     setContentResult,
   } = useGenerationStore()
+  const [justSaved, setJustSaved] = useState(false)
+  const abortControllerRef = useRef<AbortController | null>(null)
+
+  // Restore from sessionStorage on mount
+  useEffect(() => {
+    if (!result) {
+      const saved = sessionStorage.getItem(`content_${brandId}`)
+      if (saved) {
+        try { setContentResult(JSON.parse(saved)) } catch {}
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [brandId])
+
+  // Persist to sessionStorage when result changes
+  useEffect(() => {
+    if (result) {
+      sessionStorage.setItem(`content_${brandId}`, JSON.stringify(result))
+    }
+  }, [result, brandId])
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => abortControllerRef.current?.abort()
+  }, [])
 
   function handleFormatChange(format: ContentFormat) {
     setContentFormat(format)
@@ -234,6 +261,10 @@ export function ContentTypeGenerator({ brandId, products }: ContentTypeGenerator
   }
 
   function handleGenerate() {
+    abortControllerRef.current?.abort()
+    abortControllerRef.current = new AbortController()
+    setJustSaved(false)
+
     generate(
       {
         brandId,
@@ -243,7 +274,13 @@ export function ContentTypeGenerator({ brandId, products }: ContentTypeGenerator
         hookText: selectedFormat === "social_post" ? (selectedHook?.hook_text ?? undefined) : undefined,
         additionalContext: additionalContext || undefined,
       },
-      { onSuccess: (data) => setContentResult(data) }
+      {
+        onSuccess: (data) => {
+          setContentResult(data)
+          setJustSaved(true)
+          setTimeout(() => setJustSaved(false), 5000)
+        },
+      }
     )
   }
 
@@ -365,15 +402,26 @@ export function ContentTypeGenerator({ brandId, products }: ContentTypeGenerator
         )}
       </div>
 
+      {isPending && <GeneratingState message={`Writing your ${activeConfig.label.toLowerCase()}…`} />}
+
+      {justSaved && (
+        <div className="flex items-center justify-between rounded-lg border border-green-200 bg-green-50 px-4 py-3">
+          <div className="flex items-center gap-2 text-green-700">
+            <Check className="h-4 w-4 shrink-0" />
+            <span className="text-sm font-medium">Content saved to My Content</span>
+          </div>
+          <Link
+            href={`/brands/${brandId}/library?tab=content`}
+            className="text-xs font-medium text-green-700 underline underline-offset-2 hover:text-green-900 shrink-0"
+          >
+            View in My Content →
+          </Link>
+        </div>
+      )}
+
       {/* Result */}
-      {result && (
+      {result && !isPending && (
         <div className="space-y-3">
-          {isPending && (
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <Loader2 className="h-3 w-3 animate-spin" />
-              Regenerating…
-            </div>
-          )}
           <ResultOutput result={result} />
         </div>
       )}

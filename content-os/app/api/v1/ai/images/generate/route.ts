@@ -85,6 +85,7 @@ export async function POST(request: Request) {
     storage_path: storagePath,
     public_url: publicUrlData.publicUrl,
     model_used: "imagen-4.0-generate-001",
+    is_saved: true,
   }).select().single()
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

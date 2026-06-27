@@ -1,11 +1,10 @@
 import { NextResponse } from "next/server"
-import OpenAI from "openai"
 import { createClient } from "@/lib/supabase/server"
 import {
   buildOutreachSystemPrompt,
   buildOutreachUserPrompt,
 } from "@/lib/ai/prompts"
-import { MODELS, NVIDIA_BASE_URL, getApiKey } from "@/lib/ai/models"
+import { MODELS, getGroqClient } from "@/lib/ai/models"
 import { generateOutreachSchema } from "@/lib/validations/influencer"
 import { buildError, ErrorCodes } from "@/types/api"
 import type { BrandRow, InfluencerRow, OutreachMessageRow } from "@/types/database"
@@ -68,7 +67,7 @@ export async function POST(request: Request, { params }: RouteParams) {
   let tone: string | null = null
 
   try {
-    const openai = new OpenAI({ apiKey: getApiKey(), baseURL: NVIDIA_BASE_URL })
+    const groq = getGroqClient()
     const systemPrompt = buildOutreachSystemPrompt()
     const userPrompt = buildOutreachUserPrompt(
       brand,
@@ -82,7 +81,7 @@ export async function POST(request: Request, { params }: RouteParams) {
       campaignGoal,
     )
 
-    const res = await openai.chat.completions.create({
+    const res = await groq.chat.completions.create({
       model: MODELS.generation,
       temperature: 0.3,
       max_tokens: 800,

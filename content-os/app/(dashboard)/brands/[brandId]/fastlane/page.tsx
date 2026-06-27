@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useParams } from "next/navigation"
 import { Zap, Loader2, CheckCircle2, XCircle, Calendar, BarChart2, AlertTriangle, Trash2 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -24,6 +24,18 @@ export default function FastlanePage() {
   const [result, setResult] = useState<FastlaneResult | null>(null)
   const [errorMsg, setErrorMsg] = useState<string>("")
   const [warning, setWarning] = useState<WarningData | null>(null)
+  const [progress, setProgress] = useState(0)
+
+  useEffect(() => {
+    if (state === "RUNNING") {
+      setProgress(0)
+      const interval = setInterval(() => {
+        setProgress((p) => p < 92 ? p + 3 : p)
+      }, 2000)
+      return () => clearInterval(interval)
+    }
+    if (state === "DONE") setProgress(100)
+  }, [state])
 
   async function runFastlane(opts: { force?: boolean; clearAndRegenerate?: boolean } = {}) {
     setState("RUNNING")
@@ -166,7 +178,23 @@ export default function FastlanePage() {
           <p className="mt-2 text-muted-foreground">
             The AI is crafting your content strategy and generating all 30 slots. This takes 1–3 minutes.
           </p>
-          <div className="mt-8 space-y-2 text-left">
+
+          {/* Simulated progress bar */}
+          <div className="mt-6">
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="text-xs text-muted-foreground">Generating content</span>
+              <span className="text-xs font-medium text-primary">{progress}%</span>
+            </div>
+            <div className="h-2 w-full overflow-hidden rounded-full bg-secondary">
+              <div
+                className="h-full rounded-full bg-primary transition-all duration-1000 ease-out"
+                style={{ width: `${progress}%` }}
+              />
+            </div>
+            <p className="mt-1.5 text-xs text-muted-foreground">Powered by Groq AI</p>
+          </div>
+
+          <div className="mt-6 space-y-2 text-left">
             {[
               "Analysing your brand and products",
               "Generating content strategy",

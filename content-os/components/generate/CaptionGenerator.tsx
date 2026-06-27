@@ -1,9 +1,11 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useRef, useEffect } from "react"
+import Link from "next/link"
 import { FileText, Copy, Check, RefreshCw } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
+import { GeneratingState } from "@/components/shared/GeneratingState"
 import { useGenerateCaption } from "@/hooks/useGeneration"
 import { useGenerationStore } from "@/stores/generationStore"
 import type { ProductRow } from "@/types/database"
@@ -33,12 +35,48 @@ interface CaptionGeneratorProps {
 
 export function CaptionGenerator({ brandId, products }: CaptionGeneratorProps) {
   const { mutate: generateCaption, isPending } = useGenerateCaption()
-  const { selectedHook, selectedPlatform, setSelectedPlatform, selectedProductId, setSelectedProductId, captions, addCaption } = useGenerationStore()
+  const {
+    selectedHook, selectedPlatform, setSelectedPlatform,
+    selectedProductId, setSelectedProductId,
+    captions, addCaption,
+  } = useGenerationStore()
   const [contentType, setContentType] = useState<ContentType>("reel")
   const [additionalContext, setAdditionalContext] = useState("")
   const [copiedId, setCopiedId] = useState<string | null>(null)
+  const [justSaved, setJustSaved] = useState(false)
+  const abortControllerRef = useRef<AbortController | null>(null)
+
+  // Restore captions from sessionStorage
+  useEffect(() => {
+    if (captions.length === 0) {
+      const saved = sessionStorage.getItem(`captions_${brandId}`)
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved)
+          if (Array.isArray(parsed)) {
+            parsed.forEach((c) => addCaption(c))
+          }
+        } catch {}
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [brandId])
+
+  useEffect(() => {
+    if (captions.length > 0) {
+      sessionStorage.setItem(`captions_${brandId}`, JSON.stringify(captions))
+    }
+  }, [captions, brandId])
+
+  useEffect(() => {
+    return () => abortControllerRef.current?.abort()
+  }, [])
 
   function handleGenerate() {
+    abortControllerRef.current?.abort()
+    abortControllerRef.current = new AbortController()
+    setJustSaved(false)
+
     generateCaption(
       {
         brandId,
@@ -50,7 +88,11 @@ export function CaptionGenerator({ brandId, products }: CaptionGeneratorProps) {
         additionalContext: additionalContext || undefined,
       },
       {
-        onSuccess: (data) => addCaption(data),
+        onSuccess: (data) => {
+          addCaption(data)
+          setJustSaved(true)
+          setTimeout(() => setJustSaved(false), 5000)
+        },
       }
     )
   }
@@ -63,7 +105,6 @@ export function CaptionGenerator({ brandId, products }: CaptionGeneratorProps) {
 
   return (
     <div className="space-y-6">
-      {/* Selected hook context */}
       {selectedHook ? (
         <div className="rounded-lg border border-primary/20 bg-primary/5 p-4">
           <p className="text-xs font-medium text-primary mb-1">Using hook:</p>
@@ -75,7 +116,6 @@ export function CaptionGenerator({ brandId, products }: CaptionGeneratorProps) {
         </div>
       )}
 
-      {/* Controls */}
       <div className="rounded-lg border bg-card p-5 space-y-4">
         <h3 className="text-sm font-semibold">Caption Settings</h3>
 
@@ -153,8 +193,24 @@ export function CaptionGenerator({ brandId, products }: CaptionGeneratorProps) {
         </Button>
       </div>
 
-      {/* Generated captions */}
-      {captions.length > 0 && (
+      {isPending && <GeneratingState message="Writing your caption..." />}
+
+      {justSaved && (
+        <div className="flex items-center justify-between rounded-lg border border-green-200 bg-green-50 px-4 py-3">
+          <div className="flex items-center gap-2 text-green-700">
+            <Check className="h-4 w-4 shrink-0" />
+            <span className="text-sm font-medium">Caption saved to My Content</span>
+          </div>
+          <Link
+            href={`/brands/${brandId}/library?tab=captions`}
+            className="text-xs font-medium text-green-700 underline underline-offset-2 hover:text-green-900 shrink-0"
+          >
+            View in My Content →
+          </Link>
+        </div>
+      )}
+
+      {!isPending && captions.length > 0 && (
         <div className="space-y-4">
           <p className="text-sm font-medium">{captions.length} caption{captions.length > 1 ? "s" : ""} generated</p>
           {captions.map((caption, i) => {

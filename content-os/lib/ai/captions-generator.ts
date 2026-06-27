@@ -1,8 +1,7 @@
-import OpenAI from "openai"
 import type { BrandRow, ProductRow } from "@/types/database"
 import type { GeneratedCaption, Platform } from "@/types/app"
 import { buildCaptionSystemPrompt, buildCaptionUserPrompt } from "./prompts"
-import { MODELS, NVIDIA_BASE_URL, getApiKey } from "./models"
+import { MODELS, getGroqClient } from "./models"
 
 export async function generateCaption(
   brand: BrandRow,
@@ -13,14 +12,14 @@ export async function generateCaption(
     additionalContext?: string
     product?: ProductRow | null
   }
-): Promise<{ caption: GeneratedCaption; model: string; usage: OpenAI.Completions.CompletionUsage | undefined }> {
-  const openai = new OpenAI({ apiKey: getApiKey(), baseURL: NVIDIA_BASE_URL })
+): Promise<{ caption: GeneratedCaption; model: string; usage: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } | undefined }> {
+  const groq = getGroqClient()
   const model = MODELS.generation
 
-  const response = await openai.chat.completions.create({
+  const response = await groq.chat.completions.create({
     model,
     temperature: 0.8,
-    max_tokens: 1200,
+    max_tokens: 400,
     messages: [
       { role: "system", content: buildCaptionSystemPrompt() },
       { role: "user", content: buildCaptionUserPrompt(brand, options) },
@@ -42,7 +41,6 @@ export async function generateCaption(
     throw new Error("AI response missing caption_text")
   }
 
-  // Ensure character_count is accurate
   parsed.character_count = parsed.caption_text.length
 
   return { caption: parsed, model, usage: response.usage ?? undefined }

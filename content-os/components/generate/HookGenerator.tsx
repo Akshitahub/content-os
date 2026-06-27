@@ -1,10 +1,12 @@
 "use client"
 
-import { useState } from "react"
-import { Sparkles, RefreshCw } from "lucide-react"
+import { useState, useRef, useEffect } from "react"
+import Link from "next/link"
+import { Sparkles, RefreshCw, Check } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { HookCard } from "./HookCard"
+import { GeneratingState } from "@/components/shared/GeneratingState"
 import { useGenerateHooks, ApiResponseError } from "@/hooks/useGeneration"
 import { useGenerationStore } from "@/stores/generationStore"
 import type { ProductRow } from "@/types/database"
@@ -35,9 +37,40 @@ interface HookGeneratorProps {
 
 export function HookGenerator({ brandId, products }: HookGeneratorProps) {
   const { mutate: generateHooks, isPending, error } = useGenerateHooks()
-  const { hooks, selectedHook, setHooks, setSelectedHook, selectedPlatform, setSelectedPlatform, selectedProductId, setSelectedProductId, hookAdditionalContext: additionalContext, setHookAdditionalContext: setAdditionalContext } = useGenerationStore()
+  const {
+    hooks, selectedHook, setHooks, setSelectedHook,
+    selectedPlatform, setSelectedPlatform,
+    selectedProductId, setSelectedProductId,
+    hookAdditionalContext: additionalContext,
+    setHookAdditionalContext: setAdditionalContext,
+  } = useGenerationStore()
   const [selectedHookTypes, setSelectedHookTypes] = useState<HookType[]>(["question", "bold_statement", "story"])
-  const [count, setCount] = useState(5)
+  const [count, setCount] = useState(3)
+  const [justSaved, setJustSaved] = useState(false)
+  const abortControllerRef = useRef<AbortController | null>(null)
+
+  // Restore from sessionStorage on mount
+  useEffect(() => {
+    if (hooks.length === 0) {
+      const saved = sessionStorage.getItem(`hooks_${brandId}`)
+      if (saved) {
+        try { setHooks(JSON.parse(saved)) } catch {}
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [brandId])
+
+  // Persist to sessionStorage when hooks change
+  useEffect(() => {
+    if (hooks.length > 0) {
+      sessionStorage.setItem(`hooks_${brandId}`, JSON.stringify(hooks))
+    }
+  }, [hooks, brandId])
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => abortControllerRef.current?.abort()
+  }, [])
 
   function toggleHookType(type: HookType) {
     setSelectedHookTypes((prev) =>
@@ -46,6 +79,10 @@ export function HookGenerator({ brandId, products }: HookGeneratorProps) {
   }
 
   function handleGenerate() {
+    abortControllerRef.current?.abort()
+    abortControllerRef.current = new AbortController()
+    setJustSaved(false)
+
     generateHooks(
       {
         brandId,
@@ -56,7 +93,11 @@ export function HookGenerator({ brandId, products }: HookGeneratorProps) {
         additionalContext: additionalContext || undefined,
       },
       {
-        onSuccess: (data) => setHooks(data),
+        onSuccess: (data) => {
+          setHooks(data)
+          setJustSaved(true)
+          setTimeout(() => setJustSaved(false), 5000)
+        },
       }
     )
   }
@@ -67,7 +108,6 @@ export function HookGenerator({ brandId, products }: HookGeneratorProps) {
       <div className="rounded-lg border bg-card p-5 space-y-4">
         <h3 className="text-sm font-semibold">Hook Settings</h3>
 
-        {/* Product selector */}
         {products.length > 0 && (
           <div className="space-y-1.5">
             <Label className="text-xs">Product (optional)</Label>
@@ -84,7 +124,6 @@ export function HookGenerator({ brandId, products }: HookGeneratorProps) {
           </div>
         )}
 
-        {/* Platform */}
         <div className="space-y-1.5">
           <Label className="text-xs">Platform</Label>
           <div className="flex flex-wrap gap-1.5">
@@ -105,7 +144,6 @@ export function HookGenerator({ brandId, products }: HookGeneratorProps) {
           </div>
         </div>
 
-        {/* Hook types */}
         <div className="space-y-1.5">
           <Label className="text-xs">Hook types</Label>
           <div className="flex flex-wrap gap-1.5">
@@ -126,7 +164,6 @@ export function HookGenerator({ brandId, products }: HookGeneratorProps) {
           </div>
         </div>
 
-        {/* Count */}
         <div className="flex items-center gap-4">
           <div className="space-y-1.5">
             <Label className="text-xs">Number of hooks</Label>
@@ -140,7 +177,6 @@ export function HookGenerator({ brandId, products }: HookGeneratorProps) {
           </div>
         </div>
 
-        {/* Extra context */}
         <div className="space-y-1.5">
           <Label className="text-xs">Additional context (optional)</Label>
           <textarea
@@ -176,8 +212,27 @@ export function HookGenerator({ brandId, products }: HookGeneratorProps) {
         )}
       </div>
 
+      {/* Loading state */}
+      {isPending && <GeneratingState message="Writing hooks for your brand..." />}
+
+      {/* Save confirmation */}
+      {justSaved && hooks.length > 0 && (
+        <div className="flex items-center justify-between rounded-lg border border-green-200 bg-green-50 px-4 py-3">
+          <div className="flex items-center gap-2 text-green-700">
+            <Check className="h-4 w-4 shrink-0" />
+            <span className="text-sm font-medium">{hooks.length} hook{hooks.length > 1 ? "s" : ""} generated and saved to My Content</span>
+          </div>
+          <Link
+            href={`/brands/${brandId}/library?tab=hooks`}
+            className="text-xs font-medium text-green-700 underline underline-offset-2 hover:text-green-900 shrink-0"
+          >
+            View in My Content →
+          </Link>
+        </div>
+      )}
+
       {/* Results */}
-      {hooks.length > 0 && (
+      {!isPending && hooks.length > 0 && (
         <div className="space-y-3">
           <div className="flex items-center justify-between">
             <p className="text-sm font-medium">{hooks.length} hooks generated</p>
