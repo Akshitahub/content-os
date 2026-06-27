@@ -4,11 +4,21 @@ import { generateContentSchema } from "@/lib/validations/ai"
 import { generateContent } from "@/lib/ai/content-generator"
 import { buildError, ErrorCodes } from "@/types/api"
 import { checkAndIncrementUsage } from "@/lib/usage/check-and-increment-usage"
+import { captureServerEvent } from "@/lib/analytics/posthog"
 import type { BrandRow, ProductRow } from "@/types/database"
-import type { GeneratedCaption } from "@/types/app"
+import type { GeneratedCaption, ReelScript, CarouselContent, AdCopy } from "@/types/app"
 
 export async function POST(request: Request) {
-  const supabase = await createClient()
+  console.log("[ai/content/generate] POST called")
+
+  let supabase
+  try {
+    supabase = await createClient()
+  } catch (err) {
+    console.error("[ai/content/generate] createClient failed:", err)
+    return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Server error."), { status: 500 })
+  }
+
   const { data: { user }, error: authError } = await supabase.auth.getUser()
   if (authError || !user) return NextResponse.json(buildError(ErrorCodes.UNAUTHENTICATED, "You must be logged in."), { status: 401 })
 
@@ -43,9 +53,10 @@ export async function POST(request: Request) {
   try {
     result = await generateContent(brand, format, { product, platform, hookText, additionalContext })
   } catch (err) {
+    console.error("[ai/content/generate] generation failed:", err)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await (supabase.from("ai_generation_logs") as any).insert({
-      user_id: user.id, brand_id: brandId, feature: `content_${format}`, model: "gemini-2.0-flash",
+      user_id: user.id, brand_id: brandId, feature: `content_${format}`, model: "nvidia-nemotron",
       latency_ms: Date.now() - startTime, success: false,
       error_message: err instanceof Error ? err.message : "Unknown error",
     })
@@ -54,20 +65,46 @@ export async function POST(request: Request) {
 
   const latencyMs = Date.now() - startTime
 
-  // Persist social_post results to the captions table to maintain history
-  if (format === "social_post") {
-    const caption = result.data as GeneratedCaption
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await (supabase.from("captions") as any).insert({
-      brand_id: brandId,
-      product_id: productId ?? null,
-      caption_text: caption.caption_text,
-      hashtags: caption.hashtags,
-      cta: caption.cta,
-      character_count: caption.character_count,
-      platform: platform ?? "instagram",
-      model_used: result.model,
-    })
+  // Persist each format to its own table
+  try {
+    if (format === "social_post") {
+      const caption = result.data as GeneratedCaption
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await (supabase.from("captions") as any).insert({
+        brand_id: brandId, product_id: productId ?? null,
+        caption_text: caption.caption_text, hashtags: caption.hashtags,
+        cta: caption.cta, character_count: caption.character_count,
+        platform: platform ?? "instagram", model_used: result.model,
+      })
+    } else if (format === "reel_script") {
+      const script = result.data as ReelScript
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await (supabase.from("reel_scripts") as any).insert({
+        brand_id: brandId, product_id: productId ?? null,
+        platform: platform ?? null, hook: script.hook,
+        scenes: script.scenes, caption: script.caption ?? null,
+        hashtags: script.hashtags ?? [],
+      })
+    } else if (format === "carousel") {
+      const carousel = result.data as CarouselContent
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await (supabase.from("carousels") as any).insert({
+        brand_id: brandId, product_id: productId ?? null,
+        platform: platform ?? null,
+        slides: carousel.slides, hashtags: carousel.hashtags ?? [],
+      })
+    } else if (format === "ad_copy") {
+      const ad = result.data as AdCopy
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await (supabase.from("ad_copies") as any).insert({
+        brand_id: brandId, product_id: productId ?? null,
+        platform: platform ?? null, headline: ad.headline,
+        primary_text: ad.primary_text, description: ad.description ?? null,
+        cta_button: ad.cta_button ?? null,
+      })
+    }
+  } catch (persistErr) {
+    console.error("[ai/content/generate] persist failed (non-fatal):", persistErr)
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -78,6 +115,8 @@ export async function POST(request: Request) {
     total_tokens: result.usage?.total_tokens ?? null,
     latency_ms: latencyMs, success: true,
   })
+
+  await captureServerEvent(user.id, "content_generated", { content_type: format, brand_id: brandId, platform: platform ?? null })
 
   return NextResponse.json({ data: { format, content: result.data } }, { status: 200 })
 }

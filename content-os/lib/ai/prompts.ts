@@ -386,3 +386,199 @@ export function buildImagePrompt(
 
   return lines.join(" ")
 }
+
+// ─── Influencer fit scoring ───────────────────────────────────────────────
+
+export function buildInfluencerFitScoringSystemPrompt(): string {
+  return `You are an expert brand partnership strategist who evaluates influencer-brand fit.
+You analyze audience overlap, niche alignment, tone match, follower count vs brand size, and engagement signals.
+You give honest, nuanced assessments — not everything is a good fit.
+Always respond with valid JSON only. No markdown, no explanation.`
+}
+
+export function buildInfluencerFitScoringUserPrompt(
+  brand: BrandRow,
+  influencer: {
+    handle: string
+    platform: string
+    full_name: string | null
+    bio: string | null
+    follower_count: number | null
+    post_count: number | null
+    niche?: string | null
+  },
+): string {
+  const brandContext = [
+    `Brand Name: ${brand.name}`,
+    brand.niche ? `Brand Niche: ${brand.niche}` : null,
+    brand.target_audience ? `Target Audience: ${brand.target_audience}` : null,
+    brand.tone_of_voice ? `Tone of Voice: ${brand.tone_of_voice}` : null,
+    brand.brand_values?.length ? `Brand Values: ${brand.brand_values.join(", ")}` : null,
+  ]
+    .filter(Boolean)
+    .join("\n")
+
+  const followerDisplay =
+    influencer.follower_count !== null ? influencer.follower_count.toLocaleString() : "unknown"
+
+  const influencerContext = [
+    `Handle: @${influencer.handle}`,
+    `Platform: ${influencer.platform}`,
+    influencer.full_name ? `Full Name: ${influencer.full_name}` : null,
+    influencer.bio ? `Bio: ${influencer.bio}` : null,
+    `Follower Count: ${followerDisplay}`,
+    influencer.post_count !== null ? `Post/Video Count: ${influencer.post_count}` : null,
+    influencer.niche ? `Niche: ${influencer.niche}` : null,
+  ]
+    .filter(Boolean)
+    .join("\n")
+
+  return `${brandContext}
+
+Influencer Profile:
+${influencerContext}
+
+Score this influencer's fit for the brand on a scale of 0–100.
+Consider: audience overlap, niche alignment, tone match, follower count vs brand size, and any engagement signals visible from the bio.
+
+Respond with this exact JSON:
+{
+  "score": 75,
+  "reasoning": "one paragraph explaining the score",
+  "strengths": ["strength one", "strength two"],
+  "concerns": ["concern one", "concern two"],
+  "recommendation": "strong_fit"
+}
+
+recommendation must be one of: "strong_fit" | "potential_fit" | "weak_fit"`
+}
+
+// ─── Outreach message ─────────────────────────────────────────────────────
+
+export function buildOutreachSystemPrompt(): string {
+  return `You are an expert at writing personalized influencer outreach messages that get replies.
+You sound human, warm, and specific — never corporate or templated.
+You tailor the tone and length to the channel: short and punchy for DMs, more detailed for emails.
+Always respond with valid JSON only. No markdown, no explanation.`
+}
+
+export function buildOutreachUserPrompt(
+  brand: BrandRow,
+  influencer: {
+    handle: string
+    platform: string
+    bio: string | null
+    follower_count: number | null
+  },
+  channel: "dm" | "email" | "whatsapp",
+  campaignGoal?: string,
+): string {
+  const channelRules: Record<"dm" | "email" | "whatsapp", string> = {
+    dm: "Under 150 words. Casual, conversational. No formal sign-off. Get to the point fast.",
+    email: "Under 300 words. Has a subject line. Slightly more formal but still warm and personal.",
+    whatsapp: "Under 150 words. Friendly, direct. Use short paragraphs. No formal language.",
+  }
+
+  const brandContext = [
+    `Brand: ${brand.name}`,
+    brand.niche ? `Niche: ${brand.niche}` : null,
+    brand.tone_of_voice ? `Brand Tone: ${brand.tone_of_voice}` : null,
+  ]
+    .filter(Boolean)
+    .join("\n")
+
+  const followerDisplay =
+    influencer.follower_count !== null ? influencer.follower_count.toLocaleString() : "unknown"
+
+  return `${brandContext}
+
+Influencer:
+- Handle: @${influencer.handle} on ${influencer.platform}
+- Followers: ${followerDisplay}
+${influencer.bio ? `- Bio: ${influencer.bio}` : ""}
+
+Channel: ${channel}
+Rules: ${channelRules[channel]}
+${campaignGoal ? `Campaign Goal: ${campaignGoal}` : ""}
+
+Write a personalized outreach message. Reference the influencer's actual bio or content style to show it's not a mass message.
+
+Respond with this exact JSON:
+{
+  "subject": "email subject line or null if not email",
+  "message": "the full outreach message",
+  "tone": "one word describing the tone used e.g. warm, playful, professional"
+}`
+}
+
+// ─── Collaboration brief ──────────────────────────────────────────────────
+
+export function buildCollaborationBriefSystemPrompt(): string {
+  return `You are a senior brand partnerships manager who creates clear, actionable influencer campaign briefs.
+Your briefs are specific, inspiring, and practical — influencers know exactly what to create without feeling constrained.
+Always respond with valid JSON only. No markdown, no explanation.`
+}
+
+export function buildCollaborationBriefUserPrompt(
+  brand: BrandRow,
+  influencer: {
+    handle: string
+    platform: string
+    bio: string | null
+    follower_count: number | null
+  },
+  campaignName: string,
+  product: ProductRow | null,
+): string {
+  const brandContext = [
+    `Brand: ${brand.name}`,
+    brand.niche ? `Niche: ${brand.niche}` : null,
+    brand.target_audience ? `Target Audience: ${brand.target_audience}` : null,
+    brand.tone_of_voice ? `Tone of Voice: ${brand.tone_of_voice}` : null,
+    brand.brand_values?.length ? `Brand Values: ${brand.brand_values.join(", ")}` : null,
+  ]
+    .filter(Boolean)
+    .join("\n")
+
+  const productContext = product
+    ? [
+        `Product: ${product.name}`,
+        product.description ? `Description: ${product.description}` : null,
+        product.key_benefits?.length ? `Key Benefits: ${product.key_benefits.join(", ")}` : null,
+        product.price ? `Price: ${product.currency} ${product.price}` : null,
+      ]
+        .filter(Boolean)
+        .join("\n")
+    : "No specific product — brand awareness campaign."
+
+  const followerDisplay =
+    influencer.follower_count !== null ? influencer.follower_count.toLocaleString() : "unknown"
+
+  return `${brandContext}
+
+Product / Offering:
+${productContext}
+
+Influencer:
+- Handle: @${influencer.handle} on ${influencer.platform}
+- Followers: ${followerDisplay}
+${influencer.bio ? `- Bio: ${influencer.bio}` : ""}
+
+Campaign Name: ${campaignName}
+
+Create a complete collaboration brief for this influencer campaign.
+
+Respond with this exact JSON:
+{
+  "campaign_name": "${campaignName}",
+  "overview": "2-3 sentence campaign overview",
+  "deliverables": ["deliverable 1", "deliverable 2"],
+  "talking_points": ["key message 1", "key message 2"],
+  "dos": ["do this", "do that"],
+  "donts": ["don't do this", "don't do that"],
+  "key_hashtags": ["hashtag1", "hashtag2"],
+  "content_direction": "paragraph describing the visual and creative direction",
+  "timeline_suggestion": "e.g. 2 weeks from brief to post",
+  "compensation_suggestion": "e.g. Gifted product + INR 15,000 flat fee"
+}`
+}

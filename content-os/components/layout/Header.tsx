@@ -1,7 +1,7 @@
 "use client"
 
 import { useRouter } from "next/navigation"
-import { LogOut } from "lucide-react"
+import { LogOut, Menu } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
 import { Button } from "@/components/ui/button"
 import { BrandSelector } from "@/components/layout/BrandSelector"
@@ -9,9 +9,10 @@ import { BrandSelector } from "@/components/layout/BrandSelector"
 interface HeaderProps {
   userEmail?: string
   userName?: string
+  onMenuClick?: () => void
 }
 
-export function Header({ userEmail, userName }: HeaderProps) {
+export function Header({ userEmail, userName, onMenuClick }: HeaderProps) {
   const router = useRouter()
 
   async function handleSignOut() {
@@ -27,8 +28,20 @@ export function Header({ userEmail, userName }: HeaderProps) {
     : (userEmail?.[0] ?? "U").toUpperCase()
 
   return (
-    <header className="flex h-14 shrink-0 items-center justify-between border-b bg-background px-6">
-      <BrandSelector />
+    <header className="flex h-14 shrink-0 items-center justify-between border-b bg-background px-4 md:px-6">
+      <div className="flex items-center gap-3">
+        {/* Hamburger — mobile only */}
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={onMenuClick}
+          className="h-8 w-8 text-muted-foreground hover:text-foreground lg:hidden"
+          aria-label="Open navigation"
+        >
+          <Menu className="h-5 w-5" />
+        </Button>
+        <BrandSelector />
+      </div>
 
       <div className="flex items-center gap-3">
         <div className="flex items-center gap-2">

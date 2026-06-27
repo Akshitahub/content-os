@@ -177,3 +177,57 @@ export const PLAN_LIMITS: Record<UserPlan, { generations: number; brands: number
   pro:     { generations: 500,  brands: 10, products: 200 },
   agency:  { generations: 2000, brands: 50, products: 1000 },
 }
+
+// ─── Trending context ────────────────────────────────────────────────────────
+
+export interface TrendingContext {
+  trending_hashtags: string[]
+  trending_topics: string[]
+  audience_questions: string[]
+  scraped_at: string
+  sources_successful: number
+}
+
+// ─── Content strategy (Fastlane) ─────────────────────────────────────────────
+
+export interface ContentSlot {
+  day: number
+  platform: Platform
+  content_type: "hooks" | "caption" | "reel_script" | "carousel" | "ad_copy"
+  theme: string
+  product_focus: string | null
+  priority: "high" | "medium" | "low"
+}
+
+export interface ContentStrategy {
+  strategy_summary: string
+  recommended_platforms: Platform[]
+  posting_frequency: { platform: string; posts_per_week: number }[]
+  content_mix: { type: string; percentage: number; reasoning: string }[]
+  monthly_themes: { week: number; theme: string; rationale: string }[]
+  slots: ContentSlot[]
+}
+
+export interface FastlaneResult {
+  brand_id: string
+  slots_planned: number
+  slots_generated: number
+  calendar_entries_created: number
+  strategy_summary: string
+  errors: string[]
+}
+
+// ─── Influencer types ────────────────────────────────────────────────────────
+
+export type InfluencerStatus =
+  | "discovered"
+  | "contacted"
+  | "replied"
+  | "negotiating"
+  | "partnered"
+  | "rejected"
+  | "completed"
+
+export type PartnershipStatus = "draft" | "sent" | "active" | "completed" | "cancelled"
+export type OutreachChannel = "dm" | "email" | "whatsapp"
+export type InfluencerPlatform = "instagram" | "tiktok" | "youtube"

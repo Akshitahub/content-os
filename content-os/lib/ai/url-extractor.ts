@@ -1,15 +1,15 @@
 import OpenAI from "openai"
 import type { FetchedPage } from "@/lib/web/fetch-page"
+import { MODELS, NVIDIA_BASE_URL, getApiKey } from "./models"
 
 export class ExtractionError extends Error {}
 
 function getClient(): OpenAI {
-  const apiKey = process.env.NVIDIA_API_KEY
-  if (!apiKey) throw new ExtractionError("NVIDIA_API_KEY is not configured on the server.")
-  return new OpenAI({
-    apiKey,
-    baseURL: "https://integrate.api.nvidia.com/v1",
-  })
+  try {
+    return new OpenAI({ apiKey: getApiKey(), baseURL: NVIDIA_BASE_URL })
+  } catch {
+    throw new ExtractionError("NVIDIA_API_KEY is not configured on the server.")
+  }
 }
 
 function buildPageContext(page: FetchedPage): string {
@@ -42,7 +42,7 @@ export interface ExtractedBrandData {
 export async function extractBrandFromPage(page: FetchedPage): Promise<ExtractedBrandData> {
   const openai = getClient()
   const response = await openai.chat.completions.create({
-    model: "meta/llama-3.1-70b-instruct",
+    model: MODELS.extraction,
     temperature: 0.3,
     response_format: { type: "json_object" },
     messages: [
@@ -100,7 +100,7 @@ export interface ExtractedProductData {
 export async function extractProductFromPage(page: FetchedPage): Promise<ExtractedProductData> {
   const openai = getClient()
   const response = await openai.chat.completions.create({
-    model: "meta/llama-3.1-70b-instruct",
+    model: MODELS.extraction,
     temperature: 0.3,
     response_format: { type: "json_object" },
     messages: [

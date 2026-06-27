@@ -28,7 +28,7 @@ export default function NewBrandPage() {
   }
 
   return (
-    <div className="mx-auto max-w-2xl p-8">
+    <div className="mx-auto max-w-2xl px-4 py-6 md:p-8">
       <div className="mb-8">
         <Link
           href="/brands"

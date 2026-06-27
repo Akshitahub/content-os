@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation"
 import Link from "next/link"
-import { Package, Sparkles, Calendar, ArrowRight, Globe, AtSign, Edit } from "lucide-react"
+import { Package, Sparkles, Calendar, ArrowRight, Globe, AtSign, Edit, Zap } from "lucide-react"
 import { createClient } from "@/lib/supabase/server"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -43,10 +43,11 @@ export default async function BrandDetailPage({ params }: PageProps) {
     { label: "Products", description: "Manage your product catalog", href: `/brands/${brandId}/products`, icon: Package, count: productCount ?? 0, countLabel: "products" },
     { label: "Generate", description: "Create AI hooks and captions", href: `/brands/${brandId}/generate`, icon: Sparkles, count: hookCount ?? 0, countLabel: "saved hooks" },
     { label: "Calendar", description: "Plan your content schedule", href: `/brands/${brandId}/calendar`, icon: Calendar, count: null, countLabel: null },
+    { label: "Fastlane", description: "Generate a full 30-day content plan with one click", href: `/brands/${brandId}/fastlane`, icon: Zap, count: null, countLabel: null },
   ]
 
   return (
-    <div className="p-8">
+    <div className="px-4 py-6 md:p-8">
       <div className="mb-8 flex items-start justify-between gap-4">
         <div className="flex items-center gap-4">
           <div className="flex h-14 w-14 items-center justify-center rounded-xl bg-primary/10 text-lg font-bold text-primary">
@@ -84,7 +85,7 @@ export default async function BrandDetailPage({ params }: PageProps) {
       </div>
 
       {/* Quick actions */}
-      <div className="mb-8 grid gap-4 sm:grid-cols-3">
+      <div className="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {quickActions.map((action) => {
           const Icon = action.icon
           return (

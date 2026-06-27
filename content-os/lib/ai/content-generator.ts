@@ -1,6 +1,7 @@
 import OpenAI from "openai"
 import type { BrandRow, ProductRow } from "@/types/database"
 import type { ContentFormat, ContentFormatOutputMap, Platform } from "@/types/app"
+import { MODELS, NVIDIA_BASE_URL, getApiKey } from "./models"
 import {
   buildCaptionSystemPrompt,
   buildCaptionUserPrompt,
@@ -116,14 +117,8 @@ export async function generateContent(
   model: string
   usage: OpenAI.Completions.CompletionUsage | undefined
 }> {
-  const apiKey = process.env.NVIDIA_API_KEY
-  if (!apiKey) throw new Error("NVIDIA_API_KEY is not configured on the server.")
-  const openai = new OpenAI({
-    apiKey,
-    baseURL: "https://integrate.api.nvidia.com/v1",
-  })
-
-  const model = "meta/llama-3.1-70b-instruct"
+  const openai = new OpenAI({ apiKey: getApiKey(), baseURL: NVIDIA_BASE_URL })
+  const model = MODELS.generation
   const { system, user, maxTokens } = buildPrompts(format, brand, options)
 
   const response = await openai.chat.completions.create({

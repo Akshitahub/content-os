@@ -7,7 +7,13 @@ import type { ProductRow } from "@/types/database"
 type RouteParams = { params: Promise<{ brandId: string; productId: string }> }
 
 async function getAuthorizedProduct(brandId: string, productId: string) {
-  const supabase = await createClient()
+  let supabase
+  try {
+    supabase = await createClient()
+  } catch (err) {
+    console.error("[products/[productId]] createClient failed:", err)
+    return { error: "server_error" as const, supabase: null, user: null, product: null }
+  }
   const { data: { user }, error: authError } = await supabase.auth.getUser()
   if (authError || !user) return { error: "unauthenticated" as const, supabase, user: null, product: null }
 
@@ -23,7 +29,9 @@ async function getAuthorizedProduct(brandId: string, productId: string) {
 
 export async function GET(_req: Request, { params }: RouteParams) {
   const { brandId, productId } = await params
+  console.log(`[products/${brandId}/${productId}] GET called`)
   const result = await getAuthorizedProduct(brandId, productId)
+  if (result.error === "server_error") return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Server error."), { status: 500 })
   if (result.error === "unauthenticated") return NextResponse.json(buildError(ErrorCodes.UNAUTHENTICATED, "You must be logged in."), { status: 401 })
   if (result.error === "not_found") return NextResponse.json(buildError(ErrorCodes.PRODUCT_NOT_FOUND, "Product not found."), { status: 404 })
   if (result.error === "unauthorized") return NextResponse.json(buildError(ErrorCodes.UNAUTHORIZED, "Access denied."), { status: 403 })
@@ -32,7 +40,9 @@ export async function GET(_req: Request, { params }: RouteParams) {
 
 export async function PUT(request: Request, { params }: RouteParams) {
   const { brandId, productId } = await params
+  console.log(`[products/${brandId}/${productId}] PUT called`)
   const result = await getAuthorizedProduct(brandId, productId)
+  if (result.error === "server_error") return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Server error."), { status: 500 })
   if (result.error === "unauthenticated") return NextResponse.json(buildError(ErrorCodes.UNAUTHENTICATED, "You must be logged in."), { status: 401 })
   if (result.error === "not_found") return NextResponse.json(buildError(ErrorCodes.PRODUCT_NOT_FOUND, "Product not found."), { status: 404 })
   if (result.error === "unauthorized") return NextResponse.json(buildError(ErrorCodes.UNAUTHORIZED, "Access denied."), { status: 403 })
@@ -45,26 +55,44 @@ export async function PUT(request: Request, { params }: RouteParams) {
   const parsed = updateProductSchema.safeParse(body)
   if (!parsed.success) return NextResponse.json(buildError(ErrorCodes.VALIDATION_ERROR, "Validation failed.", parsed.error.message), { status: 400 })
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data: updated, error } = await (result.supabase.from("products") as any)
-    .update(parsed.data)
-    .eq("id", productId)
-    .select()
-    .single() as { data: ProductRow | null; error: { message: string } | null }
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data: updated, error } = await (result.supabase!.from("products") as any)
+      .update(parsed.data)
+      .eq("id", productId)
+      .select()
+      .single() as { data: ProductRow | null; error: { message: string } | null }
 
-  if (error) return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Failed to update product.", error.message), { status: 500 })
-  return NextResponse.json({ data: updated })
+    if (error) {
+      console.error(`[products/${brandId}/${productId}] PUT update error:`, error)
+      return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Failed to update product.", error.message), { status: 500 })
+    }
+    return NextResponse.json({ data: updated })
+  } catch (err) {
+    console.error(`[products/${brandId}/${productId}] PUT unexpected error:`, err)
+    return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Failed to update product."), { status: 500 })
+  }
 }
 
 export async function DELETE(_req: Request, { params }: RouteParams) {
   const { brandId, productId } = await params
+  console.log(`[products/${brandId}/${productId}] DELETE called`)
   const result = await getAuthorizedProduct(brandId, productId)
+  if (result.error === "server_error") return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Server error."), { status: 500 })
   if (result.error === "unauthenticated") return NextResponse.json(buildError(ErrorCodes.UNAUTHENTICATED, "You must be logged in."), { status: 401 })
   if (result.error === "not_found") return NextResponse.json(buildError(ErrorCodes.PRODUCT_NOT_FOUND, "Product not found."), { status: 404 })
   if (result.error === "unauthorized") return NextResponse.json(buildError(ErrorCodes.UNAUTHORIZED, "Access denied."), { status: 403 })
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { error } = await (result.supabase.from("products") as any).update({ is_active: false }).eq("id", productId)
-  if (error) return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Failed to delete product.", error.message), { status: 500 })
-  return NextResponse.json({ data: { deleted: true } })
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { error } = await (result.supabase!.from("products") as any).update({ is_active: false }).eq("id", productId)
+    if (error) {
+      console.error(`[products/${brandId}/${productId}] DELETE error:`, error)
+      return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Failed to delete product.", error.message), { status: 500 })
+    }
+    return NextResponse.json({ data: { deleted: true } })
+  } catch (err) {
+    console.error(`[products/${brandId}/${productId}] DELETE unexpected error:`, err)
+    return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Failed to delete product."), { status: 500 })
+  }
 }

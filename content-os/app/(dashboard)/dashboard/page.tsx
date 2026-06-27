@@ -1,41 +1,153 @@
 import { createClient } from "@/lib/supabase/server"
+import { OnboardingWizard } from "@/components/onboarding/OnboardingWizard"
+import { DashboardStats } from "@/components/dashboard/DashboardStats"
 import { UpcomingOccasions } from "@/components/dashboard/UpcomingOccasions"
-import type { UserRow } from "@/types/database"
+import type { UserRow, CalendarEntryRow, HookRow } from "@/types/database"
 
 export default async function DashboardPage() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return null
 
-  const [profileResult, countResult, firstBrandResult] = await Promise.all([
-    supabase
-      .from("users")
-      .select("full_name, plan")
-      .eq("id", user!.id)
-      .single<Pick<UserRow, "full_name" | "plan">>(),
-    supabase
-      .from("brands")
-      .select("*", { count: "exact", head: true })
-      .eq("user_id", user!.id),
-    supabase
-      .from("brands")
-      .select("id")
-      .eq("user_id", user!.id)
-      .eq("is_active", true)
-      .order("created_at", { ascending: true })
-      .limit(1)
-      .maybeSingle<{ id: string }>(),
+  const [profileResult, brandsResult] = await Promise.all([
+    supabase.from("users").select("full_name, plan").eq("id", user.id).single<Pick<UserRow, "full_name" | "plan">>(),
+    supabase.from("brands").select("id, name, is_active").eq("user_id", user.id).returns<Array<{ id: string; name: string; is_active: boolean }>>(),
   ])
 
   const profile = profileResult.data
-  const brandCount = countResult.count
-  const firstBrandId = firstBrandResult.data?.id ?? null
-  const firstName = profile?.full_name?.split(" ")[0] ?? "there"
+  const brands = brandsResult.data ?? []
+  const brandCount = brands.length
+  const activeBrandCount = brands.filter((b) => b.is_active).length
+  const firstBrandId = brands.find((b) => b.is_active)?.id ?? brands[0]?.id ?? null
+  const brandIds = brands.map((b) => b.id)
 
-  const hour = new Date().getHours()
+  if (brandCount === 0) {
+    return <OnboardingWizard />
+  }
+
+  const now = new Date()
+  const firstOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString()
+  const dayOfWeek = now.getDay()
+  const startOfWeek = new Date(now)
+  startOfWeek.setDate(now.getDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1))
+  startOfWeek.setHours(0, 0, 0, 0)
+  const endOfWeek = new Date(startOfWeek)
+  endOfWeek.setDate(startOfWeek.getDate() + 6)
+  const startOfWeekStr = startOfWeek.toISOString().split("T")[0]!
+  const endOfWeekStr = endOfWeek.toISOString().split("T")[0]!
+
+  const generationsResult = await supabase
+    .from("ai_generation_logs")
+    .select("*", { count: "exact", head: true })
+    .eq("user_id", user.id)
+    .gte("created_at", firstOfMonth)
+
+  const generationsThisMonth = generationsResult.count ?? 0
+
+  let calendarEntriesThisWeek = 0
+  let recentCalendar: Pick<CalendarEntryRow, "id" | "title" | "scheduled_date" | "platform" | "status">[] = []
+  let recentHooks: Pick<HookRow, "id" | "hook_text" | "hook_type" | "created_at">[] = []
+  let savedContentCount = 0
+
+  if (brandIds.length > 0) {
+    const [
+      calendarCountResult,
+      recentCalendarResult,
+      recentHooksResult,
+      savedHooksResult,
+      savedCaptionsResult,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      rsResult,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      crResult,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      acResult,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      esResult,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      pdResult,
+    ] = await Promise.all([
+      supabase
+        .from("calendar_entries")
+        .select("*", { count: "exact", head: true })
+        .in("brand_id", brandIds)
+        .gte("scheduled_date", startOfWeekStr)
+        .lte("scheduled_date", endOfWeekStr),
+      supabase
+        .from("calendar_entries")
+        .select("id, title, scheduled_date, platform, status")
+        .in("brand_id", brandIds)
+        .gte("scheduled_date", startOfWeekStr)
+        .order("scheduled_date", { ascending: true })
+        .limit(5),
+      supabase
+        .from("hooks")
+        .select("id, hook_text, hook_type, created_at")
+        .in("brand_id", brandIds)
+        .order("created_at", { ascending: false })
+        .limit(3),
+      supabase
+        .from("hooks")
+        .select("*", { count: "exact", head: true })
+        .in("brand_id", brandIds)
+        .eq("is_saved", true),
+      supabase
+        .from("captions")
+        .select("*", { count: "exact", head: true })
+        .in("brand_id", brandIds)
+        .eq("is_saved", true),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (supabase.from("reel_scripts") as any)
+        .select("*", { count: "exact", head: true })
+        .in("brand_id", brandIds)
+        .eq("is_saved", true),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (supabase.from("carousels") as any)
+        .select("*", { count: "exact", head: true })
+        .in("brand_id", brandIds)
+        .eq("is_saved", true),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (supabase.from("ad_copies") as any)
+        .select("*", { count: "exact", head: true })
+        .in("brand_id", brandIds)
+        .eq("is_saved", true),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (supabase.from("email_sequences") as any)
+        .select("*", { count: "exact", head: true })
+        .in("brand_id", brandIds)
+        .eq("is_saved", true),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (supabase.from("product_descriptions") as any)
+        .select("*", { count: "exact", head: true })
+        .in("brand_id", brandIds)
+        .eq("is_saved", true),
+    ])
+
+    calendarEntriesThisWeek = calendarCountResult.count ?? 0
+    recentCalendar = (recentCalendarResult.data ?? []) as Pick<CalendarEntryRow, "id" | "title" | "scheduled_date" | "platform" | "status">[]
+    recentHooks = (recentHooksResult.data ?? []) as Pick<HookRow, "id" | "hook_text" | "hook_type" | "created_at">[]
+
+    savedContentCount =
+      (savedHooksResult.count ?? 0) +
+      (savedCaptionsResult.count ?? 0) +
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ((rsResult as any).count ?? 0) +
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ((crResult as any).count ?? 0) +
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ((acResult as any).count ?? 0) +
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ((esResult as any).count ?? 0) +
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ((pdResult as any).count ?? 0)
+  }
+
+  const firstName = profile?.full_name?.split(" ")[0] ?? "there"
+  const hour = now.getHours()
   const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening"
 
   return (
-    <div className="p-8">
+    <div className="px-4 py-6 md:p-8">
       <div className="mb-8">
         <h1 className="text-3xl font-bold tracking-tight">
           {greeting}, {firstName} 👋
@@ -45,57 +157,15 @@ export default async function DashboardPage() {
         </p>
       </div>
 
-      {brandCount === 0 ? (
-        <div className="flex flex-col items-center justify-center rounded-lg border border-dashed p-16 text-center">
-          <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
-            <svg
-              className="h-6 w-6 text-primary"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              strokeWidth={2}
-            >
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-            </svg>
-          </div>
-          <h2 className="text-lg font-semibold">Create your first brand</h2>
-          <p className="mt-1 max-w-sm text-sm text-muted-foreground">
-            Add your brand identity — tone, audience, values — so the AI can
-            generate content that actually sounds like you.
-          </p>
-          <a
-            href="/brands/new"
-            className="mt-6 inline-flex h-10 items-center justify-center rounded-md bg-primary px-6 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
-          >
-            Create brand
-          </a>
-        </div>
-      ) : (
-        <div className="space-y-4">
-          <div className="grid gap-4 md:grid-cols-3">
-            <div className="rounded-lg border bg-card p-6">
-              <p className="text-sm text-muted-foreground">Brands</p>
-              <p className="mt-1 text-3xl font-bold">{brandCount ?? 0}</p>
-            </div>
-          </div>
-          {firstBrandId && (
-            <div className="flex flex-wrap gap-3">
-              <a
-                href={`/brands/${firstBrandId}/generate`}
-                className="inline-flex h-9 items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
-              >
-                Generate content →
-              </a>
-              <a
-                href={`/brands/${firstBrandId}/products`}
-                className="inline-flex h-9 items-center justify-center rounded-md border border-input bg-background px-4 text-sm font-medium transition-colors hover:bg-secondary"
-              >
-                Add product →
-              </a>
-            </div>
-          )}
-        </div>
-      )}
+      <DashboardStats
+        generationsThisMonth={generationsThisMonth}
+        savedContentCount={savedContentCount}
+        calendarEntriesThisWeek={calendarEntriesThisWeek}
+        activeBrands={activeBrandCount}
+        recentCalendar={recentCalendar}
+        recentHooks={recentHooks}
+        firstBrandId={firstBrandId}
+      />
 
       <div className="mt-6">
         <UpcomingOccasions brandId={firstBrandId} />

@@ -9,7 +9,13 @@ import type { Database } from "@/types/database"
 type RouteParams = { params: Promise<{ brandId: string }> }
 
 async function getAuthorizedBrand(brandId: string) {
-  const supabase = await createClient()
+  let supabase
+  try {
+    supabase = await createClient()
+  } catch (err) {
+    console.error("[brands/[brandId]] createClient failed:", err)
+    return { error: "server_error" as const, supabase: null, user: null, brand: null }
+  }
 
   const { data: { user }, error: authError } = await supabase.auth.getUser()
   if (authError || !user) {
@@ -33,7 +39,6 @@ async function getAuthorizedBrand(brandId: string) {
   return { error: null, supabase, user, brand }
 }
 
-// Helper to get an untyped brands table reference (avoids insert/update type conflicts)
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function brandsTable(supabase: SupabaseClient<Database>): any {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -42,8 +47,10 @@ function brandsTable(supabase: SupabaseClient<Database>): any {
 
 export async function GET(_request: Request, { params }: RouteParams) {
   const { brandId } = await params
+  console.log(`[brands/${brandId}] GET called`)
   const result = await getAuthorizedBrand(brandId)
 
+  if (result.error === "server_error") return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Server error."), { status: 500 })
   if (result.error === "unauthenticated") return NextResponse.json(buildError(ErrorCodes.UNAUTHENTICATED, "You must be logged in."), { status: 401 })
   if (result.error === "not_found") return NextResponse.json(buildError(ErrorCodes.BRAND_NOT_FOUND, "Brand not found."), { status: 404 })
   if (result.error === "unauthorized") return NextResponse.json(buildError(ErrorCodes.UNAUTHORIZED, "You do not have access to this brand."), { status: 403 })
@@ -53,8 +60,10 @@ export async function GET(_request: Request, { params }: RouteParams) {
 
 export async function PUT(request: Request, { params }: RouteParams) {
   const { brandId } = await params
+  console.log(`[brands/${brandId}] PUT called`)
   const result = await getAuthorizedBrand(brandId)
 
+  if (result.error === "server_error") return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Server error."), { status: 500 })
   if (result.error === "unauthenticated") return NextResponse.json(buildError(ErrorCodes.UNAUTHENTICATED, "You must be logged in."), { status: 401 })
   if (result.error === "not_found") return NextResponse.json(buildError(ErrorCodes.BRAND_NOT_FOUND, "Brand not found."), { status: 404 })
   if (result.error === "unauthorized") return NextResponse.json(buildError(ErrorCodes.UNAUTHORIZED, "You do not have access to this brand."), { status: 403 })
@@ -71,34 +80,48 @@ export async function PUT(request: Request, { params }: RouteParams) {
     return NextResponse.json(buildError(ErrorCodes.VALIDATION_ERROR, "Validation failed.", parsed.error.message), { status: 400 })
   }
 
-  const { data: updated, error } = await brandsTable(result.supabase)
-    .update(parsed.data)
-    .eq("id", brandId)
-    .select()
-    .single() as { data: BrandRow | null; error: { message: string } | null }
+  try {
+    const { data: updated, error } = await brandsTable(result.supabase!)
+      .update(parsed.data)
+      .eq("id", brandId)
+      .select()
+      .single() as { data: BrandRow | null; error: { message: string } | null }
 
-  if (error) {
-    return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Failed to update brand.", error.message), { status: 500 })
+    if (error) {
+      console.error(`[brands/${brandId}] PUT update error:`, error)
+      return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Failed to update brand.", error.message), { status: 500 })
+    }
+
+    return NextResponse.json({ data: updated })
+  } catch (err) {
+    console.error(`[brands/${brandId}] PUT unexpected error:`, err)
+    return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Failed to update brand."), { status: 500 })
   }
-
-  return NextResponse.json({ data: updated })
 }
 
 export async function DELETE(_request: Request, { params }: RouteParams) {
   const { brandId } = await params
+  console.log(`[brands/${brandId}] DELETE called`)
   const result = await getAuthorizedBrand(brandId)
 
+  if (result.error === "server_error") return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Server error."), { status: 500 })
   if (result.error === "unauthenticated") return NextResponse.json(buildError(ErrorCodes.UNAUTHENTICATED, "You must be logged in."), { status: 401 })
   if (result.error === "not_found") return NextResponse.json(buildError(ErrorCodes.BRAND_NOT_FOUND, "Brand not found."), { status: 404 })
   if (result.error === "unauthorized") return NextResponse.json(buildError(ErrorCodes.UNAUTHORIZED, "You do not have access to this brand."), { status: 403 })
 
-  const { error } = await brandsTable(result.supabase)
-    .update({ is_active: false })
-    .eq("id", brandId) as { error: { message: string } | null }
+  try {
+    const { error } = await brandsTable(result.supabase!)
+      .update({ is_active: false })
+      .eq("id", brandId) as { error: { message: string } | null }
 
-  if (error) {
-    return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Failed to delete brand.", error.message), { status: 500 })
+    if (error) {
+      console.error(`[brands/${brandId}] DELETE error:`, error)
+      return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Failed to delete brand.", error.message), { status: 500 })
+    }
+
+    return NextResponse.json({ data: { deleted: true } })
+  } catch (err) {
+    console.error(`[brands/${brandId}] DELETE unexpected error:`, err)
+    return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Failed to delete brand."), { status: 500 })
   }
-
-  return NextResponse.json({ data: { deleted: true } })
 }

@@ -337,6 +337,180 @@ export type Database = {
           updated_at?: string
         }
       }
+      influencers: {
+        Row: {
+          id: string
+          brand_id: string
+          platform: "instagram" | "tiktok" | "youtube"
+          handle: string
+          full_name: string | null
+          bio: string | null
+          follower_count: number | null
+          following_count: number | null
+          post_count: number | null
+          avg_engagement_rate: number | null
+          profile_url: string | null
+          avatar_url: string | null
+          niche: string | null
+          location: string | null
+          fit_score: number | null
+          fit_reasoning: string | null
+          raw_scraped_data: Record<string, unknown>
+          status: "discovered" | "contacted" | "replied" | "negotiating" | "partnered" | "rejected" | "completed"
+          notes: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          brand_id: string
+          platform: "instagram" | "tiktok" | "youtube"
+          handle: string
+          full_name?: string | null
+          bio?: string | null
+          follower_count?: number | null
+          following_count?: number | null
+          post_count?: number | null
+          avg_engagement_rate?: number | null
+          profile_url?: string | null
+          avatar_url?: string | null
+          niche?: string | null
+          location?: string | null
+          fit_score?: number | null
+          fit_reasoning?: string | null
+          raw_scraped_data?: Record<string, unknown>
+          status?: "discovered" | "contacted" | "replied" | "negotiating" | "partnered" | "rejected" | "completed"
+          notes?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          handle?: string
+          full_name?: string | null
+          bio?: string | null
+          follower_count?: number | null
+          following_count?: number | null
+          post_count?: number | null
+          avg_engagement_rate?: number | null
+          profile_url?: string | null
+          avatar_url?: string | null
+          niche?: string | null
+          location?: string | null
+          fit_score?: number | null
+          fit_reasoning?: string | null
+          raw_scraped_data?: Record<string, unknown>
+          status?: "discovered" | "contacted" | "replied" | "negotiating" | "partnered" | "rejected" | "completed"
+          notes?: string | null
+          updated_at?: string
+        }
+      }
+      influencer_partnerships: {
+        Row: {
+          id: string
+          influencer_id: string
+          brand_id: string
+          campaign_name: string
+          campaign_brief: string | null
+          deliverables: string[]
+          talking_points: string[]
+          dos: string[]
+          donts: string[]
+          key_hashtags: string[]
+          compensation_type: "paid" | "gifted" | "affiliate" | "collab" | null
+          compensation_amount: number | null
+          currency: string
+          timeline_start: string | null
+          timeline_end: string | null
+          status: "draft" | "sent" | "active" | "completed" | "cancelled"
+          actual_reach: number | null
+          actual_engagement: number | null
+          conversions: number | null
+          roi_notes: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          influencer_id: string
+          brand_id: string
+          campaign_name: string
+          campaign_brief?: string | null
+          deliverables?: string[]
+          talking_points?: string[]
+          dos?: string[]
+          donts?: string[]
+          key_hashtags?: string[]
+          compensation_type?: "paid" | "gifted" | "affiliate" | "collab" | null
+          compensation_amount?: number | null
+          currency?: string
+          timeline_start?: string | null
+          timeline_end?: string | null
+          status?: "draft" | "sent" | "active" | "completed" | "cancelled"
+          actual_reach?: number | null
+          actual_engagement?: number | null
+          conversions?: number | null
+          roi_notes?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          campaign_name?: string
+          campaign_brief?: string | null
+          deliverables?: string[]
+          talking_points?: string[]
+          dos?: string[]
+          donts?: string[]
+          key_hashtags?: string[]
+          compensation_type?: "paid" | "gifted" | "affiliate" | "collab" | null
+          compensation_amount?: number | null
+          currency?: string
+          timeline_start?: string | null
+          timeline_end?: string | null
+          status?: "draft" | "sent" | "active" | "completed" | "cancelled"
+          actual_reach?: number | null
+          actual_engagement?: number | null
+          conversions?: number | null
+          roi_notes?: string | null
+          updated_at?: string
+        }
+      }
+      outreach_messages: {
+        Row: {
+          id: string
+          influencer_id: string
+          brand_id: string
+          channel: "dm" | "email" | "whatsapp"
+          subject: string | null
+          message_text: string
+          tone: string | null
+          sent_at: string | null
+          replied_at: string | null
+          reply_text: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          influencer_id: string
+          brand_id: string
+          channel: "dm" | "email" | "whatsapp"
+          subject?: string | null
+          message_text: string
+          tone?: string | null
+          sent_at?: string | null
+          replied_at?: string | null
+          reply_text?: string | null
+          created_at?: string
+        }
+        Update: {
+          channel?: "dm" | "email" | "whatsapp"
+          subject?: string | null
+          message_text?: string
+          tone?: string | null
+          sent_at?: string | null
+          replied_at?: string | null
+          reply_text?: string | null
+        }
+      }
       ai_generation_logs: {
         Row: {
           id: string
@@ -403,6 +577,160 @@ export type Database = {
           is_saved?: boolean
         }
       }
+      reel_scripts: {
+        Row: {
+          id: string
+          brand_id: string
+          product_id: string | null
+          platform: string | null
+          hook: string
+          scenes: Json
+          caption: string | null
+          hashtags: string[]
+          duration_seconds: number | null
+          is_saved: boolean
+          user_rating: number | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          brand_id: string
+          product_id?: string | null
+          platform?: string | null
+          hook: string
+          scenes?: Json
+          caption?: string | null
+          hashtags?: string[]
+          duration_seconds?: number | null
+          is_saved?: boolean
+          user_rating?: number | null
+          created_at?: string
+        }
+        Update: {
+          is_saved?: boolean
+          user_rating?: number | null
+        }
+      }
+      carousels: {
+        Row: {
+          id: string
+          brand_id: string
+          product_id: string | null
+          platform: string | null
+          title: string | null
+          slides: Json
+          hashtags: string[]
+          is_saved: boolean
+          user_rating: number | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          brand_id: string
+          product_id?: string | null
+          platform?: string | null
+          title?: string | null
+          slides?: Json
+          hashtags?: string[]
+          is_saved?: boolean
+          user_rating?: number | null
+          created_at?: string
+        }
+        Update: {
+          is_saved?: boolean
+          user_rating?: number | null
+        }
+      }
+      ad_copies: {
+        Row: {
+          id: string
+          brand_id: string
+          product_id: string | null
+          platform: string | null
+          headline: string
+          primary_text: string
+          description: string | null
+          cta_button: string | null
+          character_counts: Json
+          is_saved: boolean
+          user_rating: number | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          brand_id: string
+          product_id?: string | null
+          platform?: string | null
+          headline: string
+          primary_text: string
+          description?: string | null
+          cta_button?: string | null
+          character_counts?: Json
+          is_saved?: boolean
+          user_rating?: number | null
+          created_at?: string
+        }
+        Update: {
+          is_saved?: boolean
+          user_rating?: number | null
+        }
+      }
+      email_sequences: {
+        Row: {
+          id: string
+          brand_id: string
+          product_id: string | null
+          sequence_type: string | null
+          emails: Json
+          is_saved: boolean
+          user_rating: number | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          brand_id: string
+          product_id?: string | null
+          sequence_type?: string | null
+          emails?: Json
+          is_saved?: boolean
+          user_rating?: number | null
+          created_at?: string
+        }
+        Update: {
+          is_saved?: boolean
+          user_rating?: number | null
+        }
+      }
+      product_descriptions: {
+        Row: {
+          id: string
+          brand_id: string
+          product_id: string | null
+          short_description: string | null
+          long_description: string | null
+          bullet_points: string[]
+          meta_description: string | null
+          is_saved: boolean
+          user_rating: number | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          brand_id: string
+          product_id?: string | null
+          short_description?: string | null
+          long_description?: string | null
+          bullet_points?: string[]
+          meta_description?: string | null
+          is_saved?: boolean
+          user_rating?: number | null
+          created_at?: string
+        }
+        Update: {
+          is_saved?: boolean
+          user_rating?: number | null
+        }
+      }
     }
     Views: Record<string, never>
     Functions: Record<string, never>
@@ -420,6 +748,14 @@ export type CaptionRow = Database["public"]["Tables"]["captions"]["Row"]
 export type CalendarEntryRow = Database["public"]["Tables"]["calendar_entries"]["Row"]
 export type AIGenerationLogRow = Database["public"]["Tables"]["ai_generation_logs"]["Row"]
 export type GeneratedImageRow = Database["public"]["Tables"]["generated_images"]["Row"]
+export type InfluencerRow = Database["public"]["Tables"]["influencers"]["Row"]
+export type InfluencerPartnershipRow = Database["public"]["Tables"]["influencer_partnerships"]["Row"]
+export type OutreachMessageRow = Database["public"]["Tables"]["outreach_messages"]["Row"]
+export type ReelScriptRow = Database["public"]["Tables"]["reel_scripts"]["Row"]
+export type CarouselRow = Database["public"]["Tables"]["carousels"]["Row"]
+export type AdCopyRow = Database["public"]["Tables"]["ad_copies"]["Row"]
+export type EmailSequenceRow = Database["public"]["Tables"]["email_sequences"]["Row"]
+export type ProductDescriptionRow = Database["public"]["Tables"]["product_descriptions"]["Row"]
 
 // Insert types
 export type UserInsert = Database["public"]["Tables"]["users"]["Insert"]
@@ -431,3 +767,11 @@ export type CaptionInsert = Database["public"]["Tables"]["captions"]["Insert"]
 export type CalendarEntryInsert = Database["public"]["Tables"]["calendar_entries"]["Insert"]
 export type AIGenerationLogInsert = Database["public"]["Tables"]["ai_generation_logs"]["Insert"]
 export type GeneratedImageInsert = Database["public"]["Tables"]["generated_images"]["Insert"]
+export type InfluencerInsert = Database["public"]["Tables"]["influencers"]["Insert"]
+export type InfluencerPartnershipInsert = Database["public"]["Tables"]["influencer_partnerships"]["Insert"]
+export type OutreachMessageInsert = Database["public"]["Tables"]["outreach_messages"]["Insert"]
+export type ReelScriptInsert = Database["public"]["Tables"]["reel_scripts"]["Insert"]
+export type CarouselInsert = Database["public"]["Tables"]["carousels"]["Insert"]
+export type AdCopyInsert = Database["public"]["Tables"]["ad_copies"]["Insert"]
+export type EmailSequenceInsert = Database["public"]["Tables"]["email_sequences"]["Insert"]
+export type ProductDescriptionInsert = Database["public"]["Tables"]["product_descriptions"]["Insert"]

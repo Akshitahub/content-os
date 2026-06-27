@@ -7,7 +7,16 @@ import { checkAndIncrementUsage } from "@/lib/usage/check-and-increment-usage"
 import type { BrandRow, ProductRow } from "@/types/database"
 
 export async function POST(request: Request) {
-  const supabase = await createClient()
+  console.log("[ai/hooks/generate] POST called")
+
+  let supabase
+  try {
+    supabase = await createClient()
+  } catch (err) {
+    console.error("[ai/hooks/generate] createClient failed:", err)
+    return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Server error."), { status: 500 })
+  }
+
   const { data: { user }, error: authError } = await supabase.auth.getUser()
   if (authError || !user) return NextResponse.json(buildError(ErrorCodes.UNAUTHENTICATED, "You must be logged in."), { status: 401 })
 

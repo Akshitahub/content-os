@@ -2,6 +2,7 @@ import OpenAI from "openai"
 import type { BrandRow, ProductRow } from "@/types/database"
 import type { GeneratedHook, HookType, Platform } from "@/types/app"
 import { buildHookSystemPrompt, buildHookUserPrompt } from "./prompts"
+import { MODELS, NVIDIA_BASE_URL, getApiKey } from "./models"
 
 export async function generateHooks(
   brand: BrandRow,
@@ -13,19 +14,14 @@ export async function generateHooks(
     product?: ProductRow | null
   }
 ): Promise<{ hooks: GeneratedHook[]; model: string; usage: OpenAI.Completions.CompletionUsage | undefined }> {
-  const apiKey = process.env.NVIDIA_API_KEY
-  if (!apiKey) throw new Error("NVIDIA_API_KEY is not configured on the server.")
-  const openai = new OpenAI({
-    apiKey,
-    baseURL: "https://integrate.api.nvidia.com/v1",
-  })
+  const openai = new OpenAI({ apiKey: getApiKey(), baseURL: NVIDIA_BASE_URL })
 
   const hookTypes = options.hookTypes?.length
     ? options.hookTypes
     : (["question", "bold_statement", "story", "statistic", "controversial", "how_to"] as HookType[])
 
   const count = options.count ?? 5
-  const model = "meta/llama-3.1-70b-instruct"
+  const model = MODELS.generation
 
   const response = await openai.chat.completions.create({
     model,
