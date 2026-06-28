@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server"
+﻿import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import { generateCaptionsSchema } from "@/lib/validations/ai"
 import { generateCaption } from "@/lib/ai/captions-generator"
@@ -45,10 +45,10 @@ export async function POST(request: Request) {
     product = prod
   }
 
-  // Resolve hook text from DB if hookId provided but no hookText
   let resolvedHookText = hookText
   if (!resolvedHookText && hookId) {
-    const { data: hook } = await supabase.from("hooks").select("hook_text").eq("id", hookId).single() as unknown as { data: { hook_text: string } | null } as { data: { hook_text: string } | null; error: unknown }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data: hook } = await (supabase.from("hooks") as any).select("hook_text").eq("id", hookId).single() as { data: { hook_text: string } | null }
     resolvedHookText = hook?.hook_text
   }
 
@@ -69,7 +69,6 @@ export async function POST(request: Request) {
 
   const latencyMs = Date.now() - startTime
 
-  // Save to DB
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data: savedCaption } = await (supabase.from("captions") as any).insert({
     brand_id: brandId,
