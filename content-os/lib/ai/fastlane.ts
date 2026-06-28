@@ -164,7 +164,7 @@ async function generateSlotContent(
   const isCarousel = slot.content_type === "carousel"
 
   const res = await generateWithRetry(groq, {
-    model: MODELS.extraction,
+    model: MODELS.generation,
     temperature: 0.8,
     max_tokens: isCarousel ? 600 : 400,
     messages: [
@@ -261,12 +261,12 @@ export async function executeFastlane(
   let slotsGenerated = 0
   let calendarEntriesCreated = 0
 
-  const batchSize = 5
+  const batchSize = 3
   const baseDate = new Date()
   baseDate.setHours(0, 0, 0, 0)
 
   for (let i = 0; i < slots.length; i += batchSize) {
-    if (i > 0) await sleep(500)
+    if (i > 0) await sleep(1500)
 
     const batch = slots.slice(i, i + batchSize)
     const results = await Promise.allSettled(
@@ -292,7 +292,7 @@ export async function executeFastlane(
                 hook_text: generated.hook,
                 hook_type: "bold_statement",
                 generation_prompt: `fastlane day:${slot.day} platform:${slot.platform}`,
-                model_used: MODELS.extraction,
+                model_used: MODELS.generation,
                 is_saved: true,
               })
               .select("id")
@@ -317,7 +317,7 @@ export async function executeFastlane(
                 cta: generated.call_to_action || null,
                 character_count: generated.caption.length,
                 platform: slot.platform,
-                model_used: MODELS.extraction,
+                model_used: MODELS.generation,
                 is_saved: true,
               })
               .select("id")
