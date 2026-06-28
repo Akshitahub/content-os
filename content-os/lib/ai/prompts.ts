@@ -48,7 +48,29 @@ function hookTypeInstruction(types: HookType[]): string {
 }
 
 export function buildHookSystemPrompt(): string {
-  return `You are an expert social media content creator for Indian D2C brands. You write scroll-stopping hooks that feel native to the platform, match the brand voice exactly, and drive real engagement. Never write generic content. Every hook must feel like it was written by someone who deeply understands this specific brand and its audience.
+  return `You are an elite social media hook writer for Indian D2C brands. You write the single most important line — the one that stops the scroll or loses the reader forever.
+
+RULES (non-negotiable):
+1. MAX 8 WORDS. Count them. Never exceed this.
+2. NEVER mention the product name, brand name, or product category in the hook
+3. Speak to the emotion, pain point, or curiosity — never the solution
+4. No exclamation marks, no hashtags, no emojis
+5. Make the reader feel like you read their diary
+
+GOOD HOOKS (study these patterns):
+- "This changed how I sleep forever" — 8 words, curiosity + emotion
+- "Your skin is lying to you" — 7 words, provocation
+- "Nobody talks about this beauty mistake" — 7 words, intrigue
+- "I stopped doing this and changed everything" — 8 words, story
+- "The thing your mom was right about" — 8 words, nostalgia
+
+BAD HOOKS (never write these):
+- "Introducing our amazing new product!" — brand-centric, boring
+- "Check out our latest collection!" — asking them to work
+- "We are excited to announce..." — you-first, not them-first
+- "Best skincare product for glowing skin" — category mention, generic
+- "Shop now and save 20%!" — leading with offer = boring
+
 Always respond with valid JSON only. No markdown, no explanation.`
 }
 
@@ -62,42 +84,82 @@ export function buildHookUserPrompt(
     product?: ProductRow | null
   }
 ): string {
-  const brandContext = buildBrandContext(brand, options.product)
-  const platformNote = options.platform ? `Platform: ${options.platform} (optimize length and style for this platform)` : ""
-  const extraContext = options.additionalContext ? `Additional context: ${options.additionalContext}` : ""
+  const b = brand as BrandRow & {
+    brand_personality?: string | null
+    target_emotion?: string | null
+    content_pillars?: string[]
+  }
 
-  return `${brandContext}
+  const audienceContext = [
+    `Niche: ${brand.niche ?? "D2C brand"}`,
+    `Target Audience: ${brand.target_audience ?? "general consumers"}`,
+    `Tone of Voice: ${brand.tone_of_voice ?? "conversational"}`,
+    b.brand_personality ? `Brand Personality: ${b.brand_personality}` : null,
+    b.target_emotion ? `Emotion to evoke: ${b.target_emotion}` : null,
+    b.content_pillars?.length ? `Content pillars: ${b.content_pillars.join(", ")}` : null,
+  ].filter(Boolean).join("\n")
+
+  // Use category/benefit angle — NOT the product name — per hook quality rules
+  const contentAngle = options.product
+    ? [
+        `Category angle: ${brand.niche ?? "lifestyle product"}`,
+        options.product.key_benefits?.length
+          ? `Benefit to imply: ${options.product.key_benefits.slice(0, 2).join(", ")}`
+          : options.product.description
+          ? `Angle: ${options.product.description.slice(0, 80)}`
+          : null,
+      ].filter(Boolean).join("\n")
+    : `Category: ${brand.niche ?? "D2C"}`
+
+  const platformNote = options.platform ? `Platform: ${options.platform} (tailor energy and length to this platform's scroll behaviour)` : ""
+  const extraContext = options.additionalContext ? `Additional angle or occasion: ${options.additionalContext}` : ""
+
+  return `${audienceContext}
+${contentAngle}
 ${platformNote}
 ${extraContext}
 
-Generate ${options.count} high-converting social media hooks for the above brand${options.product ? ` promoting "${options.product.name}"` : ""}.
+Generate ${options.count} scroll-stopping hooks. Remember: MAX 8 WORDS EACH. NEVER mention the product name or brand name.
 
-Hook types to use (vary across them):
+Hook types to vary across:
 ${hookTypeInstruction(options.hookTypes)}
-
-Critical rules for every hook:
-1. The first 3 words must stop the scroll
-2. Use "you" or "your" to speak directly to the audience
-3. Create curiosity, FOMO, or strong emotion
-4. Match the exact tone described above
-5. NEVER use generic phrases like "Check this out", "We are excited", "Introducing", or "Amazing new"
-6. Be specific to this brand's niche — not generic D2C content
-7. Each hook must feel written by someone who lives and breathes this brand
 
 Respond with this exact JSON:
 {
   "hooks": [
     {
-      "hook_text": "the hook line",
-      "hook_type": "one of: question|bold_statement|story|statistic|controversial|how_to",
-      "reasoning": "one sentence on why this works for this specific brand"
+      "hook_text": "max 8 words, no product name, no brand name",
+      "hook_type": "question|bold_statement|story|statistic|controversial|how_to",
+      "reasoning": "one sentence on why this emotion/angle works for this specific audience"
     }
   ]
 }`
 }
 
 export function buildCaptionSystemPrompt(): string {
-  return `You are an expert social media copywriter for Indian D2C brands. You write captions that convert — not just get likes. Every caption must end with the brand's CTA phrase and @handle. Your writing is conversational, authentic, and platform-native. You understand the balance between storytelling and selling.
+  return `You are an expert social media copywriter for Indian D2C brands. You write captions that convert — not just get likes.
+
+CAPTION STRUCTURE (follow this every time):
+1. Hook line — restate or evolve the opening hook (1 punchy line)
+2. Story or value — 2-4 lines building connection, value, or relatability
+3. CTA line — one clear action (always ends with brand's CTA phrase + @handle)
+4. [blank line]
+5. [blank line]
+6. Hashtags — 15-20 tags using the 5+5+5 method below
+
+HASHTAG STRATEGY — 5+5+5 RULE:
+- 5 niche-specific (medium competition, 100K–2M posts): e.g. #SkincareRoutine, #CleanBeautyIndia
+- 5 brand/product-specific (low competition, unique to brand): e.g. #BrandName, #ProductName
+- 5 broad/trending (high volume, 5M+ posts): e.g. #Skincare, #Beauty, #SelfCare
+
+VIBE MATCHING:
+- Educational: "Here's why...", "The truth about...", teach a lesson
+- Entertaining: humor, relatable "when you..." moments, wit
+- Inspirational: "You deserve...", "Imagine...", second-person empowerment
+- Sales: urgency + value + social proof in one paragraph
+- Community: "Tag someone who...", "Drop a 🤍 if...", inclusive CTAs
+
+MANDATORY: The last 1-2 lines of caption_text MUST be the brand's CTA phrase followed by @handle on a new line.
 Always respond with valid JSON only. No markdown, no explanation.`
 }
 
@@ -130,6 +192,10 @@ export function buildCaptionUserPrompt(
     twitter: "Max 280 chars. Punchy. 1-2 hashtags or none.",
   }
 
+  const endingExample = handle
+    ? `"${ctaPhrase} 👇\\n${handle}"`
+    : `"${ctaPhrase} 👇"`
+
   return `${brandContext}
 Platform: ${options.platform} — ${platformRules[options.platform]}
 Content type: ${options.contentType}
@@ -137,12 +203,15 @@ ${hookLine}
 ${extraContext}
 
 Write a complete social media caption following the brand voice exactly.
-The caption_text MUST end with the CTA phrase "${ctaPhrase}"${handle ? ` and the handle ${handle}` : ""} as the final lines before the hashtags.
+
+CRITICAL — the last 2 lines of caption_text MUST be exactly:
+${endingExample}
+This is non-negotiable. Do not forget the @handle.
 
 Respond with this exact JSON:
 {
-  "caption_text": "the full caption without hashtags, ending with CTA and @handle",
-  "hashtags": ["hashtag1", "hashtag2"],
+  "caption_text": "full caption ending with: ${ctaPhrase} 👇\\n${handle || "@handle"}",
+  "hashtags": ["niche1", "niche2", "niche3", "niche4", "niche5", "brand1", "brand2", "brand3", "brand4", "brand5", "broad1", "broad2", "broad3", "broad4", "broad5"],
   "cta": "${ctaPhrase}",
   "character_count": 123
 }`

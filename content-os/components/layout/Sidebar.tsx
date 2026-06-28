@@ -197,7 +197,7 @@ export function Sidebar({ isOpen = false, onClose }: SidebarProps) {
           <div className="space-y-0.5">
             <NavItem
               href={brandHref("/fastlane")}
-              label="Fastlane ⚡"
+              label="Autopilot ✈️"
               icon={Zap}
               isActive={brandActive("/fastlane")}
               onClose={onClose}

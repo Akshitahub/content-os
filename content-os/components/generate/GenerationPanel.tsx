@@ -1,12 +1,13 @@
 "use client"
 
 import { useState } from "react"
-import { FileText, Sparkles, Layers, ImageIcon, X } from "lucide-react"
+import { FileText, Sparkles, Layers, ImageIcon, X, RefreshCw } from "lucide-react"
 import { FullPostGenerator } from "./FullPostGenerator"
 import { HookGenerator } from "./HookGenerator"
 import { ContentTypeGenerator } from "./ContentTypeGenerator"
 import { ImageGenerator } from "./ImageGenerator"
 import { SceneComposer } from "./SceneComposer"
+import { ContentRepurposer } from "./ContentRepurposer"
 import { useGenerationStore } from "@/stores/generationStore"
 import type { ProductRow } from "@/types/database"
 
@@ -15,13 +16,14 @@ interface GenerationPanelProps {
   products: ProductRow[]
 }
 
-type Tab = "full_post" | "hooks" | "content" | "images"
+type Tab = "full_post" | "hooks" | "content" | "images" | "repurpose"
 
 const TABS: { id: Tab; label: string; icon: React.ElementType }[] = [
   { id: "full_post", label: "Post Builder", icon: FileText },
   { id: "hooks", label: "Scroll Stoppers", icon: Sparkles },
   { id: "content", label: "Deep Content", icon: Layers },
   { id: "images", label: "Visuals", icon: ImageIcon },
+  { id: "repurpose", label: "Repurpose", icon: RefreshCw },
 ]
 
 export function GenerationPanel({ brandId, products }: GenerationPanelProps) {
@@ -82,6 +84,7 @@ export function GenerationPanel({ brandId, products }: GenerationPanelProps) {
           </div>
         </div>
       )}
+      {activeTab === "repurpose" && <ContentRepurposer brandId={brandId} />}
     </div>
   )
 }

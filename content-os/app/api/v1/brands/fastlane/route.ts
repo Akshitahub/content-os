@@ -32,7 +32,7 @@ export async function POST(request: Request) {
     return NextResponse.json(buildError(ErrorCodes.VALIDATION_ERROR, "Validation failed.", parsed.error.message), { status: 400 })
   }
 
-  const { brandId, force, clearAndRegenerate } = parsed.data
+  const { brandId, force, clearAndRegenerate, frequency, platforms, vibe, focusAreas } = parsed.data
 
   try {
     // Verify brand ownership
@@ -97,14 +97,14 @@ export async function POST(request: Request) {
 
       if (currentCount + FASTLANE_GENERATION_COST > limit) {
         return NextResponse.json(
-          buildError(ErrorCodes.INTERNAL_ERROR, `Fastlane requires ${FASTLANE_GENERATION_COST} generations. You have ${limit - currentCount} remaining on your ${userData.plan} plan.`),
+          buildError(ErrorCodes.INTERNAL_ERROR, `Autopilot requires ${FASTLANE_GENERATION_COST} generations. You have ${limit - currentCount} remaining on your ${userData.plan} plan.`),
           { status: 429 }
         )
       }
     }
 
-    // Execute fastlane
-    const result = await executeFastlane(supabase, user.id, brandId)
+    // Execute autopilot with user preferences
+    const result = await executeFastlane(supabase, user.id, brandId, { frequency, platforms, vibe, focusAreas })
 
     // Increment generation count
     const { data: currentUser } = await supabase
@@ -130,7 +130,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ data: result }, { status: 201 })
   } catch (err) {
     console.error("[fastlane] POST unexpected error:", err)
-    const message = err instanceof Error ? err.message : "Failed to execute Fastlane."
+    const message = err instanceof Error ? err.message : "Failed to execute Autopilot."
     return NextResponse.json(buildError(ErrorCodes.AI_GENERATION_FAILED, message), { status: 500 })
   }
 }

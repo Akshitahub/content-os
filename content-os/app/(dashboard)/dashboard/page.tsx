@@ -184,7 +184,7 @@ export default async function DashboardPage() {
               href={`/brands/${firstBrandId}/fastlane`}
               className="inline-flex h-9 items-center gap-1.5 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
             >
-              ⚡ Run Fastlane
+              ✈️ Run Autopilot
             </Link>
           )}
         </div>

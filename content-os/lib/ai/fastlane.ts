@@ -68,16 +68,49 @@ Consider platform-specific best practices, posting cadence, content variety, and
 Always respond with valid JSON only. No markdown, no explanation outside the JSON.`
 }
 
-function buildStrategyUserPrompt(brand: BrandRow, products: ProductRow[]): string {
+interface AutopilotParams {
+  frequency?: string
+  platforms?: string[]
+  vibe?: string
+  focusAreas?: string[]
+}
+
+function buildContentMix(focusAreas?: string[]): typeof CONTENT_MIX {
+  if (!focusAreas?.length) return CONTENT_MIX
+  // Weight selected focus areas more heavily
+  const selected = CONTENT_MIX.filter(m => focusAreas.includes(m.pillar))
+  const others = CONTENT_MIX.filter(m => !focusAreas.includes(m.pillar))
+  if (!selected.length) return CONTENT_MIX
+  // Redistribute: selected pillars get ~70% of slots, others get ~30%
+  const total = 30
+  const selectedTotal = Math.round(total * 0.7)
+  const othersTotal = total - selectedTotal
+  const perSelected = Math.floor(selectedTotal / selected.length)
+  const perOthers = others.length ? Math.floor(othersTotal / others.length) : 0
+  return [
+    ...selected.map(m => ({ ...m, count: perSelected })),
+    ...others.map(m => ({ ...m, count: perOthers })),
+  ]
+}
+
+function buildStrategyUserPrompt(brand: BrandRow, products: ProductRow[], params?: AutopilotParams): string {
   const productNames = products.map(p => p.name).join(", ")
-  const upcomingOccasions = getUpcomingOccasions(30)
+  const upcomingOccasions = getUpcomingOccasions(new Date(), 30)
   const occasionsNote = upcomingOccasions.length > 0
-    ? `\nUpcoming occasions in next 30 days (plan slots around these):\n${upcomingOccasions.map(o => `- ${o.name} (${o.date}): ${o.content_angle}`).join("\n")}`
+    ? `\nUpcoming occasions in next 30 days (plan slots around these):\n${upcomingOccasions.map(o => `- ${o.name} ${o.emoji} (${o.date}): ${o.content_angle} — vibe: ${o.vibe}`).join("\n")}`
     : ""
 
-  const mixInstructions = CONTENT_MIX.map((m, i) =>
-    `Days ${i * 3 + 1}-${Math.min(i * 3 + 3, 30)}: ${m.pillar} — ${m.description} (format: ${m.format})`
-  ).join("\n")
+  const mix = buildContentMix(params?.focusAreas)
+
+  const frequencyNote = params?.frequency
+    ? `Posting frequency: ${params.frequency === "3x_week" ? "3 times/week (~13 posts/month)" : params.frequency === "5x_week" ? "5 times/week (~22 posts/month)" : "daily (30 posts/month)"}`
+    : ""
+
+  const vibeNote = params?.vibe ? `Overall content vibe preference: ${params.vibe}` : ""
+
+  const platformPref = params?.platforms?.length
+    ? `Preferred platforms: ${params.platforms.join(", ")} (weight these more heavily)`
+    : "Vary platforms: 40% instagram, 20% tiktok, 15% linkedin, rest facebook/youtube/twitter"
 
   return `Create a 30-day content strategy for this brand.
 
@@ -86,10 +119,12 @@ Niche: ${brand.niche ?? "General"}
 Audience: ${brand.target_audience ?? "General audience"}
 Tone: ${brand.tone_of_voice ?? "Conversational"}
 ${productNames ? `Products: ${productNames}` : ""}
+${frequencyNote}
+${vibeNote}
 ${occasionsNote}
 
-REQUIRED content mix — distribute these EXACTLY across 30 slots:
-${CONTENT_MIX.map(m => `- ${m.pillar} (${m.format}): ${m.count} slots`).join("\n")}
+REQUIRED content mix — distribute these across 30 slots:
+${mix.map(m => `- ${m.pillar} (${m.format}): ${m.count} slots`).join("\n")}
 
 Return ONLY this JSON (no markdown, no explanation):
 {
@@ -109,7 +144,7 @@ Rules:
 - content_type must match the pillar format from the required mix
 - DO NOT repeat the same content_pillar twice in a row
 - For occasion slots: tie theme to a relevant upcoming occasion if any
-- Vary platforms: 40% instagram, 20% tiktok, 15% linkedin, rest facebook/youtube/twitter`
+- ${platformPref}`
 }
 
 interface CarouselSlide {
@@ -174,7 +209,7 @@ Return this exact JSON (exactly 5 slides):
 {"title":"carousel title","hook":"compelling cover headline","slides":[{"slide_number":1,"headline":"Cover headline","body":"Teaser of what readers will learn"},{"slide_number":2,"headline":"Point 1 title","body":"First key insight in 1-2 sentences"},{"slide_number":3,"headline":"Point 2 title","body":"Second key insight in 1-2 sentences"},{"slide_number":4,"headline":"Point 3 title","body":"Third key insight in 1-2 sentences"},{"slide_number":5,"headline":"Save this post!","body":"Call to action and follow for more"}],"hashtags":["hashtag1","hashtag2","hashtag3","hashtag4","hashtag5"],"visual_direction":"visual style for the carousel","audio_suggestion":"background music mood","call_to_action":"what you want the audience to do"}`
 }
 
-export async function generateContentStrategy(brand: BrandRow, products: ProductRow[]): Promise<ContentStrategy> {
+export async function generateContentStrategy(brand: BrandRow, products: ProductRow[], params?: AutopilotParams): Promise<ContentStrategy> {
   const groq = getGroqClient()
   const res = await generateWithRetry(groq, {
     model: MODELS.generation,
@@ -182,7 +217,7 @@ export async function generateContentStrategy(brand: BrandRow, products: Product
     max_tokens: 8000,
     messages: [
       { role: "system", content: buildStrategySystemPrompt() },
-      { role: "user", content: buildStrategyUserPrompt(brand, products) },
+      { role: "user", content: buildStrategyUserPrompt(brand, products, params) },
     ],
   })
 
@@ -275,6 +310,7 @@ export async function executeFastlane(
   supabase: SupabaseClient<any>,
   userId: string,
   brandId: string,
+  params?: AutopilotParams,
 ): Promise<FastlaneResult> {
   const errors: string[] = []
 
@@ -299,7 +335,7 @@ export async function executeFastlane(
 
   let strategy: ContentStrategy
   try {
-    strategy = await generateContentStrategy(brand, productList)
+    strategy = await generateContentStrategy(brand, productList, params)
   } catch (err) {
     console.error("[fastlane] generateContentStrategy failed:", err)
     throw new Error("Failed to generate content strategy")
