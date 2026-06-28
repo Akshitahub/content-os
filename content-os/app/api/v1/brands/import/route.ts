@@ -59,6 +59,12 @@ export async function POST(request: Request) {
         brand_values: extracted.brand_values ?? [],
         website_url: parsed.data.url,
         instagram_handle: extracted.instagram_handle || null,
+        logo_url: extracted.logo_url || null,
+        primary_color: extracted.primary_color || null,
+        cta_phrase: extracted.cta_phrase || "Shop now",
+        brand_personality: extracted.brand_personality || null,
+        content_pillars: extracted.content_pillars ?? [],
+        target_emotion: extracted.target_emotion || null,
       })
       .select()
       .single() as { data: BrandRow | null; error: { message: string } | null }

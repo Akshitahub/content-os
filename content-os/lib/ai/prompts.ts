@@ -9,8 +9,19 @@ function buildBrandContext(brand: BrandRow, product?: ProductRow | null): string
   if (brand.target_audience) lines.push(`Target Audience: ${brand.target_audience}`)
   if (brand.tone_of_voice) lines.push(`Tone of Voice: ${brand.tone_of_voice}`)
   if (brand.brand_values?.length) lines.push(`Brand Values: ${brand.brand_values.join(", ")}`)
-  if (brand.instagram_handle) lines.push(`Instagram: @${brand.instagram_handle}`)
+  if (brand.instagram_handle) lines.push(`Instagram Handle: @${brand.instagram_handle}`)
   if (brand.ai_persona) lines.push(`AI Persona / Voice Guide: ${brand.ai_persona}`)
+  // New brand identity fields
+  const b = brand as BrandRow & {
+    brand_personality?: string | null
+    target_emotion?: string | null
+    cta_phrase?: string | null
+    content_pillars?: string[]
+  }
+  if (b.brand_personality) lines.push(`Brand Personality: ${b.brand_personality}`)
+  if (b.target_emotion) lines.push(`Target Emotion to Evoke: ${b.target_emotion}`)
+  if (b.cta_phrase) lines.push(`CTA Phrase: ${b.cta_phrase}`)
+  if (b.content_pillars?.length) lines.push(`Content Pillars: ${b.content_pillars.join(", ")}`)
 
   if (product) {
     lines.push(`\nProduct being promoted: ${product.name}`)
@@ -37,10 +48,7 @@ function hookTypeInstruction(types: HookType[]): string {
 }
 
 export function buildHookSystemPrompt(): string {
-  return `You are an elite social media content strategist specializing in viral hooks for Indian D2C brands. 
-You write scroll-stopping opening lines that make people stop, read, and engage.
-Your hooks are conversational, specific, and feel human — never generic or salesy.
-You understand the Indian consumer mindset, cultural references, and social media behavior.
+  return `You are an expert social media content creator for Indian D2C brands. You write scroll-stopping hooks that feel native to the platform, match the brand voice exactly, and drive real engagement. Never write generic content. Every hook must feel like it was written by someone who deeply understands this specific brand and its audience.
 Always respond with valid JSON only. No markdown, no explanation.`
 }
 
@@ -67,13 +75,14 @@ Generate ${options.count} high-converting social media hooks for the above brand
 Hook types to use (vary across them):
 ${hookTypeInstruction(options.hookTypes)}
 
-Rules:
-- Each hook must be under 150 characters
-- Sound like a real person, not a brand
-- Be specific, not generic
-- No emojis unless the brand uses them
-- No hashtags
-- Make the reader feel something — curiosity, FOMO, recognition, or surprise
+Critical rules for every hook:
+1. The first 3 words must stop the scroll
+2. Use "you" or "your" to speak directly to the audience
+3. Create curiosity, FOMO, or strong emotion
+4. Match the exact tone described above
+5. NEVER use generic phrases like "Check this out", "We are excited", "Introducing", or "Amazing new"
+6. Be specific to this brand's niche — not generic D2C content
+7. Each hook must feel written by someone who lives and breathes this brand
 
 Respond with this exact JSON:
 {
@@ -81,17 +90,14 @@ Respond with this exact JSON:
     {
       "hook_text": "the hook line",
       "hook_type": "one of: question|bold_statement|story|statistic|controversial|how_to",
-      "reasoning": "one sentence on why this works"
+      "reasoning": "one sentence on why this works for this specific brand"
     }
   ]
 }`
 }
 
 export function buildCaptionSystemPrompt(): string {
-  return `You are an expert social media copywriter for Indian D2C brands.
-You write captions that convert — not just get likes. 
-Your writing is conversational, authentic, and platform-native.
-You understand the balance between storytelling and selling.
+  return `You are an expert social media copywriter for Indian D2C brands. You write captions that convert — not just get likes. Every caption must end with the brand's CTA phrase and @handle. Your writing is conversational, authentic, and platform-native. You understand the balance between storytelling and selling.
 Always respond with valid JSON only. No markdown, no explanation.`
 }
 
@@ -109,12 +115,18 @@ export function buildCaptionUserPrompt(
   const hookLine = options.hookText ? `Opening hook to use: "${options.hookText}"` : "Create your own strong opening"
   const extraContext = options.additionalContext ? `Additional context: ${options.additionalContext}` : ""
 
+  const b = brand as BrandRow & {
+    cta_phrase?: string | null
+  }
+  const ctaPhrase = b.cta_phrase || "Shop now"
+  const handle = brand.instagram_handle ? `@${brand.instagram_handle}` : ""
+
   const platformRules: Record<Platform, string> = {
-    instagram: "Max 2200 chars. Use line breaks for readability. 3-5 paragraphs. 5-15 hashtags at the end.",
-    facebook: "Max 500 chars. Conversational. 1-3 hashtags or none.",
-    tiktok: "Max 300 chars. Punchy, youthful, trend-aware. 3-5 hashtags.",
-    youtube: "Max 500 chars. Informative. 3-5 hashtags.",
-    linkedin: "Max 3000 chars. Professional storytelling. 3-5 hashtags.",
+    instagram: `Max 2200 chars. Use line breaks for readability. 3-5 paragraphs. End with: "${ctaPhrase} 👇\\n${handle}". Then 2 blank lines. Then 15-20 hashtags.`,
+    facebook: `Max 500 chars. Conversational. End with "${ctaPhrase}". 1-3 hashtags or none.`,
+    tiktok: `Max 300 chars. Punchy. End with "Follow ${handle || "us"} for more!" 3-5 hashtags.`,
+    youtube: `Max 500 chars. Informative. End with "${ctaPhrase}". 3-5 hashtags.`,
+    linkedin: `Max 3000 chars. Professional storytelling. End with "What do you think? Comment below 👇". 3-5 hashtags.`,
     twitter: "Max 280 chars. Punchy. 1-2 hashtags or none.",
   }
 
@@ -125,12 +137,13 @@ ${hookLine}
 ${extraContext}
 
 Write a complete social media caption following the brand voice exactly.
+The caption_text MUST end with the CTA phrase "${ctaPhrase}"${handle ? ` and the handle ${handle}` : ""} as the final lines before the hashtags.
 
 Respond with this exact JSON:
 {
-  "caption_text": "the full caption without hashtags",
+  "caption_text": "the full caption without hashtags, ending with CTA and @handle",
   "hashtags": ["hashtag1", "hashtag2"],
-  "cta": "the call to action line",
+  "cta": "${ctaPhrase}",
   "character_count": 123
 }`
 }

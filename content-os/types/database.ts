@@ -69,6 +69,11 @@ export type Database = {
           website_url: string | null
           instagram_handle: string | null
           ai_persona: string | null
+          primary_color: string | null
+          cta_phrase: string | null
+          brand_personality: string | null
+          content_pillars: string[]
+          target_emotion: string | null
           is_active: boolean
           created_at: string
           updated_at: string
@@ -88,6 +93,11 @@ export type Database = {
           website_url?: string | null
           instagram_handle?: string | null
           ai_persona?: string | null
+          primary_color?: string | null
+          cta_phrase?: string | null
+          brand_personality?: string | null
+          content_pillars?: string[]
+          target_emotion?: string | null
           is_active?: boolean
           created_at?: string
           updated_at?: string
@@ -105,6 +115,11 @@ export type Database = {
           website_url?: string | null
           instagram_handle?: string | null
           ai_persona?: string | null
+          primary_color?: string | null
+          cta_phrase?: string | null
+          brand_personality?: string | null
+          content_pillars?: string[]
+          target_emotion?: string | null
           is_active?: boolean
           updated_at?: string
         }

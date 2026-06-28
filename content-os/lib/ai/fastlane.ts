@@ -1,8 +1,21 @@
 import { MODELS, getGroqClient } from "./models"
 import { generateCarouselHtml } from "@/lib/design/post-card-generator"
+import { getUpcomingOccasions } from "@/lib/data/indian-occasions"
 import type { BrandRow, ProductRow } from "@/types/database"
 import type { ContentStrategy, ContentSlot, FastlaneResult, Platform } from "@/types/app"
 import type { SupabaseClient } from "@supabase/supabase-js"
+
+const CONTENT_MIX = [
+  { pillar: "product", format: "carousel" as const, count: 5, description: "Showcase products, features, and benefits" },
+  { pillar: "behind_scenes", format: "reel_script" as const, count: 4, description: "Behind the scenes, team, how it's made" },
+  { pillar: "educational", format: "carousel" as const, count: 4, description: "Tips, how-to, industry insights" },
+  { pillar: "humor_meme", format: "hooks" as const, count: 3, description: "Relatable humor, meme-style content" },
+  { pillar: "occasion", format: "hooks" as const, count: 4, description: "Occasion and trending moment content" },
+  { pillar: "testimonial", format: "hooks" as const, count: 3, description: "Customer stories, reviews, social proof" },
+  { pillar: "announcement", format: "hooks" as const, count: 3, description: "New launches, offers, announcements" },
+  { pillar: "inspiration", format: "hooks" as const, count: 2, description: "Quotes, motivation, brand values" },
+  { pillar: "founder_story", format: "reel_script" as const, count: 2, description: "Founder journey, brand origin story" },
+]
 
 function sanitizeJsonString(raw: string): string {
   return raw
@@ -57,6 +70,15 @@ Always respond with valid JSON only. No markdown, no explanation outside the JSO
 
 function buildStrategyUserPrompt(brand: BrandRow, products: ProductRow[]): string {
   const productNames = products.map(p => p.name).join(", ")
+  const upcomingOccasions = getUpcomingOccasions(30)
+  const occasionsNote = upcomingOccasions.length > 0
+    ? `\nUpcoming occasions in next 30 days (plan slots around these):\n${upcomingOccasions.map(o => `- ${o.name} (${o.date}): ${o.content_angle}`).join("\n")}`
+    : ""
+
+  const mixInstructions = CONTENT_MIX.map((m, i) =>
+    `Days ${i * 3 + 1}-${Math.min(i * 3 + 3, 30)}: ${m.pillar} — ${m.description} (format: ${m.format})`
+  ).join("\n")
+
   return `Create a 30-day content strategy for this brand.
 
 Brand: ${brand.name}
@@ -64,12 +86,16 @@ Niche: ${brand.niche ?? "General"}
 Audience: ${brand.target_audience ?? "General audience"}
 Tone: ${brand.tone_of_voice ?? "Conversational"}
 ${productNames ? `Products: ${productNames}` : ""}
+${occasionsNote}
+
+REQUIRED content mix — distribute these EXACTLY across 30 slots:
+${CONTENT_MIX.map(m => `- ${m.pillar} (${m.format}): ${m.count} slots`).join("\n")}
 
 Return ONLY this JSON (no markdown, no explanation):
 {
   "strategy_summary": "2-3 sentences on the strategy",
   "slots": [
-    { "day": 1, "platform": "instagram", "content_type": "hooks", "theme": "Brand intro", "product_focus": null, "priority": "high" }
+    { "day": 1, "platform": "instagram", "content_type": "hooks", "theme": "Brand intro", "product_focus": null, "priority": "high", "content_pillar": "product" }
   ]
 }
 
@@ -79,7 +105,11 @@ Rules:
 - platform: "instagram" | "tiktok" | "youtube" | "facebook" | "linkedin" | "twitter"
 - priority: "high" | "medium" | "low"
 - product_focus: product name string or null
-- Vary content types and platforms across 30 days`
+- content_pillar: one of ${CONTENT_MIX.map(m => m.pillar).join(" | ")}
+- content_type must match the pillar format from the required mix
+- DO NOT repeat the same content_pillar twice in a row
+- For occasion slots: tie theme to a relevant upcoming occasion if any
+- Vary platforms: 40% instagram, 20% tiktok, 15% linkedin, rest facebook/youtube/twitter`
 }
 
 interface CarouselSlide {
@@ -103,13 +133,32 @@ function buildSlotContentPrompt(brand: BrandRow, slot: ContentSlot, product: Pro
   const productCtx = product
     ? `\nProduct: ${product.name}${product.description ? ` - ${product.description}` : ""}`
     : ""
+  const pillarCtx = slot.content_pillar ? `\nContent Pillar: ${slot.content_pillar}` : ""
+  const pillarDescriptions: Record<string, string> = {
+    product: "showcase the product's features and benefits compellingly",
+    behind_scenes: "reveal what happens behind the brand — authentic and human",
+    educational: "teach something genuinely useful to the audience",
+    humor_meme: "be witty and relatable — make them laugh or nod",
+    occasion: "tie the brand to this occasion naturally without being forced",
+    testimonial: "share a customer success story or social proof angle",
+    announcement: "build excitement around something new or upcoming",
+    inspiration: "uplift and motivate — connect values to the audience's aspirations",
+    founder_story: "share the brand's origin, mission, or founder journey",
+  }
+  const pillarInstruction = slot.content_pillar
+    ? `This post should specifically: ${pillarDescriptions[slot.content_pillar] ?? "match the content pillar"}`
+    : ""
+
   return `Create a complete ${slot.content_type} post for ${brand.name} on ${slot.platform}.
 Brand niche: ${brand.niche ?? "D2C brand"}
 Brand tone: ${brand.tone_of_voice ?? "conversational"}
-Theme: ${slot.theme}${productCtx}
+Theme: ${slot.theme}${productCtx}${pillarCtx}
+Day: ${slot.day} of 30${pillarInstruction ? `\n${pillarInstruction}` : ""}
+
+IMPORTANT: This is slot ${slot.day}/30. Make it UNIQUE — different angle than typical posts for this brand.
 
 Return this exact JSON:
-{"title":"post title","hook":"attention-grabbing opening line","caption":"full post caption (2-4 sentences, brand voice)","hashtags":["hashtag1","hashtag2","hashtag3","hashtag4","hashtag5"],"visual_direction":"describe the ideal image/video for this post","audio_suggestion":"suggested background music mood or sound","call_to_action":"what you want the audience to do"}`
+{"title":"post title","hook":"attention-grabbing opening line that stops the scroll","caption":"full post caption (2-4 sentences, brand voice, ends with CTA)","hashtags":["hashtag1","hashtag2","hashtag3","hashtag4","hashtag5"],"visual_direction":"describe the ideal image/video for this post","audio_suggestion":"suggested background music mood or sound","call_to_action":"specific action you want the audience to take"}`
 }
 
 function buildCarouselSlotContentPrompt(brand: BrandRow, slot: ContentSlot, product: ProductRow | null): string {

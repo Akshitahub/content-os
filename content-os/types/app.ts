@@ -197,6 +197,7 @@ export interface ContentSlot {
   theme: string
   product_focus: string | null
   priority: "high" | "medium" | "low"
+  content_pillar?: string
 }
 
 export interface ContentStrategy {
