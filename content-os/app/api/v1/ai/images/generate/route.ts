@@ -98,6 +98,7 @@ export async function POST(request: Request) {
     data: {
       id: savedImage?.id ?? null,
       prompt,
+      full_prompt: result.fullPrompt,
       style: style ?? null,
       aspect_ratio: aspectRatio,
       public_url: publicUrlData.publicUrl,

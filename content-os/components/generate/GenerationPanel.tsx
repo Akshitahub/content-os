@@ -1,13 +1,14 @@
 "use client"
 
 import { useState } from "react"
-import { FileText, Sparkles, Layers, ImageIcon, X, RefreshCw } from "lucide-react"
+import { FileText, Sparkles, Layers, ImageIcon, X, RefreshCw, Wand2 } from "lucide-react"
 import { FullPostGenerator } from "./FullPostGenerator"
 import { HookGenerator } from "./HookGenerator"
 import { ContentTypeGenerator } from "./ContentTypeGenerator"
 import { ImageGenerator } from "./ImageGenerator"
 import { SceneComposer } from "./SceneComposer"
 import { ContentRepurposer } from "./ContentRepurposer"
+import { AdMaker } from "./AdMaker"
 import { useGenerationStore } from "@/stores/generationStore"
 import type { ProductRow } from "@/types/database"
 
@@ -16,9 +17,10 @@ interface GenerationPanelProps {
   products: ProductRow[]
 }
 
-type Tab = "full_post" | "hooks" | "content" | "images" | "repurpose"
+type Tab = "ad_maker" | "full_post" | "hooks" | "content" | "images" | "repurpose"
 
 const TABS: { id: Tab; label: string; icon: React.ElementType }[] = [
+  { id: "ad_maker", label: "Ad Maker ✨", icon: Wand2 },
   { id: "full_post", label: "Post Builder", icon: FileText },
   { id: "hooks", label: "Scroll Stoppers", icon: Sparkles },
   { id: "content", label: "Deep Content", icon: Layers },
@@ -27,7 +29,7 @@ const TABS: { id: Tab; label: string; icon: React.ElementType }[] = [
 ]
 
 export function GenerationPanel({ brandId, products }: GenerationPanelProps) {
-  const [activeTab, setActiveTab] = useState<Tab>("full_post")
+  const [activeTab, setActiveTab] = useState<Tab>("ad_maker")
   const { occasionContext, setOccasionContext } = useGenerationStore()
 
   return (
@@ -73,6 +75,7 @@ export function GenerationPanel({ brandId, products }: GenerationPanelProps) {
         })}
       </div>
 
+      {activeTab === "ad_maker" && <AdMaker brandId={brandId} />}
       {activeTab === "full_post" && <FullPostGenerator brandId={brandId} products={products} />}
       {activeTab === "hooks" && <HookGenerator brandId={brandId} products={products} />}
       {activeTab === "content" && <ContentTypeGenerator brandId={brandId} products={products} />}

@@ -735,7 +735,7 @@ export default function LibraryPage() {
             <Archive className="h-7 w-7 text-primary" />
             My Content
           </h1>
-          <p className="mt-1 text-sm text-muted-foreground">All your saved content in one place.</p>
+          <p className="mt-1 text-sm text-muted-foreground">Everything you&apos;ve created — hooks, captions, reels, and more.</p>
         </div>
         <Button asChild size="sm">
           <Link href={`/brands/${brandId}/generate`}>

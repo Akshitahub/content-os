@@ -30,6 +30,7 @@ function NavItem({
   onClose,
   dotColor = "bg-muted-foreground/30",
   faded = false,
+  id,
 }: {
   href: string
   label: string
@@ -38,9 +39,11 @@ function NavItem({
   onClose?: () => void
   dotColor?: string
   faded?: boolean
+  id?: string
 }) {
   return (
     <Link
+      id={id}
       href={href}
       onClick={onClose}
       className={cn(
@@ -122,6 +125,7 @@ export function Sidebar({ isOpen = false, onClose }: SidebarProps) {
       <nav className="flex-1 overflow-y-auto px-3 py-3">
         {/* Brand selector pill */}
         <Link
+          id="tour-brand-selector"
           href="/brands"
           onClick={onClose}
           className={cn(
@@ -162,6 +166,7 @@ export function Sidebar({ isOpen = false, onClose }: SidebarProps) {
               dotColor="bg-blue-400/60"
             />
             <NavItem
+              id="tour-create"
               href={brandHref("/generate")}
               label="Create"
               icon={Sparkles}
@@ -180,6 +185,7 @@ export function Sidebar({ isOpen = false, onClose }: SidebarProps) {
               faded={!activeBrandId}
             />
             <NavItem
+              id="tour-calendar"
               href={brandHref("/calendar")}
               label="Calendar"
               icon={Calendar}
@@ -196,6 +202,7 @@ export function Sidebar({ isOpen = false, onClose }: SidebarProps) {
           <SectionLabel>Growth</SectionLabel>
           <div className="space-y-0.5">
             <NavItem
+              id="tour-autopilot"
               href={brandHref("/fastlane")}
               label="Autopilot ✈️"
               icon={Zap}

@@ -445,28 +445,28 @@ export function buildImagePrompt(
     product?: ProductRow | null
   }
 ): string {
-  const lines: string[] = []
-
-  if (options.product) {
-    lines.push(`Product: ${options.product.name}.`)
-    if (options.product.description) lines.push(options.product.description)
-  }
-
-  lines.push(options.prompt)
+  // User's description ALWAYS comes first
+  const lines: string[] = [options.prompt]
 
   if (options.style && IMAGE_STYLE_DESCRIPTIONS[options.style]) {
-    lines.push(`Visual style: ${IMAGE_STYLE_DESCRIPTIONS[options.style]}.`)
+    lines.push(IMAGE_STYLE_DESCRIPTIONS[options.style])
+  }
+
+  if (brand.niche) lines.push(`${brand.niche} brand aesthetic`)
+
+  if (options.product) {
+    lines.push(`featuring ${options.product.name}`)
   }
 
   if (brand.color_palette && typeof brand.color_palette === "object") {
     const palette = brand.color_palette as Record<string, unknown>
     const colors = Object.values(palette).filter((v) => typeof v === "string")
-    if (colors.length) lines.push(`Brand color palette to favor where natural: ${colors.join(", ")}.`)
+    if (colors.length) lines.push(`color palette ${colors.join(", ")}`)
   }
 
-  lines.push("No text, no logos, no watermarks in the image. High quality, social-media ready.")
+  lines.push("professional photography, no text, no watermarks, no logos, 8K ultra HD")
 
-  return lines.join(" ")
+  return lines.join(", ")
 }
 
 // ─── Influencer fit scoring ───────────────────────────────────────────────

@@ -71,6 +71,7 @@ export type ImageStyle =
 // Generation types (for UI state, not DB)
 export type GeneratedImage = {
   prompt: string
+  full_prompt?: string
   style: ImageStyle | null
   aspect_ratio: AspectRatio
   public_url: string

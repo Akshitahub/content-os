@@ -2,6 +2,7 @@ import Link from "next/link"
 import { Globe, Zap, Sparkles, Star, ArrowRight, Check } from "lucide-react"
 import { createClient } from "@/lib/supabase/server"
 import { ScrollNavHandler } from "@/components/landing/ScrollNavHandler"
+import { LiveDemo } from "@/components/landing/LiveDemo"
 
 export default async function RootPage() {
   let primaryHref = "/signup"
@@ -171,8 +172,25 @@ export default async function RootPage() {
           </div>
         </section>
 
+        {/* WATCH IT WORK — animated demo */}
+        <section className="bg-white px-6 py-20 sm:px-8 sm:py-28">
+          <div className="mx-auto max-w-6xl">
+            <div className="mb-10 text-center">
+              <span className="mb-3 inline-block rounded-full bg-violet-50 px-3 py-1 text-xs font-semibold uppercase tracking-widest text-violet-600">See it in action</span>
+              <h2 className="text-3xl font-bold tracking-tight text-gray-900 sm:text-4xl">Watch it work</h2>
+              <p className="mt-3 text-lg text-gray-500">Paste a URL. Get 30 days of content.</p>
+            </div>
+            <LiveDemo />
+            <div className="mt-10 text-center">
+              <Link href={primaryHref} className="inline-flex items-center gap-2 rounded-full bg-violet-600 px-7 py-3 text-sm font-semibold text-white transition-all hover:bg-violet-700 hover:scale-[1.02]">
+                Try it free → <ArrowRight className="h-4 w-4" />
+              </Link>
+            </div>
+          </div>
+        </section>
+
         {/* HOW IT WORKS */}
-        <section id="how" className="bg-white px-6 py-20 sm:px-8 sm:py-28">
+        <section id="how" className="bg-white px-6 py-20 sm:px-8 sm:py-28 border-t border-gray-100">
           <div className="mx-auto max-w-6xl">
             <div className="mb-12 text-center">
               <span className="mb-3 inline-block rounded-full bg-violet-50 px-3 py-1 text-xs font-semibold uppercase tracking-widest text-violet-600">How it works</span>

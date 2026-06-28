@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation"
 import { createClient } from "@/lib/supabase/server"
 import { DashboardShell } from "@/components/layout/DashboardShell"
+import { ProductTour } from "@/components/shared/ProductTour"
 import type { UserRow } from "@/types/database"
 
 export default async function DashboardLayout({
@@ -22,13 +23,16 @@ export default async function DashboardLayout({
     .single<Pick<UserRow, "full_name" | "plan" | "generation_count">>()
 
   return (
-    <DashboardShell
-      userEmail={user.email}
-      userName={profile?.full_name ?? undefined}
-      generationCount={profile?.generation_count ?? 0}
-      plan={profile?.plan ?? "free"}
-    >
-      {children}
-    </DashboardShell>
+    <>
+      <DashboardShell
+        userEmail={user.email}
+        userName={profile?.full_name ?? undefined}
+        generationCount={profile?.generation_count ?? 0}
+        plan={profile?.plan ?? "free"}
+      >
+        {children}
+      </DashboardShell>
+      <ProductTour />
+    </>
   )
 }
