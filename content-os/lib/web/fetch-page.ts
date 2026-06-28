@@ -17,6 +17,8 @@ export interface FetchedPage {
   jsonLd: unknown[]
   /** Cleaned, truncated visible text content of the page */
   text: string
+  /** Raw HTML (used for image extraction) */
+  html: string
 }
 
 const MAX_TEXT_LENGTH = 6000
@@ -123,5 +125,6 @@ export async function fetchPage(url: string): Promise<FetchedPage> {
     ogImages: ogImageMatches.map((m) => m[1]).filter(Boolean),
     jsonLd: extractJsonLd(html),
     text: stripTagsToText(html).slice(0, MAX_TEXT_LENGTH),
+    html: html.slice(0, 200_000),
   }
 }

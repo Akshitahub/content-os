@@ -18,6 +18,59 @@ function buildPageContext(page: FetchedPage): string {
   return lines.join("\n\n")
 }
 
+// ---------------- Image extraction ----------------
+
+export interface FetchedImage {
+  url: string
+  alt: string
+  type: "product" | "lifestyle" | "logo" | "banner" | "other"
+}
+
+function classifyImage(src: string, alt: string): FetchedImage["type"] {
+  const s = src.toLowerCase()
+  const a = alt.toLowerCase()
+  if (s.includes("logo") || a.includes("logo")) return "logo"
+  if (s.includes("banner") || s.includes("hero")) return "banner"
+  if (s.includes("product") || a.includes("product")) return "product"
+  if (s.includes("lifestyle") || s.includes("model") || a.includes("lifestyle")) return "lifestyle"
+  return "other"
+}
+
+export function extractImagesFromPage(pageUrl: string, pageHtml: string): FetchedImage[] {
+  const images: FetchedImage[] = []
+  const seen = new Set<string>()
+
+  const ogImageMatch = pageHtml.match(/property="og:image"\s+content="([^"]+)"/)
+  if (ogImageMatch?.[1]) {
+    const url = ogImageMatch[1]
+    if (!seen.has(url)) {
+      seen.add(url)
+      images.push({ url, alt: "Featured image", type: "lifestyle" })
+    }
+  }
+
+  const imgRegex = /<img[^>]+src="([^"]+)"[^>]*(?:alt="([^"]*)")?[^>]*>/gi
+  let match
+  while ((match = imgRegex.exec(pageHtml)) !== null) {
+    const src = match[1] ?? ""
+    const alt = match[2] ?? ""
+    if (!src || src.includes(".svg") || src.includes(".gif")) continue
+    if (src.includes("pixel") || src.includes("tracking") || src.length < 10) continue
+    try {
+      const absoluteUrl = src.startsWith("http") ? src : new URL(src, pageUrl).toString()
+      if (!seen.has(absoluteUrl)) {
+        seen.add(absoluteUrl)
+        images.push({ url: absoluteUrl, alt, type: classifyImage(src, alt) })
+      }
+    } catch {
+      // skip malformed URLs
+    }
+    if (images.length >= 20) break
+  }
+
+  return images
+}
+
 // ---------------- Brand extraction ----------------
 
 export interface ExtractedBrandData {
@@ -34,6 +87,7 @@ export interface ExtractedBrandData {
   brand_personality: string
   content_pillars: string[]
   target_emotion: string
+  vibe: string
 }
 
 export async function extractBrandFromPage(page: FetchedPage): Promise<ExtractedBrandData> {
@@ -66,7 +120,8 @@ Respond with this exact JSON shape:
   "logo_url": "absolute URL of the brand logo image if found on the page, else empty string",
   "brand_personality": "3 words describing the brand personality, e.g. 'Bold, fun, youthful'",
   "content_pillars": ["3-5 main topics this brand would post about based on their niche, e.g. 'Product features', 'Customer stories', 'Behind the scenes'"],
-  "target_emotion": "the primary emotion this brand evokes in customers, e.g. 'Empowered', 'Joyful', 'Confident'"
+  "target_emotion": "the primary emotion this brand evokes in customers, e.g. 'Empowered', 'Joyful', 'Confident'",
+  "vibe": "one of: fun_playful | clean_minimal | bold_dramatic | warm_cozy | professional | trendy_genz — which best matches this brand's visual and content style"
 }`,
       },
       { role: "user", content: buildPageContext(page) },
@@ -97,6 +152,7 @@ Respond with this exact JSON shape:
     brand_personality: parsed.brand_personality ?? "",
     content_pillars: Array.isArray(parsed.content_pillars) ? parsed.content_pillars.slice(0, 5) : [],
     target_emotion: parsed.target_emotion ?? "",
+    vibe: parsed.vibe ?? "fun_playful",
   }
 }
 

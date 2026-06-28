@@ -27,6 +27,8 @@ export type Database = {
           stripe_customer_id: string | null
           generation_count: number
           generation_count_reset_at: string | null
+          onboarding_completed: boolean | null
+          onboarding_type: string | null
           created_at: string
           updated_at: string
         }
@@ -39,6 +41,8 @@ export type Database = {
           stripe_customer_id?: string | null
           generation_count?: number
           generation_count_reset_at?: string | null
+          onboarding_completed?: boolean | null
+          onboarding_type?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -50,6 +54,8 @@ export type Database = {
           stripe_customer_id?: string | null
           generation_count?: number
           generation_count_reset_at?: string | null
+          onboarding_completed?: boolean | null
+          onboarding_type?: string | null
           updated_at?: string
         }
       }
@@ -74,6 +80,10 @@ export type Database = {
           brand_personality: string | null
           content_pillars: string[]
           target_emotion: string | null
+          vibe: string | null
+          onboarding_type: string | null
+          posting_frequency: string | null
+          target_platforms: string[] | null
           is_active: boolean
           created_at: string
           updated_at: string
@@ -98,6 +108,10 @@ export type Database = {
           brand_personality?: string | null
           content_pillars?: string[]
           target_emotion?: string | null
+          vibe?: string | null
+          onboarding_type?: string | null
+          posting_frequency?: string | null
+          target_platforms?: string[] | null
           is_active?: boolean
           created_at?: string
           updated_at?: string
@@ -120,8 +134,38 @@ export type Database = {
           brand_personality?: string | null
           content_pillars?: string[]
           target_emotion?: string | null
+          vibe?: string | null
+          onboarding_type?: string | null
+          posting_frequency?: string | null
+          target_platforms?: string[] | null
           is_active?: boolean
           updated_at?: string
+        }
+      }
+      brand_images: {
+        Row: {
+          id: string
+          brand_id: string
+          url: string
+          alt: string | null
+          type: string
+          is_active: boolean
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          brand_id: string
+          url: string
+          alt?: string | null
+          type?: string
+          is_active?: boolean
+          created_at?: string
+        }
+        Update: {
+          url?: string
+          alt?: string | null
+          type?: string
+          is_active?: boolean
         }
       }
       products: {

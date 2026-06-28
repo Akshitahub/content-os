@@ -22,34 +22,36 @@ export async function GET(request: Request) {
 
     if (!error) {
       // Get user to determine if they're new and send welcome email
+      let redirectPath = next
       try {
         const { data: { user } } = await supabase.auth.getUser()
         if (user) {
-          // Check if this is a new user (created_at and updated_at are within a few seconds of each other)
           const createdAt = new Date(user.created_at).getTime()
           const updatedAt = new Date(user.updated_at ?? user.created_at).getTime()
           const isNewUser = Math.abs(createdAt - updatedAt) < 10_000
 
-          if (isNewUser && user.email) {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const fullName = (user.user_metadata as any)?.full_name as string | undefined
-            await sendWelcomeEmail(user.email, fullName)
+          if (isNewUser) {
+            redirectPath = "/onboarding/welcome"
+            if (user.email) {
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              const fullName = (user.user_metadata as any)?.full_name as string | undefined
+              await sendWelcomeEmail(user.email, fullName).catch(() => {})
+            }
           }
         }
-      } catch (emailErr) {
-        console.error("[auth/callback] welcome email check failed:", emailErr)
-        // Never break the redirect for email errors
+      } catch (err) {
+        console.error("[auth/callback] post-auth check failed:", err)
       }
 
       const forwardedHost = request.headers.get("x-forwarded-host")
       const isLocalEnv = process.env.NODE_ENV === "development"
 
       if (isLocalEnv) {
-        return NextResponse.redirect(`${origin}${next}`)
+        return NextResponse.redirect(`${origin}${redirectPath}`)
       } else if (forwardedHost) {
-        return NextResponse.redirect(`https://${forwardedHost}${next}`)
+        return NextResponse.redirect(`https://${forwardedHost}${redirectPath}`)
       } else {
-        return NextResponse.redirect(`${origin}${next}`)
+        return NextResponse.redirect(`${origin}${redirectPath}`)
       }
     }
   }

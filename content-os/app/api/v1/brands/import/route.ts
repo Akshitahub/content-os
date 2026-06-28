@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import { buildError, ErrorCodes } from "@/types/api"
 import { fetchPage, PageFetchError } from "@/lib/web/fetch-page"
-import { extractBrandFromPage, ExtractionError } from "@/lib/ai/url-extractor"
+import { extractBrandFromPage, extractImagesFromPage, ExtractionError } from "@/lib/ai/url-extractor"
 import type { BrandRow } from "@/types/database"
 import { z } from "zod"
 
@@ -65,6 +65,7 @@ export async function POST(request: Request) {
         brand_personality: extracted.brand_personality || null,
         content_pillars: extracted.content_pillars ?? [],
         target_emotion: extracted.target_emotion || null,
+        vibe: extracted.vibe || "fun_playful",
       })
       .select()
       .single() as { data: BrandRow | null; error: { message: string } | null }
@@ -72,6 +73,26 @@ export async function POST(request: Request) {
     if (insertError) {
       console.error("[brands/import] insert error:", insertError)
       return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Failed to save brand.", insertError.message), { status: 500 })
+    }
+
+    // Extract and save brand images (non-blocking, non-fatal)
+    if (brand?.id) {
+      try {
+        const images = extractImagesFromPage(parsed.data.url, page.html)
+        if (images.length > 0) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          await (supabase.from("brand_images") as any).insert(
+            images.map(img => ({
+              brand_id: brand.id,
+              url: img.url,
+              alt: img.alt || null,
+              type: img.type,
+            }))
+          )
+        }
+      } catch (imgErr) {
+        console.error("[brands/import] image extraction failed (non-fatal):", imgErr)
+      }
     }
 
     return NextResponse.json({ data: brand }, { status: 201 })

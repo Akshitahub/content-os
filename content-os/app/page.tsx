@@ -211,7 +211,7 @@ export default async function RootPage() {
                 { title: "Carousels", desc: "Slide-by-slide content plans for educational and product carousels that actually get saved.", icon: "🎠" },
                 { title: "Email Sequences", desc: "Welcome, nurture, and launch sequences written in your brand's tone, not a generic template.", icon: "📧" },
                 { title: "Influencer Outreach", desc: "Personalized DM and email pitches for collaborations — tailored to each creator's niche.", icon: "🤝" },
-                { title: "Fastlane", desc: "Our flagship: paste your URL, get 30 days of planned, ready-to-post content instantly.", icon: "🚀", highlight: true },
+                { title: "Autopilot ✈️", desc: "Our flagship: paste your URL, get 30 days of planned, ready-to-post content instantly.", icon: "🚀", highlight: true },
               ].map(({ title, desc, icon, highlight }) => (
                 <div key={title} className={`rounded-2xl p-6 transition-all hover:scale-[1.01] ${highlight ? "border border-violet-500/30 bg-violet-950/40" : "border border-white/5 bg-white/5"}`}>
                   <div className="mb-3 text-2xl" aria-hidden="true">{icon}</div>
@@ -224,24 +224,52 @@ export default async function RootPage() {
           </div>
         </section>
 
-        {/* FASTLANE SHOWCASE */}
+        {/* WHO IS IT FOR */}
         <section className="bg-white px-6 py-20 sm:px-8 sm:py-28">
+          <div className="mx-auto max-w-6xl">
+            <div className="mb-12 text-center">
+              <span className="mb-3 inline-block rounded-full bg-violet-50 px-3 py-1 text-xs font-semibold uppercase tracking-widest text-violet-600">Who is it for</span>
+              <h2 className="text-3xl font-bold tracking-tight text-gray-900 sm:text-4xl">Built for Indian D2C brands</h2>
+              <p className="mt-3 text-gray-500">If you sell online and need content that actually sounds like you — this is it.</p>
+            </div>
+            <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+              {[
+                { emoji: "💍", title: "Jewellery & Accessories", desc: "Handmade, silver, gold, fashion — generate hooks and reels that make people stop and save." },
+                { emoji: "🌿", title: "Skincare & Wellness", desc: "Natural, ayurvedic, D2C — content that builds trust, not just hype." },
+                { emoji: "👗", title: "Fashion & Apparel", desc: "Ethnic, western, sustainable — captions that match your vibe exactly." },
+                { emoji: "🏠", title: "Home & Lifestyle", desc: "Decor, gifting, organics — content plans that keep you consistent on Instagram." },
+              ].map(({ emoji, title, desc }) => (
+                <div key={title} className="rounded-2xl border border-gray-100 p-6 hover:shadow-md transition-shadow">
+                  <div className="mb-3 text-3xl">{emoji}</div>
+                  <h3 className="mb-2 font-bold text-gray-900">{title}</h3>
+                  <p className="text-sm leading-relaxed text-gray-500">{desc}</p>
+                </div>
+              ))}
+            </div>
+            <p className="mt-8 text-center text-sm text-gray-400">
+              Also works for any ecommerce brand, creator, or solopreneur who wants to stop stressing about content.
+            </p>
+          </div>
+        </section>
+
+        {/* AUTOPILOT SHOWCASE */}
+        <section className="px-6 py-20 sm:px-8 sm:py-28" style={{ backgroundColor: "#0f0f0f" }}>
           <div className="mx-auto max-w-6xl">
             <div className="grid items-center gap-12 lg:grid-cols-2">
               <div>
-                <span className="mb-4 inline-block rounded-full bg-violet-50 px-3 py-1 text-xs font-semibold uppercase tracking-widest text-violet-600">The flagship feature</span>
-                <h2 className="text-3xl font-bold tracking-tight text-gray-900 sm:text-4xl">
-                  30 days of content.{" "}<span className="text-violet-600">One click.</span>
+                <span className="mb-4 inline-block rounded-full border border-violet-500/30 bg-violet-900/30 px-3 py-1 text-xs font-semibold uppercase tracking-widest text-violet-400">The flagship feature</span>
+                <h2 className="text-3xl font-bold tracking-tight text-white sm:text-4xl">
+                  30 days of content.{" "}<span className="text-violet-400">One click.</span>
                 </h2>
-                <p className="mt-4 text-lg leading-relaxed text-gray-500">
-                  Fastlane reads your entire brand, builds a content strategy, and generates a full month of posts — hooks, captions, format types, and posting schedule included. No prompting. No editing templates. Just done.
+                <p className="mt-4 text-lg leading-relaxed text-gray-400">
+                  Autopilot reads your entire brand, builds a content strategy, and generates a full month of posts — hooks, captions, format types, and posting schedule included. No prompting. No editing templates. Just done.
                 </p>
                 <Link href={primaryHref} className="mt-8 inline-flex items-center gap-2 rounded-full bg-violet-600 px-6 py-3 text-sm font-semibold text-white transition-all hover:bg-violet-700">
-                  Try Fastlane free <ArrowRight className="h-4 w-4" />
+                  Try Autopilot free <ArrowRight className="h-4 w-4" />
                 </Link>
               </div>
-              <div className="rounded-2xl p-8" style={{ backgroundColor: "#0f0f0f" }}>
-                <p className="mb-6 text-xs font-semibold uppercase tracking-widest text-gray-500">Fastlane running…</p>
+              <div className="rounded-2xl border border-white/5 bg-white/5 p-8">
+                <p className="mb-6 text-xs font-semibold uppercase tracking-widest text-gray-500">Autopilot running…</p>
                 <div className="space-y-4">
                   <div className="fl-step-1 flex items-center gap-3">
                     <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-emerald-500/20">
@@ -326,7 +354,7 @@ export default async function RootPage() {
                   <p className="mt-1 text-sm text-gray-500">Billed monthly</p>
                 </div>
                 <ul className="mb-8 flex-1 space-y-3">
-                  {["100 generations / month", "3 brand profiles", "All content formats", "Fastlane (30-day planner)"].map((f) => (
+                  {["100 generations / month", "3 brand profiles", "All content formats", "Autopilot (30-day planner)"].map((f) => (
                     <li key={f} className="flex items-center gap-2 text-sm text-gray-600">
                       <Check className="h-4 w-4 shrink-0 text-violet-500" /> {f}
                     </li>
@@ -347,7 +375,7 @@ export default async function RootPage() {
                   <p className="mt-1 text-sm text-gray-500">Billed monthly</p>
                 </div>
                 <ul className="mb-8 flex-1 space-y-3">
-                  {["500 generations / month", "10 brand profiles", "All content formats", "Fastlane (30-day planner)", "Influencer Outreach module", "Priority support"].map((f) => (
+                  {["500 generations / month", "10 brand profiles", "All content formats", "Autopilot (30-day planner)", "Influencer Outreach module", "Priority support"].map((f) => (
                     <li key={f} className="flex items-center gap-2 text-sm text-gray-600">
                       <Check className="h-4 w-4 shrink-0 text-emerald-500" /> {f}
                     </li>
@@ -423,7 +451,7 @@ export default async function RootPage() {
               <div>
                 <p className="mb-4 text-xs font-semibold uppercase tracking-widest text-gray-500">Product</p>
                 <ul className="space-y-3">
-                  {[{ label: "How it works", href: "#how" }, { label: "Fastlane", href: "/signup" }, { label: "Pricing", href: "#pricing" }].map(({ label, href }) => (
+                  {[{ label: "How it works", href: "#how" }, { label: "Autopilot", href: "/signup" }, { label: "Pricing", href: "#pricing" }].map(({ label, href }) => (
                     <li key={label}><a href={href} className="text-sm text-gray-400 hover:text-white transition-colors">{label}</a></li>
                   ))}
                 </ul>

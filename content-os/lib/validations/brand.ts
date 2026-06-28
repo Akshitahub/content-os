@@ -11,6 +11,10 @@ const brandBaseSchema = z.object({
   website_url: z.union([z.string().url("Please enter a valid URL"), z.literal(""), z.null()]).optional(),
   instagram_handle: z.string().max(50).nullish(),
   ai_persona: z.string().max(1000).nullish(),
+  vibe: z.string().max(50).nullish(),
+  posting_frequency: z.string().max(20).nullish(),
+  target_platforms: z.array(z.string().max(30)).optional(),
+  onboarding_type: z.string().max(50).nullish(),
 })
 
 export const createBrandSchema = brandBaseSchema
