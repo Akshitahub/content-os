@@ -48,7 +48,7 @@ export async function POST(request: Request) {
   // Resolve hook text from DB if hookId provided but no hookText
   let resolvedHookText = hookText
   if (!resolvedHookText && hookId) {
-    const { data: hook } = await supabase.from("hooks").select("hook_text").eq("id", hookId).single() as { data: { hook_text: string } | null; error: unknown }
+    const { data: hook } = await supabase.from("hooks").select("hook_text").eq("id", hookId).single() as unknown as { data: { hook_text: string } | null } as { data: { hook_text: string } | null; error: unknown }
     resolvedHookText = hook?.hook_text
   }
 
