@@ -1,13 +1,17 @@
 "use client"
 
-import { useState, useEffect, useCallback, useRef } from "react"
+import { useState, useEffect, useCallback, useRef, useMemo } from "react"
 import { Sparkles, RefreshCw, Copy, Check, Download, ExternalLink, Archive } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import Link from "next/link"
 import { GeneratingState } from "@/components/shared/GeneratingState"
+import { PostPreviewCard, generatePreviewHtml } from "@/components/shared/PostPreviewCard"
+import type { PreviewTemplate } from "@/components/shared/PostPreviewCard"
+import { TEMPLATE_NAMES } from "@/lib/design/constants"
 import { useGenerateFullPost, ApiResponseError } from "@/hooks/useGeneration"
 import { useGenerationStore } from "@/stores/generationStore"
+import { useBrand } from "@/hooks/useBrand"
 import type { FullPostResult, ContentResult } from "@/hooks/useGeneration"
 import type { ProductRow } from "@/types/database"
 import type { ContentFormat, Platform, GeneratedHook, GeneratedCaption, ReelScript, CarouselContent, BlogPost, AdCopy } from "@/types/app"
@@ -45,12 +49,31 @@ export function FullPostGenerator({ brandId, products }: Props) {
     setSelectedPlatform,
     occasionContext,
   } = useGenerationStore()
+  const { data: brand } = useBrand(brandId)
+
+  const palette = brand?.color_palette as Record<string, unknown> | null | undefined
+  const paletteColors = palette ? Object.values(palette).filter((v): v is string => typeof v === "string") : []
+  const primaryColor = paletteColors[0] ?? "#6366f1"
+  const secondaryColor = paletteColors[1] ?? "#818cf8"
+  const brandName = brand?.name ?? "Brand"
 
   const [format, setFormat] = useState<ContentFormat>("social_post")
   const [additionalContext, setAdditionalContext] = useState("")
   const [copied, setCopied] = useState<string | null>(null)
   const [justSaved, setJustSaved] = useState(false)
+  const [selectedTemplate, setSelectedTemplate] = useState<PreviewTemplate>(1)
   const abortControllerRef = useRef<AbortController | null>(null)
+
+  const previewHtml = useMemo(() => {
+    if (!fullPostResult) return undefined
+    return generatePreviewHtml(
+      fullPostResult.hook.hook_text,
+      brandName,
+      primaryColor,
+      secondaryColor,
+      selectedTemplate,
+    )
+  }, [fullPostResult, brandName, primaryColor, secondaryColor, selectedTemplate])
 
   useEffect(() => {
     if (occasionContext) setAdditionalContext(occasionContext.angle)
@@ -183,6 +206,40 @@ export function FullPostGenerator({ brandId, products }: Props) {
           </div>
         )}
 
+        {/* Template selector */}
+        <div className="space-y-1.5">
+          <Label className="text-xs">Post graphic template</Label>
+          <div className="grid grid-cols-3 gap-2">
+            {([1, 2, 3, 4, 5, 6] as PreviewTemplate[]).map((t) => (
+              <button
+                key={t}
+                type="button"
+                onClick={() => setSelectedTemplate(t)}
+                className={`relative overflow-hidden rounded-lg border-2 transition-all ${
+                  selectedTemplate === t ? "border-primary shadow-md" : "border-muted hover:border-primary/40"
+                }`}
+              >
+                <PostPreviewCard
+                  hookText={brandName}
+                  brandName={brandName}
+                  primaryColor={primaryColor}
+                  secondaryColor={secondaryColor}
+                  template={t}
+                  px={120}
+                />
+                <div className="absolute inset-x-0 bottom-0 bg-black/60 py-1 px-1">
+                  <p className="truncate text-center text-[9px] font-medium text-white">{TEMPLATE_NAMES[t]}</p>
+                </div>
+                {selectedTemplate === t && (
+                  <div className="absolute right-1 top-1 flex h-4 w-4 items-center justify-center rounded-full bg-primary">
+                    <Check className="h-2.5 w-2.5 text-white" />
+                  </div>
+                )}
+              </button>
+            ))}
+          </div>
+        </div>
+
         {/* Additional context */}
         <div className="space-y-1.5">
           <Label className="text-xs">Additional context (optional)</Label>
@@ -236,6 +293,7 @@ export function FullPostGenerator({ brandId, products }: Props) {
       {fullPostResult && !isPending && (
         <FullPostResults
           result={fullPostResult}
+          previewHtml={previewHtml}
           copied={copied}
           onCopy={copy}
           onDownload={downloadCard}
@@ -486,12 +544,14 @@ function PostCardPreview({ html, onDownload }: { html: string; onDownload: (html
 
 function FullPostResults({
   result,
+  previewHtml,
   copied,
   onCopy,
   onDownload,
   brandId,
 }: {
   result: FullPostResult
+  previewHtml?: string
   copied: string | null
   onCopy: (text: string, key: string) => void
   onDownload: (html: string) => void
@@ -501,8 +561,8 @@ function FullPostResults({
     <div className="space-y-4">
       <HookSection hook={result.hook} copied={copied} onCopy={onCopy} />
       <ContentDisplay content={result.content} copied={copied} onCopy={onCopy} />
-      {result.postCardHtml && (
-        <PostCardPreview html={result.postCardHtml} onDownload={onDownload} />
+      {(previewHtml ?? result.postCardHtml) && (
+        <PostCardPreview html={(previewHtml ?? result.postCardHtml)!} onDownload={onDownload} />
       )}
       <div className="flex justify-end">
         <Link

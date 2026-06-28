@@ -1,9 +1,11 @@
 "use client"
 
 import Link from "next/link"
-import { useCallback, useState } from "react"
-import { Zap, Bookmark, Calendar, Layers, Copy, Check, Sparkles, Users } from "lucide-react"
+import { useCallback, useState, useEffect } from "react"
+import { Zap, Bookmark, Calendar, Layers, Copy, Check, Sparkles, Users, CheckCircle2, Circle } from "lucide-react"
 import type { CalendarEntryRow, HookRow } from "@/types/database"
+
+const ONBOARDING_KEY = "contentos_onboarding"
 
 type RecentCalendarEntry = Pick<CalendarEntryRow, "id" | "title" | "scheduled_date" | "platform" | "status" | "hook_text" | "caption_text" | "is_ready" | "color">
 type TodayEntry = Pick<CalendarEntryRow, "id" | "title" | "platform" | "scheduled_date" | "status" | "is_ready" | "color">
@@ -64,6 +66,31 @@ export function DashboardStats({
   todayEntries,
   firstBrandId,
 }: DashboardStatsProps) {
+  const [onboardingDismissed, setOnboardingDismissed] = useState(true)
+
+  const checks = {
+    brandAdded: activeBrands > 0,
+    contentGenerated: generationsThisMonth > 0 || savedContentCount > 0,
+    calendarBuilt: calendarEntriesThisWeek > 0 || recentCalendar.length > 0,
+  }
+  const allDone = Object.values(checks).every(Boolean)
+
+  useEffect(() => {
+    try {
+      if (localStorage.getItem(ONBOARDING_KEY) !== "done") {
+        setOnboardingDismissed(false)
+      }
+    } catch {}
+  }, [])
+
+  useEffect(() => {
+    if (allDone) {
+      try { localStorage.setItem(ONBOARDING_KEY, "done") } catch {}
+      const t = setTimeout(() => setOnboardingDismissed(true), 2000)
+      return () => clearTimeout(t)
+    }
+  }, [allDone])
+
   const stats = [
     {
       label: "Generated this month",
@@ -101,6 +128,48 @@ export function DashboardStats({
 
   return (
     <div className="space-y-6">
+      {/* Onboarding checklist */}
+      {!onboardingDismissed && (
+        <div className="rounded-xl border bg-card p-5">
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-sm font-semibold">Get started</p>
+            <button
+              onClick={() => {
+                try { localStorage.setItem(ONBOARDING_KEY, "done") } catch {}
+                setOnboardingDismissed(true)
+              }}
+              className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+            >
+              Dismiss
+            </button>
+          </div>
+          <ul className="space-y-2">
+            {[
+              { label: "Add a brand", done: checks.brandAdded, href: firstBrandId ? undefined : "/brands/new" },
+              { label: "Generate your first piece of content", done: checks.contentGenerated, href: firstBrandId ? `/brands/${firstBrandId}/generate` : undefined },
+              { label: "Build a content calendar", done: checks.calendarBuilt, href: firstBrandId ? `/brands/${firstBrandId}/fastlane` : undefined },
+            ].map(({ label, done, href }) => (
+              <li key={label} className="flex items-center gap-2.5">
+                {done
+                  ? <CheckCircle2 className="h-4 w-4 text-green-500 shrink-0" />
+                  : <Circle className="h-4 w-4 text-muted-foreground/40 shrink-0" />
+                }
+                {href && !done ? (
+                  <Link href={href} className={`text-sm ${done ? "line-through text-muted-foreground" : "text-foreground hover:text-primary transition-colors"}`}>
+                    {label}
+                  </Link>
+                ) : (
+                  <span className={`text-sm ${done ? "line-through text-muted-foreground" : "text-foreground"}`}>{label}</span>
+                )}
+              </li>
+            ))}
+          </ul>
+          {allDone && (
+            <p className="mt-3 text-xs text-green-600 font-medium">All done! You&apos;re a content pro. 🎉</p>
+          )}
+        </div>
+      )}
+
       {/* Today's banner */}
       {todayEntries.length > 0 && firstBrandId && (
         <div

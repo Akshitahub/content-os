@@ -182,7 +182,15 @@ export default function FastlanePage() {
           {/* Simulated progress bar */}
           <div className="mt-6">
             <div className="flex items-center justify-between mb-1.5">
-              <span className="text-xs text-muted-foreground">Generating content</span>
+              <span className="text-xs text-muted-foreground">
+                {progress < 10
+                  ? "Analysing your brand…"
+                  : progress < 20
+                  ? "Building content strategy…"
+                  : progress < 92
+                  ? `Generating slot ${Math.ceil(((progress - 20) / 72) * 30)} of 30…`
+                  : "Saving to calendar…"}
+              </span>
               <span className="text-xs font-medium text-primary">{progress}%</span>
             </div>
             <div className="h-2 w-full overflow-hidden rounded-full bg-secondary">
@@ -196,14 +204,14 @@ export default function FastlanePage() {
 
           <div className="mt-6 space-y-2 text-left">
             {[
-              "Analysing your brand and products",
-              "Generating content strategy",
-              "Creating 30 content slots",
-              "Adding to your calendar",
-            ].map((step, i) => (
+              { text: "Analysing your brand and products", done: progress >= 10 },
+              { text: "Generating content strategy", done: progress >= 20 },
+              { text: `Creating 30 content slots (${Math.min(30, Math.ceil(((progress - 20) / 72) * 30))} / 30)`, done: progress >= 92 },
+              { text: "Adding to your calendar", done: progress >= 100 },
+            ].map(({ text, done }, i) => (
               <div key={i} className="flex items-center gap-3 rounded-lg border bg-card px-4 py-3">
-                <Loader2 className="h-4 w-4 animate-spin text-primary shrink-0" />
-                <p className="text-sm text-muted-foreground">{step}</p>
+                <Loader2 className={`h-4 w-4 shrink-0 ${done ? "text-green-500" : "animate-spin text-primary"}`} />
+                <p className={`text-sm ${done ? "text-foreground font-medium" : "text-muted-foreground"}`}>{text}</p>
               </div>
             ))}
           </div>

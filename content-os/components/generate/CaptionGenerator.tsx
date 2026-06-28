@@ -213,6 +213,51 @@ export function CaptionGenerator({ brandId, products }: CaptionGeneratorProps) {
       {!isPending && captions.length > 0 && (
         <div className="space-y-4">
           <p className="text-sm font-medium">{captions.length} caption{captions.length > 1 ? "s" : ""} generated</p>
+
+          {/* Phone mockup preview of most recent caption */}
+          {captions[0] && (
+            <div className="flex justify-center py-2">
+              <div className="relative" style={{ width: 260 }}>
+                {/* Phone outer frame */}
+                <div className="pointer-events-none absolute inset-0 z-10 rounded-[36px] border-[6px] border-zinc-800 shadow-xl" />
+                {/* Notch */}
+                <div className="pointer-events-none absolute left-1/2 top-0 z-20 h-5 w-24 -translate-x-1/2 rounded-b-2xl bg-zinc-800" />
+                {/* Home indicator */}
+                <div className="pointer-events-none absolute bottom-1.5 left-1/2 z-20 h-1 w-16 -translate-x-1/2 rounded-full bg-zinc-600" />
+                {/* Screen */}
+                <div className="overflow-hidden rounded-[30px] bg-white" style={{ minHeight: 360 }}>
+                  {/* Instagram-style post header */}
+                  <div className="flex items-center gap-2 border-b px-3 py-2 pt-6">
+                    <div className="h-7 w-7 rounded-full bg-gradient-to-br from-pink-400 via-fuchsia-500 to-purple-600" />
+                    <span className="text-[11px] font-semibold text-zinc-900">your_brand</span>
+                    <span className="ml-auto text-[10px] text-muted-foreground">now</span>
+                  </div>
+                  {/* Caption */}
+                  <div className="px-3 py-2">
+                    <p className="text-[11px] leading-relaxed text-zinc-900 whitespace-pre-wrap line-clamp-6">
+                      {captions[0].caption_text}
+                    </p>
+                    {captions[0].cta && (
+                      <p className="mt-1 text-[11px] font-semibold text-zinc-900">{captions[0].cta}</p>
+                    )}
+                    {captions[0].hashtags.length > 0 && (
+                      <p className="mt-1 text-[10px] text-blue-500 line-clamp-2">
+                        {captions[0].hashtags.slice(0, 8).map((h) => `#${h.replace(/^#/, "")}`).join(" ")}
+                      </p>
+                    )}
+                  </div>
+                  {/* Engagement row */}
+                  <div className="border-t px-3 py-1.5 flex items-center gap-3">
+                    <span className="text-[10px] text-muted-foreground">❤️ 128</span>
+                    <span className="text-[10px] text-muted-foreground">💬 24</span>
+                    <span className="text-[10px] text-muted-foreground">↗️ Share</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Caption cards */}
           {captions.map((caption, i) => {
             const captionId = caption.id ?? `caption-${i}`
             const fullText = `${caption.caption_text}\n\n${caption.hashtags.map((h) => `#${h.replace(/^#/, "")}`).join(" ")}`

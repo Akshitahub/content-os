@@ -2,13 +2,18 @@
 
 import { useState, useRef, useEffect } from "react"
 import Link from "next/link"
-import { Sparkles, RefreshCw, Check } from "lucide-react"
+import { Sparkles, RefreshCw, Check, ChevronLeft, ChevronRight, Copy, RotateCcw } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
-import { HookCard } from "./HookCard"
 import { GeneratingState } from "@/components/shared/GeneratingState"
+import { PostPreviewCard } from "@/components/shared/PostPreviewCard"
+import { QuickCopyButton } from "@/components/shared/QuickCopyButton"
 import { useGenerateHooks, ApiResponseError } from "@/hooks/useGeneration"
 import { useGenerationStore } from "@/stores/generationStore"
+import { useBrand } from "@/hooks/useBrand"
+import { scoreHook, scoreLabel, scoreColor } from "@/lib/utils/content-score"
+import { HOOK_TYPE_COLORS, TEMPLATE_NAMES } from "@/lib/design/constants"
+import type { PreviewTemplate } from "@/components/shared/PostPreviewCard"
 import type { ProductRow } from "@/types/database"
 import type { HookType, Platform } from "@/types/app"
 
@@ -35,6 +40,23 @@ interface HookGeneratorProps {
   products: ProductRow[]
 }
 
+function ScoreBadge({ score }: { score: number }) {
+  return (
+    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${scoreColor(score)}`}>
+      {score}/10 · {scoreLabel(score)}
+    </span>
+  )
+}
+
+function HookTypeBadge({ type }: { type: string }) {
+  const color = HOOK_TYPE_COLORS[type] ?? "bg-muted text-muted-foreground"
+  return (
+    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium capitalize ${color}`}>
+      {type.replace(/_/g, " ")}
+    </span>
+  )
+}
+
 export function HookGenerator({ brandId, products }: HookGeneratorProps) {
   const { mutate: generateHooks, isPending, error } = useGenerateHooks()
   const {
@@ -44,10 +66,20 @@ export function HookGenerator({ brandId, products }: HookGeneratorProps) {
     hookAdditionalContext: additionalContext,
     setHookAdditionalContext: setAdditionalContext,
   } = useGenerationStore()
+  const { data: brand } = useBrand(brandId)
   const [selectedHookTypes, setSelectedHookTypes] = useState<HookType[]>(["question", "bold_statement", "story"])
   const [count, setCount] = useState(3)
   const [justSaved, setJustSaved] = useState(false)
+  const [focusedIdx, setFocusedIdx] = useState(0)
+  const [previewTemplate, setPreviewTemplate] = useState<PreviewTemplate>(1)
   const abortControllerRef = useRef<AbortController | null>(null)
+
+  // Derive brand colors for preview
+  const palette = brand?.color_palette as Record<string, unknown> | null | undefined
+  const paletteColors = palette ? Object.values(palette).filter((v): v is string => typeof v === "string") : []
+  const primaryColor = paletteColors[0] ?? "#6366f1"
+  const secondaryColor = paletteColors[1] ?? "#818cf8"
+  const brandName = brand?.name ?? "Brand"
 
   // Restore from sessionStorage on mount
   useEffect(() => {
@@ -71,6 +103,11 @@ export function HookGenerator({ brandId, products }: HookGeneratorProps) {
   useEffect(() => {
     return () => abortControllerRef.current?.abort()
   }, [])
+
+  // Reset focus index when hooks change
+  useEffect(() => {
+    setFocusedIdx(0)
+  }, [hooks])
 
   function toggleHookType(type: HookType) {
     setSelectedHookTypes((prev) =>
@@ -101,6 +138,9 @@ export function HookGenerator({ brandId, products }: HookGeneratorProps) {
       }
     )
   }
+
+  const focusedHook = hooks[focusedIdx]
+  const focusedScore = focusedHook ? scoreHook(focusedHook.hook_text) : 0
 
   return (
     <div className="space-y-6">
@@ -233,19 +273,142 @@ export function HookGenerator({ brandId, products }: HookGeneratorProps) {
 
       {/* Results */}
       {!isPending && hooks.length > 0 && (
-        <div className="space-y-3">
+        <div className="space-y-4">
+          {/* Navigation header */}
           <div className="flex items-center justify-between">
             <p className="text-sm font-medium">{hooks.length} hooks generated</p>
-            <p className="text-xs text-muted-foreground">Click a hook to use it for captions</p>
+            <div className="flex items-center gap-1.5">
+              {/* Template picker */}
+              <select
+                value={previewTemplate}
+                onChange={e => setPreviewTemplate(Number(e.target.value) as PreviewTemplate)}
+                className="rounded-md border bg-background px-2 py-1 text-xs"
+              >
+                {([1, 2, 3, 4, 5, 6] as PreviewTemplate[]).map(n => (
+                  <option key={n} value={n}>{TEMPLATE_NAMES[n]}</option>
+                ))}
+              </select>
+              <button
+                onClick={() => setFocusedIdx(Math.max(0, focusedIdx - 1))}
+                disabled={focusedIdx === 0}
+                className="flex h-7 w-7 items-center justify-center rounded-md border bg-background text-muted-foreground hover:text-foreground disabled:opacity-30 transition-colors"
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </button>
+              <span className="text-xs text-muted-foreground tabular-nums">{focusedIdx + 1} / {hooks.length}</span>
+              <button
+                onClick={() => setFocusedIdx(Math.min(hooks.length - 1, focusedIdx + 1))}
+                disabled={focusedIdx === hooks.length - 1}
+                className="flex h-7 w-7 items-center justify-center rounded-md border bg-background text-muted-foreground hover:text-foreground disabled:opacity-30 transition-colors"
+              >
+                <ChevronRight className="h-4 w-4" />
+              </button>
+            </div>
           </div>
-          {hooks.map((hook, i) => (
-            <HookCard
-              key={hook.id ?? i}
-              hook={hook}
-              isSelected={selectedHook?.hook_text === hook.hook_text}
-              onSelect={setSelectedHook}
-            />
-          ))}
+
+          {/* Featured hook with visual preview */}
+          {focusedHook && (
+            <div className="rounded-xl border bg-card p-4">
+              <div className="flex gap-4">
+                <PostPreviewCard
+                  hookText={focusedHook.hook_text}
+                  brandName={brandName}
+                  primaryColor={primaryColor}
+                  secondaryColor={secondaryColor}
+                  template={previewTemplate}
+                  size="md"
+                  className="border"
+                />
+                <div className="flex-1 flex flex-col justify-between min-w-0">
+                  <div className="space-y-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <HookTypeBadge type={focusedHook.hook_type} />
+                      <ScoreBadge score={focusedScore} />
+                      {selectedHook?.hook_text === focusedHook.hook_text && (
+                        <span className="flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
+                          <Sparkles className="h-3 w-3" /> Selected
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-sm font-medium leading-relaxed">{focusedHook.hook_text}</p>
+                    {focusedHook.reasoning && (
+                      <p className="text-xs text-muted-foreground italic">{focusedHook.reasoning}</p>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap gap-2 mt-4 pt-3 border-t">
+                    <Button
+                      size="sm"
+                      onClick={() => setSelectedHook(focusedHook)}
+                      variant={selectedHook?.hook_text === focusedHook.hook_text ? "secondary" : "default"}
+                    >
+                      <Sparkles className="h-3.5 w-3.5 mr-1" />
+                      Use for Caption
+                    </Button>
+                    <QuickCopyButton
+                      text={focusedHook.hook_text}
+                      platform={selectedPlatform ?? undefined}
+                      label="Copy"
+                    />
+                    <button
+                      onClick={() => {
+                        setAdditionalContext(`Inspired by: ${focusedHook.hook_text.slice(0, 80)}`)
+                        handleGenerate()
+                      }}
+                      className="flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                    >
+                      <RotateCcw className="h-3.5 w-3.5" />
+                      Regenerate similar
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Compact hook list */}
+          <div className="space-y-2">
+            {hooks.map((hook, i) => {
+              const score = scoreHook(hook.hook_text)
+              const tmpl = ((i % 6) + 1) as PreviewTemplate
+              return (
+                <div
+                  key={hook.id ?? i}
+                  onClick={() => setFocusedIdx(i)}
+                  className={`flex items-center gap-3 rounded-lg border bg-card p-3 cursor-pointer transition-all hover:shadow-sm ${
+                    i === focusedIdx ? "ring-2 ring-primary border-primary/30" : ""
+                  }`}
+                >
+                  <PostPreviewCard
+                    hookText={hook.hook_text}
+                    brandName={brandName}
+                    primaryColor={primaryColor}
+                    secondaryColor={secondaryColor}
+                    template={previewTemplate}
+                    size="sm"
+                    className="shrink-0 border"
+                  />
+                  <div className="flex-1 min-w-0 space-y-1">
+                    <p className="text-sm line-clamp-2 leading-snug">{hook.hook_text}</p>
+                    <div className="flex items-center gap-1.5">
+                      <HookTypeBadge type={hook.hook_type} />
+                    </div>
+                  </div>
+                  <div className="shrink-0 flex flex-col items-end gap-2">
+                    <ScoreBadge score={score} />
+                    <button
+                      onClick={async (e) => {
+                        e.stopPropagation()
+                        await navigator.clipboard.writeText(hook.hook_text)
+                      }}
+                      className="text-muted-foreground hover:text-foreground transition-colors"
+                    >
+                      <Copy className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
         </div>
       )}
     </div>

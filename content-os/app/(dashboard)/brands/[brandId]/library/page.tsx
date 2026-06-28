@@ -3,12 +3,13 @@
 import { useState, useCallback, useEffect } from "react"
 import { useParams, useSearchParams } from "next/navigation"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
-import { Archive, Copy, Check, Star, Sparkles, BookOpen, ChevronDown, ChevronUp, Film, LayoutGrid, Megaphone, Mail, FileText, ImageIcon, Download } from "lucide-react"
+import { Archive, Copy, Check, Star, Sparkles, BookOpen, ChevronDown, ChevronUp, Film, LayoutGrid, Megaphone, Mail, FileText, ImageIcon, Download, Search } from "lucide-react"
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import Link from "next/link"
 import type { HookRow, CaptionRow, ReelScriptRow, CarouselRow, AdCopyRow, EmailSequenceRow, ProductDescriptionRow } from "@/types/database"
 import type { Json } from "@/types/database"
+import { scoreHook, scoreColor, scoreLabel } from "@/lib/utils/content-score"
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -80,6 +81,15 @@ function HookTypeBadge({ type }: { type: string | null }) {
   return <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium capitalize ${color}`}>{type.replace(/_/g, " ")}</span>
 }
 
+function ScoreBadge({ text }: { text: string }) {
+  const score = scoreHook(text)
+  return (
+    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${scoreColor(score)}`}>
+      {score}/10 · {scoreLabel(score)}
+    </span>
+  )
+}
+
 function PlatformBadge({ platform }: { platform: string | null }) {
   if (!platform) return null
   return <span className="inline-flex items-center rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary capitalize">{platform}</span>
@@ -137,7 +147,10 @@ function HookCard({ hook, brandId }: { hook: HookRow; brandId: string }) {
     <Card className="transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md">
       <CardHeader className="pb-2">
         <div className="flex items-start justify-between gap-2">
-          <HookTypeBadge type={hook.hook_type} />
+          <div className="flex flex-wrap items-center gap-1.5">
+            <HookTypeBadge type={hook.hook_type} />
+            <ScoreBadge text={hook.hook_text} />
+          </div>
           <span className="shrink-0 text-xs text-muted-foreground">{new Date(hook.created_at).toLocaleDateString()}</span>
         </div>
       </CardHeader>
@@ -433,6 +446,7 @@ function ProductDescCard({ desc, brandId }: { desc: ProductDescriptionRow; brand
 function HooksTab({ brandId }: { brandId: string }) {
   const [hookTypeFilter, setHookTypeFilter] = useState("all")
   const [dateFilter, setDateFilter] = useState("all")
+  const [searchQuery, setSearchQuery] = useState("")
   const { data: hooks = [], isLoading } = useQuery({
     queryKey: ["library", "hooks", brandId, hookTypeFilter],
     queryFn: async (): Promise<HookRow[]> => {
@@ -444,16 +458,30 @@ function HooksTab({ brandId }: { brandId: string }) {
     },
     enabled: !!brandId,
   })
-  const filtered = hooks.filter(h => inDateRange(h.created_at, dateFilter))
+  const filtered = hooks
+    .filter(h => inDateRange(h.created_at, dateFilter))
+    .filter(h => !searchQuery || h.hook_text.toLowerCase().includes(searchQuery.toLowerCase()))
   return (
     <div>
-      <div className="mb-4 flex flex-wrap gap-2">
-        <select value={hookTypeFilter} onChange={e => setHookTypeFilter(e.target.value)} className="rounded-md border bg-background px-3 py-1.5 text-sm">
-          {HOOK_TYPES.map(t => <option key={t} value={t}>{t === "all" ? "All types" : t.replace(/_/g, " ")}</option>)}
-        </select>
-        <select value={dateFilter} onChange={e => setDateFilter(e.target.value)} className="rounded-md border bg-background px-3 py-1.5 text-sm">
-          {DATE_RANGES.map(d => <option key={d.value} value={d.value}>{d.label}</option>)}
-        </select>
+      <div className="mb-4 flex flex-col gap-2">
+        <div className="relative">
+          <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <input
+            type="text"
+            placeholder="Search hooks…"
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            className="w-full rounded-md border bg-background py-1.5 pl-8 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+          />
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <select value={hookTypeFilter} onChange={e => setHookTypeFilter(e.target.value)} className="rounded-md border bg-background px-3 py-1.5 text-sm">
+            {HOOK_TYPES.map(t => <option key={t} value={t}>{t === "all" ? "All types" : t.replace(/_/g, " ")}</option>)}
+          </select>
+          <select value={dateFilter} onChange={e => setDateFilter(e.target.value)} className="rounded-md border bg-background px-3 py-1.5 text-sm">
+            {DATE_RANGES.map(d => <option key={d.value} value={d.value}>{d.label}</option>)}
+          </select>
+        </div>
       </div>
       {isLoading ? <SkeletonGrid /> : filtered.length === 0 ? <EmptyState label="saved hooks" brandId={brandId} /> : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
