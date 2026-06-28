@@ -286,6 +286,14 @@ export function ContentTypeGenerator({ brandId, products }: ContentTypeGenerator
 
   const activeConfig = FORMAT_CONFIGS.find((f) => f.value === selectedFormat)!
 
+  const FORMAT_TO_TAB: Partial<Record<ContentFormat, string>> = {
+    social_post: "captions",
+    reel_script: "scripts",
+    carousel: "carousels",
+    ad_copy: "ad_copy",
+  }
+  const libraryTab = FORMAT_TO_TAB[selectedFormat] ?? "hooks"
+
   return (
     <div className="space-y-6">
       {/* Format picker */}
@@ -411,7 +419,7 @@ export function ContentTypeGenerator({ brandId, products }: ContentTypeGenerator
             <span className="text-sm font-medium">Content saved to My Content</span>
           </div>
           <Link
-            href={`/brands/${brandId}/library?tab=content`}
+            href={`/brands/${brandId}/library?tab=${libraryTab}`}
             className="text-xs font-medium text-green-700 underline underline-offset-2 hover:text-green-900 shrink-0"
           >
             View in My Content →

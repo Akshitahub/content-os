@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useCallback } from "react"
+import { useState, useCallback, useEffect } from "react"
 import { useParams, useSearchParams } from "next/navigation"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { Archive, Copy, Check, Star, Sparkles, BookOpen, ChevronDown, ChevronUp, Film, LayoutGrid, Megaphone, Mail, FileText, ImageIcon, Download } from "lucide-react"
@@ -693,6 +693,11 @@ export default function LibraryPage() {
   const [activeTab, setActiveTab] = useState<LibraryTab>(
     tabParam && VALID_TABS.has(tabParam) ? tabParam : "hooks"
   )
+
+  // Sync tab when URL changes (handles soft navigation)
+  useEffect(() => {
+    if (tabParam && VALID_TABS.has(tabParam)) setActiveTab(tabParam)
+  }, [tabParam])
 
   return (
     <div className="px-4 py-6 md:p-8">

@@ -75,6 +75,7 @@ export async function POST(request: Request) {
         caption_text: caption.caption_text, hashtags: caption.hashtags,
         cta: caption.cta, character_count: caption.character_count,
         platform: platform ?? "instagram", model_used: result.model,
+        is_saved: true,
       })
     } else if (format === "reel_script") {
       const script = result.data as ReelScript
@@ -83,7 +84,7 @@ export async function POST(request: Request) {
         brand_id: brandId, product_id: productId ?? null,
         platform: platform ?? null, hook: script.hook,
         scenes: script.scenes, caption: script.caption ?? null,
-        hashtags: script.hashtags ?? [],
+        hashtags: script.hashtags ?? [], is_saved: true,
       })
     } else if (format === "carousel") {
       const carousel = result.data as CarouselContent
@@ -92,6 +93,7 @@ export async function POST(request: Request) {
         brand_id: brandId, product_id: productId ?? null,
         platform: platform ?? null,
         slides: carousel.slides, hashtags: carousel.hashtags ?? [],
+        is_saved: true,
       })
     } else if (format === "ad_copy") {
       const ad = result.data as AdCopy
@@ -100,7 +102,7 @@ export async function POST(request: Request) {
         brand_id: brandId, product_id: productId ?? null,
         platform: platform ?? null, headline: ad.headline,
         primary_text: ad.primary_text, description: ad.description ?? null,
-        cta_button: ad.cta_button ?? null,
+        cta_button: ad.cta_button ?? null, is_saved: true,
       })
     }
   } catch (persistErr) {
