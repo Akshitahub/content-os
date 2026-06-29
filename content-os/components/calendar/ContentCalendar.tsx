@@ -315,10 +315,27 @@ export function ContentCalendar({ brandId }: ContentCalendarProps) {
 
       {/* Empty state */}
       {!isLoading && entries.length === 0 && (
-        <div className="mt-6 rounded-lg border border-dashed p-10 text-center">
-          <p className="text-sm font-medium text-muted-foreground">
-            Your calendar is empty — use Fastlane to generate 30 days of content with full captions, hooks, and hashtags.
-          </p>
+        <div className="mt-6 rounded-xl border border-dashed p-10 text-center space-y-4">
+          <div className="text-4xl">📅</div>
+          <div>
+            <p className="text-sm font-semibold">Your calendar is empty</p>
+            <p className="mt-1 text-xs text-muted-foreground">Let Autopilot plan 30 days of content for you, or add entries manually.</p>
+          </div>
+          <div className="flex flex-col sm:flex-row gap-2 justify-center">
+            <a
+              href={`/brands/${brandId}/fastlane`}
+              className="inline-flex items-center justify-center gap-1.5 rounded-full bg-violet-600 px-4 py-2 text-sm font-semibold text-white hover:bg-violet-700 transition-colors"
+            >
+              ✈️ Run Autopilot
+            </a>
+            <button
+              type="button"
+              onClick={() => openNewEntry()}
+              className="inline-flex items-center justify-center gap-1.5 rounded-full border border-input px-4 py-2 text-sm font-medium hover:bg-secondary transition-colors"
+            >
+              + Create manually
+            </button>
+          </div>
         </div>
       )}
 

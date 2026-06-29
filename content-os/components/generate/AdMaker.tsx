@@ -232,16 +232,19 @@ export function AdMaker({ brandId }: AdMakerProps) {
     return () => clearInterval(t)
   }, [generating])
 
-  // Restore results from sessionStorage
+  // Restore from sessionStorage
   useEffect(() => {
     const saved = sessionStorage.getItem(STORAGE_KEY)
     if (saved) {
       try {
-        const parsed = JSON.parse(saved) as { resultImages?: string[]; selectedScene?: string }
+        const parsed = JSON.parse(saved) as { resultImages?: string[]; selectedScene?: string; productDataUrl?: string }
         if (parsed.resultImages && parsed.resultImages.length > 0) {
           setResults(parsed.resultImages)
           setExpandedIdx(0)
           setStep(3)
+        } else if (parsed.productDataUrl) {
+          setProductDataUrl(parsed.productDataUrl)
+          setStep(2)
         }
         if (parsed.selectedScene) setScene(parsed.selectedScene)
       } catch {}
@@ -252,9 +255,20 @@ export function AdMaker({ brandId }: AdMakerProps) {
   // Persist results to sessionStorage
   useEffect(() => {
     if (results.length > 0) {
-      sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ resultImages: results, selectedScene: scene }))
+      try {
+        sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ resultImages: results, selectedScene: scene }))
+      } catch {}
     }
   }, [results, scene, STORAGE_KEY])
+
+  // Persist productDataUrl (for step 2 restore) — only when no results yet
+  useEffect(() => {
+    if (productDataUrl && results.length === 0) {
+      try {
+        sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ productDataUrl, selectedScene: scene }))
+      } catch {}
+    }
+  }, [productDataUrl, scene, results.length, STORAGE_KEY])
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
@@ -354,6 +368,7 @@ export function AdMaker({ brandId }: AdMakerProps) {
     setExpandedIdx(null)
     setGenError("")
     setPasteUrl("")
+    sessionStorage.removeItem(STORAGE_KEY)
     if (fileInputRef.current) fileInputRef.current.value = ""
   }
 

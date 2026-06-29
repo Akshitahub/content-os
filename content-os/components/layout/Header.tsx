@@ -25,8 +25,10 @@ export function Header({ userEmail, userName, onMenuClick, generationCount = 0, 
 
   const userPlan = (plan as UserPlan) in PLAN_LIMITS ? (plan as UserPlan) : "free"
   const limit = PLAN_LIMITS[userPlan].generations
+  const remaining = Math.max(0, limit - generationCount)
   const usagePct = Math.min(100, Math.round((generationCount / limit) * 100))
-  const usageRed = usagePct >= 80
+  const creditColor = remaining === 0 ? "text-red-500" : remaining < 5 ? "text-amber-500" : "text-muted-foreground"
+  const barColor = remaining === 0 ? "bg-red-500" : remaining < 5 ? "bg-amber-500" : "bg-primary"
 
   const displayName = userName ?? userEmail ?? "Account"
   const initials = userName
@@ -70,12 +72,12 @@ export function Header({ userEmail, userName, onMenuClick, generationCount = 0, 
         {/* Usage indicator */}
         <div className="hidden sm:flex items-center gap-2">
           <div className="flex flex-col items-end gap-0.5">
-            <span className={`text-[10px] font-medium leading-none ${usageRed ? "text-red-500" : "text-muted-foreground"}`}>
-              {generationCount} / {limit} credits
+            <span className={`text-[10px] font-medium leading-none ${creditColor}`}>
+              {remaining} credits remaining
             </span>
             <div className="h-1 w-20 rounded-full bg-muted overflow-hidden">
               <div
-                className={`h-full rounded-full transition-all ${usageRed ? "bg-red-500" : "bg-primary"}`}
+                className={`h-full rounded-full transition-all ${barColor}`}
                 style={{ width: `${usagePct}%` }}
               />
             </div>

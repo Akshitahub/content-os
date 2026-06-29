@@ -128,6 +128,24 @@ export function DashboardStats({
 
   return (
     <div className="space-y-6">
+      {/* Welcome banner — new users with no content yet */}
+      {generationsThisMonth === 0 && savedContentCount === 0 && firstBrandId && (
+        <div className="rounded-xl border bg-gradient-to-br from-violet-50 to-indigo-50 dark:from-violet-900/20 dark:to-indigo-900/20 p-6 text-center space-y-3">
+          <div className="text-3xl">👋</div>
+          <div>
+            <p className="text-lg font-semibold">Welcome to ContentOS!</p>
+            <p className="mt-1 text-sm text-muted-foreground">Your AI content engine is ready. Create your first piece of content in seconds.</p>
+          </div>
+          <Link
+            href={`/brands/${firstBrandId}/generate`}
+            className="inline-flex items-center gap-1.5 rounded-full bg-violet-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-violet-700 transition-colors"
+          >
+            <Sparkles className="h-4 w-4" />
+            Create my first content
+          </Link>
+        </div>
+      )}
+
       {/* Onboarding checklist */}
       {!onboardingDismissed && (
         <div className="rounded-xl border bg-card p-5">
