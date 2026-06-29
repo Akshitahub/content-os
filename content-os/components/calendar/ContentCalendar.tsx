@@ -1,12 +1,13 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
-import { ChevronLeft, ChevronRight, Plus, X, Loader2 } from "lucide-react"
-import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameMonth, isToday } from "date-fns"
+import { ChevronLeft, ChevronRight, Plus, X, Loader2, LayoutGrid, List } from "lucide-react"
+import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameMonth, isToday, startOfWeek, endOfWeek, addWeeks, subWeeks } from "date-fns"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { CalendarEntryPanel } from "@/components/calendar/CalendarEntryPanel"
+import { PostCard } from "@/components/shared/PostCard"
 import type { CalendarEntryRow } from "@/types/database"
 
 const STATUS_COLORS: Record<string, string> = {
@@ -15,6 +16,23 @@ const STATUS_COLORS: Record<string, string> = {
   scheduled: "bg-purple-100 text-purple-700 border-purple-200",
   published: "bg-green-100 text-green-700 border-green-200",
   missed: "bg-red-100 text-red-700 border-red-200",
+}
+
+const PLATFORM_GRADIENTS: Record<string, string> = {
+  instagram: "from-purple-500 to-pink-500",
+  tiktok: "from-gray-900 to-black",
+  facebook: "from-blue-600 to-indigo-700",
+  youtube: "from-red-500 to-red-700",
+  linkedin: "from-blue-700 to-blue-500",
+  twitter: "from-sky-400 to-blue-500",
+}
+
+const STATUS_DOT: Record<string, string> = {
+  planned: "bg-gray-400",
+  content_ready: "bg-blue-500",
+  scheduled: "bg-violet-500",
+  published: "bg-emerald-500",
+  missed: "bg-red-500",
 }
 
 const PLATFORM_EMOJIS: Record<string, string> = {
@@ -46,6 +64,7 @@ export function ContentCalendar({ brandId }: ContentCalendarProps) {
   const [showNewEntryModal, setShowNewEntryModal] = useState(false)
   const [selectedEntry, setSelectedEntry] = useState<CalendarEntryRow | null>(null)
   const [isSaving, setIsSaving] = useState(false)
+  const [viewMode, setViewMode] = useState<"month" | "week">("month")
   const [form, setForm] = useState<NewEntryForm>({
     title: "", scheduled_date: "", platform: "instagram",
     content_type: "reel", notes: "", status: "planned",
@@ -70,6 +89,22 @@ export function ContentCalendar({ brandId }: ContentCalendarProps) {
 
   const days = eachDayOfInterval({ start: startOfMonth(currentDate), end: endOfMonth(currentDate) })
   const startDayOfWeek = startOfMonth(currentDate).getDay()
+
+  const weekStart = startOfWeek(currentDate)
+  const weekEnd = endOfWeek(weekStart)
+  const weekDays = eachDayOfInterval({ start: weekStart, end: weekEnd })
+
+  function navigatePrev() {
+    if (viewMode === "week") setCurrentDate(d => subWeeks(d, 1))
+    else setCurrentDate(d => new Date(d.getFullYear(), d.getMonth() - 1, 1))
+  }
+  function navigateNext() {
+    if (viewMode === "week") setCurrentDate(d => addWeeks(d, 1))
+    else setCurrentDate(d => new Date(d.getFullYear(), d.getMonth() + 1, 1))
+  }
+  const headerLabel = viewMode === "week"
+    ? `${format(weekStart, "MMM d")} – ${format(weekEnd, "MMM d, yyyy")}`
+    : format(currentDate, "MMMM yyyy")
 
   function openNewEntry(dateStr?: string) {
     setSelectedEntry(null)
@@ -121,29 +156,38 @@ export function ContentCalendar({ brandId }: ContentCalendarProps) {
   return (
     <div className="relative">
       {/* Header */}
-      <div className="mb-6 flex items-center justify-between">
+      <div className="mb-6 flex items-center justify-between gap-3 flex-wrap">
         <div className="flex items-center gap-3">
-          <Button
-            variant="outline"
-            size="icon"
-            className="h-8 w-8"
-            onClick={() => setCurrentDate(d => new Date(d.getFullYear(), d.getMonth() - 1, 1))}
-          >
+          <Button variant="outline" size="icon" className="h-8 w-8" onClick={navigatePrev}>
             <ChevronLeft className="h-4 w-4" />
           </Button>
-          <h2 className="text-lg font-semibold">{format(currentDate, "MMMM yyyy")}</h2>
-          <Button
-            variant="outline"
-            size="icon"
-            className="h-8 w-8"
-            onClick={() => setCurrentDate(d => new Date(d.getFullYear(), d.getMonth() + 1, 1))}
-          >
+          <h2 className="text-lg font-semibold min-w-[160px] text-center">{headerLabel}</h2>
+          <Button variant="outline" size="icon" className="h-8 w-8" onClick={navigateNext}>
             <ChevronRight className="h-4 w-4" />
           </Button>
         </div>
-        <Button size="sm" onClick={() => openNewEntry()}>
-          <Plus className="h-4 w-4 mr-1.5" /> Add entry
-        </Button>
+        <div className="flex items-center gap-2">
+          {/* View toggle */}
+          <div className="flex rounded-lg border overflow-hidden">
+            <button
+              type="button"
+              onClick={() => setViewMode("month")}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-colors ${viewMode === "month" ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}
+            >
+              <LayoutGrid className="h-3.5 w-3.5" /> Month
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode("week")}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-colors border-l ${viewMode === "week" ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}
+            >
+              <List className="h-3.5 w-3.5" /> Week
+            </button>
+          </div>
+          <Button size="sm" onClick={() => openNewEntry()}>
+            <Plus className="h-4 w-4 mr-1.5" /> Add entry
+          </Button>
+        </div>
       </div>
 
       {/* Day labels */}
@@ -158,7 +202,58 @@ export function ContentCalendar({ brandId }: ContentCalendarProps) {
         <div className="flex items-center justify-center h-64">
           <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
         </div>
+      ) : viewMode === "week" ? (
+        /* ── WEEK VIEW ── */
+        <div className="grid grid-cols-7 gap-2">
+          {weekDays.map(day => {
+            const dayEntries = getEntriesForDay(day)
+            const dateStr = format(day, "yyyy-MM-dd")
+            const today = isToday(day)
+            return (
+              <div key={dateStr} className="min-h-[200px] rounded-lg border bg-background p-2">
+                {/* Day header */}
+                <div
+                  className={`mb-2 flex h-7 w-7 items-center justify-center rounded-full text-xs font-semibold cursor-pointer hover:bg-muted ${today ? "bg-primary text-primary-foreground" : "text-foreground"}`}
+                  onClick={() => openNewEntry(dateStr)}
+                >
+                  {format(day, "d")}
+                </div>
+                {/* Entries as PostCard sm */}
+                <div className="space-y-2">
+                  {dayEntries.slice(0, 4).map((entry) => (
+                    <div
+                      key={entry.id}
+                      className="cursor-pointer"
+                      onClick={() => setSelectedEntry(entry)}
+                    >
+                      <PostCard
+                        type={entry.content_type === "carousel" ? "carousel" : entry.content_type === "story" ? "story" : "caption"}
+                        content={entry.title}
+                        platform={(entry.platform as "instagram" | "tiktok" | "linkedin" | "twitter" | "facebook" | "youtube") ?? "instagram"}
+                        showScore={false}
+                        size="sm"
+                      />
+                    </div>
+                  ))}
+                  {dayEntries.length > 4 && (
+                    <p className="text-[10px] text-muted-foreground text-center">+{dayEntries.length - 4} more</p>
+                  )}
+                  {dayEntries.length === 0 && (
+                    <button
+                      type="button"
+                      onClick={() => openNewEntry(dateStr)}
+                      className="w-full rounded border border-dashed py-2 text-[10px] text-muted-foreground hover:border-primary/40 hover:text-primary transition-colors"
+                    >
+                      + Add
+                    </button>
+                  )}
+                </div>
+              </div>
+            )
+          })}
+        </div>
       ) : (
+        /* ── MONTH VIEW ── */
         <div className="grid grid-cols-7 gap-px bg-border rounded-lg overflow-hidden border">
           {Array.from({ length: startDayOfWeek }).map((_, i) => (
             <div key={`empty-${i}`} className="bg-muted/30 min-h-[100px] p-1" />
@@ -176,33 +271,40 @@ export function ContentCalendar({ brandId }: ContentCalendarProps) {
                 className={`bg-background min-h-[100px] p-1.5 cursor-pointer hover:bg-muted/30 transition-colors ${!isCurrentMonth ? "opacity-40" : ""}`}
                 onClick={() => openNewEntry(dateStr)}
               >
-                <div className={`mb-1 flex h-6 w-6 items-center justify-center rounded-full text-xs font-medium ${today ? "bg-primary text-primary-foreground" : "text-foreground"}`}>
+                <div className={`mb-1.5 flex h-6 w-6 items-center justify-center rounded-full text-xs font-medium ${today ? "bg-primary text-primary-foreground" : "text-foreground"}`}>
                   {format(day, "d")}
                 </div>
-                <div className="space-y-0.5">
-                  {dayEntries.slice(0, 3).map(entry => (
-                    <div
-                      key={entry.id}
-                      className={`group relative flex items-center gap-1 rounded px-1 py-0.5 text-xs border truncate cursor-pointer ${STATUS_COLORS[entry.status] ?? STATUS_COLORS.planned} ${entry.is_ready ? "ring-1 ring-inset ring-current/20" : ""}`}
-                      onClick={e => { e.stopPropagation(); setSelectedEntry(entry) }}
-                      title={`${entry.title}${entry.is_ready ? " — content ready" : ""}`}
-                    >
-                      {entry.platform && <span className="shrink-0">{PLATFORM_EMOJIS[entry.platform]}</span>}
-                      <span className="truncate flex-1">{entry.title}</span>
-                      {entry.is_ready && (
-                        <span className="shrink-0 h-1.5 w-1.5 rounded-full bg-current opacity-70" />
-                      )}
-                      <button
-                        className="shrink-0 hidden group-hover:flex items-center justify-center h-3.5 w-3.5 rounded-full hover:bg-black/10"
-                        onClick={e => handleDelete(entry.id, e)}
-                        title="Delete"
+                <div className="space-y-1">
+                  {dayEntries.slice(0, 3).map(entry => {
+                    const grad = PLATFORM_GRADIENTS[entry.platform ?? "instagram"] ?? "from-violet-500 to-indigo-500"
+                    const dot = STATUS_DOT[entry.status] ?? "bg-gray-400"
+                    return (
+                      <div
+                        key={entry.id}
+                        className="group relative rounded-md overflow-hidden cursor-pointer"
+                        onClick={e => { e.stopPropagation(); setSelectedEntry(entry) }}
+                        title={entry.title}
                       >
-                        <X className="h-2.5 w-2.5" />
-                      </button>
-                    </div>
-                  ))}
+                        {/* Mini gradient card */}
+                        <div className={`bg-gradient-to-r ${grad} px-1.5 py-1 flex items-center gap-1`}>
+                          <span className={`shrink-0 h-1.5 w-1.5 rounded-full ${dot} ring-1 ring-white/50`} />
+                          <span className="truncate text-[10px] font-medium text-white leading-tight flex-1">
+                            {entry.title}
+                          </span>
+                          <span className="shrink-0 text-[9px] text-white/70">{PLATFORM_EMOJIS[entry.platform ?? ""] ?? ""}</span>
+                          <button
+                            className="shrink-0 hidden group-hover:flex items-center justify-center h-3 w-3 rounded-full bg-black/20 hover:bg-black/40"
+                            onClick={e => handleDelete(entry.id, e)}
+                            title="Delete"
+                          >
+                            <X className="h-2 w-2 text-white" />
+                          </button>
+                        </div>
+                      </div>
+                    )
+                  })}
                   {dayEntries.length > 3 && (
-                    <p className="text-xs text-muted-foreground pl-1">+{dayEntries.length - 3} more</p>
+                    <p className="text-[10px] text-muted-foreground pl-0.5">+{dayEntries.length - 3} more</p>
                   )}
                 </div>
               </div>

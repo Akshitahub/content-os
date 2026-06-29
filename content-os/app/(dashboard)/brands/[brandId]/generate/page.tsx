@@ -9,24 +9,10 @@ import { useBrand } from "@/hooks/useBrand"
 import { useBrandStore } from "@/stores/brandStore"
 import { useGenerationStore } from "@/stores/generationStore"
 import { OCCASIONS } from "@/lib/occasions/occasions-data"
-import { Copy, Check, Archive } from "lucide-react"
+import { Archive } from "lucide-react"
 import Link from "next/link"
-import { useState, useCallback } from "react"
 import type { HookRow, CaptionRow } from "@/types/database"
-
-function CopyBtn({ text }: { text: string }) {
-  const [copied, setCopied] = useState(false)
-  const handle = useCallback(async () => {
-    await navigator.clipboard.writeText(text)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 1600)
-  }, [text])
-  return (
-    <button onClick={handle} className="rounded p-1 text-muted-foreground hover:text-foreground transition-colors">
-      {copied ? <Check className="h-3.5 w-3.5 text-green-500" /> : <Copy className="h-3.5 w-3.5" />}
-    </button>
-  )
-}
+import { PostCard } from "@/components/shared/PostCard"
 
 function RecentGenerations({ brandId }: { brandId: string }) {
   const { data: hooks = [] } = useQuery({
@@ -78,12 +64,18 @@ function RecentGenerations({ brandId }: { brandId: string }) {
         {hooks.length > 0 && (
           <div>
             <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Hooks</p>
-            <div className="space-y-2">
-              {hooks.map(hook => (
-                <div key={hook.id} className="flex items-start justify-between gap-2 rounded-lg border bg-card px-3 py-2.5">
-                  <p className="text-sm leading-relaxed line-clamp-2">{hook.hook_text}</p>
-                  <CopyBtn text={hook.hook_text} />
-                </div>
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
+              {hooks.map((hook, i) => (
+                <PostCard
+                  key={hook.id}
+                  type="hook"
+                  content={hook.hook_text}
+                  platform="instagram"
+                  hookType={hook.hook_type ?? undefined}
+                  number={i + 1}
+                  showScore
+                  size="sm"
+                />
               ))}
             </div>
           </div>
@@ -92,12 +84,17 @@ function RecentGenerations({ brandId }: { brandId: string }) {
         {captions.length > 0 && (
           <div>
             <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Captions</p>
-            <div className="space-y-2">
-              {captions.map(caption => (
-                <div key={caption.id} className="flex items-start justify-between gap-2 rounded-lg border bg-card px-3 py-2.5">
-                  <p className="text-sm leading-relaxed line-clamp-2">{caption.caption_text}</p>
-                  <CopyBtn text={caption.caption_text} />
-                </div>
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
+              {captions.map((caption, i) => (
+                <PostCard
+                  key={caption.id}
+                  type="caption"
+                  content={caption.caption_text}
+                  platform={caption.platform ?? "instagram"}
+                  number={i + 1}
+                  showScore={false}
+                  size="sm"
+                />
               ))}
             </div>
           </div>

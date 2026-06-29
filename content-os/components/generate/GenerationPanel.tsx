@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { FileText, Sparkles, Layers, ImageIcon, X, RefreshCw, Wand2 } from "lucide-react"
+import { FileText, Sparkles, Layers, ImageIcon, X, RefreshCw, Wand2, LayoutGrid, Smartphone, Laugh } from "lucide-react"
 import { FullPostGenerator } from "./FullPostGenerator"
 import { HookGenerator } from "./HookGenerator"
 import { ContentTypeGenerator } from "./ContentTypeGenerator"
@@ -9,6 +9,9 @@ import { ImageGenerator } from "./ImageGenerator"
 import { SceneComposer } from "./SceneComposer"
 import { ContentRepurposer } from "./ContentRepurposer"
 import { AdMaker } from "./AdMaker"
+import { CarouselBuilder } from "./CarouselBuilder"
+import { StorySequence } from "./StorySequence"
+import { MemeMaker } from "./MemeMaker"
 import { useGenerationStore } from "@/stores/generationStore"
 import type { ProductRow } from "@/types/database"
 
@@ -17,15 +20,18 @@ interface GenerationPanelProps {
   products: ProductRow[]
 }
 
-type Tab = "ad_maker" | "full_post" | "hooks" | "content" | "images" | "repurpose"
+type Tab = "ad_maker" | "full_post" | "carousel" | "stories" | "memes" | "hooks" | "content" | "images" | "repurpose"
 
-const TABS: { id: Tab; label: string; icon: React.ElementType }[] = [
-  { id: "ad_maker", label: "Ad Maker ✨", icon: Wand2 },
-  { id: "full_post", label: "Post Builder", icon: FileText },
-  { id: "hooks", label: "Scroll Stoppers", icon: Sparkles },
-  { id: "content", label: "Deep Content", icon: Layers },
-  { id: "images", label: "Visuals", icon: ImageIcon },
-  { id: "repurpose", label: "Repurpose", icon: RefreshCw },
+const TABS: { id: Tab; label: string; icon: React.ElementType; tooltip: string }[] = [
+  { id: "ad_maker",  label: "Ad Maker ✨",      icon: Wand2,       tooltip: "Create product ads with AI-generated scenes" },
+  { id: "full_post", label: "Post Builder",      icon: FileText,    tooltip: "Build a complete post: hook + caption + visual" },
+  { id: "carousel",  label: "Carousel 🎠",       icon: LayoutGrid,  tooltip: "Visual carousel builder with slide preview" },
+  { id: "stories",   label: "Stories 📱",        icon: Smartphone,  tooltip: "Connected Instagram story sequence" },
+  { id: "memes",     label: "Memes 😂",          icon: Laugh,       tooltip: "Brand memes that get shared 3× more" },
+  { id: "hooks",     label: "Scroll Stoppers",   icon: Sparkles,    tooltip: "Hook-only generator for viral openers" },
+  { id: "content",   label: "Deep Content",      icon: Layers,      tooltip: "Reels, carousels, ad copy, email sequences" },
+  { id: "images",    label: "Visuals",           icon: ImageIcon,   tooltip: "AI-generated images in your brand style" },
+  { id: "repurpose", label: "Repurpose",         icon: RefreshCw,   tooltip: "Turn existing content into multiple formats" },
 ]
 
 export function GenerationPanel({ brandId, products }: GenerationPanelProps) {
@@ -62,6 +68,7 @@ export function GenerationPanel({ brandId, products }: GenerationPanelProps) {
               key={tab.id}
               type="button"
               onClick={() => setActiveTab(tab.id)}
+              title={tab.tooltip}
               className={`flex items-center gap-1.5 rounded-full px-4 py-1.5 text-sm font-medium transition-all duration-150 ${
                 active
                   ? "bg-primary text-primary-foreground shadow-sm"
@@ -75,11 +82,14 @@ export function GenerationPanel({ brandId, products }: GenerationPanelProps) {
         })}
       </div>
 
-      {activeTab === "ad_maker" && <AdMaker brandId={brandId} />}
+      {activeTab === "ad_maker"  && <AdMaker brandId={brandId} />}
       {activeTab === "full_post" && <FullPostGenerator brandId={brandId} products={products} />}
-      {activeTab === "hooks" && <HookGenerator brandId={brandId} products={products} />}
-      {activeTab === "content" && <ContentTypeGenerator brandId={brandId} products={products} />}
-      {activeTab === "images" && (
+      {activeTab === "carousel"  && <CarouselBuilder brandId={brandId} />}
+      {activeTab === "stories"   && <StorySequence brandId={brandId} />}
+      {activeTab === "memes"     && <MemeMaker brandId={brandId} />}
+      {activeTab === "hooks"     && <HookGenerator brandId={brandId} products={products} />}
+      {activeTab === "content"   && <ContentTypeGenerator brandId={brandId} products={products} />}
+      {activeTab === "images"    && (
         <div className="space-y-8">
           <ImageGenerator brandId={brandId} products={products} />
           <div className="border-t pt-8">
