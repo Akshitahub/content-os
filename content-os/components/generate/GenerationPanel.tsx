@@ -58,8 +58,8 @@ export function GenerationPanel({ brandId, products }: GenerationPanelProps) {
         </div>
       )}
 
-      {/* Pill tabs */}
-      <div className="flex flex-wrap gap-1.5">
+      {/* Pill tabs — horizontally scrollable on mobile */}
+      <div className="flex gap-1.5 overflow-x-auto pb-1 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
         {TABS.map((tab) => {
           const Icon = tab.icon
           const active = activeTab === tab.id

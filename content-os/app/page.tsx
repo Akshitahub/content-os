@@ -3,6 +3,7 @@ import { Globe, Zap, Sparkles, Star, ArrowRight, Check } from "lucide-react"
 import { createClient } from "@/lib/supabase/server"
 import { ScrollNavHandler } from "@/components/landing/ScrollNavHandler"
 import { LiveDemo } from "@/components/landing/LiveDemo"
+import { FaqAccordion } from "@/components/landing/FaqAccordion"
 
 export default async function RootPage() {
   let primaryHref = "/signup"
@@ -439,6 +440,17 @@ export default async function RootPage() {
           </div>
         </section>
 
+        {/* FAQ */}
+        <section className="bg-white px-6 py-20 sm:px-8 sm:py-28 border-t border-gray-100">
+          <div className="mx-auto max-w-3xl">
+            <div className="mb-10 text-center">
+              <span className="mb-3 inline-block rounded-full bg-violet-50 px-3 py-1 text-xs font-semibold uppercase tracking-widest text-violet-600">FAQ</span>
+              <h2 className="text-3xl font-bold tracking-tight text-gray-900 sm:text-4xl">Frequently asked questions</h2>
+            </div>
+            <FaqAccordion />
+          </div>
+        </section>
+
         {/* FINAL CTA */}
         <section className="px-6 py-24 sm:px-8 sm:py-32" style={{ backgroundColor: "#0a0a0a" }}>
           <div className="mx-auto max-w-3xl text-center">
@@ -491,8 +503,13 @@ export default async function RootPage() {
                 </ul>
               </div>
             </div>
-            <div className="mt-10 border-t pt-6" style={{ borderColor: "#1f1f1f" }}>
-              <p className="text-xs text-gray-600">&copy; {new Date().getFullYear()} ContentOS. Built by Akshita Singh. All rights reserved.</p>
+            <div className="mt-10 border-t pt-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between" style={{ borderColor: "#1f1f1f" }}>
+              <p className="text-xs text-gray-600">&copy; {new Date().getFullYear()} ContentOS. Made with ❤️ in India 🇮🇳. All rights reserved.</p>
+              <div className="flex items-center gap-4">
+                <a href="https://instagram.com" target="_blank" rel="noopener noreferrer" className="text-xs text-gray-500 hover:text-white transition-colors">Instagram</a>
+                <a href="https://twitter.com" target="_blank" rel="noopener noreferrer" className="text-xs text-gray-500 hover:text-white transition-colors">Twitter</a>
+                <a href="https://linkedin.com" target="_blank" rel="noopener noreferrer" className="text-xs text-gray-500 hover:text-white transition-colors">LinkedIn</a>
+              </div>
             </div>
           </div>
         </footer>

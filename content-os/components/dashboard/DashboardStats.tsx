@@ -195,8 +195,8 @@ export function DashboardStats({
         </div>
       )}
 
-      {/* Stat cards */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      {/* Stat cards — 2x2 on mobile, 4 across on desktop */}
+      <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
         {stats.map(({ label, value, sub, icon: Icon, color, bg }) => (
           <div
             key={label}
@@ -214,36 +214,36 @@ export function DashboardStats({
         ))}
       </div>
 
-      {/* Quick actions */}
+      {/* Quick actions — 2x2 grid on mobile, row on desktop */}
       {firstBrandId && (
-        <div className="flex flex-wrap gap-2">
+        <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
           <Link
             href={`/brands/${firstBrandId}/fastlane`}
-            className="inline-flex h-9 items-center gap-1.5 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+            className="inline-flex h-10 items-center justify-center gap-1.5 rounded-xl bg-primary px-4 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90"
           >
-            <Zap className="h-3.5 w-3.5" />
-            Run Fastlane
+            <Zap className="h-4 w-4" />
+            Autopilot
           </Link>
           <Link
             href={`/brands/${firstBrandId}/generate`}
-            className="inline-flex h-9 items-center gap-1.5 rounded-md border border-input bg-background px-4 text-sm font-medium transition-colors hover:bg-secondary"
+            className="inline-flex h-10 items-center justify-center gap-1.5 rounded-xl border border-input bg-background px-4 text-sm font-medium transition-colors hover:bg-secondary"
           >
-            <Sparkles className="h-3.5 w-3.5" />
-            Create content
+            <Sparkles className="h-4 w-4" />
+            Create
           </Link>
           <Link
             href={`/brands/${firstBrandId}/calendar`}
-            className="inline-flex h-9 items-center gap-1.5 rounded-md border border-input bg-background px-4 text-sm font-medium transition-colors hover:bg-secondary"
+            className="inline-flex h-10 items-center justify-center gap-1.5 rounded-xl border border-input bg-background px-4 text-sm font-medium transition-colors hover:bg-secondary"
           >
-            <Calendar className="h-3.5 w-3.5" />
-            View calendar
+            <Calendar className="h-4 w-4" />
+            Calendar
           </Link>
           <Link
             href={`/brands/${firstBrandId}/influencers`}
-            className="inline-flex h-9 items-center gap-1.5 rounded-md border border-input bg-background px-4 text-sm font-medium transition-colors hover:bg-secondary"
+            className="inline-flex h-10 items-center justify-center gap-1.5 rounded-xl border border-input bg-background px-4 text-sm font-medium transition-colors hover:bg-secondary"
           >
-            <Users className="h-3.5 w-3.5" />
-            Find creators
+            <Users className="h-4 w-4" />
+            Creators
           </Link>
         </div>
       )}

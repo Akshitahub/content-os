@@ -1,8 +1,11 @@
 "use client"
 
-import { useState } from "react"
-import { Loader2, Copy, Check, RefreshCw, Download, AlertCircle } from "lucide-react"
+import { useState, useEffect } from "react"
+import { Loader2, Copy, Check, RefreshCw, Download, AlertCircle, Image } from "lucide-react"
 import type { MemeFormat, MemeResult } from "@/app/api/v1/ai/meme/generate/route"
+import { downloadElementAsImage } from "@/lib/utils/download-as-image"
+import { GenerationWarning } from "@/components/shared/GenerationWarning"
+import { getFriendlyError } from "@/lib/utils/error-messages"
 
 // ─── Meme format cards ─────────────────────────────────────────────────────────
 
@@ -186,6 +189,7 @@ function MemeDisplay({ meme, brandName }: { meme: MemeResult; brandName: string 
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export function MemeMaker({ brandId }: { brandId: string }) {
+  const STORAGE_KEY = `meme_${brandId}`
   const [selectedFormat, setSelectedFormat] = useState<MemeFormat>("drake")
   const [context, setContext] = useState("")
   const [loading, setLoading] = useState(false)
@@ -194,6 +198,26 @@ export function MemeMaker({ brandId }: { brandId: string }) {
   const [copied, setCopied] = useState(false)
 
   const activeFormat = MEME_FORMATS.find((f) => f.id === selectedFormat)!
+
+  // Restore from sessionStorage
+  useEffect(() => {
+    const saved = sessionStorage.getItem(STORAGE_KEY)
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved) as { result?: MemeResult; format?: MemeFormat }
+        if (parsed.result) setMeme(parsed.result)
+        if (parsed.format) setSelectedFormat(parsed.format)
+      } catch {}
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [brandId])
+
+  // Persist to sessionStorage
+  useEffect(() => {
+    if (meme) {
+      sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ result: meme, format: selectedFormat }))
+    }
+  }, [meme, selectedFormat, STORAGE_KEY])
 
   async function generate() {
     if (!context.trim()) { setError("Please describe what the meme is about."); return }
@@ -210,7 +234,7 @@ export function MemeMaker({ brandId }: { brandId: string }) {
       if (!res.ok || !json.data) throw new Error(json.error?.message ?? "Generation failed")
       setMeme(json.data)
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Something went wrong")
+      setError(getFriendlyError(e))
     } finally {
       setLoading(false)
     }
@@ -250,7 +274,7 @@ export function MemeMaker({ brandId }: { brandId: string }) {
         {/* Step 1: Format picker */}
         <div className="space-y-2">
           <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Step 1 — Pick a meme format</p>
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 md:grid-cols-4">
             {MEME_FORMATS.map((fmt) => (
               <button key={fmt.id} type="button" onClick={() => { setSelectedFormat(fmt.id); setMeme(null) }}
                 className={`flex flex-col items-start gap-1 rounded-xl border-2 p-3 text-left transition-all hover:scale-[1.01] ${selectedFormat === fmt.id ? "border-violet-500 bg-violet-50" : "border-border hover:border-violet-300"}`}>
@@ -279,6 +303,7 @@ export function MemeMaker({ brandId }: { brandId: string }) {
           )}
         </div>
 
+        <GenerationWarning isPending={loading} />
         <button onClick={generate} disabled={loading}
           className="flex w-full items-center justify-center gap-2 rounded-full bg-gradient-to-r from-violet-600 to-indigo-600 py-3 text-sm font-semibold text-white shadow-md transition hover:from-violet-700 hover:to-indigo-700 disabled:opacity-60">
           {loading ? <><Loader2 className="h-4 w-4 animate-spin" /> Generating meme…</> : "✨ Generate meme text"}
@@ -298,7 +323,9 @@ export function MemeMaker({ brandId }: { brandId: string }) {
           <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Step 3 — Your meme card</p>
 
           {/* Meme visual */}
-          <MemeDisplay meme={meme} brandName="" />
+          <div id="meme-result">
+            <MemeDisplay meme={meme} brandName="" />
+          </div>
 
           {/* Caption */}
           <div className="rounded-lg bg-muted/50 p-3 space-y-1">
@@ -316,9 +343,13 @@ export function MemeMaker({ brandId }: { brandId: string }) {
               {copied ? <Check className="h-3.5 w-3.5 text-green-500" /> : <Copy className="h-3.5 w-3.5" />}
               Copy meme text
             </button>
+            <button onClick={() => downloadElementAsImage("meme-result", "brand-meme")}
+              className="flex items-center gap-1.5 rounded-full border border-input px-4 py-2 text-xs font-medium hover:bg-secondary">
+              <Image className="h-3.5 w-3.5" /> Save as PNG
+            </button>
             <button onClick={downloadMemeText}
               className="flex items-center gap-1.5 rounded-full border border-input px-4 py-2 text-xs font-medium hover:bg-secondary">
-              <Download className="h-3.5 w-3.5" /> Download
+              <Download className="h-3.5 w-3.5" /> Text file
             </button>
             <button onClick={generate} disabled={loading}
               className="flex items-center gap-1.5 rounded-full border border-violet-200 bg-violet-50 px-4 py-2 text-xs font-medium text-violet-700 hover:bg-violet-100">

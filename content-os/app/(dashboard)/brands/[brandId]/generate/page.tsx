@@ -1,6 +1,6 @@
 "use client"
 
-import { Suspense, useEffect } from "react"
+import { Suspense, useEffect, useState, useCallback } from "react"
 import { useParams, useSearchParams } from "next/navigation"
 import { useQuery } from "@tanstack/react-query"
 import { GenerationPanel } from "@/components/generate/GenerationPanel"
@@ -9,10 +9,27 @@ import { useBrand } from "@/hooks/useBrand"
 import { useBrandStore } from "@/stores/brandStore"
 import { useGenerationStore } from "@/stores/generationStore"
 import { OCCASIONS } from "@/lib/occasions/occasions-data"
-import { Archive } from "lucide-react"
+import { Archive, Copy, Check } from "lucide-react"
 import Link from "next/link"
 import type { HookRow, CaptionRow } from "@/types/database"
-import { PostCard } from "@/components/shared/PostCard"
+
+function CopyBtn({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false)
+  const handle = useCallback(async () => {
+    await navigator.clipboard.writeText(text)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 1600)
+  }, [text])
+  return (
+    <button
+      onClick={handle}
+      className="shrink-0 rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+      title="Copy"
+    >
+      {copied ? <Check className="h-3.5 w-3.5 text-green-500" /> : <Copy className="h-3.5 w-3.5" />}
+    </button>
+  )
+}
 
 function RecentGenerations({ brandId }: { brandId: string }) {
   const { data: hooks = [] } = useQuery({
@@ -64,39 +81,36 @@ function RecentGenerations({ brandId }: { brandId: string }) {
         {hooks.length > 0 && (
           <div>
             <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Hooks</p>
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
+            <div className="rounded-xl border overflow-hidden divide-y">
               {hooks.map((hook, i) => (
-                <PostCard
-                  key={hook.id}
-                  type="hook"
-                  content={hook.hook_text}
-                  platform="instagram"
-                  hookType={hook.hook_type ?? undefined}
-                  number={i + 1}
-                  showScore
-                  size="sm"
-                />
+                <div key={hook.id} className="flex items-center gap-3 px-4 py-3 hover:bg-muted/40 transition-colors">
+                  <span className="shrink-0 text-xs font-semibold text-muted-foreground/60 w-5 text-right">#{i + 1}</span>
+                  <p className="flex-1 text-sm text-foreground truncate">{hook.hook_text}</p>
+                  <CopyBtn text={hook.hook_text} />
+                </div>
               ))}
             </div>
+            <Link href={`/brands/${brandId}/library?tab=hooks`} className="mt-2 block text-right text-xs text-muted-foreground hover:text-foreground transition-colors">
+              View all hooks →
+            </Link>
           </div>
         )}
 
         {captions.length > 0 && (
           <div>
             <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Captions</p>
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
+            <div className="rounded-xl border overflow-hidden divide-y">
               {captions.map((caption, i) => (
-                <PostCard
-                  key={caption.id}
-                  type="caption"
-                  content={caption.caption_text}
-                  platform={caption.platform ?? "instagram"}
-                  number={i + 1}
-                  showScore={false}
-                  size="sm"
-                />
+                <div key={caption.id} className="flex items-center gap-3 px-4 py-3 hover:bg-muted/40 transition-colors">
+                  <span className="shrink-0 text-xs font-semibold text-muted-foreground/60 w-5 text-right">#{i + 1}</span>
+                  <p className="flex-1 text-sm text-foreground truncate">{caption.caption_text}</p>
+                  <CopyBtn text={caption.caption_text} />
+                </div>
               ))}
             </div>
+            <Link href={`/brands/${brandId}/library?tab=captions`} className="mt-2 block text-right text-xs text-muted-foreground hover:text-foreground transition-colors">
+              View all captions →
+            </Link>
           </div>
         )}
       </div>

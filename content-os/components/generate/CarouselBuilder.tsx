@@ -1,9 +1,12 @@
 "use client"
 
-import { useState, useCallback } from "react"
-import { ChevronLeft, ChevronRight, Copy, Check, Loader2, RefreshCw, Download, AlertCircle } from "lucide-react"
+import { useState, useCallback, useEffect } from "react"
+import { ChevronLeft, ChevronRight, Copy, Check, Loader2, RefreshCw, Download, AlertCircle, Image } from "lucide-react"
 import { VibePicker, type Vibe } from "@/components/shared/VibePicker"
 import { useBrand } from "@/hooks/useBrand"
+import { downloadElementAsImage, downloadMultipleAsImages } from "@/lib/utils/download-as-image"
+import { GenerationWarning } from "@/components/shared/GenerationWarning"
+import { getFriendlyError } from "@/lib/utils/error-messages"
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -51,12 +54,14 @@ function SlidePreview({
   brandName,
   size = "full",
   isLastSlide,
+  elementId,
 }: {
   slide: CarouselSlideRich
   ctaSlide?: CtaSlide
   brandName: string
   size?: "full" | "thumb"
   isLastSlide?: boolean
+  elementId?: string
 }) {
   const s = BG_STYLES[slide.background_style] ?? BG_STYLES.gradient_dark
   const isThumb = size === "thumb"
@@ -64,6 +69,7 @@ function SlidePreview({
 
   return (
     <div
+      id={elementId}
       className={`relative flex flex-col overflow-hidden rounded-xl ${s.bg} ${
         isThumb ? "h-20 w-14 shrink-0" : "aspect-square w-full max-w-md"
       }`}
@@ -194,6 +200,7 @@ function SlideEditor({
 
 export function CarouselBuilder({ brandId }: { brandId: string }) {
   const { data: brand } = useBrand(brandId)
+  const STORAGE_KEY = `carousel_${brandId}`
 
   // Settings
   const [topic, setTopic] = useState("")
@@ -217,6 +224,28 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
   const currentSlide = allSlides[activeSlide]
   const isLastSlide = activeSlide === allSlides.length - 1
 
+  // Restore from sessionStorage
+  useEffect(() => {
+    const saved = sessionStorage.getItem(STORAGE_KEY)
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved) as { slides?: CarouselSlideRich[]; topic?: string; title?: string; cover_hook?: string; cta_slide?: CtaSlide; hashtags?: string[] }
+        if (parsed.slides && parsed.slides.length > 0) {
+          setCarousel({ title: parsed.title ?? "", cover_hook: parsed.cover_hook ?? "", slides: parsed.slides, cta_slide: parsed.cta_slide, hashtags: parsed.hashtags ?? [] })
+          if (parsed.topic) setTopic(parsed.topic)
+        }
+      } catch {}
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [brandId])
+
+  // Persist to sessionStorage
+  useEffect(() => {
+    if (carousel && carousel.slides.length > 0) {
+      sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ ...carousel, topic }))
+    }
+  }, [carousel, topic, STORAGE_KEY])
+
   async function generate() {
     if (!topic.trim()) { setError("Please enter a topic for your carousel."); return }
     setLoading(true)
@@ -234,7 +263,7 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
       setCarousel(json.data)
       setActiveSlide(0)
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Something went wrong")
+      setError(getFriendlyError(e))
     } finally {
       setLoading(false)
     }
@@ -284,7 +313,7 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
   return (
     <div className="space-y-6">
       <div className="grid gap-6 lg:grid-cols-5">
-        {/* ─ LEFT PANEL: Settings ─────────────────────────────── */}
+        {/* ─ LEFT PANEL: Settings — full width on mobile, 2/5 on desktop ── */}
         <div className="space-y-5 lg:col-span-2">
           <div className="rounded-xl border bg-card p-5 space-y-4">
             <h3 className="text-sm font-semibold">Carousel Settings</h3>
@@ -334,6 +363,7 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
               <VibePicker selected={vibe} onSelect={setVibe} compact />
             </div>
 
+            <GenerationWarning isPending={loading} />
             <button
               onClick={generate}
               disabled={loading}
@@ -359,6 +389,24 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
               <Loader2 className="h-8 w-8 animate-spin text-violet-500" />
               <p className="text-sm font-medium">Creating your {slideCount}-slide carousel…</p>
               <p className="text-xs text-muted-foreground">This takes about 10 seconds</p>
+            </div>
+          )}
+
+          {/* Hidden off-screen renders for all-slides PNG download */}
+          {carousel && (
+            <div aria-hidden="true" style={{ position: "fixed", left: "-9999px", top: 0, pointerEvents: "none" }}>
+              {allSlides.map((slide, i) => (
+                i !== activeSlide ? (
+                  <SlidePreview
+                    key={slide.slide_number}
+                    slide={slide}
+                    ctaSlide={carousel.cta_slide}
+                    brandName={brand?.name ?? ""}
+                    isLastSlide={i === allSlides.length - 1}
+                    elementId={`carousel-slide-${i}`}
+                  />
+                ) : null
+              ))}
             </div>
           )}
 
@@ -398,6 +446,7 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
                   ctaSlide={carousel.cta_slide}
                   brandName={brand?.name ?? ""}
                   isLastSlide={isLastSlide}
+                  elementId={`carousel-slide-${activeSlide}`}
                 />
               </div>
 
@@ -445,10 +494,22 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
               {/* Action buttons */}
               <div className="flex flex-wrap gap-2">
                 <button
+                  onClick={() => downloadElementAsImage(`carousel-slide-${activeSlide}`, `carousel-slide-${activeSlide + 1}`)}
+                  className="flex items-center gap-1.5 rounded-full border border-input px-4 py-2 text-xs font-medium hover:bg-secondary"
+                >
+                  <Image className="h-3.5 w-3.5" /> Save slide as PNG
+                </button>
+                <button
+                  onClick={() => downloadMultipleAsImages(allSlides.map((_, i) => `carousel-slide-${i}`), "carousel")}
+                  className="flex items-center gap-1.5 rounded-full border border-input px-4 py-2 text-xs font-medium hover:bg-secondary"
+                >
+                  <Download className="h-3.5 w-3.5" /> Download all slides
+                </button>
+                <button
                   onClick={downloadAllText}
                   className="flex items-center gap-1.5 rounded-full border border-input px-4 py-2 text-xs font-medium hover:bg-secondary"
                 >
-                  <Download className="h-3.5 w-3.5" /> Download all text
+                  <Download className="h-3.5 w-3.5" /> Text file
                 </button>
                 <button
                   onClick={copySlideText}

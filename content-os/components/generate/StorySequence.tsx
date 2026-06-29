@@ -1,9 +1,12 @@
 "use client"
 
-import { useState } from "react"
-import { Loader2, Download, Copy, Check, RefreshCw, AlertCircle } from "lucide-react"
+import { useState, useEffect } from "react"
+import { Loader2, Download, Copy, Check, RefreshCw, AlertCircle, Image } from "lucide-react"
 import { useBrand } from "@/hooks/useBrand"
 import type { StorySlide } from "@/app/api/v1/ai/stories/generate/route"
+import { downloadElementAsImage, downloadMultipleAsImages } from "@/lib/utils/download-as-image"
+import { GenerationWarning } from "@/components/shared/GenerationWarning"
+import { getFriendlyError } from "@/lib/utils/error-messages"
 
 // ─── Story background gradients ────────────────────────────────────────────────
 
@@ -42,6 +45,7 @@ function PhoneStory({
 }) {
   const [copied, setCopied] = useState(false)
   const s = STORY_BG[story.background] ?? STORY_BG.gradient_violet
+  const elementId = `story-card-${index}`
 
   const posClass =
     story.text_position === "top" ? "justify-start pt-16" :
@@ -65,6 +69,7 @@ function PhoneStory({
 
       {/* Phone frame */}
       <div
+        id={elementId}
         className="relative overflow-hidden rounded-[28px] border-[5px] border-gray-900 shadow-2xl"
         style={{ width: 220, height: 390 }}
       >
@@ -118,11 +123,15 @@ function PhoneStory({
       </div>
 
       {/* Actions */}
-      <div className="flex gap-2">
+      <div className="flex gap-2 flex-wrap justify-center">
         <button onClick={copyText}
           className="flex items-center gap-1 rounded-full border px-3 py-1.5 text-[11px] font-medium hover:bg-secondary">
           {copied ? <Check className="h-3 w-3 text-green-500" /> : <Copy className="h-3 w-3" />}
-          Copy text
+          Copy
+        </button>
+        <button onClick={() => downloadElementAsImage(elementId, `story-${index + 1}`)}
+          className="flex items-center gap-1 rounded-full border px-3 py-1.5 text-[11px] font-medium hover:bg-secondary">
+          <Image className="h-3 w-3" /> PNG
         </button>
       </div>
     </div>
@@ -133,6 +142,7 @@ function PhoneStory({
 
 export function StorySequence({ brandId }: { brandId: string }) {
   const { data: brand } = useBrand(brandId)
+  const STORAGE_KEY = `stories_${brandId}`
 
   const [topic, setTopic] = useState("")
   const [storyCount, setStoryCount] = useState(3)
@@ -142,6 +152,25 @@ export function StorySequence({ brandId }: { brandId: string }) {
   const [allCopied, setAllCopied] = useState(false)
 
   const handle = brand?.instagram_handle ?? brand?.name ?? "yourbrand"
+
+  // Restore from sessionStorage
+  useEffect(() => {
+    const saved = sessionStorage.getItem(STORAGE_KEY)
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved) as { stories?: StorySlide[] }
+        if (parsed.stories && parsed.stories.length > 0) setStories(parsed.stories)
+      } catch {}
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [brandId])
+
+  // Persist to sessionStorage
+  useEffect(() => {
+    if (stories.length > 0) {
+      sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ stories }))
+    }
+  }, [stories, STORAGE_KEY])
 
   async function generate() {
     if (!topic.trim()) { setError("Please enter a topic for your story sequence."); return }
@@ -158,7 +187,7 @@ export function StorySequence({ brandId }: { brandId: string }) {
       if (!res.ok || !json.data?.stories) throw new Error(json.error?.message ?? "Generation failed")
       setStories(json.data.stories)
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Something went wrong")
+      setError(getFriendlyError(e))
     } finally {
       setLoading(false)
     }
@@ -227,6 +256,7 @@ export function StorySequence({ brandId }: { brandId: string }) {
           </div>
         </div>
 
+        <GenerationWarning isPending={loading} />
         <button onClick={generate} disabled={loading}
           className="flex w-full items-center justify-center gap-2 rounded-full bg-gradient-to-r from-violet-600 to-indigo-600 py-3 text-sm font-semibold text-white shadow-md transition hover:from-violet-700 hover:to-indigo-700 disabled:opacity-60">
           {loading ? <><Loader2 className="h-4 w-4 animate-spin" /> Generating stories…</> : "✨ Generate stories"}
@@ -252,9 +282,13 @@ export function StorySequence({ brandId }: { brandId: string }) {
                 {allCopied ? <Check className="h-3.5 w-3.5 text-green-500" /> : <Copy className="h-3.5 w-3.5" />}
                 Copy all
               </button>
+              <button onClick={() => downloadMultipleAsImages(stories.map((_, i) => `story-card-${i}`), "story-sequence")}
+                className="flex items-center gap-1 rounded-full border px-3 py-1.5 text-xs font-medium hover:bg-secondary">
+                <Image className="h-3.5 w-3.5" /> Save all as PNG
+              </button>
               <button onClick={downloadAllText}
                 className="flex items-center gap-1 rounded-full border px-3 py-1.5 text-xs font-medium hover:bg-secondary">
-                <Download className="h-3.5 w-3.5" /> Download
+                <Download className="h-3.5 w-3.5" /> Text file
               </button>
               <button onClick={generate} disabled={loading}
                 className="flex items-center gap-1 rounded-full border border-violet-200 bg-violet-50 px-3 py-1.5 text-xs font-medium text-violet-700 hover:bg-violet-100">

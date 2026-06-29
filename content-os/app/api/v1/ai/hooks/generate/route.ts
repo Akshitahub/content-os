@@ -66,8 +66,19 @@ export async function POST(request: Request) {
 
   const latencyMs = Date.now() - startTime
 
+  // Post-process: enforce 8-word max
+  const validatedHooks = result.hooks.map((hook) => {
+    const words = hook.hook_text.trim().split(/\s+/)
+    if (words.length > 10) {
+      const firstSentence = hook.hook_text.split(/[.!?]/)[0] ?? hook.hook_text
+      const sentenceWords = firstSentence.trim().split(/\s+/)
+      hook = { ...hook, hook_text: sentenceWords.slice(0, 8).join(" ") + "." }
+    }
+    return hook
+  })
+
   // Save hooks to DB
-  const hookInserts = result.hooks.map((h) => ({
+  const hookInserts = validatedHooks.map((h) => ({
     brand_id: brandId,
     product_id: productId ?? null,
     hook_text: h.hook_text,
@@ -91,8 +102,8 @@ export async function POST(request: Request) {
     latency_ms: latencyMs, success: true,
   })
 
-  // Merge DB IDs with generated hooks
-  const hooksWithIds = result.hooks.map((h, i) => ({
+  // Merge DB IDs with validated hooks
+  const hooksWithIds = validatedHooks.map((h, i) => ({
     ...h,
     id: savedHooks?.[i]?.id ?? null,
   }))

@@ -3,6 +3,7 @@
 import { useState, useRef, useCallback, useEffect } from "react"
 import { Upload, Check, Loader2, Download, RefreshCw, ChevronRight, AlertCircle, X } from "lucide-react"
 import { useBrand } from "@/hooks/useBrand"
+import { GenerationWarning } from "@/components/shared/GenerationWarning"
 
 // ─── Scene definitions ─────────────────────────────────────────────────────
 
@@ -195,6 +196,7 @@ interface AdMakerProps {
 export function AdMaker({ brandId }: AdMakerProps) {
   const { data: brand } = useBrand(brandId)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const STORAGE_KEY = `admaker_${brandId}`
 
   // Step 1
   const [step, setStep] = useState<1 | 2 | 3>(1)
@@ -229,6 +231,30 @@ export function AdMaker({ brandId }: AdMakerProps) {
     const t = setInterval(() => setMsgIdx(i => (i + 1) % LOADING_MSGS.length), 3000)
     return () => clearInterval(t)
   }, [generating])
+
+  // Restore results from sessionStorage
+  useEffect(() => {
+    const saved = sessionStorage.getItem(STORAGE_KEY)
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved) as { resultImages?: string[]; selectedScene?: string }
+        if (parsed.resultImages && parsed.resultImages.length > 0) {
+          setResults(parsed.resultImages)
+          setExpandedIdx(0)
+          setStep(3)
+        }
+        if (parsed.selectedScene) setScene(parsed.selectedScene)
+      } catch {}
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [brandId])
+
+  // Persist results to sessionStorage
+  useEffect(() => {
+    if (results.length > 0) {
+      sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ resultImages: results, selectedScene: scene }))
+    }
+  }, [results, scene, STORAGE_KEY])
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
@@ -439,7 +465,7 @@ export function AdMaker({ brandId }: AdMakerProps) {
             <p className="text-xs text-muted-foreground mt-0.5">Where should your product live?</p>
           </div>
 
-          <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
             {SCENES.map(s => (
               <button key={s.id} type="button" onClick={() => setScene(s.id)}
                 className={`rounded-xl border-2 p-3 text-left transition-all hover:scale-[1.02] ${scene === s.id ? "border-violet-500 bg-violet-50 dark:bg-violet-950/30" : "border-border hover:border-violet-300"}`}>
@@ -536,6 +562,7 @@ export function AdMaker({ brandId }: AdMakerProps) {
             </div>
           )}
 
+          <GenerationWarning isPending={generating} />
           <button onClick={handleGenerate}
             className="flex w-full items-center justify-center gap-2 rounded-full bg-gradient-to-r from-violet-600 to-indigo-600 py-3 text-sm font-semibold text-white shadow-md transition hover:from-violet-700 hover:to-indigo-700">
             ✨ Create my ad
