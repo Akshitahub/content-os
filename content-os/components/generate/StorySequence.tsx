@@ -1,7 +1,7 @@
 "use client"
 
-import { useState, useEffect } from "react"
-import { Loader2, Download, Copy, Check, RefreshCw, AlertCircle, Image } from "lucide-react"
+import { useState, useEffect, useRef } from "react"
+import { Loader2, Download, Copy, Check, RefreshCw, AlertCircle, Image, Upload, X } from "lucide-react"
 import { useBrand } from "@/hooks/useBrand"
 import type { StorySlide } from "@/app/api/v1/ai/stories/generate/route"
 import { downloadElementAsImage, downloadMultipleAsImages } from "@/lib/utils/download-as-image"
@@ -37,11 +37,13 @@ function PhoneStory({
   index,
   total,
   brandHandle,
+  uploadedImage,
 }: {
   story: StorySlide
   index: number
   total: number
   brandHandle: string
+  uploadedImage?: string
 }) {
   const [copied, setCopied] = useState(false)
   const s = STORY_BG[story.background] ?? STORY_BG.gradient_violet
@@ -73,7 +75,11 @@ function PhoneStory({
         className="relative overflow-hidden rounded-[28px] border-[5px] border-gray-900 shadow-2xl"
         style={{ width: 220, height: 390 }}
       >
-        <div className={`flex h-full flex-col ${s.bg}`}>
+        <div className={`flex h-full flex-col relative ${s.bg}`}>
+          {story.type === "reveal" && uploadedImage && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={uploadedImage} alt="" className="absolute inset-0 h-full w-full object-cover" style={{ opacity: 0.65 }} />
+          )}
           {/* Story progress bars */}
           <div className="flex gap-0.5 px-3 pt-3">
             {Array.from({ length: total }, (_, i) => (
@@ -151,6 +157,9 @@ export function StorySequence({ brandId }: { brandId: string }) {
   const [stories, setStories] = useState<StorySlide[]>([])
   const [allCopied, setAllCopied] = useState(false)
   const [savedToContent, setSavedToContent] = useState(false)
+  const [showSuccess, setShowSuccess] = useState(false)
+  const [uploadedImages, setUploadedImages] = useState<{ preview: string; base64: string }[]>([])
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const handle = brand?.instagram_handle ?? brand?.name ?? "yourbrand"
 
@@ -173,6 +182,23 @@ export function StorySequence({ brandId }: { brandId: string }) {
     }
   }, [stories, STORAGE_KEY])
 
+  function handleImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files ?? [])
+    files.slice(0, 3 - uploadedImages.length).forEach((file) => {
+      const reader = new FileReader()
+      reader.onload = (ev) => {
+        const base64 = ev.target?.result as string
+        setUploadedImages((prev) => [...prev, { preview: base64, base64 }].slice(0, 3))
+      }
+      reader.readAsDataURL(file)
+    })
+    e.target.value = ""
+  }
+
+  function removeImage(idx: number) {
+    setUploadedImages((prev) => prev.filter((_, i) => i !== idx))
+  }
+
   async function generate() {
     if (!topic.trim()) { setError("Please enter a topic for your story sequence."); return }
     setLoading(true)
@@ -182,13 +208,21 @@ export function StorySequence({ brandId }: { brandId: string }) {
       const res = await fetch("/api/v1/ai/stories/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ brandId, topic: topic.trim(), storyCount }),
+        body: JSON.stringify({
+          brandId,
+          topic: topic.trim(),
+          storyCount,
+          hasUserImages: uploadedImages.length > 0,
+          imageDescriptions: uploadedImages.map((_, i) => `User provided image ${i + 1}`),
+        }),
       })
       const json = await res.json() as { data?: { stories: StorySlide[] }; error?: { message?: string } }
       if (!res.ok || !json.data?.stories) throw new Error(json.error?.message ?? "Generation failed")
       const savedStories = json.data.stories
       setStories(savedStories)
       setSavedToContent(false)
+      setShowSuccess(true)
+      setTimeout(() => setShowSuccess(false), 4000)
       // Save to DB (non-blocking, non-fatal)
       try {
         await fetch(`/api/v1/brands/${brandId}/reel-scripts`, {
@@ -265,6 +299,44 @@ export function StorySequence({ brandId }: { brandId: string }) {
           )}
         </div>
 
+        {/* Image upload zone */}
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium">Add your photos (optional, max 3)</label>
+          <div className="flex items-center gap-2 flex-wrap">
+            {uploadedImages.map((img, i) => (
+              <div key={i} className="relative h-16 w-16 rounded-lg overflow-hidden border shrink-0">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={img.preview} alt="" className="h-full w-full object-cover" />
+                <button
+                  type="button"
+                  onClick={() => removeImage(i)}
+                  className="absolute top-0.5 right-0.5 h-4 w-4 rounded-full bg-black/60 flex items-center justify-center"
+                >
+                  <X className="h-2.5 w-2.5 text-white" />
+                </button>
+              </div>
+            ))}
+            {uploadedImages.length < 3 && (
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="h-16 w-16 rounded-lg border-2 border-dashed flex items-center justify-center hover:border-violet-400 transition-colors shrink-0"
+              >
+                <Upload className="h-5 w-5 text-muted-foreground" />
+              </button>
+            )}
+          </div>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            multiple
+            className="hidden"
+            onChange={handleImageUpload}
+          />
+          <p className="text-[11px] text-muted-foreground">Images will appear in &quot;reveal&quot; type story slides</p>
+        </div>
+
         <div className="space-y-1.5">
           <label className="text-xs font-medium">Number of stories</label>
           <div className="flex gap-2">
@@ -289,6 +361,14 @@ export function StorySequence({ brandId }: { brandId: string }) {
         <div className="flex flex-col items-center justify-center py-12 gap-3 rounded-xl border bg-card">
           <Loader2 className="h-8 w-8 animate-spin text-violet-500" />
           <p className="text-sm font-medium">Writing your {storyCount}-part story sequence…</p>
+        </div>
+      )}
+
+      {/* Success banner */}
+      {showSuccess && (
+        <div className="flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 px-4 py-3 animate-in fade-in duration-300">
+          <Check className="h-4 w-4 text-green-500 shrink-0" />
+          <span className="text-sm font-medium text-green-700">✓ Generated successfully — scroll down to see your content</span>
         </div>
       )}
 
@@ -335,6 +415,7 @@ export function StorySequence({ brandId }: { brandId: string }) {
                 index={i}
                 total={stories.length}
                 brandHandle={handle}
+                uploadedImage={uploadedImages[i]?.preview}
               />
             ))}
           </div>

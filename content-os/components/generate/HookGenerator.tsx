@@ -70,6 +70,7 @@ export function HookGenerator({ brandId, products }: HookGeneratorProps) {
   const [selectedHookTypes, setSelectedHookTypes] = useState<HookType[]>(["question", "bold_statement", "story"])
   const [count, setCount] = useState(3)
   const [justSaved, setJustSaved] = useState(false)
+  const [showSuccess, setShowSuccess] = useState(false)
   const [focusedIdx, setFocusedIdx] = useState(0)
   const [previewTemplate, setPreviewTemplate] = useState<PreviewTemplate>(1)
   const abortControllerRef = useRef<AbortController | null>(null)
@@ -134,6 +135,8 @@ export function HookGenerator({ brandId, products }: HookGeneratorProps) {
           setHooks(data)
           setJustSaved(true)
           setTimeout(() => setJustSaved(false), 5000)
+          setShowSuccess(true)
+          setTimeout(() => setShowSuccess(false), 4000)
         },
       }
     )
@@ -254,6 +257,14 @@ export function HookGenerator({ brandId, products }: HookGeneratorProps) {
 
       {/* Loading state */}
       {isPending && <GeneratingState message="Writing hooks for your brand..." />}
+
+      {/* Success banner */}
+      {showSuccess && (
+        <div className="flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 px-4 py-3 animate-in fade-in duration-300">
+          <Check className="h-4 w-4 text-green-500 shrink-0" />
+          <span className="text-sm font-medium text-green-700">✓ Generated successfully — scroll down to see your content</span>
+        </div>
+      )}
 
       {/* Save confirmation */}
       {justSaved && hooks.length > 0 && (

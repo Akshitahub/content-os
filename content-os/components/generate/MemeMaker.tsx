@@ -196,6 +196,7 @@ export function MemeMaker({ brandId }: { brandId: string }) {
   const [error, setError] = useState("")
   const [meme, setMeme] = useState<MemeResult | null>(null)
   const [copied, setCopied] = useState(false)
+  const [showSuccess, setShowSuccess] = useState(false)
 
   const activeFormat = MEME_FORMATS.find((f) => f.id === selectedFormat)!
 
@@ -233,6 +234,8 @@ export function MemeMaker({ brandId }: { brandId: string }) {
       const json = await res.json() as { data?: MemeResult; error?: { message?: string } }
       if (!res.ok || !json.data) throw new Error(json.error?.message ?? "Generation failed")
       setMeme(json.data)
+      setShowSuccess(true)
+      setTimeout(() => setShowSuccess(false), 4000)
     } catch (e) {
       setError(getFriendlyError(e))
     } finally {
@@ -315,6 +318,13 @@ export function MemeMaker({ brandId }: { brandId: string }) {
         <div className="flex flex-col items-center justify-center py-10 gap-3 rounded-xl border bg-card">
           <Loader2 className="h-7 w-7 animate-spin text-violet-500" />
           <p className="text-sm text-muted-foreground">Writing your brand meme…</p>
+        </div>
+      )}
+
+      {showSuccess && (
+        <div className="flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 px-4 py-3 animate-in fade-in duration-300">
+          <Check className="h-4 w-4 text-green-500 shrink-0" />
+          <span className="text-sm font-medium text-green-700">✓ Generated successfully — scroll down to see your content</span>
         </div>
       )}
 

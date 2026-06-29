@@ -291,13 +291,13 @@ export function FullPostGenerator({ brandId, products }: Props) {
         <div className="flex items-center justify-between rounded-lg border border-green-200 bg-green-50 px-4 py-3">
           <div className="flex items-center gap-2 text-green-700">
             <Check className="h-4 w-4 shrink-0" />
-            <span className="text-sm font-medium">Post saved to My Content</span>
+            <span className="text-sm font-medium">✓ Generated successfully — scroll down to see your content</span>
           </div>
           <Link
             href={`/brands/${brandId}/library`}
             className="text-xs font-medium text-green-700 underline underline-offset-2 hover:text-green-900 shrink-0"
           >
-            View in My Content →
+            View →
           </Link>
         </div>
       )}

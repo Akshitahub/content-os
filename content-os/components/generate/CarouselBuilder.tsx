@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useCallback, useEffect } from "react"
-import { ChevronLeft, ChevronRight, Copy, Check, Loader2, RefreshCw, Download, AlertCircle, Image } from "lucide-react"
+import { ChevronLeft, ChevronRight, Copy, Check, Loader2, RefreshCw, Download, AlertCircle, Image, Sparkles } from "lucide-react"
 import { VibePicker, type Vibe } from "@/components/shared/VibePicker"
 import { useBrand } from "@/hooks/useBrand"
 import { downloadElementAsImage, downloadMultipleAsImages } from "@/lib/utils/download-as-image"
@@ -217,6 +217,8 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
   const [activeSlide, setActiveSlide] = useState(0)
   const [showEditor, setShowEditor] = useState(false)
 
+  const [showSuccess, setShowSuccess] = useState(false)
+
   // Copy state
   const [copied, setCopied] = useState(false)
 
@@ -262,6 +264,8 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
       if (!res.ok || !json.data) throw new Error(json.error?.message ?? "Generation failed")
       setCarousel(json.data)
       setActiveSlide(0)
+      setShowSuccess(true)
+      setTimeout(() => setShowSuccess(false), 4000)
     } catch (e) {
       setError(getFriendlyError(e))
     } finally {
@@ -389,6 +393,13 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
               <Loader2 className="h-8 w-8 animate-spin text-violet-500" />
               <p className="text-sm font-medium">Creating your {slideCount}-slide carousel…</p>
               <p className="text-xs text-muted-foreground">This takes about 10 seconds</p>
+            </div>
+          )}
+
+          {showSuccess && (
+            <div className="flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 px-4 py-3 animate-in fade-in duration-300">
+              <Sparkles className="h-4 w-4 text-green-500 shrink-0" />
+              <span className="text-sm font-medium text-green-700">✓ Generated successfully — scroll down to see your content</span>
             </div>
           )}
 

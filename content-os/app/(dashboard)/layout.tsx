@@ -2,6 +2,7 @@ import { redirect } from "next/navigation"
 import { createClient } from "@/lib/supabase/server"
 import { DashboardShell } from "@/components/layout/DashboardShell"
 import { ProductTour } from "@/components/shared/ProductTour"
+import NextTopLoader from "nextjs-toploader"
 import type { UserRow } from "@/types/database"
 
 export default async function DashboardLayout({
@@ -24,6 +25,7 @@ export default async function DashboardLayout({
 
   return (
     <>
+      <NextTopLoader color="#7c3aed" height={3} showSpinner={false} />
       <DashboardShell
         userEmail={user.email}
         userName={profile?.full_name ?? undefined}

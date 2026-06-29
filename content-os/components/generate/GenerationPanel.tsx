@@ -22,6 +22,18 @@ interface GenerationPanelProps {
 
 type Tab = "ad_maker" | "full_post" | "carousel" | "stories" | "memes" | "hooks" | "content" | "images" | "repurpose"
 
+const TAB_DESCRIPTIONS: Record<Tab, string> = {
+  ad_maker:  "Upload your product photo and place it in an AI-generated scene. Perfect for Instagram ads.",
+  full_post: "Generate a complete post — hook, caption, hashtags and visual direction in one click.",
+  carousel:  "Create a multi-slide carousel for Instagram or LinkedIn with AI-written content per slide.",
+  stories:   "Generate 3-5 connected Instagram stories that tell a narrative arc.",
+  memes:     "Create brand-specific memes in popular formats. Memes get 3x more shares.",
+  hooks:     "Generate scroll-stopping opening lines for your posts. Max 8 words, maximum impact.",
+  content:   "Write reel scripts, email sequences, product descriptions and long-form content.",
+  images:    "Generate brand-consistent visuals and product photos with AI.",
+  repurpose: "Turn one piece of content into multiple formats across platforms.",
+}
+
 const TABS: { id: Tab; label: string; icon: React.ElementType; tooltip: string }[] = [
   { id: "ad_maker",  label: "Ad Maker ✨",      icon: Wand2,       tooltip: "Create product ads with AI-generated scenes" },
   { id: "full_post", label: "Post Builder",      icon: FileText,    tooltip: "Build a complete post: hook + caption + visual" },
@@ -81,6 +93,7 @@ export function GenerationPanel({ brandId, products }: GenerationPanelProps) {
           )
         })}
       </div>
+      <p className="text-xs text-muted-foreground mt-2 mb-4 px-1">{TAB_DESCRIPTIONS[activeTab]}</p>
 
       {activeTab === "ad_maker"  && <AdMaker brandId={brandId} />}
       {activeTab === "full_post" && <FullPostGenerator brandId={brandId} products={products} />}

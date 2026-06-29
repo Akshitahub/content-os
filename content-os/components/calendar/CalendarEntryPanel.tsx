@@ -54,6 +54,7 @@ function CopyButton({ getText, label }: { getText: () => string; label?: string 
 
 export function CalendarEntryPanel({ entry, onClose, onUpdate }: CalendarEntryPanelProps) {
   const [isMarkingPublished, setIsMarkingPublished] = useState(false)
+  const [showPublishedBanner, setShowPublishedBanner] = useState(false)
   const [isEditing, setIsEditing] = useState(false)
   const [editCaption, setEditCaption] = useState("")
   const [editHashtags, setEditHashtags] = useState("")
@@ -91,6 +92,8 @@ export function CalendarEntryPanel({ entry, onClose, onUpdate }: CalendarEntryPa
       })
       if (res.ok) {
         onUpdate({ ...entry, status: "published" })
+        setShowPublishedBanner(true)
+        setTimeout(() => setShowPublishedBanner(false), 4000)
       }
     } finally {
       setIsMarkingPublished(false)
@@ -377,15 +380,32 @@ export function CalendarEntryPanel({ entry, onClose, onUpdate }: CalendarEntryPa
             </div>
 
             {/* Footer */}
-            <div className="shrink-0 border-t p-5">
+            <div className="shrink-0 border-t p-5 space-y-3">
+              {showPublishedBanner && (
+                <div className="flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 px-3 py-2">
+                  <Check className="h-4 w-4 text-green-500 shrink-0" />
+                  <span className="text-sm font-medium text-green-700">✓ Marked as published</span>
+                </div>
+              )}
               {entry.status === "published" ? (
                 <div className="flex items-center justify-center gap-2 text-sm font-medium text-green-600">
                   <Check className="h-4 w-4" /> Published
                 </div>
               ) : (
-                <Button className="w-full" onClick={markPublished} disabled={isMarkingPublished}>
-                  {isMarkingPublished ? "Updating…" : "Mark as Published"}
-                </Button>
+                <div className="space-y-2">
+                  <p className="text-xs text-muted-foreground text-center">
+                    Copy your content, post it manually, then click Published to mark it done.
+                  </p>
+                  <div className="flex gap-2">
+                    <CopyButton
+                      getText={buildInstagramCopy}
+                      label="Copy content"
+                    />
+                    <Button className="flex-1" size="sm" onClick={markPublished} disabled={isMarkingPublished}>
+                      {isMarkingPublished ? "Updating…" : "Mark as Published"}
+                    </Button>
+                  </div>
+                </div>
               )}
             </div>
           </div>

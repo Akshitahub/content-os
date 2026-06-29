@@ -223,6 +223,7 @@ export function AdMaker({ brandId }: AdMakerProps) {
   const [genError, setGenError] = useState("")
   const [results, setResults] = useState<string[]>([])
   const [expandedIdx, setExpandedIdx] = useState<number | null>(0)
+  const [showSuccess, setShowSuccess] = useState(false)
   const [msgIdx, setMsgIdx] = useState(0)
 
   useEffect(() => {
@@ -343,6 +344,8 @@ export function AdMaker({ brandId }: AdMakerProps) {
       const variations = await compositeAd(productDataUrl, bgUrl, hookText, showText, textPosition, textColor, format, brandName, handle)
       setResults(variations)
       setExpandedIdx(0)
+      setShowSuccess(true)
+      setTimeout(() => setShowSuccess(false), 4000)
     } catch (err) {
       setGenError(err instanceof Error ? err.message : "Generation failed. Try again.")
     } finally {
@@ -593,6 +596,13 @@ export function AdMaker({ brandId }: AdMakerProps) {
           </div>
           <p className="text-base font-semibold">{LOADING_MSGS[msgIdx]}</p>
           <p className="text-xs text-muted-foreground">Usually takes 15–20 seconds</p>
+        </div>
+      )}
+
+      {showSuccess && (
+        <div className="flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 px-4 py-3 animate-in fade-in duration-300">
+          <Check className="h-4 w-4 text-green-500 shrink-0" />
+          <span className="text-sm font-medium text-green-700">✓ Generated successfully — scroll down to see your content</span>
         </div>
       )}
 
