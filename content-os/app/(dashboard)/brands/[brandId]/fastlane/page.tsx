@@ -10,11 +10,17 @@ import posthog from "posthog-js"
 import { POSTHOG_KEY } from "@/lib/analytics/posthog"
 import type { FastlaneResult } from "@/types/app"
 
-type AutopilotState = "SETUP" | "RUNNING" | "DONE" | "ERROR" | "WARNING"
+type AutopilotState = "SETUP" | "RUNNING" | "DONE" | "ERROR" | "WARNING" | "UPSELL"
 
 interface WarningData {
   message: string
   existing_count: number
+}
+
+interface UpsellData {
+  remainingCredits: number
+  plan: string
+  creditsNeeded: number
 }
 
 const FREQUENCY_OPTIONS = [
@@ -60,7 +66,19 @@ export default function AutopilotPage() {
   const [result, setResult] = useState<FastlaneResult | null>(null)
   const [errorMsg, setErrorMsg] = useState<string>("")
   const [warning, setWarning] = useState<WarningData | null>(null)
+  const [upsellData, setUpsellData] = useState<UpsellData | null>(null)
+  const [userCredits, setUserCredits] = useState<number | null>(null)
   const [progress, setProgress] = useState(0)
+
+  // Fetch remaining credits for the indicator
+  useEffect(() => {
+    fetch("/api/v1/user/profile")
+      .then(r => r.json())
+      .then((json: { data?: { remaining: number } }) => {
+        if (json.data?.remaining !== undefined) setUserCredits(json.data.remaining)
+      })
+      .catch(() => {})
+  }, [])
 
   // Setup form state
   const [frequency, setFrequency] = useState<"3x_week" | "5x_week" | "daily">("daily")
@@ -117,10 +135,24 @@ export default function AutopilotPage() {
 
       const json = await res.json() as {
         data?: FastlaneResult
-        error?: { message?: string }
+        error?: { message?: string; code?: string }
         warning?: boolean
         message?: string
         existing_count?: number
+        remaining_credits?: number
+        plan?: string
+        credits_needed?: number
+      }
+
+      // Credits insufficient — show upsell instead of generic error
+      if (json.remaining_credits !== undefined) {
+        setUpsellData({
+          remainingCredits: json.remaining_credits,
+          plan: json.plan ?? "free",
+          creditsNeeded: json.credits_needed ?? 30,
+        })
+        setState("UPSELL")
+        return
       }
 
       if (json.warning) {
@@ -255,7 +287,13 @@ export default function AutopilotPage() {
             </div>
 
             {/* CTA */}
-            <div className="pt-2">
+            <div className="pt-2 space-y-3">
+              {/* Credit indicator */}
+              {userCredits !== null && (
+                <div className={`rounded-lg px-4 py-2.5 text-sm ${userCredits >= 30 ? "bg-green-50 text-green-700 border border-green-200" : "bg-amber-50 text-amber-700 border border-amber-200"}`}>
+                  ⚡ Autopilot uses 30 credits. You have <strong>{userCredits}</strong> remaining.
+                </div>
+              )}
               <Button
                 size="lg"
                 className="w-full gap-2 bg-gradient-to-r from-violet-600 to-indigo-600 text-white hover:from-violet-700 hover:to-indigo-700 shadow-md"
@@ -264,7 +302,7 @@ export default function AutopilotPage() {
                 <Plane className="h-5 w-5" />
                 Launch Autopilot
               </Button>
-              <p className="mt-3 text-center text-xs text-muted-foreground">
+              <p className="text-center text-xs text-muted-foreground">
                 Uses 30 generation credits · Adds 30 entries to your content calendar
               </p>
             </div>
@@ -460,6 +498,40 @@ export default function AutopilotPage() {
 
           <Button className="mt-8 w-full" variant="outline" onClick={() => setState("SETUP")}>
             Try again
+          </Button>
+        </div>
+      )}
+
+      {/* UPSELL — not enough credits */}
+      {state === "UPSELL" && upsellData && (
+        <div className="w-full max-w-lg text-center space-y-4">
+          <div className="text-5xl">⚡</div>
+          <h2 className="text-xl font-bold">Unlock Autopilot</h2>
+          <p className="text-muted-foreground text-sm max-w-sm mx-auto">
+            Autopilot generates 30 days of content in one click.
+            You have <strong>{upsellData.remainingCredits}</strong> credits left on your{" "}
+            <strong>{upsellData.plan}</strong> plan.
+          </p>
+          <div className="rounded-xl border border-violet-200 bg-violet-50 p-4 text-left space-y-2">
+            <p className="font-semibold text-violet-900">Starter Plan — ₹999/month</p>
+            <ul className="text-sm text-violet-700 space-y-1">
+              <li>✓ 200 generations/month</li>
+              <li>✓ Autopilot (30-day calendar)</li>
+              <li>✓ All content types</li>
+              <li>✓ Ad Maker</li>
+            </ul>
+          </div>
+          <Link
+            href="/settings"
+            className="flex w-full items-center justify-center rounded-full bg-violet-600 py-3 text-sm font-semibold text-white hover:bg-violet-700 transition-colors"
+          >
+            Upgrade to Starter →
+          </Link>
+          <p className="text-xs text-muted-foreground">
+            Or generate content individually on the free plan
+          </p>
+          <Button variant="ghost" className="w-full text-xs text-muted-foreground" onClick={() => setState("SETUP")}>
+            ← Go back
           </Button>
         </div>
       )}

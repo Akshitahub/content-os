@@ -150,6 +150,7 @@ export function StorySequence({ brandId }: { brandId: string }) {
   const [error, setError] = useState("")
   const [stories, setStories] = useState<StorySlide[]>([])
   const [allCopied, setAllCopied] = useState(false)
+  const [savedToContent, setSavedToContent] = useState(false)
 
   const handle = brand?.instagram_handle ?? brand?.name ?? "yourbrand"
 
@@ -185,7 +186,27 @@ export function StorySequence({ brandId }: { brandId: string }) {
       })
       const json = await res.json() as { data?: { stories: StorySlide[] }; error?: { message?: string } }
       if (!res.ok || !json.data?.stories) throw new Error(json.error?.message ?? "Generation failed")
-      setStories(json.data.stories)
+      const savedStories = json.data.stories
+      setStories(savedStories)
+      setSavedToContent(false)
+      // Save to DB (non-blocking, non-fatal)
+      try {
+        await fetch(`/api/v1/brands/${brandId}/reel-scripts`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            content: savedStories.map((s, i) =>
+              `Story ${i + 1} (${s.type}):\n${s.text}\n${s.subtext}`
+            ).join("\n\n---\n\n"),
+            platform: "instagram",
+            title: `Story sequence: ${topic}`,
+          }),
+        })
+        setSavedToContent(true)
+        setTimeout(() => setSavedToContent(false), 4000)
+      } catch {
+        // Non-fatal — content is shown even if save fails
+      }
     } catch (e) {
       setError(getFriendlyError(e))
     } finally {
@@ -268,6 +289,14 @@ export function StorySequence({ brandId }: { brandId: string }) {
         <div className="flex flex-col items-center justify-center py-12 gap-3 rounded-xl border bg-card">
           <Loader2 className="h-8 w-8 animate-spin text-violet-500" />
           <p className="text-sm font-medium">Writing your {storyCount}-part story sequence…</p>
+        </div>
+      )}
+
+      {/* Saved banner */}
+      {savedToContent && (
+        <div className="flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 px-4 py-3">
+          <Check className="h-4 w-4 shrink-0 text-green-600" />
+          <span className="text-sm font-medium text-green-700">Saved to My Content ✓</span>
         </div>
       )}
 

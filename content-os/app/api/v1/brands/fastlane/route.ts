@@ -97,7 +97,12 @@ export async function POST(request: Request) {
 
       if (currentCount + FASTLANE_GENERATION_COST > limit) {
         return NextResponse.json(
-          buildError(ErrorCodes.INTERNAL_ERROR, `Autopilot requires ${FASTLANE_GENERATION_COST} generations. You have ${limit - currentCount} remaining on your ${userData.plan} plan.`),
+          {
+            error: { code: ErrorCodes.USAGE_LIMIT_EXCEEDED, message: `Autopilot requires ${FASTLANE_GENERATION_COST} credits.` },
+            remaining_credits: Math.max(0, limit - currentCount),
+            plan: userData.plan,
+            credits_needed: FASTLANE_GENERATION_COST,
+          },
           { status: 429 }
         )
       }

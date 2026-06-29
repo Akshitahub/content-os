@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useCallback, useRef, useMemo } from "react"
-import { Sparkles, RefreshCw, Copy, Check, Download, ExternalLink, Archive } from "lucide-react"
+import { Sparkles, RefreshCw, Copy, Check, Download, ExternalLink, Archive, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import Link from "next/link"
@@ -9,12 +9,12 @@ import { GeneratingState } from "@/components/shared/GeneratingState"
 import { PostPreviewCard, generatePreviewHtml } from "@/components/shared/PostPreviewCard"
 import type { PreviewTemplate } from "@/components/shared/PostPreviewCard"
 import { TEMPLATE_NAMES } from "@/lib/design/constants"
-import { useGenerateFullPost, ApiResponseError } from "@/hooks/useGeneration"
+import { useGenerateFullPost, useGenerateImage, ApiResponseError } from "@/hooks/useGeneration"
 import { useGenerationStore } from "@/stores/generationStore"
 import { useBrand } from "@/hooks/useBrand"
 import type { FullPostResult, ContentResult } from "@/hooks/useGeneration"
 import type { ProductRow } from "@/types/database"
-import type { ContentFormat, Platform, GeneratedHook, GeneratedCaption, ReelScript, CarouselContent, BlogPost, AdCopy } from "@/types/app"
+import type { ContentFormat, Platform, GeneratedHook, GeneratedCaption, ReelScript, CarouselContent, BlogPost, AdCopy, ImageStyle, AspectRatio } from "@/types/app"
 
 const FORMATS: { value: ContentFormat; label: string }[] = [
   { value: "social_post", label: "Instagram Post" },
@@ -40,6 +40,7 @@ interface Props {
 
 export function FullPostGenerator({ brandId, products }: Props) {
   const { mutate: generate, isPending, error } = useGenerateFullPost()
+  const { mutate: generateImage, isPending: imageGenerating } = useGenerateImage()
   const {
     fullPostResult,
     setFullPostResult,
@@ -62,6 +63,7 @@ export function FullPostGenerator({ brandId, products }: Props) {
   const [copied, setCopied] = useState<string | null>(null)
   const [justSaved, setJustSaved] = useState(false)
   const [selectedTemplate, setSelectedTemplate] = useState<PreviewTemplate>(1)
+  const [postImageUrl, setPostImageUrl] = useState<string | null>(null)
   const abortControllerRef = useRef<AbortController | null>(null)
 
   const previewHtml = useMemo(() => {
@@ -122,6 +124,7 @@ export function FullPostGenerator({ brandId, products }: Props) {
     abortControllerRef.current?.abort()
     abortControllerRef.current = new AbortController()
     setJustSaved(false)
+    setPostImageUrl(null)
 
     generate(
       {
@@ -136,6 +139,16 @@ export function FullPostGenerator({ brandId, products }: Props) {
           setFullPostResult(data)
           setJustSaved(true)
           setTimeout(() => setJustSaved(false), 5000)
+          // Auto-generate a post image using the hook text
+          generateImage(
+            {
+              brandId,
+              prompt: data.hook.hook_text,
+              style: "product_photography" as ImageStyle,
+              aspectRatio: "1:1" as AspectRatio,
+            },
+            { onSuccess: (imgData) => setPostImageUrl(imgData.public_url) }
+          )
         },
       }
     )
@@ -298,6 +311,8 @@ export function FullPostGenerator({ brandId, products }: Props) {
           onCopy={copy}
           onDownload={downloadCard}
           brandId={brandId}
+          postImageUrl={postImageUrl}
+          imageGenerating={imageGenerating}
         />
       )}
     </div>
@@ -549,6 +564,8 @@ function FullPostResults({
   onCopy,
   onDownload,
   brandId,
+  postImageUrl,
+  imageGenerating,
 }: {
   result: FullPostResult
   previewHtml?: string
@@ -556,11 +573,45 @@ function FullPostResults({
   onCopy: (text: string, key: string) => void
   onDownload: (html: string) => void
   brandId: string
+  postImageUrl?: string | null
+  imageGenerating?: boolean
 }) {
   return (
     <div className="space-y-4">
       <HookSection hook={result.hook} copied={copied} onCopy={onCopy} />
       <ContentDisplay content={result.content} copied={copied} onCopy={onCopy} />
+
+      {/* Auto-generated post image */}
+      {imageGenerating && (
+        <div className="rounded-lg border bg-card p-4 flex items-center gap-3">
+          <Loader2 className="h-4 w-4 animate-spin text-violet-500 shrink-0" />
+          <p className="text-sm text-muted-foreground">Generating post image…</p>
+        </div>
+      )}
+      {postImageUrl && !imageGenerating && (
+        <div className="rounded-lg border bg-card p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Post Image</span>
+            <a
+              href={postImageUrl}
+              download="post-image.jpg"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <Download className="h-3.5 w-3.5" /> Download
+            </a>
+          </div>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={postImageUrl}
+            alt="Generated post image"
+            className="w-full rounded-lg object-cover"
+            style={{ maxHeight: 360 }}
+          />
+        </div>
+      )}
+
       {(previewHtml ?? result.postCardHtml) && (
         <PostCardPreview html={(previewHtml ?? result.postCardHtml)!} onDownload={onDownload} />
       )}
