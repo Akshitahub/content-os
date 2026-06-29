@@ -168,11 +168,11 @@ export function BrandForm({ defaultValues, onSubmit, submitLabel = "Save brand",
 
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
-              <Label htmlFor="niche">Niche / Industry</Label>
-              <Input id="niche" placeholder="e.g. Luxury skincare" {...register("niche")} />
+              <Label htmlFor="niche">What you sell <span className="text-destructive">*</span></Label>
+              <Input id="niche" placeholder="e.g. Skincare, Streetwear, Home decor, Gaming accessories" {...register("niche")} />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="instagram_handle">Instagram handle</Label>
+              <Label htmlFor="instagram_handle">Instagram handle <span className="text-xs font-normal text-muted-foreground">(optional)</span></Label>
               <div className="flex items-center">
                 <span className="flex h-10 items-center rounded-l-md border border-r-0 bg-muted px-3 text-sm text-muted-foreground">@</span>
                 <Input id="instagram_handle" placeholder="yourbrand" className="rounded-l-none" {...register("instagram_handle")} />
@@ -181,7 +181,7 @@ export function BrandForm({ defaultValues, onSubmit, submitLabel = "Save brand",
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="website_url">Website URL</Label>
+            <Label htmlFor="website_url">Website URL <span className="text-xs font-normal text-muted-foreground">(optional)</span></Label>
             <Input id="website_url" type="url" placeholder="https://yourbrand.com" {...register("website_url")} aria-invalid={!!errors.website_url} />
             {errors.website_url && <p className="text-xs text-destructive">{errors.website_url.message}</p>}
           </div>
@@ -195,19 +195,20 @@ export function BrandForm({ defaultValues, onSubmit, submitLabel = "Save brand",
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="target_audience">Target audience</Label>
-            <Input id="target_audience" placeholder="e.g. Women 25–40, health-conscious, urban" {...register("target_audience")} />
+            <Label htmlFor="target_audience">Who buys from you <span className="text-destructive">*</span></Label>
+            <Input id="target_audience" placeholder="e.g. Women aged 18-35 who love skincare, Young gamers in India" {...register("target_audience")} />
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="tone_of_voice">Tone of voice</Label>
-            <Input id="tone_of_voice" placeholder="e.g. Warm, knowledgeable, aspirational but accessible" {...register("tone_of_voice")} />
+            <Label htmlFor="tone_of_voice">Brand personality <span className="text-destructive">*</span></Label>
+            <p className="text-xs text-muted-foreground">How should your brand sound when it talks to people?</p>
+            <Input id="tone_of_voice" placeholder="e.g. Fun and casual, Bold and confident, Warm and friendly" {...register("tone_of_voice")} />
           </div>
 
           <div className="space-y-2">
-            <Label>Brand values</Label>
-            <p className="text-xs text-muted-foreground">Press Enter or comma to add. Max 10.</p>
-            <TagInput value={brandValues} onChange={(val) => setValue("brand_values", val)} placeholder="e.g. Sustainability, Authenticity..." />
+            <Label>What your brand stands for <span className="text-xs font-normal text-muted-foreground">(optional)</span></Label>
+            <p className="text-xs text-muted-foreground">What matters most to your brand? Press Enter or comma to add. Max 10.</p>
+            <TagInput value={brandValues} onChange={(val) => setValue("brand_values", val)} placeholder="e.g. Affordable quality, Sustainability, Empowerment, Innovation" />
           </div>
         </CardContent>
       </Card>
@@ -228,18 +229,18 @@ export function BrandForm({ defaultValues, onSubmit, submitLabel = "Save brand",
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">AI persona (optional)</CardTitle>
+          <CardTitle className="text-base">Content style <span className="text-sm font-normal text-muted-foreground">(optional)</span></CardTitle>
           <CardDescription>
-            Describe how you want the AI to &quot;think&quot; as your brand.
+            What personality should your AI content have?
           </CardDescription>
         </CardHeader>
         <CardContent>
           <div className="space-y-2">
-            <Label htmlFor="ai_persona">Persona prompt</Label>
+            <Label htmlFor="ai_persona">Content style</Label>
             <textarea
               id="ai_persona"
               rows={4}
-              placeholder="e.g. You are a warm, knowledgeable guide who believes in the healing power of nature..."
+              placeholder="e.g. Hype and energetic, Calm and expert, Witty and playful"
               className="flex min-h-[100px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
               {...register("ai_persona")}
             />

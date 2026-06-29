@@ -8,11 +8,14 @@ async function postExtract<T>(endpoint: string, url: string): Promise<T> {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ url }),
   })
-  const json = await res.json()
-  if (!res.ok || isApiError(json)) {
-    throw new Error(isApiError(json) ? json.error.message : "Couldn't read that page.")
+  const json = await res.json() as { data?: T; error?: { message: string }; scrape_failed?: boolean; message?: string }
+  if (json.scrape_failed) {
+    throw new Error(json.message ?? "We couldn't access this website. Please fill in your brand details manually.")
   }
-  return json.data
+  if (!res.ok || isApiError(json)) {
+    throw new Error(isApiError(json) ? (json as { error: { message: string } }).error.message : "Couldn't read that page.")
+  }
+  return json.data as T
 }
 
 export function useExtractBrandFromUrl() {

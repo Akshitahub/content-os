@@ -43,8 +43,15 @@ export default function AnalyzingPage() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ url }),
         })
-        const json = await res.json() as { data?: { id: string }; error?: { message: string } }
+        const json = await res.json() as { data?: { id: string }; error?: { message: string }; scrape_failed?: boolean; message?: string }
         if (cancelled) return
+
+        if (json.scrape_failed) {
+          clearInterval(msgTimer)
+          const msg = json.message ?? "We couldn't access this website automatically."
+          router.replace(`/onboarding/brand-setup?scrape_failed=1&msg=${encodeURIComponent(msg)}`)
+          return
+        }
 
         if (!res.ok || !json.data?.id) {
           const msg = json.error?.message ?? "Couldn't analyse that URL. Try your homepage."

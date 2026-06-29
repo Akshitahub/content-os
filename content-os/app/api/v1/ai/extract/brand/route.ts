@@ -29,15 +29,15 @@ export async function POST(request: Request) {
     const extracted = await extractBrandFromPage(page)
     return NextResponse.json({ data: extracted }, { status: 200 })
   } catch (err) {
-    if (err instanceof PageFetchError) {
-      return NextResponse.json(buildError(ErrorCodes.VALIDATION_ERROR, err.message), { status: 422 })
-    }
-    if (err instanceof ExtractionError) {
-      return NextResponse.json(buildError(ErrorCodes.AI_GENERATION_FAILED, err.message), { status: 500 })
+    if (err instanceof PageFetchError || err instanceof ExtractionError) {
+      return NextResponse.json(
+        { data: null, scrape_failed: true, message: "We couldn't access this website automatically — some brands block this for security reasons. Please fill in your brand details manually." },
+        { status: 200 }
+      )
     }
     return NextResponse.json(
-      buildError(ErrorCodes.INTERNAL_ERROR, "Something went wrong reading that page.", err instanceof Error ? err.message : undefined),
-      { status: 500 }
+      { data: null, scrape_failed: true, message: "We couldn't access this website automatically — some brands block this for security reasons. Please fill in your brand details manually." },
+      { status: 200 }
     )
   }
 }

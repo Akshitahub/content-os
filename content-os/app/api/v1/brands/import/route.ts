@@ -42,8 +42,8 @@ export async function POST(request: Request) {
 
     if (!extracted.name) {
       return NextResponse.json(
-        buildError(ErrorCodes.VALIDATION_ERROR, "Couldn't extract brand info from that URL. Try your homepage or about page."),
-        { status: 422 }
+        { data: null, scrape_failed: true, message: "We couldn't extract enough information from that website. Please fill in your brand details manually." },
+        { status: 200 }
       )
     }
 
@@ -98,13 +98,15 @@ export async function POST(request: Request) {
     return NextResponse.json({ data: brand }, { status: 201 })
   } catch (err) {
     console.error("[brands/import] error:", err)
-    if (err instanceof PageFetchError) {
-      return NextResponse.json(buildError(ErrorCodes.VALIDATION_ERROR, err.message), { status: 422 })
+    if (err instanceof PageFetchError || err instanceof ExtractionError) {
+      return NextResponse.json(
+        { data: null, scrape_failed: true, message: "We couldn't access this website automatically — some brands block this for security reasons. Please fill in your brand details manually." },
+        { status: 200 }
+      )
     }
-    if (err instanceof ExtractionError) {
-      return NextResponse.json(buildError(ErrorCodes.AI_GENERATION_FAILED, err.message), { status: 500 })
-    }
-    const msg = err instanceof Error ? err.message : "Something went wrong importing that URL."
-    return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, msg), { status: 500 })
+    return NextResponse.json(
+      { data: null, scrape_failed: true, message: "We couldn't access this website automatically — some brands block this for security reasons. Please fill in your brand details manually." },
+      { status: 200 }
+    )
   }
 }
