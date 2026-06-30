@@ -14,45 +14,43 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 })
 
-const BASE_URL = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"
+const BASE_URL = process.env.NEXT_PUBLIC_APP_URL ?? "https://content-os-mu-kohl.vercel.app"
 
 export const metadata: Metadata = {
-  metadataBase: new URL(BASE_URL),
-  title: {
-    default: "ContentOS — Your brand URL → 30 days of content",
-    template: "%s | ContentOS",
-  },
+  title: "ContentOS — AI Content Generator for Indian D2C Brands & Creators",
   description:
-    "ContentOS learns your brand voice from your website and generates hooks, captions, reels, carousels, and ad copy — tailored to you, not templates.",
+    "Turn your brand's website into 30 days of Instagram content in seconds. AI-powered hooks, captions, carousels, ad creatives and more — built for Indian D2C brands and creators.",
   keywords: [
-    "AI content generation",
-    "social media content",
-    "brand voice",
-    "ecommerce marketing",
-    "Instagram captions",
-    "content calendar",
-    "hooks generator",
-    "reel scripts",
+    "AI content generator India",
+    "Instagram content calendar",
+    "D2C content marketing",
+    "AI Instagram post generator",
+    "content generation tool India",
+    "social media content AI",
   ],
+  metadataBase: new URL(BASE_URL),
   icons: {
     icon: [{ url: "/favicon.svg", type: "image/svg+xml" }],
     shortcut: "/favicon.svg",
   },
   openGraph: {
-    type: "website",
+    title: "ContentOS — AI Content Generator for Indian D2C Brands",
+    description: "Turn your brand's website into 30 days of Instagram content in seconds.",
     url: BASE_URL,
     siteName: "ContentOS",
-    title: "ContentOS — Your brand URL → 30 days of content",
-    description:
-      "ContentOS learns your brand voice from your website and generates hooks, captions, reels, carousels, and ad copy — tailored to you, not templates.",
-    images: [{ url: "/og", width: 1200, height: 630, alt: "ContentOS" }],
+    images: [{ url: "/og-image.png", width: 1200, height: 630 }],
+    locale: "en_IN",
+    type: "website",
   },
   twitter: {
     card: "summary_large_image",
-    title: "ContentOS — Your brand URL → 30 days of content",
-    description:
-      "ContentOS learns your brand voice and generates a full month of on-brand content in one click.",
-    images: ["/og"],
+    title: "ContentOS — AI Content Generator for Indian D2C Brands",
+    description: "Turn your brand's website into 30 days of Instagram content in seconds.",
+    images: ["/og-image.png"],
+  },
+  robots: {
+    index: true,
+    follow: true,
   },
 }
 
