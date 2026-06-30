@@ -550,13 +550,14 @@ export function buildInfluencerFitScoringUserPrompt(
 Influencer Profile:
 ${influencerContext}
 
-Score this influencer's fit for the brand on a scale of 0–100.
-Consider: audience overlap, niche alignment, tone match, follower count vs brand size, and any engagement signals visible from the bio.
+Score this influencer's brand fit on a scale of 1–10.
+Consider: niche/content alignment with the brand's niche, follower count appropriateness (not too small to matter, not too large to be out of budget), engagement signals from bio, and audience demographic alignment with the brand's target_audience.
 
 Respond with this exact JSON:
 {
-  "score": 75,
+  "score": 7,
   "reasoning": "one paragraph explaining the score",
+  "why_it_works": "one specific sentence about why this creator matches THIS exact brand — reference the brand's niche, audience, or product",
   "strengths": ["strength one", "strength two"],
   "concerns": ["concern one", "concern two"],
   "recommendation": "strong_fit"

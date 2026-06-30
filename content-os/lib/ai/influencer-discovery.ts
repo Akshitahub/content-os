@@ -22,13 +22,13 @@ function sleep(ms: number): Promise<void> {
 export async function discoverInfluencersByNiche(
   niche: string,
   platform: "instagram" | "tiktok" | "youtube",
-  count: number = 10,
+  count: number = 25,
 ): Promise<string[]> {
   const groq = getGroqClient()
   const res = await groq.chat.completions.create({
     model: MODELS.extraction,
     temperature: 0.7,
-    max_tokens: 500,
+    max_tokens: 1500,
     messages: [
       {
         role: "system",
@@ -70,7 +70,7 @@ export async function autoDiscoverAndScoreInfluencers(
   brand: BrandRow,
   brandId: string,
   platform: "instagram" | "tiktok" | "youtube",
-  count: number = 10,
+  count: number = 25,
 ): Promise<InfluencerRow[]> {
   const groq = getGroqClient()
   const handles = await discoverInfluencersByNiche(brand.niche ?? "general", platform, count)
@@ -131,9 +131,10 @@ export async function autoDiscoverAndScoreInfluencers(
             fit_score?: number
             reasoning?: string
             fit_reasoning?: string
+            why_it_works?: string
           }
           fit_score = scoreParsed.score ?? scoreParsed.fit_score ?? null
-          fit_reasoning = scoreParsed.reasoning ?? scoreParsed.fit_reasoning ?? null
+          fit_reasoning = scoreParsed.why_it_works ?? scoreParsed.reasoning ?? scoreParsed.fit_reasoning ?? null
         } catch {
           // non-fatal: insert without score
         }

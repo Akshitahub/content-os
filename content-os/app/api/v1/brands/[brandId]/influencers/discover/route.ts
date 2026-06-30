@@ -82,11 +82,12 @@ export async function POST(request: Request, { params }: RouteParams) {
       reasoning?: string
       fit_score?: number
       fit_reasoning?: string
+      why_it_works?: string
     }
 
     // Support both response shapes from the prompt
     fit_score = aiParsed.score ?? aiParsed.fit_score ?? null
-    fit_reasoning = aiParsed.reasoning ?? aiParsed.fit_reasoning ?? null
+    fit_reasoning = aiParsed.why_it_works ?? aiParsed.reasoning ?? aiParsed.fit_reasoning ?? null
   } catch (err) {
     console.error("[influencers/discover] AI scoring failed:", err)
     // Non-fatal: we still insert the influencer without a score

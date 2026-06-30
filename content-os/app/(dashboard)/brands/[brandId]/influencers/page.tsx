@@ -1,8 +1,8 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect, useRef } from "react"
 import { useParams } from "next/navigation"
-import { Search, Plus, Loader2, Users, Video, Camera, Wand2 } from "lucide-react"
+import { Search, Plus, Loader2, Users, Video, Camera, Wand2, Sparkles } from "lucide-react"
 import {
   useInfluencers,
   useDiscoverInfluencer,
@@ -24,17 +24,25 @@ function getTier(followerCount: number | null): { label: string; color: string }
   return { label: "Mega", color: "bg-orange-100 text-orange-700" }
 }
 
+// Normalize: old scores stored as 0-100, new scores as 1-10
+function normalizeScore(score: number | null): number | null {
+  if (score === null) return null
+  return score > 10 ? Math.round(score / 10) : score
+}
+
 function FitScoreBadge({ score }: { score: number | null }) {
-  if (score === null) return <span className="text-xs text-muted-foreground">Not scored</span>
-  const color =
-    score >= 70
-      ? "bg-green-100 text-green-700"
-      : score >= 40
-      ? "bg-yellow-100 text-yellow-700"
-      : "bg-red-100 text-red-700"
+  const normalized = normalizeScore(score)
+  if (normalized === null) return null
+  const { label, color } =
+    normalized >= 8
+      ? { label: "Excellent fit", color: "bg-green-100 text-green-700 border-green-200" }
+      : normalized >= 5
+      ? { label: "Good fit", color: "bg-yellow-100 text-yellow-700 border-yellow-200" }
+      : { label: "Possible fit", color: "bg-gray-100 text-gray-500 border-gray-200" }
   return (
-    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${color}`}>
-      {score}/100
+    <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-semibold ${color}`}>
+      <span>{normalized}/10</span>
+      <span className="font-normal opacity-75">· {label}</span>
     </span>
   )
 }
@@ -65,7 +73,7 @@ function formatFollowers(count: number | null): string {
 
 function AutoDiscoverForm({ brandId }: { brandId: string }) {
   const [platform, setPlatform] = useState<"instagram" | "tiktok" | "youtube">("instagram")
-  const [count, setCount] = useState(10)
+  const [count, setCount] = useState(25)
   const [successMsg, setSuccessMsg] = useState<string | null>(null)
   const autoDiscover = useAutoDiscoverInfluencers(brandId)
 
@@ -106,9 +114,10 @@ function AutoDiscoverForm({ brandId }: { brandId: string }) {
             disabled={autoDiscover.isPending}
             className="rounded-md border bg-background px-3 py-2 text-sm"
           >
-            <option value={5}>5 influencers</option>
             <option value={10}>10 influencers</option>
-            <option value={20}>20 influencers</option>
+            <option value={25}>25 influencers</option>
+            <option value={50}>50 influencers</option>
+            <option value={100}>100 influencers</option>
           </select>
           <Button
             onClick={handleAutoDiscover}
@@ -224,11 +233,17 @@ function InfluencerCard({ influencer, brandId }: { influencer: InfluencerRow; br
             <FitScoreBadge score={influencer.fit_score} />
           </div>
         </CardHeader>
-        <CardContent className="pt-0">
+        <CardContent className="pt-0 space-y-2">
           {influencer.bio && (
-            <p className="mb-2 line-clamp-2 text-xs text-muted-foreground">{influencer.bio}</p>
+            <p className="line-clamp-2 text-xs text-muted-foreground">{influencer.bio}</p>
           )}
-          <div className="flex items-center justify-between gap-2">
+          {influencer.fit_reasoning && (
+            <p className="text-xs text-foreground/80 line-clamp-2">
+              <span className="font-medium text-violet-700">Why this could work: </span>
+              {influencer.fit_reasoning}
+            </p>
+          )}
+          <div className="flex items-center justify-between gap-2 pt-1">
             <div className="flex items-center gap-1.5">
               <TierBadge followerCount={influencer.follower_count} />
               {niche && (
@@ -249,20 +264,26 @@ function InfluencerCard({ influencer, brandId }: { influencer: InfluencerRow; br
 
 // ─── Filters + sort ───────────────────────────────────────────────────────────
 
-type FilterTab = "all" | "strong_fit" | "micro" | "macro"
+type FilterTab = "all" | "excellent_fit" | "good_fit" | "micro" | "macro"
 type SortKey = "fit_score" | "followers" | "recent"
 
 const FILTER_TABS: { id: FilterTab; label: string }[] = [
   { id: "all", label: "All" },
-  { id: "strong_fit", label: "Strong Fit" },
+  { id: "excellent_fit", label: "Excellent fit (8+)" },
+  { id: "good_fit", label: "Good fit (5–7)" },
   { id: "micro", label: "Micro" },
   { id: "macro", label: "Macro" },
 ]
 
 function filterInfluencers(influencers: InfluencerRow[], filter: FilterTab): InfluencerRow[] {
   switch (filter) {
-    case "strong_fit":
-      return influencers.filter((i) => (i.fit_score ?? 0) >= 70)
+    case "excellent_fit":
+      return influencers.filter((i) => normalizeScore(i.fit_score) !== null && (normalizeScore(i.fit_score) ?? 0) >= 8)
+    case "good_fit":
+      return influencers.filter((i) => {
+        const s = normalizeScore(i.fit_score)
+        return s !== null && s >= 5 && s < 8
+      })
     case "micro":
       return influencers.filter(
         (i) =>
@@ -282,7 +303,7 @@ function filterInfluencers(influencers: InfluencerRow[], filter: FilterTab): Inf
 
 function sortInfluencers(influencers: InfluencerRow[], sort: SortKey): InfluencerRow[] {
   return [...influencers].sort((a, b) => {
-    if (sort === "fit_score") return (b.fit_score ?? 0) - (a.fit_score ?? 0)
+    if (sort === "fit_score") return (normalizeScore(b.fit_score) ?? 0) - (normalizeScore(a.fit_score) ?? 0)
     if (sort === "followers") return (b.follower_count ?? 0) - (a.follower_count ?? 0)
     return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
   })
@@ -296,6 +317,32 @@ export default function InfluencersPage() {
   const { data: influencers, isLoading, error } = useInfluencers(brandId)
   const [filter, setFilter] = useState<FilterTab>("all")
   const [sort, setSort] = useState<SortKey>("fit_score")
+  const autoDiscover = useAutoDiscoverInfluencers(brandId)
+  const hasAutoTriggered = useRef(false)
+  const [autoDiscoverMsg, setAutoDiscoverMsg] = useState<string | null>(null)
+
+  // Auto-trigger discovery the first time the page loads with zero saved influencers
+  useEffect(() => {
+    if (
+      !isLoading &&
+      influencers !== undefined &&
+      influencers.length === 0 &&
+      !hasAutoTriggered.current
+    ) {
+      hasAutoTriggered.current = true
+      autoDiscover
+        .mutateAsync({ platform: "instagram", count: 25 })
+        .then((result) => {
+          setAutoDiscoverMsg(
+            `Found ${result.count} influencer${result.count !== 1 ? "s" : ""} who could be a great fit for your brand.`,
+          )
+        })
+        .catch(() => {
+          // non-fatal: user can run manually
+        })
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLoading, influencers])
 
   if (isLoading) {
     return (
@@ -347,6 +394,28 @@ export default function InfluencersPage() {
         </div>
       </div>
 
+      {/* Auto-discovery in-progress banner (shown when triggered automatically) */}
+      {autoDiscover.isPending && (influencers ?? []).length === 0 && (
+        <div className="mb-4 flex items-center gap-3 rounded-xl border border-violet-200 bg-violet-50 px-4 py-3">
+          <Sparkles className="h-5 w-5 shrink-0 animate-pulse text-violet-600" />
+          <div>
+            <p className="text-sm font-medium text-violet-900">
+              Finding influencers who&apos;d be a great fit for your brand…
+            </p>
+            <p className="text-xs text-violet-700">
+              Scoring each one by niche match, audience, and engagement. This takes 30–60 seconds.
+            </p>
+          </div>
+          <Loader2 className="ml-auto h-4 w-4 shrink-0 animate-spin text-violet-600" />
+        </div>
+      )}
+
+      {autoDiscoverMsg && (
+        <div className="mb-4 rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm font-medium text-green-800">
+          {autoDiscoverMsg}
+        </div>
+      )}
+
       <AutoDiscoverForm brandId={brandId} />
 
       <Card className="mb-6">
@@ -360,7 +429,7 @@ export default function InfluencersPage() {
 
       {influencers && influencers.length > 0 && (
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex gap-1">
+          <div className="flex flex-wrap gap-1">
             {FILTER_TABS.map((tab) => (
               <button
                 key={tab.id}

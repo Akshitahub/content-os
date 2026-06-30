@@ -9,7 +9,7 @@ type RouteParams = { params: Promise<{ brandId: string }> }
 
 const autoDiscoverSchema = z.object({
   platform: z.enum(["instagram", "tiktok", "youtube"]),
-  count: z.number().int().min(1).max(20).default(10),
+  count: z.number().int().min(1).max(100).default(25),
 })
 
 export async function POST(request: Request, { params }: RouteParams) {
