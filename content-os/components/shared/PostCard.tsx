@@ -16,6 +16,16 @@ const PLATFORM_GRADIENT: Record<string, string> = {
   youtube: "from-red-600 via-red-500 to-orange-500",
 }
 
+const HOOK_TYPE_GRADIENTS: Record<string, string> = {
+  question:      "from-sky-500 via-blue-500 to-cyan-400",
+  bold_statement:"from-orange-600 via-red-500 to-rose-500",
+  story:         "from-purple-600 via-fuchsia-500 to-pink-500",
+  statistic:     "from-emerald-600 via-teal-500 to-green-400",
+  controversial: "from-gray-900 via-red-900 to-black",
+  how_to:        "from-amber-500 via-orange-400 to-yellow-400",
+  relatable:     "from-amber-500 via-orange-400 to-yellow-400",
+}
+
 const PLATFORM_EMOJI: Record<string, string> = {
   instagram: "📸",
   tiktok: "🎵",
@@ -55,12 +65,16 @@ function MiniPreview({
   text,
   platform,
   brandName,
+  hookType,
 }: {
   text: string
   platform?: Platform | string
   brandName?: string
+  hookType?: string
 }) {
-  const gradient = PLATFORM_GRADIENT[platform ?? "instagram"] ?? PLATFORM_GRADIENT.instagram
+  const gradient = hookType
+    ? (HOOK_TYPE_GRADIENTS[hookType] ?? PLATFORM_GRADIENT[platform ?? "instagram"] ?? PLATFORM_GRADIENT.instagram)
+    : (PLATFORM_GRADIENT[platform ?? "instagram"] ?? PLATFORM_GRADIENT.instagram)
   const preview = text.slice(0, 60) + (text.length > 60 ? "…" : "")
 
   return (
@@ -164,7 +178,7 @@ export function PostCard({
       </div>
 
       {/* Mini visual preview */}
-      {!isSmall && <MiniPreview text={content} platform={platform} brandName={brandName} />}
+      {!isSmall && <MiniPreview text={content} platform={platform} brandName={brandName} hookType={hookType} />}
 
       {/* Content text */}
       <p className={`mt-2 leading-relaxed text-foreground ${isSmall ? "line-clamp-2 text-xs" : "line-clamp-3 text-sm"}`}>

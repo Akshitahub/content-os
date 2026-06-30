@@ -222,8 +222,8 @@ export function FullPostGenerator({ brandId, products }: Props) {
         {/* Template selector */}
         <div className="space-y-1.5">
           <Label className="text-xs">Post graphic template</Label>
-          <div className="grid grid-cols-3 gap-2">
-            {([1, 2, 3, 4, 5, 6] as PreviewTemplate[]).map((t) => (
+          <div className="grid grid-cols-4 gap-2">
+            {([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] as PreviewTemplate[]).map((t) => (
               <button
                 key={t}
                 type="button"
@@ -238,7 +238,7 @@ export function FullPostGenerator({ brandId, products }: Props) {
                   primaryColor={primaryColor}
                   secondaryColor={secondaryColor}
                   template={t}
-                  px={120}
+                  px={90}
                 />
                 <div className="absolute inset-x-0 bottom-0 bg-black/60 py-1 px-1">
                   <p className="truncate text-center text-[9px] font-medium text-white">{TEMPLATE_NAMES[t]}</p>
@@ -484,27 +484,40 @@ function ContentDisplay({ content, copied, onCopy }: { content: ContentResult; c
     const c = content.content as AdCopy
     const full = `Headline: ${c.headline}\n\n${c.primary_text}\n\n${c.description}\n\nCTA: ${c.cta_button}`
     return (
-      <div className="rounded-lg border bg-card p-4 space-y-3">
+      <div className="rounded-lg border bg-card p-4 space-y-4">
         <div className="flex items-center justify-between">
           <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Ad Copy</span>
           <CopyBtn text={full} id="adcopy" copied={copied} onCopy={onCopy} />
         </div>
-        <div className="space-y-2">
-          <div>
-            <p className="text-xs font-semibold text-muted-foreground mb-0.5">Headline</p>
-            <p className="text-sm font-bold">{c.headline}</p>
+        {/* Facebook/Instagram-style ad mockup */}
+        <div className="mx-auto max-w-xs overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
+          <div className="flex items-center gap-2.5 border-b px-3 py-2.5">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-violet-500 to-indigo-600 text-[10px] font-bold text-white">AD</div>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-semibold text-gray-900">Your Brand</p>
+              <p className="text-[10px] text-gray-400">Sponsored · 🌐</p>
+            </div>
+            <span className="text-base text-gray-300 leading-none">···</span>
           </div>
-          <div>
-            <p className="text-xs font-semibold text-muted-foreground mb-0.5">Primary text</p>
-            <p className="text-sm">{c.primary_text}</p>
+          <div className="px-3 py-2">
+            <p className="line-clamp-3 text-xs text-gray-800">{c.primary_text}</p>
           </div>
-          <div>
-            <p className="text-xs font-semibold text-muted-foreground mb-0.5">Description</p>
-            <p className="text-sm text-muted-foreground">{c.description}</p>
+          <div className="flex h-36 w-full items-center justify-center bg-gradient-to-br from-violet-50 to-indigo-50">
+            <p className="text-[10px] font-medium text-gray-400">Ad creative goes here</p>
           </div>
-          <div className="inline-flex items-center rounded-full bg-primary/10 px-3 py-1">
-            <p className="text-xs font-semibold text-primary">{c.cta_button}</p>
+          <div className="flex items-center justify-between gap-2 border-t bg-gray-50 px-3 py-2.5">
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-[9px] uppercase tracking-wide text-gray-400">{c.description}</p>
+              <p className="truncate text-xs font-bold text-gray-900">{c.headline}</p>
+            </div>
+            <span className="shrink-0 rounded-md bg-blue-600 px-2.5 py-1 text-[10px] font-semibold text-white">{c.cta_button}</span>
           </div>
+        </div>
+        <div className="space-y-2 text-sm">
+          <div><p className="text-xs font-semibold text-muted-foreground mb-0.5">Headline <span className="font-normal">({c.headline.length}/40 chars)</span></p><p className="font-bold">{c.headline}</p></div>
+          <div><p className="text-xs font-semibold text-muted-foreground mb-0.5">Primary text</p><p>{c.primary_text}</p></div>
+          <div><p className="text-xs font-semibold text-muted-foreground mb-0.5">Description</p><p className="text-muted-foreground">{c.description}</p></div>
+          <div className="inline-flex items-center rounded-full bg-primary/10 px-3 py-1"><p className="text-xs font-semibold text-primary">{c.cta_button}</p></div>
         </div>
       </div>
     )

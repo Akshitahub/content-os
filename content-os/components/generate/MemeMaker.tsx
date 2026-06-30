@@ -30,17 +30,17 @@ const MEME_FORMATS: {
 
 function DrakeLayout({ panels }: { panels: { label: string; text: string }[] }) {
   return (
-    <div className="overflow-hidden rounded-xl border bg-white">
+    <div className="overflow-hidden rounded-2xl border-2 border-gray-900 bg-white shadow-xl max-w-lg mx-auto">
       {panels.slice(0, 2).map((p, i) => (
-        <div key={i} className={`flex items-center gap-4 p-4 ${i === 0 ? "border-b" : ""}`}>
-          <div className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-lg text-3xl ${i === 0 ? "bg-red-100" : "bg-green-100"}`}>
-            {i === 0 ? "😒" : "😊"}
+        <div key={i} className={`flex items-center gap-5 p-6 ${i === 0 ? "border-b-2 border-gray-900 bg-red-50" : "bg-green-50"}`}>
+          <div className={`flex h-20 w-20 shrink-0 items-center justify-center rounded-xl text-5xl ${i === 0 ? "bg-red-100" : "bg-green-100"}`}>
+            {i === 0 ? "😒" : "😎"}
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{p.label}</p>
-            <p className="mt-0.5 text-sm font-bold text-gray-900 leading-snug">{p.text}</p>
+            <p className="text-xs font-bold uppercase tracking-wide text-gray-500 mb-1">{p.label}</p>
+            <p className="text-xl font-extrabold text-gray-900 leading-tight">{p.text}</p>
           </div>
-          <span className="text-2xl shrink-0">{i === 0 ? "❌" : "✅"}</span>
+          <span className="text-3xl shrink-0">{i === 0 ? "❌" : "✅"}</span>
         </div>
       ))}
     </div>
@@ -49,16 +49,16 @@ function DrakeLayout({ panels }: { panels: { label: string; text: string }[] }) 
 
 function BigBrainLayout({ panels }: { panels: { label: string; text: string }[] }) {
   const emojis = ["🧠", "🧠", "🧠✨", "🌌🧠"]
-  const sizes = ["text-sm", "text-base font-semibold", "text-lg font-bold", "text-xl font-extrabold text-violet-600"]
+  const sizes = ["text-base font-bold", "text-lg font-extrabold", "text-xl font-extrabold text-violet-700", "text-2xl font-black text-violet-600"]
   return (
-    <div className="overflow-hidden rounded-xl border bg-white">
+    <div className="overflow-hidden rounded-2xl border-2 border-violet-900 bg-white shadow-xl max-w-lg mx-auto">
       {panels.map((p, i) => (
-        <div key={i} className={`flex items-center gap-4 p-4 ${i < panels.length - 1 ? "border-b" : ""}`}
-          style={{ background: `rgba(109,40,217,${i * 0.04})` }}>
-          <div className="shrink-0 text-3xl">{emojis[i] ?? "🧠"}</div>
+        <div key={i} className={`flex items-center gap-5 p-6 ${i < panels.length - 1 ? "border-b-2 border-violet-100" : ""}`}
+          style={{ background: `rgba(109,40,217,${i * 0.05})` }}>
+          <div className="shrink-0 text-5xl leading-none">{emojis[i] ?? "🧠"}</div>
           <div className="flex-1 min-w-0">
-            <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{p.label}</p>
-            <p className={`mt-0.5 leading-snug text-gray-900 ${sizes[i] ?? "text-sm"}`}>{p.text}</p>
+            <p className="text-xs font-bold uppercase tracking-wide text-gray-500 mb-1">{p.label}</p>
+            <p className={`leading-tight text-gray-900 ${sizes[i] ?? "text-base font-bold"}`}>{p.text}</p>
           </div>
         </div>
       ))}
@@ -68,13 +68,13 @@ function BigBrainLayout({ panels }: { panels: { label: string; text: string }[] 
 
 function DisasterLayout({ panels }: { panels: { label: string; text: string }[] }) {
   return (
-    <div className="overflow-hidden rounded-xl border bg-orange-50">
+    <div className="overflow-hidden rounded-2xl border-2 border-orange-900 bg-orange-50 shadow-xl max-w-lg mx-auto">
       {panels.slice(0, 2).map((p, i) => (
-        <div key={i} className={`flex items-center gap-4 p-4 ${i === 0 ? "border-b border-orange-200" : ""}`}>
-          <div className="text-4xl shrink-0">{i === 0 ? "😱" : "😈"}</div>
+        <div key={i} className={`flex items-center gap-5 p-6 ${i === 0 ? "border-b-2 border-orange-200" : ""}`}>
+          <div className="text-5xl shrink-0 leading-none">{i === 0 ? "😱" : "😈"}</div>
           <div className="flex-1 min-w-0">
-            <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{p.label}</p>
-            <p className="mt-0.5 text-sm font-bold text-gray-900 leading-snug">{p.text}</p>
+            <p className="text-xs font-bold uppercase tracking-wide text-orange-700 mb-1">{p.label}</p>
+            <p className="text-xl font-extrabold text-gray-900 leading-tight">{p.text}</p>
           </div>
         </div>
       ))}
@@ -84,21 +84,21 @@ function DisasterLayout({ panels }: { panels: { label: string; text: string }[] 
 
 function ThisIsFineLayout({ panels }: { panels: { label: string; text: string }[] }) {
   return (
-    <div className="overflow-hidden rounded-xl border">
-      <div className="bg-gradient-to-r from-orange-500 to-red-600 p-4 flex items-center gap-3">
-        <span className="text-3xl">🔥</span>
-        <div>
-          <p className="text-[10px] font-semibold uppercase tracking-wide text-orange-100">{panels[0]?.label}</p>
-          <p className="text-sm font-bold text-white leading-snug">{panels[0]?.text}</p>
+    <div className="overflow-hidden rounded-2xl border-2 border-gray-900 shadow-xl max-w-lg mx-auto">
+      <div className="bg-gradient-to-r from-orange-500 to-red-600 p-6 flex items-center gap-4">
+        <span className="text-5xl leading-none">🔥</span>
+        <div className="flex-1 min-w-0">
+          <p className="text-xs font-bold uppercase tracking-wide text-orange-100 mb-1">{panels[0]?.label}</p>
+          <p className="text-xl font-extrabold text-white leading-tight">{panels[0]?.text}</p>
         </div>
-        <span className="text-3xl ml-auto">🔥</span>
+        <span className="text-5xl leading-none">🔥</span>
       </div>
       {panels[1] && (
-        <div className="bg-white p-4 flex items-center gap-3">
-          <span className="text-3xl">😌</span>
-          <div>
-            <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{panels[1].label}</p>
-            <p className="text-sm font-bold text-gray-900 leading-snug">{panels[1].text}</p>
+        <div className="bg-white p-6 flex items-center gap-4 border-t-2 border-gray-900">
+          <span className="text-5xl leading-none">😌</span>
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-bold uppercase tracking-wide text-gray-500 mb-1">{panels[1].label}</p>
+            <p className="text-xl font-extrabold text-gray-900 leading-tight">{panels[1].text}</p>
           </div>
         </div>
       )}
@@ -108,26 +108,26 @@ function ThisIsFineLayout({ panels }: { panels: { label: string; text: string }[
 
 function GigaChadLayout({ panels }: { panels: { label: string; text: string }[] }) {
   return (
-    <div className="overflow-hidden rounded-xl bg-gradient-to-br from-gray-900 to-black p-6 text-center">
-      <div className="text-5xl mb-3">💪</div>
-      <p className="text-xs font-semibold uppercase tracking-widest text-gray-500 mb-2">{panels[0]?.label}</p>
-      <p className="text-xl font-black text-white leading-snug">{panels[0]?.text}</p>
+    <div className="overflow-hidden rounded-2xl border-2 border-gray-900 bg-gradient-to-br from-gray-900 to-black p-8 text-center shadow-xl max-w-lg mx-auto">
+      <div className="text-6xl mb-4 leading-none">💪</div>
+      <p className="text-xs font-bold uppercase tracking-widest text-gray-500 mb-3">{panels[0]?.label}</p>
+      <p className="text-3xl font-black text-white leading-tight">{panels[0]?.text}</p>
     </div>
   )
 }
 
 function SurprisedLayout({ panels }: { panels: { label: string; text: string }[] }) {
   return (
-    <div className="overflow-hidden rounded-xl border bg-yellow-50">
-      <div className="p-4 border-b border-yellow-200">
-        <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{panels[0]?.label}</p>
-        <p className="mt-1 text-sm font-bold text-gray-900 leading-snug">{panels[0]?.text}</p>
+    <div className="overflow-hidden rounded-2xl border-2 border-yellow-900 bg-yellow-50 shadow-xl max-w-lg mx-auto">
+      <div className="p-6 border-b-2 border-yellow-200">
+        <p className="text-xs font-bold uppercase tracking-wide text-yellow-700 mb-1">{panels[0]?.label}</p>
+        <p className="text-xl font-extrabold text-gray-900 leading-tight">{panels[0]?.text}</p>
       </div>
-      <div className="p-4 flex items-center gap-3">
-        <span className="text-4xl">😮</span>
-        <div>
-          <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{panels[1]?.label}</p>
-          <p className="text-sm font-bold text-gray-900 leading-snug">{panels[1]?.text}</p>
+      <div className="p-6 flex items-center gap-5">
+        <span className="text-5xl leading-none shrink-0">😮</span>
+        <div className="flex-1 min-w-0">
+          <p className="text-xs font-bold uppercase tracking-wide text-gray-500 mb-1">{panels[1]?.label}</p>
+          <p className="text-xl font-extrabold text-gray-900 leading-tight">{panels[1]?.text}</p>
         </div>
       </div>
     </div>
@@ -136,15 +136,15 @@ function SurprisedLayout({ panels }: { panels: { label: string; text: string }[]
 
 function DistractedLayout({ panels }: { panels: { label: string; text: string }[] }) {
   return (
-    <div className="overflow-hidden rounded-xl border bg-white">
-      <div className="grid grid-cols-3 divide-x">
+    <div className="overflow-hidden rounded-2xl border-2 border-gray-900 bg-white shadow-xl max-w-lg mx-auto">
+      <div className="grid grid-cols-3 divide-x-2 divide-gray-900">
         {panels.slice(0, 3).map((p, i) => (
-          <div key={i} className={`p-3 text-center ${i === 1 ? "bg-red-50" : i === 2 ? "bg-green-50" : ""}`}>
-            <div className="text-2xl mb-1.5">
+          <div key={i} className={`p-5 text-center ${i === 1 ? "bg-red-50" : i === 2 ? "bg-green-50" : ""}`}>
+            <div className="text-4xl mb-2 leading-none">
               {i === 0 ? "👀" : i === 1 ? "🙄" : "😍"}
             </div>
-            <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-1">{p.label}</p>
-            <p className="text-xs font-bold text-gray-900 leading-snug">{p.text}</p>
+            <p className="text-[10px] font-bold uppercase tracking-wide text-gray-500 mb-1.5">{p.label}</p>
+            <p className="text-sm font-extrabold text-gray-900 leading-tight">{p.text}</p>
           </div>
         ))}
       </div>
@@ -154,15 +154,15 @@ function DistractedLayout({ panels }: { panels: { label: string; text: string }[
 
 function CustomLayout({ panels }: { panels: { label: string; text: string }[] }) {
   return (
-    <div className="overflow-hidden rounded-xl border bg-card">
+    <div className="overflow-hidden rounded-2xl border-2 border-violet-900 bg-card shadow-xl max-w-lg mx-auto">
       {panels.map((p, i) => (
-        <div key={i} className={`flex items-center gap-4 p-4 ${i < panels.length - 1 ? "border-b" : ""}`}>
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-violet-100 text-violet-700 font-bold text-sm">
+        <div key={i} className={`flex items-center gap-5 p-6 ${i < panels.length - 1 ? "border-b-2 border-violet-100" : ""}`}>
+          <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-violet-100 text-violet-700 font-black text-xl">
             {i + 1}
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{p.label}</p>
-            <p className="mt-0.5 text-sm font-bold text-gray-900 leading-snug">{p.text}</p>
+            <p className="text-xs font-bold uppercase tracking-wide text-gray-500 mb-1">{p.label}</p>
+            <p className="text-xl font-extrabold text-gray-900 leading-tight">{p.text}</p>
           </div>
         </div>
       ))}

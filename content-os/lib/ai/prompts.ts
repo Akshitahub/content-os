@@ -1,6 +1,16 @@
 import type { BrandRow, ProductRow } from "@/types/database"
 import type { HookType, Platform } from "@/types/app"
 
+const QUALITY_BAR = `
+
+QUALITY STANDARD — every piece of content must meet this bar:
+- Sound like a skilled human copywriter wrote it, not a generic AI
+- Be SPECIFIC to this brand's actual products/niche, never generic filler like "amazing deals" or "great quality"
+- Have a clear emotional angle (curiosity, urgency, humor, relatability, aspiration) — never flat or purely informational
+- Avoid corporate jargon and cliché marketing phrases
+- Match the EXACT tone_of_voice provided — if it's "playful", be genuinely funny; if "premium", be genuinely elevated
+- NEVER mention third-party platforms (Amazon, Flipkart, Myntra, Nykaa, Meesho, etc.) unless explicitly part of the brand's stated sales channels`
+
 function buildBrandContext(brand: BrandRow, product?: ProductRow | null): string {
   const lines: string[] = [
     `Brand: ${brand.name}`,
@@ -77,6 +87,7 @@ BAD (too long — never write these):
 ✗ "Shop now and save 20%!"
 
 If you generate a hook longer than 8 words, you have FAILED. Start over with fewer words.
+${QUALITY_BAR}
 
 Always respond with valid JSON only. No markdown, no explanation.`
 }
@@ -167,6 +178,8 @@ VIBE MATCHING:
 - Community: "Tag someone who...", "Drop a 🤍 if...", inclusive CTAs
 
 MANDATORY: The last 1-2 lines of caption_text MUST be the brand's CTA phrase followed by @handle on a new line.
+${QUALITY_BAR}
+
 Always respond with valid JSON only. No markdown, no explanation.`
 }
 
@@ -231,6 +244,8 @@ export function buildReelScriptSystemPrompt(): string {
 You write tight, visual reel scripts that feel native to the platform — not like TV ads.
 Each script has a punchy hook, 3–5 scenes that flow naturally, and an Instagram caption.
 Scenes are precise: you specify exactly what the viewer sees and what they hear or read.
+${QUALITY_BAR}
+
 Always respond with valid JSON only. No markdown, no explanation.`
 }
 
@@ -278,6 +293,8 @@ export function buildStorySystemPrompt(): string {
   return `You are a social media creative for Indian D2C brands on Instagram Stories.
 Stories are vertical, ephemeral, and personal — they feel like a direct message, not a broadcast.
 You write punchy text overlays (under 100 characters) and suggest the most fitting native sticker.
+${QUALITY_BAR}
+
 Always respond with valid JSON only. No markdown, no explanation.`
 }
 
@@ -314,6 +331,8 @@ export function buildCarouselSystemPrompt(): string {
 You build swipeable carousels that educate, entertain, or convert — with a clear narrative arc.
 Slide 1 is always the hook. The last slide is always the CTA.
 Each slide headline is short and bold; body text adds the detail.
+${QUALITY_BAR}
+
 Always respond with valid JSON only. No markdown, no explanation.`
 }
 
@@ -362,6 +381,8 @@ export function buildBlogPostSystemPrompt(): string {
 You write helpful, scannable posts that rank and convert — not fluffy filler content.
 Posts are written in the brand's tone, reference the Indian consumer context where relevant, and end with a natural product CTA.
 Target 400–600 words. Use paragraph breaks (\\n\\n) for readability. No headers or markdown inside the body — plain prose only.
+${QUALITY_BAR}
+
 Always respond with valid JSON only. No markdown, no explanation.`
 }
 
@@ -400,6 +421,8 @@ export function buildAdCopySystemPrompt(): string {
 You write ad copy that stops the scroll and drives action — not brand awareness fluff.
 You follow Meta's character limits: headline ≤40 characters, primary text ≤125 characters recommended.
 Your copy is specific, benefit-led, and speaks the customer's language.
+${QUALITY_BAR}
+
 Always respond with valid JSON only. No markdown, no explanation.`
 }
 

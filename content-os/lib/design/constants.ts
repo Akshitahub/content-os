@@ -31,4 +31,10 @@ export const TEMPLATE_NAMES: Record<number, string> = {
   4: "Minimal Light",
   5: "Cinematic Dark",
   6: "Neon Urban",
+  7: "Product Spotlight",
+  8: "Quote Card",
+  9: "Stat Callout",
+  10: "Before/After",
+  11: "Polaroid",
+  12: "Magazine",
 }

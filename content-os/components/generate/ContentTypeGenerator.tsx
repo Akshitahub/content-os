@@ -179,27 +179,58 @@ function ResultOutput({ result }: { result: ContentResult }) {
 
   if (result.format === "ad_copy") {
     const c = result.content
-    const fields: { label: string; value: string; limit?: number }[] = [
-      { label: "Headline",     value: c.headline,     limit: 40 },
-      { label: "Primary text", value: c.primary_text, limit: 125 },
-      { label: "Description",  value: c.description },
-      { label: "CTA button",   value: c.cta_button },
-    ]
+    const full = `Headline: ${c.headline}\n\n${c.primary_text}\n\n${c.description}\n\nCTA: ${c.cta_button}`
     return (
-      <div className="rounded-lg border bg-card p-4 space-y-4">
-        {fields.map(({ label, value, limit }) => (
-          <div key={label}>
-            <div className="flex items-center justify-between mb-0.5">
-              <SectionLabel>{label}</SectionLabel>
-              {limit && (
-                <span className={cn("text-xs", value.length > limit ? "text-destructive" : "text-muted-foreground")}>
-                  {value.length}/{limit}
-                </span>
-              )}
+      <div className="space-y-3">
+        {/* Facebook/Instagram-style ad mockup */}
+        <div className="mx-auto max-w-xs overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
+          <div className="flex items-center gap-2.5 border-b px-3 py-2.5">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-violet-500 to-indigo-600 text-[10px] font-bold text-white">AD</div>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-semibold text-gray-900">Your Brand</p>
+              <p className="text-[10px] text-gray-400">Sponsored · 🌐</p>
             </div>
-            <p className="text-sm">{value}</p>
+            <span className="text-base text-gray-300 leading-none">···</span>
           </div>
-        ))}
+          <div className="px-3 py-2">
+            <p className="line-clamp-3 text-xs text-gray-800">{c.primary_text}</p>
+          </div>
+          <div className="flex h-36 w-full items-center justify-center bg-gradient-to-br from-violet-50 to-indigo-50">
+            <p className="text-[10px] font-medium text-gray-400">Ad creative goes here</p>
+          </div>
+          <div className="flex items-center justify-between gap-2 border-t bg-gray-50 px-3 py-2.5">
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-[9px] uppercase tracking-wide text-gray-400">{c.description}</p>
+              <p className="truncate text-xs font-bold text-gray-900">{c.headline}</p>
+            </div>
+            <span className="shrink-0 rounded-md bg-blue-600 px-2.5 py-1 text-[10px] font-semibold text-white">{c.cta_button}</span>
+          </div>
+        </div>
+        {/* Raw fields */}
+        <div className="rounded-lg border bg-card p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <SectionLabel>Ad copy details</SectionLabel>
+            <CopyButton text={full} />
+          </div>
+          {([
+            { label: "Headline", value: c.headline, limit: 40 },
+            { label: "Primary text", value: c.primary_text, limit: 125 },
+            { label: "Description", value: c.description },
+            { label: "CTA button", value: c.cta_button },
+          ] as { label: string; value: string; limit?: number }[]).map(({ label, value, limit }) => (
+            <div key={label}>
+              <div className="flex items-center justify-between mb-0.5">
+                <SectionLabel>{label}</SectionLabel>
+                {limit && (
+                  <span className={cn("text-xs", value.length > limit ? "text-destructive" : "text-muted-foreground")}>
+                    {value.length}/{limit}
+                  </span>
+                )}
+              </div>
+              <p className="text-sm">{value}</p>
+            </div>
+          ))}
+        </div>
       </div>
     )
   }
