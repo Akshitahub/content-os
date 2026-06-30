@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useCallback } from "react"
+import { useState, useCallback, useEffect } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { useForm } from "react-hook-form"
@@ -196,52 +196,92 @@ function ProfileSection({ user }: { user: UserProps }) {
 // Section 2: Plan & usage
 // ---------------------------------------------------------------------------
 
+interface RazorpayResponse {
+  razorpay_order_id: string
+  razorpay_payment_id: string
+  razorpay_signature: string
+}
+
 function PlanSection({ user }: { user: UserProps }) {
   const limit = PLAN_LIMITS[user.plan]
   const count = user.generation_count
   const pct = Math.min(100, Math.round((count / limit) * 100))
 
   const [upgradeState, setUpgradeState] = useState<"idle" | "loading">("idle")
-  const [portalState, setPortalState] = useState<"idle" | "loading">("idle")
   const [billingError, setBillingError] = useState<string | null>(null)
+  const [paymentSuccess, setPaymentSuccess] = useState(false)
+
+  // Load the Razorpay checkout script once on mount
+  useEffect(() => {
+    const script = document.createElement("script")
+    script.src = "https://checkout.razorpay.com/v1/checkout.js"
+    script.async = true
+    document.body.appendChild(script)
+    return () => {
+      document.body.removeChild(script)
+    }
+  }, [])
 
   const handleUpgrade = useCallback(async (plan: "starter" | "pro") => {
     setUpgradeState("loading")
     setBillingError(null)
+    setPaymentSuccess(false)
     try {
       const res = await fetch("/api/v1/billing/create-checkout-session", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ plan }),
       })
-      const json = await res.json() as { data?: { url: string }; error?: { message: string } }
-      if (!res.ok || !json.data?.url) {
+      const json = await res.json() as {
+        data?: { orderId: string; amount: number; currency: string; keyId: string }
+        error?: { message: string }
+      }
+      if (!res.ok || !json.data) {
         setBillingError(json.error?.message ?? "Failed to start checkout.")
         setUpgradeState("idle")
         return
       }
-      window.location.href = json.data.url
+
+      const { orderId, amount, currency, keyId } = json.data
+      setUpgradeState("idle")
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const rzp = new (window as any).Razorpay({
+        key: keyId,
+        amount,
+        currency,
+        name: "ContentOS",
+        description: `${plan === "starter" ? "Starter" : "Pro"} Plan`,
+        order_id: orderId,
+        handler: async function (response: RazorpayResponse) {
+          try {
+            const verifyRes = await fetch("/api/v1/billing/verify-payment", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                razorpay_order_id: response.razorpay_order_id,
+                razorpay_payment_id: response.razorpay_payment_id,
+                razorpay_signature: response.razorpay_signature,
+                plan,
+              }),
+            })
+            if (verifyRes.ok) {
+              setPaymentSuccess(true)
+              setTimeout(() => window.location.reload(), 2000)
+            } else {
+              const errJson = await verifyRes.json() as { error?: { message: string } }
+              setBillingError(errJson.error?.message ?? "Payment verification failed. Please contact support.")
+            }
+          } catch {
+            setBillingError("Could not verify payment. Please contact support.")
+          }
+        },
+        theme: { color: "#7c3aed" },
+      })
+      rzp.open()
     } catch {
       setBillingError("Network error. Please try again.")
       setUpgradeState("idle")
-    }
-  }, [])
-
-  const handleManageBilling = useCallback(async () => {
-    setPortalState("loading")
-    setBillingError(null)
-    try {
-      const res = await fetch("/api/v1/billing/create-portal-session", { method: "POST" })
-      const json = await res.json() as { data?: { url: string }; error?: { message: string } }
-      if (!res.ok || !json.data?.url) {
-        setBillingError(json.error?.message ?? "Failed to open billing portal.")
-        setPortalState("idle")
-        return
-      }
-      window.location.href = json.data.url
-    } catch {
-      setBillingError("Network error. Please try again.")
-      setPortalState("idle")
     }
   }, [])
 
@@ -292,7 +332,16 @@ function PlanSection({ user }: { user: UserProps }) {
           </ul>
         </div>
 
-        {/* Billing actions */}
+        {/* Payment success banner */}
+        {paymentSuccess && (
+          <div className="rounded-lg border border-green-200 bg-green-50 px-4 py-3">
+            <p className="text-sm font-medium text-green-700">
+              ✓ Payment successful! Your plan has been upgraded. Refreshing…
+            </p>
+          </div>
+        )}
+
+        {/* Upgrade buttons */}
         {user.plan === "free" && (
           <div className="flex flex-wrap gap-3">
             <Button
@@ -300,7 +349,7 @@ function PlanSection({ user }: { user: UserProps }) {
               disabled={upgradeState === "loading"}
               className="bg-violet-600 hover:bg-violet-700 text-white"
             >
-              {upgradeState === "loading" ? "Redirecting…" : "Upgrade to Starter — ₹999/mo"}
+              {upgradeState === "loading" ? "Loading…" : "Upgrade to Starter — ₹999/mo"}
             </Button>
             <Button
               variant="outline"
@@ -319,26 +368,9 @@ function PlanSection({ user }: { user: UserProps }) {
               disabled={upgradeState === "loading"}
               className="bg-violet-600 hover:bg-violet-700 text-white"
             >
-              {upgradeState === "loading" ? "Redirecting…" : "Upgrade to Pro — ₹2,999/mo"}
-            </Button>
-            <Button
-              variant="outline"
-              onClick={handleManageBilling}
-              disabled={portalState === "loading"}
-            >
-              {portalState === "loading" ? "Opening…" : "Manage subscription"}
+              {upgradeState === "loading" ? "Loading…" : "Upgrade to Pro — ₹2,999/mo"}
             </Button>
           </div>
-        )}
-
-        {(user.plan === "pro" || user.plan === "agency") && (
-          <Button
-            variant="outline"
-            onClick={handleManageBilling}
-            disabled={portalState === "loading"}
-          >
-            {portalState === "loading" ? "Opening…" : "Manage subscription"}
-          </Button>
         )}
 
         {billingError && (
