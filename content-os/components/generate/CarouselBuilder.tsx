@@ -1,7 +1,7 @@
 "use client"
 
-import { useState, useCallback, useEffect } from "react"
-import { ChevronLeft, ChevronRight, Copy, Check, Loader2, RefreshCw, Download, AlertCircle, Image, Sparkles } from "lucide-react"
+import { useState, useCallback, useEffect, useRef } from "react"
+import { ChevronLeft, ChevronRight, Copy, Check, Loader2, RefreshCw, Download, AlertCircle, Image, Sparkles, Upload, X } from "lucide-react"
 import { VibePicker, type Vibe } from "@/components/shared/VibePicker"
 import { useBrand } from "@/hooks/useBrand"
 import { downloadElementAsImage, downloadMultipleAsImages } from "@/lib/utils/download-as-image"
@@ -55,6 +55,7 @@ function SlidePreview({
   size = "full",
   isLastSlide,
   elementId,
+  productImage,
 }: {
   slide: CarouselSlideRich
   ctaSlide?: CtaSlide
@@ -62,6 +63,7 @@ function SlidePreview({
   size?: "full" | "thumb"
   isLastSlide?: boolean
   elementId?: string
+  productImage?: string
 }) {
   const s = BG_STYLES[slide.background_style] ?? BG_STYLES.gradient_dark
   const isThumb = size === "thumb"
@@ -79,15 +81,48 @@ function SlidePreview({
         {String(slide.slide_number).padStart(2, "0")}
       </span>
 
+      {/* Product image — cover: right side; content: top-right badge; cta: centered top */}
+      {productImage && !isThumb && (
+        <>
+          {slide.type === "cover" && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={productImage}
+              alt=""
+              className="absolute right-4 bottom-10 object-contain drop-shadow-2xl"
+              style={{ width: "42%", maxHeight: "58%" }}
+            />
+          )}
+          {slide.type === "content" && !isCta && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={productImage}
+              alt=""
+              className="absolute top-3 right-3 object-contain rounded-lg"
+              style={{ width: "22%", maxHeight: "22%", background: "rgba(255,255,255,0.12)", padding: 4 }}
+            />
+          )}
+          {isCta && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={productImage}
+              alt=""
+              className="absolute top-6 left-1/2 -translate-x-1/2 object-contain drop-shadow-xl"
+              style={{ width: "36%", maxHeight: "36%" }}
+            />
+          )}
+        </>
+      )}
+
       {/* Content */}
       <div className={`flex h-full flex-col justify-center ${isThumb ? "p-1.5" : "p-8"}`}>
         {slide.type === "cover" && (
           <>
-            <h2 className={`font-extrabold leading-tight ${s.text} ${isThumb ? "text-[8px] line-clamp-2" : "text-3xl"}`}>
+            <h2 className={`font-extrabold leading-tight ${s.text} ${isThumb ? "text-[8px] line-clamp-2" : "text-3xl"} ${productImage && !isThumb ? "max-w-[55%]" : ""}`}>
               {slide.headline}
             </h2>
             {!isThumb && slide.subtext && (
-              <p className={`mt-3 text-base font-medium ${s.subtext}`}>{slide.subtext}</p>
+              <p className={`mt-3 text-base font-medium ${s.subtext} ${productImage ? "max-w-[55%]" : ""}`}>{slide.subtext}</p>
             )}
           </>
         )}
@@ -108,7 +143,7 @@ function SlidePreview({
 
         {isCta && (
           <>
-            <h2 className={`font-extrabold leading-tight ${s.text} ${isThumb ? "text-[8px] line-clamp-2" : "text-2xl mb-3"}`}>
+            <h2 className={`font-extrabold leading-tight ${s.text} ${isThumb ? "text-[8px] line-clamp-2" : "text-2xl mb-3"} ${productImage && !isThumb ? "mt-[40%]" : ""}`}>
               {ctaSlide.headline}
             </h2>
             {!isThumb && (
@@ -201,12 +236,14 @@ function SlideEditor({
 export function CarouselBuilder({ brandId }: { brandId: string }) {
   const { data: brand } = useBrand(brandId)
   const STORAGE_KEY = `carousel_${brandId}`
+  const productImageRef = useRef<HTMLInputElement>(null)
 
   // Settings
   const [topic, setTopic] = useState("")
   const [slideCount, setSlideCount] = useState(7)
   const [platform, setPlatform] = useState<"instagram" | "linkedin">("instagram")
   const [vibe, setVibe] = useState<Vibe | undefined>()
+  const [productImage, setProductImage] = useState<string | null>(null)
 
   // Generation state
   const [loading, setLoading] = useState(false)
@@ -294,6 +331,15 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
     setTimeout(() => setCopied(false), 1800)
   }
 
+  function handleProductImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = (ev) => setProductImage(ev.target?.result as string)
+    reader.readAsDataURL(file)
+    e.target.value = ""
+  }
+
   function downloadAllText() {
     if (!carousel) return
     const lines: string[] = [`${carousel.title}\n${"─".repeat(40)}\n`]
@@ -369,6 +415,29 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
               <VibePicker selected={vibe} onSelect={setVibe} compact />
             </div>
 
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium">Product photo (optional)</label>
+              {productImage ? (
+                <div className="flex items-center gap-3 rounded-lg border bg-muted/40 p-2">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={productImage} alt="" className="h-12 w-12 shrink-0 rounded-md border object-contain bg-white" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs text-muted-foreground">Appears on each slide</p>
+                    <button onClick={() => setProductImage(null)} className="mt-0.5 flex items-center gap-1 text-xs text-destructive hover:underline">
+                      <X className="h-3 w-3" /> Remove
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button type="button" onClick={() => productImageRef.current?.click()}
+                  className="flex w-full items-center gap-2 rounded-lg border-2 border-dashed border-muted-foreground/20 px-3 py-2.5 text-xs text-muted-foreground hover:border-violet-400 hover:text-violet-600 transition-colors">
+                  <Upload className="h-3.5 w-3.5 shrink-0" />
+                  Upload product photo
+                </button>
+              )}
+              <input ref={productImageRef} type="file" accept="image/*" className="hidden" onChange={handleProductImageUpload} />
+            </div>
+
             <GenerationWarning isPending={loading} />
             <button
               onClick={generate}
@@ -429,6 +498,7 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
                     brandName={brand?.name ?? ""}
                     isLastSlide={i === allSlides.length - 1}
                     elementId={`carousel-slide-${i}`}
+                    productImage={productImage ?? undefined}
                   />
                 ) : null
               ))}
@@ -472,6 +542,7 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
                   brandName={brand?.name ?? ""}
                   isLastSlide={isLastSlide}
                   elementId={`carousel-slide-${activeSlide}`}
+                  productImage={productImage ?? undefined}
                 />
               </div>
 
