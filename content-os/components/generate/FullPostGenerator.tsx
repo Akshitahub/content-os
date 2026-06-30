@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef, useMemo } from "react"
 import { Sparkles, RefreshCw, Copy, Check, Download, ExternalLink, Archive, Loader2, AlertCircle } from "lucide-react"
+import { ProductPicker, type PickedProduct } from "@/components/shared/ProductPicker"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import Link from "next/link"
@@ -15,6 +16,87 @@ import { useBrand } from "@/hooks/useBrand"
 import type { FullPostResult, ContentResult } from "@/hooks/useGeneration"
 import type { ProductRow } from "@/types/database"
 import type { ContentFormat, Platform, GeneratedHook, GeneratedCaption, ReelScript, CarouselContent, BlogPost, AdCopy, ImageStyle, AspectRatio } from "@/types/app"
+
+// ─── Canvas compositing helpers ──────────────────────────────────────────────
+
+function loadImage(src: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image()
+    img.crossOrigin = "anonymous"
+    img.onload = () => resolve(img)
+    img.onerror = reject
+    img.src = src
+  })
+}
+
+async function compositeProductCard(
+  productImageUrl: string,
+  hookText: string,
+  primaryColor: string,
+  secondaryColor: string,
+  brandName: string,
+): Promise<string> {
+  const size = 1080
+  const canvas = document.createElement("canvas")
+  canvas.width = size
+  canvas.height = size
+  const ctx = canvas.getContext("2d")!
+
+  // Gradient background
+  const grad = ctx.createLinearGradient(0, 0, size, size)
+  grad.addColorStop(0, primaryColor)
+  grad.addColorStop(1, secondaryColor)
+  ctx.fillStyle = grad
+  ctx.fillRect(0, 0, size, size)
+
+  // Dark overlay for text legibility
+  ctx.fillStyle = "rgba(0,0,0,0.28)"
+  ctx.fillRect(0, 0, size, size)
+
+  // Product image — upper 62% of the card
+  try {
+    const img = await loadImage(productImageUrl)
+    const pad = 100
+    const maxW = size - pad * 2
+    const maxH = size * 0.58
+    const ratio = Math.min(maxW / img.naturalWidth, maxH / img.naturalHeight)
+    const w = img.naturalWidth * ratio
+    const h = img.naturalHeight * ratio
+    ctx.drawImage(img, (size - w) / 2, size * 0.06, w, h)
+  } catch {
+    // skip — CORS or load failure; still render the branded text card
+  }
+
+  // Hook text — bottom third, word-wrapped to 2 lines
+  ctx.fillStyle = "#ffffff"
+  ctx.textAlign = "center"
+  ctx.textBaseline = "top"
+  ctx.font = `bold 68px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`
+  const words = hookText.split(" ")
+  const lines: string[] = []
+  let cur = ""
+  for (const word of words) {
+    const test = cur ? `${cur} ${word}` : word
+    if (ctx.measureText(test).width > size - 140) {
+      if (cur) lines.push(cur)
+      cur = word
+      if (lines.length >= 1) break
+    } else {
+      cur = test
+    }
+  }
+  if (cur && lines.length < 2) lines.push(cur)
+  const lineH = 82
+  const textY = size * 0.70
+  lines.forEach((line, i) => ctx.fillText(line, size / 2, textY + i * lineH))
+
+  // Brand name — bottom
+  ctx.font = `34px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`
+  ctx.fillStyle = "rgba(255,255,255,0.60)"
+  ctx.fillText(brandName, size / 2, size * 0.93)
+
+  return canvas.toDataURL("image/jpeg", 0.90)
+}
 
 const FORMATS: { value: ContentFormat; label: string }[] = [
   { value: "social_post", label: "Instagram Post" },
@@ -64,6 +146,7 @@ export function FullPostGenerator({ brandId, products }: Props) {
   const [justSaved, setJustSaved] = useState(false)
   const [selectedTemplate, setSelectedTemplate] = useState<PreviewTemplate>(1)
   const [postImageUrl, setPostImageUrl] = useState<string | null>(null)
+  const [selectedProduct, setSelectedProduct] = useState<PickedProduct | null>(null)
   const abortControllerRef = useRef<AbortController | null>(null)
 
   const previewHtml = useMemo(() => {
@@ -139,16 +222,29 @@ export function FullPostGenerator({ brandId, products }: Props) {
           setFullPostResult(data)
           setJustSaved(true)
           setTimeout(() => setJustSaved(false), 5000)
-          // Auto-generate a post image using the hook text
-          generateImage(
-            {
-              brandId,
-              prompt: data.hook.hook_text,
-              style: "product_photography" as ImageStyle,
-              aspectRatio: "1:1" as AspectRatio,
-            },
-            { onSuccess: (imgData) => setPostImageUrl(imgData.public_url) }
-          )
+          if (selectedProduct?.imageUrl) {
+            compositeProductCard(
+              selectedProduct.imageUrl,
+              data.hook.hook_text,
+              primaryColor,
+              secondaryColor,
+              brandName,
+            )
+              .then((dataUrl) => setPostImageUrl(dataUrl))
+              .catch(() => {
+                if (selectedProduct.imageUrl) setPostImageUrl(selectedProduct.imageUrl)
+              })
+          } else {
+            generateImage(
+              {
+                brandId,
+                prompt: data.hook.hook_text,
+                style: "product_photography" as ImageStyle,
+                aspectRatio: "1:1" as AspectRatio,
+              },
+              { onSuccess: (imgData) => setPostImageUrl(imgData.public_url) }
+            )
+          }
         },
       }
     )
@@ -218,6 +314,17 @@ export function FullPostGenerator({ brandId, products }: Props) {
             </select>
           </div>
         )}
+
+        {/* Product image for post graphic */}
+        <div className="space-y-1.5">
+          <Label className="text-xs">Product image for post graphic (optional)</Label>
+          <ProductPicker
+            brandId={brandId}
+            selected={selectedProduct}
+            onSelect={setSelectedProduct}
+            label="Add product photo — composites on your post graphic"
+          />
+        </div>
 
         {/* Template selector */}
         <div className="space-y-1.5">

@@ -1,7 +1,8 @@
 "use client"
 
-import { useState, useCallback, useEffect, useRef } from "react"
-import { ChevronLeft, ChevronRight, Copy, Check, Loader2, RefreshCw, Download, AlertCircle, Image, Sparkles, Upload, X } from "lucide-react"
+import { useState, useCallback, useEffect } from "react"
+import { ChevronLeft, ChevronRight, Copy, Check, Loader2, RefreshCw, Download, AlertCircle, Image, Sparkles } from "lucide-react"
+import { ProductPicker, type PickedProduct } from "@/components/shared/ProductPicker"
 import { VibePicker, type Vibe } from "@/components/shared/VibePicker"
 import { useBrand } from "@/hooks/useBrand"
 import { downloadElementAsImage, downloadMultipleAsImages } from "@/lib/utils/download-as-image"
@@ -236,14 +237,14 @@ function SlideEditor({
 export function CarouselBuilder({ brandId }: { brandId: string }) {
   const { data: brand } = useBrand(brandId)
   const STORAGE_KEY = `carousel_${brandId}`
-  const productImageRef = useRef<HTMLInputElement>(null)
 
   // Settings
   const [topic, setTopic] = useState("")
   const [slideCount, setSlideCount] = useState(7)
   const [platform, setPlatform] = useState<"instagram" | "linkedin">("instagram")
   const [vibe, setVibe] = useState<Vibe | undefined>()
-  const [productImage, setProductImage] = useState<string | null>(null)
+  const [selectedProduct, setSelectedProduct] = useState<PickedProduct | null>(null)
+  const productImage = selectedProduct?.imageUrl ?? null
 
   // Generation state
   const [loading, setLoading] = useState(false)
@@ -331,15 +332,6 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
     setTimeout(() => setCopied(false), 1800)
   }
 
-  function handleProductImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    if (!file) return
-    const reader = new FileReader()
-    reader.onload = (ev) => setProductImage(ev.target?.result as string)
-    reader.readAsDataURL(file)
-    e.target.value = ""
-  }
-
   function downloadAllText() {
     if (!carousel) return
     const lines: string[] = [`${carousel.title}\n${"─".repeat(40)}\n`]
@@ -417,25 +409,12 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
 
             <div className="space-y-1.5">
               <label className="text-xs font-medium">Product photo (optional)</label>
-              {productImage ? (
-                <div className="flex items-center gap-3 rounded-lg border bg-muted/40 p-2">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={productImage} alt="" className="h-12 w-12 shrink-0 rounded-md border object-contain bg-white" />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs text-muted-foreground">Appears on each slide</p>
-                    <button onClick={() => setProductImage(null)} className="mt-0.5 flex items-center gap-1 text-xs text-destructive hover:underline">
-                      <X className="h-3 w-3" /> Remove
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <button type="button" onClick={() => productImageRef.current?.click()}
-                  className="flex w-full items-center gap-2 rounded-lg border-2 border-dashed border-muted-foreground/20 px-3 py-2.5 text-xs text-muted-foreground hover:border-violet-400 hover:text-violet-600 transition-colors">
-                  <Upload className="h-3.5 w-3.5 shrink-0" />
-                  Upload product photo
-                </button>
-              )}
-              <input ref={productImageRef} type="file" accept="image/*" className="hidden" onChange={handleProductImageUpload} />
+              <ProductPicker
+                brandId={brandId}
+                selected={selectedProduct}
+                onSelect={setSelectedProduct}
+                label="Select product photo (appears on each slide)"
+              />
             </div>
 
             <GenerationWarning isPending={loading} />

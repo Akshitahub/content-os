@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from "react"
 import { Loader2, Download, Copy, Check, RefreshCw, AlertCircle, Image, Upload, X } from "lucide-react"
+import { ProductPicker, type PickedProduct } from "@/components/shared/ProductPicker"
 import { useBrand } from "@/hooks/useBrand"
 import type { StorySlide } from "@/app/api/v1/ai/stories/generate/route"
 import { downloadElementAsImage, downloadMultipleAsImages } from "@/lib/utils/download-as-image"
@@ -159,6 +160,7 @@ export function StorySequence({ brandId }: { brandId: string }) {
   const [allCopied, setAllCopied] = useState(false)
   const [savedToContent, setSavedToContent] = useState(false)
   const [showSuccess, setShowSuccess] = useState(false)
+  const [selectedProduct, setSelectedProduct] = useState<PickedProduct | null>(null)
   const [uploadedImages, setUploadedImages] = useState<{ preview: string; base64: string }[]>([])
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -301,6 +303,17 @@ export function StorySequence({ brandId }: { brandId: string }) {
           )}
         </div>
 
+        {/* Product image for reveal slides */}
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium">Product image for reveal slides (optional)</label>
+          <ProductPicker
+            brandId={brandId}
+            selected={selectedProduct}
+            onSelect={setSelectedProduct}
+            label="Select product image (shown on reveal slides)"
+          />
+        </div>
+
         {/* Image upload zone */}
         <div className="space-y-1.5">
           <label className="text-xs font-medium">Add your photos (optional, max 3)</label>
@@ -429,7 +442,7 @@ export function StorySequence({ brandId }: { brandId: string }) {
                 index={i}
                 total={stories.length}
                 brandHandle={handle}
-                uploadedImage={uploadedImages[i]?.preview}
+                uploadedImage={selectedProduct?.imageUrl ?? uploadedImages[i]?.preview}
               />
             ))}
           </div>
