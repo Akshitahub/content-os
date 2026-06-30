@@ -232,7 +232,7 @@ export function ProductTour({ brandId }: ProductTourProps) {
         brandId={brandId}
         onRunAutopilot={() => {
           setFinished(false)
-          if (brandId) router.push(`/brands/${brandId}/autopilot`)
+          if (brandId) router.push(`/brands/${brandId}/fastlane`)
           else router.push("/dashboard")
         }}
       />

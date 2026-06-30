@@ -1,4 +1,4 @@
-import html2canvas from "html2canvas"
+import { toPng } from "html-to-image"
 
 export async function downloadElementAsImage(
   elementId: string,
@@ -11,14 +11,10 @@ export async function downloadElementAsImage(
     return
   }
   try {
-    const canvas = await html2canvas(element, {
-      scale,
-      useCORS: true,
-      allowTaint: true,
-      backgroundColor: null,
-      logging: false,
+    const dataUrl = await toPng(element, {
+      pixelRatio: scale,
+      cacheBust: true,
     })
-    const dataUrl = canvas.toDataURL("image/png", 1.0)
     const link = document.createElement("a")
     link.download = `${filename}.png`
     link.href = dataUrl
@@ -27,6 +23,7 @@ export async function downloadElementAsImage(
     document.body.removeChild(link)
   } catch (err) {
     console.error("Download failed:", err)
+    throw err
   }
 }
 

@@ -1,9 +1,8 @@
 import { notFound } from "next/navigation"
 import Link from "next/link"
-import { Package, Sparkles, Calendar, ArrowRight, Globe, AtSign, Edit, Zap } from "lucide-react"
+import { Package, Sparkles, Calendar, ArrowRight, Globe, AtSign, Zap } from "lucide-react"
 import { createClient } from "@/lib/supabase/server"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
 import type { Metadata } from "next"
 import type { BrandRow } from "@/types/database"
 
@@ -76,12 +75,6 @@ export default async function BrandDetailPage({ params }: PageProps) {
             </div>
           </div>
         </div>
-        <Button variant="outline" size="sm" asChild>
-          <Link href={`/brands/${brandId}/edit`}>
-            <Edit className="h-4 w-4" />
-            Edit brand
-          </Link>
-        </Button>
       </div>
 
       {/* Quick actions */}

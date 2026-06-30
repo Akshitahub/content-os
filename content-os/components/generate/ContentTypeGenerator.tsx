@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect } from "react"
 import {
   FileText, Film, LayoutGrid, Zap, BookOpen, Megaphone,
-  RefreshCw, Copy, Check,
+  RefreshCw, Copy, Check, AlertCircle,
 } from "lucide-react"
 import Link from "next/link"
 import { cn } from "@/lib/utils"
@@ -405,7 +405,15 @@ export function ContentTypeGenerator({ brandId, products }: ContentTypeGenerator
               <p className="text-xs text-amber-700">Upgrade your plan to keep creating.</p>
             </div>
           ) : (
-            <p className="text-xs text-destructive">{error.message}</p>
+            <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 flex items-start gap-3">
+              <AlertCircle className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <p className="text-sm text-amber-900 font-medium">{error.message}</p>
+                <button onClick={handleGenerate} className="mt-2 flex items-center gap-1.5 text-xs font-semibold text-amber-700 hover:text-amber-900">
+                  🔄 Try again
+                </button>
+              </div>
+            </div>
           )
         )}
       </div>

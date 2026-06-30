@@ -211,6 +211,7 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
   // Generation state
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
+  const [apiError, setApiError] = useState("")
   const [carousel, setCarousel] = useState<GeneratedCarousel | null>(null)
 
   // Navigation
@@ -252,6 +253,7 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
     if (!topic.trim()) { setError("Please enter a topic for your carousel."); return }
     setLoading(true)
     setError("")
+    setApiError("")
     setCarousel(null)
     setActiveSlide(0)
     try {
@@ -267,7 +269,7 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
       setShowSuccess(true)
       setTimeout(() => setShowSuccess(false), 4000)
     } catch (e) {
-      setError(getFriendlyError(e))
+      setApiError(getFriendlyError(e))
     } finally {
       setLoading(false)
     }
@@ -375,6 +377,18 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
             >
               {loading ? <><Loader2 className="h-4 w-4 animate-spin" /> Generating…</> : "✨ Generate carousel"}
             </button>
+
+            {apiError && (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 flex items-start gap-3">
+                <AlertCircle className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
+                <div className="flex-1">
+                  <p className="text-sm text-amber-900 font-medium">{apiError}</p>
+                  <button onClick={generate} className="mt-2 flex items-center gap-1.5 text-xs font-semibold text-amber-700 hover:text-amber-900">
+                    🔄 Try again
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
 

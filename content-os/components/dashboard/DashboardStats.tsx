@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { useCallback, useState, useEffect } from "react"
-import { Zap, Bookmark, Calendar, Layers, Copy, Check, Sparkles, Users, CheckCircle2, Circle } from "lucide-react"
+import { Zap, Bookmark, Calendar, Layers, Copy, Check, Sparkles, Users } from "lucide-react"
 import type { CalendarEntryRow, HookRow } from "@/types/database"
 
 const ONBOARDING_KEY = "contentos_onboarding"
@@ -168,16 +168,15 @@ export function DashboardStats({
               { label: "Build a content calendar", done: checks.calendarBuilt, href: firstBrandId ? `/brands/${firstBrandId}/fastlane` : undefined },
             ].map(({ label, done, href }) => (
               <li key={label} className="flex items-center gap-2.5">
-                {done
-                  ? <CheckCircle2 className="h-4 w-4 text-green-500 shrink-0" />
-                  : <Circle className="h-4 w-4 text-muted-foreground/40 shrink-0" />
-                }
+                <div className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 ${done ? "border-green-500 bg-green-500" : "border-muted-foreground/30"}`}>
+                  {done && <Check className="h-3 w-3 text-white" />}
+                </div>
                 {href && !done ? (
-                  <Link href={href} className={`text-sm ${done ? "line-through text-muted-foreground" : "text-foreground hover:text-primary transition-colors"}`}>
+                  <Link href={href} className="text-sm font-medium text-foreground hover:text-primary transition-colors">
                     {label}
                   </Link>
                 ) : (
-                  <span className={`text-sm ${done ? "line-through text-muted-foreground" : "text-foreground"}`}>{label}</span>
+                  <span className={`text-sm ${done ? "line-through text-muted-foreground" : "font-medium text-foreground"}`}>{label}</span>
                 )}
               </li>
             ))}

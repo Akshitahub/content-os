@@ -14,6 +14,16 @@ const schema = z.object({
   vibe: z.string().optional(),
 })
 
+function extractJSON(raw: string): string {
+  let cleaned = raw.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim()
+  const firstBrace = cleaned.indexOf("{")
+  const lastBrace = cleaned.lastIndexOf("}")
+  if (firstBrace !== -1 && lastBrace !== -1) {
+    cleaned = cleaned.slice(firstBrace, lastBrace + 1)
+  }
+  return cleaned
+}
+
 function buildCarouselPrompt(brand: BrandRow, topic: string, slideCount: number, platform: string, vibe?: string): string {
   const brandCtx = [
     `Brand: ${brand.name}`,
@@ -31,6 +41,12 @@ PLATFORM: ${platform}
 TOTAL SLIDES: ${slideCount}
 
 Create a high-performing ${platform} carousel on this topic for this brand.
+
+CRITICAL RULES:
+- NEVER use square-bracket placeholders like [Age], [Name], [Number], [Year], [Date] etc.
+- If you don't know a specific number (founding year, age, stats), write content that doesn't need it
+- Write only actual, complete text — no template variables, no placeholders
+- RESPOND WITH ONLY VALID JSON — no markdown fences, no explanation text, no trailing commas
 
 SLIDE STRUCTURE:
 - Slide 1: Cover slide (type: "cover") — bold hook headline + teaser subtext
@@ -74,6 +90,37 @@ Respond with ONLY this JSON (no markdown, no explanation):
 Make every slide punchy, valuable, and shareable. The cover must stop the scroll immediately.`
 }
 
+async function generateCarouselWithRetry(
+  groq: ReturnType<typeof getGroqClient>,
+  prompt: string,
+  slideCount: number
+): Promise<unknown> {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const response = await groq.chat.completions.create({
+      model: MODELS.generation,
+      temperature: 0.85,
+      max_tokens: Math.max(3000, slideCount * 400),
+      messages: [
+        {
+          role: "system",
+          content: "You are an expert carousel content creator for Indian D2C brands on Instagram and LinkedIn. CRITICAL: Respond with ONLY valid JSON. No markdown code fences, no explanation text before or after, no trailing commas. The response must be parseable by JSON.parse() directly.",
+        },
+        { role: "user", content: prompt },
+      ],
+    })
+
+    const raw = response.choices[0]?.message?.content ?? "{}"
+    const cleaned = extractJSON(raw)
+
+    try {
+      return JSON.parse(cleaned)
+    } catch {
+      if (attempt === 1) throw new Error("AI returned invalid JSON after retry")
+    }
+  }
+  throw new Error("AI generation failed")
+}
+
 export async function POST(request: Request) {
   const supabase = await createClient()
   const { data: { user }, error: authError } = await supabase.auth.getUser()
@@ -106,28 +153,7 @@ export async function POST(request: Request) {
   const prompt = buildCarouselPrompt(brand, topic, slideCount, platform, vibe)
 
   try {
-    const response = await groq.chat.completions.create({
-      model: MODELS.generation,
-      temperature: 0.85,
-      max_tokens: 2000,
-      messages: [
-        {
-          role: "system",
-          content: "You are an expert carousel content creator for Indian D2C brands on Instagram and LinkedIn. Always return valid JSON only — no markdown, no explanation.",
-        },
-        { role: "user", content: prompt },
-      ],
-    })
-
-    const raw = response.choices[0]?.message?.content ?? "{}"
-    const cleaned = raw.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim()
-
-    let data: unknown
-    try {
-      data = JSON.parse(cleaned)
-    } catch {
-      return NextResponse.json(buildError(ErrorCodes.AI_GENERATION_FAILED, "AI returned invalid JSON. Please try again."), { status: 500 })
-    }
+    const data = await generateCarouselWithRetry(groq, prompt, slideCount)
 
     const d = data as Record<string, unknown>
     if (!Array.isArray(d.slides) || d.slides.length === 0) {

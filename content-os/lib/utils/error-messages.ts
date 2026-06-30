@@ -21,5 +21,8 @@ export function getFriendlyError(error: unknown): string {
   if (msg.includes("timeout")) {
     return "This took too long. Please try again."
   }
+  if (msg.includes("AI_GENERATION_FAILED") || msg.includes("invalid JSON") || msg.includes("Invalid JSON")) {
+    return "Our AI had a hiccup generating this. Just hit try again — it usually works on the second attempt."
+  }
   return "Something went wrong. Please try again in a moment."
 }

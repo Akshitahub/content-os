@@ -18,6 +18,16 @@ export interface RepurposedContent {
   linkedin: string
 }
 
+function extractJSON(raw: string): string {
+  let cleaned = raw.replace(/```json\n?/g, "").replace(/```\n?/g, "").replace(/[\x00-\x1F\x7F]/g, " ").trim()
+  const firstBrace = cleaned.indexOf("{")
+  const lastBrace = cleaned.lastIndexOf("}")
+  if (firstBrace !== -1 && lastBrace !== -1) {
+    cleaned = cleaned.slice(firstBrace, lastBrace + 1)
+  }
+  return cleaned
+}
+
 function buildRepurposePrompt(content: string, brand: BrandRow): string {
   const brandCtx = [
     `Brand: ${brand.name}`,
@@ -112,14 +122,32 @@ export async function POST(request: Request) {
       ],
     })
 
-    const raw = response.choices[0]?.message?.content ?? "{}"
-    const cleaned = raw.replace(/```json\n?/g, "").replace(/```\n?/g, "").replace(/[\x00-\x1F\x7F]/g, " ").trim()
-
-    let result: RepurposedContent
-    try {
-      result = JSON.parse(cleaned) as RepurposedContent
-    } catch {
-      console.error("[ai/repurpose] JSON parse failed. Raw:", raw.slice(0, 500))
+    let result: RepurposedContent | null = null
+    let lastRaw = ""
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const resp = attempt === 0 ? response : await groq.chat.completions.create({
+        model: MODELS.generation,
+        temperature: 0.85,
+        max_tokens: 2000,
+        messages: [
+          { role: "system", content: "You are an expert content repurposer for Indian D2C brands. CRITICAL: Respond with ONLY valid JSON. No markdown code fences, no explanation text before or after. The response must be parseable by JSON.parse() directly." },
+          { role: "user", content: buildRepurposePrompt(content, brand) },
+        ],
+      })
+      const raw = resp.choices[0]?.message?.content ?? "{}"
+      lastRaw = raw
+      const cleaned = extractJSON(raw)
+      try {
+        result = JSON.parse(cleaned) as RepurposedContent
+        break
+      } catch {
+        if (attempt === 1) {
+          console.error("[ai/repurpose] JSON parse failed after retry. Raw:", lastRaw.slice(0, 500))
+          return NextResponse.json(buildError(ErrorCodes.AI_GENERATION_FAILED, "AI returned invalid JSON. Please try again."), { status: 500 })
+        }
+      }
+    }
+    if (!result) {
       return NextResponse.json(buildError(ErrorCodes.AI_GENERATION_FAILED, "AI returned invalid JSON. Please try again."), { status: 500 })
     }
 

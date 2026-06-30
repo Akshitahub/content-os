@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from "react"
 import Link from "next/link"
-import { Sparkles, RefreshCw, Check, ChevronLeft, ChevronRight, Copy, RotateCcw } from "lucide-react"
+import { Sparkles, RefreshCw, Check, ChevronLeft, ChevronRight, Copy, RotateCcw, AlertCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { GeneratingState } from "@/components/shared/GeneratingState"
@@ -250,7 +250,15 @@ export function HookGenerator({ brandId, products }: HookGeneratorProps) {
               <p className="text-xs text-amber-700">Upgrade your plan to keep creating.</p>
             </div>
           ) : (
-            <p className="text-xs text-destructive">{error.message}</p>
+            <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 flex items-start gap-3">
+              <AlertCircle className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <p className="text-sm text-amber-900 font-medium">{error.message}</p>
+                <button onClick={handleGenerate} className="mt-2 flex items-center gap-1.5 text-xs font-semibold text-amber-700 hover:text-amber-900">
+                  🔄 Try again
+                </button>
+              </div>
+            </div>
           )
         )}
       </div>

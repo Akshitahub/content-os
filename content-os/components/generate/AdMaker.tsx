@@ -301,10 +301,14 @@ export function AdMaker({ brandId }: AdMakerProps) {
       setTimeout(() => setStep(2), 600)
     } catch (err) {
       setBgError(err instanceof Error ? err.message : "Something went wrong")
+      if (originalPreview) {
+        setProductDataUrl(originalPreview)
+        setTimeout(() => setStep(2), 600)
+      }
     } finally {
       setRemovingBg(false)
     }
-  }, [])
+  }, [originalPreview])
 
   async function handleUrlFetch() {
     if (!pasteUrl.trim()) return
@@ -574,9 +578,14 @@ export function AdMaker({ brandId }: AdMakerProps) {
           )}
 
           {genError && (
-            <div className="flex items-center gap-2 text-xs text-destructive">
-              <AlertCircle className="h-3.5 w-3.5" />
-              {genError}
+            <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 flex items-start gap-3">
+              <AlertCircle className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <p className="text-sm text-amber-900 font-medium">{genError}</p>
+                <button onClick={handleGenerate} className="mt-2 flex items-center gap-1.5 text-xs font-semibold text-amber-700 hover:text-amber-900">
+                  🔄 Try again
+                </button>
+              </div>
             </div>
           )}
 

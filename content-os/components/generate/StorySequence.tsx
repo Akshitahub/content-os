@@ -154,6 +154,7 @@ export function StorySequence({ brandId }: { brandId: string }) {
   const [storyCount, setStoryCount] = useState(3)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
+  const [apiError, setApiError] = useState("")
   const [stories, setStories] = useState<StorySlide[]>([])
   const [allCopied, setAllCopied] = useState(false)
   const [savedToContent, setSavedToContent] = useState(false)
@@ -203,6 +204,7 @@ export function StorySequence({ brandId }: { brandId: string }) {
     if (!topic.trim()) { setError("Please enter a topic for your story sequence."); return }
     setLoading(true)
     setError("")
+    setApiError("")
     setStories([])
     try {
       const res = await fetch("/api/v1/ai/stories/generate", {
@@ -242,7 +244,7 @@ export function StorySequence({ brandId }: { brandId: string }) {
         // Non-fatal — content is shown even if save fails
       }
     } catch (e) {
-      setError(getFriendlyError(e))
+      setApiError(getFriendlyError(e))
     } finally {
       setLoading(false)
     }
@@ -354,6 +356,18 @@ export function StorySequence({ brandId }: { brandId: string }) {
           className="flex w-full items-center justify-center gap-2 rounded-full bg-gradient-to-r from-violet-600 to-indigo-600 py-3 text-sm font-semibold text-white shadow-md transition hover:from-violet-700 hover:to-indigo-700 disabled:opacity-60">
           {loading ? <><Loader2 className="h-4 w-4 animate-spin" /> Generating stories…</> : "✨ Generate stories"}
         </button>
+
+        {apiError && (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 flex items-start gap-3">
+            <AlertCircle className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <p className="text-sm text-amber-900 font-medium">{apiError}</p>
+              <button onClick={generate} className="mt-2 flex items-center gap-1.5 text-xs font-semibold text-amber-700 hover:text-amber-900">
+                🔄 Try again
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Loading */}
