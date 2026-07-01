@@ -465,7 +465,7 @@ function HookSection({ hook, copied, onCopy }: { hook: GeneratedHook; copied: st
 function ContentDisplay({ content, copied, onCopy }: { content: ContentResult; copied: string | null; onCopy: (t: string, k: string) => void }) {
   if (content.format === "social_post") {
     const c = content.content as GeneratedCaption
-    const full = `${c.caption_text}\n\n${c.hashtags.map((h) => `#${h}`).join(" ")}`
+    const full = `${c.caption_text}\n\n${c.hashtags.map((h) => `#${h.replace(/^#+/, "")}`).join(" ")}`
     return (
       <div className="rounded-lg border bg-card p-4 space-y-3">
         <div className="flex items-center justify-between">
@@ -474,7 +474,7 @@ function ContentDisplay({ content, copied, onCopy }: { content: ContentResult; c
         </div>
         <p className="text-sm whitespace-pre-wrap leading-relaxed">{c.caption_text}</p>
         {c.hashtags.length > 0 && (
-          <p className="text-xs text-primary font-medium">{c.hashtags.map((h) => `#${h}`).join(" ")}</p>
+          <p className="text-xs text-primary font-medium">{c.hashtags.map((h) => `#${h.replace(/^#+/, "")}`).join(" ")}</p>
         )}
         {c.cta && <p className="text-xs text-muted-foreground">CTA: {c.cta}</p>}
       </div>
@@ -488,7 +488,7 @@ function ContentDisplay({ content, copied, onCopy }: { content: ContentResult; c
         <div className="flex items-center justify-between">
           <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Reel Script · Storyboard</span>
           <CopyBtn
-            text={`HOOK: ${c.hook}\n\n${c.scenes.map((s, i) => `Scene ${i + 1} (${s.duration_seconds}s)\nVisual: ${s.visual_direction}\nVoiceover: ${s.voiceover_or_text_overlay}`).join("\n\n")}\n\nCAPTION:\n${c.caption}\n\n${c.hashtags.map((h) => `#${h}`).join(" ")}`}
+            text={`HOOK: ${c.hook}\n\n${c.scenes.map((s, i) => `Scene ${i + 1} (${s.duration_seconds}s)\nVisual: ${s.visual_direction}\nVoiceover: ${s.voiceover_or_text_overlay}`).join("\n\n")}\n\nCAPTION:\n${c.caption}\n\n${c.hashtags.map((h) => `#${h.replace(/^#+/, "")}`).join(" ")}`}
             id="reel"
             copied={copied}
             onCopy={onCopy}
@@ -534,7 +534,7 @@ function ContentDisplay({ content, copied, onCopy }: { content: ContentResult; c
           </div>
         )}
         {c.hashtags.length > 0 && (
-          <p className="text-xs text-primary font-medium">{c.hashtags.map((h) => `#${h}`).join(" ")}</p>
+          <p className="text-xs text-primary font-medium">{c.hashtags.map((h) => `#${h.replace(/^#+/, "")}`).join(" ")}</p>
         )}
       </div>
     )
@@ -563,7 +563,7 @@ function ContentDisplay({ content, copied, onCopy }: { content: ContentResult; c
           ))}
         </div>
         {c.hashtags.length > 0 && (
-          <p className="text-xs text-primary font-medium">{c.hashtags.map((h) => `#${h}`).join(" ")}</p>
+          <p className="text-xs text-primary font-medium">{c.hashtags.map((h) => `#${h.replace(/^#+/, "")}`).join(" ")}</p>
         )}
       </div>
     )

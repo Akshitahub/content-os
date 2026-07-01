@@ -64,8 +64,21 @@ export function ProductPicker({ brandId, selected, onSelect, label = "Product im
     if (!file) return
     const reader = new FileReader()
     reader.onload = (ev) => {
-      onSelect({ name: file.name.replace(/\.[^.]+$/, ""), imageUrl: ev.target?.result as string })
-      setOpen(false)
+      const dataUrl = ev.target?.result as string
+      const img = new window.Image()
+      img.onload = () => {
+        if (img.naturalWidth > img.naturalHeight * 2.2) {
+          setUrlError("This image looks like a screenshot. Please use a portrait or square product photo.")
+          return
+        }
+        onSelect({ name: file.name.replace(/\.[^.]+$/, ""), imageUrl: dataUrl })
+        setOpen(false)
+      }
+      img.onerror = () => {
+        onSelect({ name: file.name.replace(/\.[^.]+$/, ""), imageUrl: dataUrl })
+        setOpen(false)
+      }
+      img.src = dataUrl
     }
     reader.readAsDataURL(file)
     e.target.value = ""

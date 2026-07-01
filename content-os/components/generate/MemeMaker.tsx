@@ -198,6 +198,7 @@ export function MemeMaker({ brandId }: { brandId: string }) {
   const [meme, setMeme] = useState<MemeResult | null>(null)
   const [copied, setCopied] = useState(false)
   const [showSuccess, setShowSuccess] = useState(false)
+  const [downloadErr, setDownloadErr] = useState(false)
 
   const activeFormat = MEME_FORMATS.find((f) => f.id === selectedFormat)!
 
@@ -367,10 +368,17 @@ export function MemeMaker({ brandId }: { brandId: string }) {
               {copied ? <Check className="h-3.5 w-3.5 text-green-500" /> : <Copy className="h-3.5 w-3.5" />}
               Copy meme text
             </button>
-            <button onClick={() => downloadElementAsImage("meme-result", "brand-meme")}
+            <button onClick={async () => {
+              setDownloadErr(false)
+              const ok = await downloadElementAsImage("meme-result", "brand-meme")
+              if (!ok) setDownloadErr(true)
+            }}
               className="flex items-center gap-1.5 rounded-full border border-input px-4 py-2 text-xs font-medium hover:bg-secondary">
               <Image className="h-3.5 w-3.5" /> Save as PNG
             </button>
+            {downloadErr && (
+              <p className="w-full text-center text-[11px] text-destructive">Download failed — try again or use a screenshot.</p>
+            )}
             <button onClick={downloadMemeText}
               className="flex items-center gap-1.5 rounded-full border border-input px-4 py-2 text-xs font-medium hover:bg-secondary">
               <Download className="h-3.5 w-3.5" /> Text file

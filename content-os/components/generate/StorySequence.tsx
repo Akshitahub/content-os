@@ -47,6 +47,7 @@ function PhoneStory({
   uploadedImage?: string
 }) {
   const [copied, setCopied] = useState(false)
+  const [dlErr, setDlErr] = useState(false)
   const s = STORY_BG[story.background] ?? STORY_BG.gradient_violet
   const elementId = `story-card-${index}`
 
@@ -79,7 +80,7 @@ function PhoneStory({
         <div className={`flex h-full flex-col relative ${s.bg}`}>
           {story.type === "reveal" && uploadedImage && (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={uploadedImage} alt="" className="absolute inset-0 h-full w-full object-cover" style={{ opacity: 0.65 }} />
+            <img src={uploadedImage} alt="" className="absolute inset-0 h-full w-full object-contain" style={{ background: "rgba(0,0,0,0.35)" }} />
           )}
           {/* Story progress bars */}
           <div className="flex gap-0.5 px-3 pt-3">
@@ -136,10 +137,15 @@ function PhoneStory({
           {copied ? <Check className="h-3 w-3 text-green-500" /> : <Copy className="h-3 w-3" />}
           Copy
         </button>
-        <button onClick={() => downloadElementAsImage(elementId, `story-${index + 1}`)}
+        <button onClick={async () => {
+          setDlErr(false)
+          const ok = await downloadElementAsImage(elementId, `story-${index + 1}`)
+          if (!ok) setDlErr(true)
+        }}
           className="flex items-center gap-1 rounded-full border px-3 py-1.5 text-[11px] font-medium hover:bg-secondary">
           <Image className="h-3 w-3" /> PNG
         </button>
+        {dlErr && <p className="text-[10px] text-destructive">Download failed</p>}
       </div>
     </div>
   )
@@ -160,6 +166,7 @@ export function StorySequence({ brandId }: { brandId: string }) {
   const [allCopied, setAllCopied] = useState(false)
   const [savedToContent, setSavedToContent] = useState(false)
   const [showSuccess, setShowSuccess] = useState(false)
+  const [saveAllErr, setSaveAllErr] = useState(false)
   const [selectedProduct, setSelectedProduct] = useState<PickedProduct | null>(null)
   const [uploadedImages, setUploadedImages] = useState<{ preview: string; base64: string }[]>([])
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -418,10 +425,15 @@ export function StorySequence({ brandId }: { brandId: string }) {
                 {allCopied ? <Check className="h-3.5 w-3.5 text-green-500" /> : <Copy className="h-3.5 w-3.5" />}
                 Copy all
               </button>
-              <button onClick={() => downloadMultipleAsImages(stories.map((_, i) => `story-card-${i}`), "story-sequence")}
+              <button onClick={async () => {
+                setSaveAllErr(false)
+                const ok = await downloadMultipleAsImages(stories.map((_, i) => `story-card-${i}`), "story-sequence")
+                if (!ok) setSaveAllErr(true)
+              }}
                 className="flex items-center gap-1 rounded-full border px-3 py-1.5 text-xs font-medium hover:bg-secondary">
                 <Image className="h-3.5 w-3.5" /> Save all as PNG
               </button>
+              {saveAllErr && <p className="text-[10px] text-destructive">Some downloads failed</p>}
               <button onClick={downloadAllText}
                 className="flex items-center gap-1 rounded-full border px-3 py-1.5 text-xs font-medium hover:bg-secondary">
                 <Download className="h-3.5 w-3.5" /> Text file
