@@ -234,6 +234,7 @@ export function HookGenerator({ brandId, products }: HookGeneratorProps) {
             brandId={brandId}
             productId={selectedProductId}
             contentType="hook"
+            currentInput={additionalContext}
             onSelectTopic={setAdditionalContext}
           />
         </div>

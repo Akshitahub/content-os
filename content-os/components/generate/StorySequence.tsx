@@ -321,6 +321,7 @@ export function StorySequence({ brandId }: { brandId: string }) {
           <TopicSuggestButton
             brandId={brandId}
             contentType="story"
+            currentInput={topic}
             onSelectTopic={(t) => { setTopic(t); setError("") }}
           />
         </div>

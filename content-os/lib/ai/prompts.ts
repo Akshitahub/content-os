@@ -504,6 +504,8 @@ export function buildImagePrompt(
 export function buildTopicSuggestionSystemPrompt(): string {
   return `You are a creative content strategist for Indian D2C brands.
 You suggest specific, engaging content topics tailored to a brand's niche, audience, and products — never generic placeholders.
+When the user has already typed a starting idea, your job is to sharpen and extend that specific idea into 5 concrete brand-relevant angles — not to replace it with unrelated suggestions.
+When no starting idea is given, generate 5 fresh brand-specific topics from scratch.
 ${QUALITY_BAR}
 
 Always respond with valid JSON only. No markdown, no explanation.`
@@ -514,15 +516,47 @@ export function buildTopicSuggestionUserPrompt(
   options: {
     contentType: "hook" | "carousel" | "story" | "meme"
     product?: ProductRow | null
+    currentInput?: string
   }
 ): string {
   const brandContext = buildBrandContext(brand, options.product)
+  const trimmedInput = options.currentInput?.trim()
 
   const formatHints: Record<string, string> = {
-    hook: "Each topic is a specific audience pain point, emotion, or relatable scenario that would make a scroll-stopping hook angle.",
-    carousel: "Each topic is a carousel series idea — educational listicle, myth-busting, before/after, or step-by-step transformation.",
-    story: "Each topic is a story sequence angle — product reveal, day-in-the-life, interactive poll question, or behind-the-scenes moment.",
-    meme: "Each topic is a relatable situation, comparison, or audience reaction that's specific to this brand's world and customer experience.",
+    hook: "Each suggestion is a specific scroll-stopping hook angle — an audience pain point, emotion, or scenario.",
+    carousel: "Each suggestion is a carousel series idea — educational listicle, myth-busting, before/after, or step-by-step transformation.",
+    story: "Each suggestion is a story sequence angle — product reveal, day-in-the-life, interactive poll question, or behind-the-scenes moment.",
+    meme: "Each suggestion is a relatable situation, comparison, or audience reaction specific to this brand's world.",
+  }
+
+  const jsonTemplate = `Respond with this exact JSON:
+{
+  "topics": [
+    "specific topic 1",
+    "specific topic 2",
+    "specific topic 3",
+    "specific topic 4",
+    "specific topic 5"
+  ]
+}`
+
+  if (trimmedInput) {
+    return `${brandContext}
+
+The user has started typing a topic idea: "${trimmedInput}"
+
+Your job is to develop this into 5 specific, brand-relevant ${options.contentType} content angles.
+Do NOT suggest unrelated generic brand topics — all 5 suggestions must build directly on "${trimmedInput}" and apply it to this brand's context.
+Think: how would a skilled content strategist take "${trimmedInput}" and turn it into 5 concrete, usable ${options.contentType} ideas for this specific brand?
+${formatHints[options.contentType]}
+
+Rules:
+- Every suggestion must clearly relate to "${trimmedInput}"
+- Make each suggestion specific to this brand's niche, products, or audience — not generic filler
+- Each suggestion should immediately spark a usable content idea (5–10 words)
+- No numbering, no surrounding quotes in the JSON string values
+
+${jsonTemplate}`
   }
 
   return `${brandContext}
@@ -536,16 +570,7 @@ Rules:
 - Each topic should immediately spark a usable content idea (5–10 words)
 - No numbering, no surrounding quotes in the JSON string values
 
-Respond with this exact JSON:
-{
-  "topics": [
-    "specific topic idea 1",
-    "specific topic idea 2",
-    "specific topic idea 3",
-    "specific topic idea 4",
-    "specific topic idea 5"
-  ]
-}`
+${jsonTemplate}`
 }
 
 // ─── Influencer fit scoring ───────────────────────────────────────────────

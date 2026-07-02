@@ -9,10 +9,11 @@ interface TopicSuggestButtonProps {
   brandId: string
   productId?: string | null
   contentType: ContentType
+  currentInput?: string
   onSelectTopic: (topic: string) => void
 }
 
-export function TopicSuggestButton({ brandId, productId, contentType, onSelectTopic }: TopicSuggestButtonProps) {
+export function TopicSuggestButton({ brandId, productId, contentType, currentInput, onSelectTopic }: TopicSuggestButtonProps) {
   const [loading, setLoading] = useState(false)
   const [topics, setTopics] = useState<string[]>([])
   const [error, setError] = useState("")
@@ -25,7 +26,7 @@ export function TopicSuggestButton({ brandId, productId, contentType, onSelectTo
       const res = await fetch("/api/v1/ai/topics/suggest", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ brandId, productId: productId ?? null, contentType }),
+        body: JSON.stringify({ brandId, productId: productId ?? null, contentType, currentInput: currentInput?.trim() || undefined }),
       })
       const json = await res.json() as { data?: { topics: string[] }; error?: { message?: string } }
       if (!res.ok || !json.data) throw new Error(json.error?.message ?? "Failed to fetch suggestions")

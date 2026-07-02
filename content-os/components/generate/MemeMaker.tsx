@@ -320,6 +320,7 @@ export function MemeMaker({ brandId }: { brandId: string }) {
           <TopicSuggestButton
             brandId={brandId}
             contentType="meme"
+            currentInput={context}
             onSelectTopic={(t) => { setContext(t); setError("") }}
           />
         </div>

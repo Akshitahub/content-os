@@ -10,6 +10,7 @@ const suggestTopicsSchema = z.object({
   brandId: z.string().uuid(),
   productId: z.string().uuid().optional().nullable(),
   contentType: z.enum(["hook", "carousel", "story", "meme"]),
+  currentInput: z.string().optional(),
 })
 
 export async function POST(request: Request) {
@@ -42,7 +43,7 @@ export async function POST(request: Request) {
     return NextResponse.json(buildError(ErrorCodes.VALIDATION_ERROR, "Validation failed.", parsed.error.message), { status: 400 })
   }
 
-  const { brandId, productId, contentType } = parsed.data
+  const { brandId, productId, contentType, currentInput } = parsed.data
 
   const { data: brand } = await supabase.from("brands").select("*").eq("id", brandId).eq("user_id", user.id).single<BrandRow>()
   if (!brand) {
@@ -63,7 +64,7 @@ export async function POST(request: Request) {
       model: MODELS.extraction,
       messages: [
         { role: "system", content: buildTopicSuggestionSystemPrompt() },
-        { role: "user", content: buildTopicSuggestionUserPrompt(brand, { contentType, product }) },
+        { role: "user", content: buildTopicSuggestionUserPrompt(brand, { contentType, product, currentInput }) },
       ],
       temperature: 0.9,
       max_tokens: 512,

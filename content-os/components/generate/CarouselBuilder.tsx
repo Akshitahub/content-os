@@ -389,6 +389,7 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
               <TopicSuggestButton
                 brandId={brandId}
                 contentType="carousel"
+                currentInput={topic}
                 onSelectTopic={(t) => { setTopic(t); setError("") }}
               />
             </div>
