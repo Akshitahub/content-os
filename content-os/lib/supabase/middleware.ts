@@ -45,7 +45,8 @@ export async function updateSession(request: NextRequest) {
 
   const isAuthRoute = pathname.startsWith("/login") ||
     pathname.startsWith("/signup") ||
-    pathname.startsWith("/verify-email")
+    pathname.startsWith("/verify-email") ||
+    pathname.startsWith("/forgot-password")
 
   if (!user && isDashboardRoute) {
     const redirectUrl = request.nextUrl.clone()

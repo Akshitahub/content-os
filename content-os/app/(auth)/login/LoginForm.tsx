@@ -30,6 +30,7 @@ export default function LoginForm() {
   const searchParams = useSearchParams()
   const redirectTo = searchParams.get("redirectTo") ?? "/dashboard"
   const urlError = searchParams.get("error")
+  const successMessage = searchParams.get("message")
 
   const [serverError, setServerError] = useState<string | null>(urlError)
   const [isGoogleLoading, setIsGoogleLoading] = useState(false)
@@ -129,6 +130,11 @@ export default function LoginForm() {
         <CardDescription>Sign in to your ContentOS account</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
+        {successMessage && (
+          <Alert>
+            <AlertDescription>{successMessage}</AlertDescription>
+          </Alert>
+        )}
         {serverError && (
           <Alert variant="destructive">
             <AlertDescription>{serverError}</AlertDescription>
