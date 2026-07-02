@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useCallback, useEffect } from "react"
+import { useState, useCallback, useEffect, useRef } from "react"
 import { ChevronLeft, ChevronRight, Copy, Check, Loader2, RefreshCw, Download, AlertCircle, Image, Sparkles } from "lucide-react"
 import { ProductPicker, type PickedProduct } from "@/components/shared/ProductPicker"
 import { VibePicker, type Vibe } from "@/components/shared/VibePicker"
@@ -8,6 +8,7 @@ import { useBrand } from "@/hooks/useBrand"
 import { downloadElementAsImage, downloadMultipleAsImages } from "@/lib/utils/download-as-image"
 import { GenerationWarning } from "@/components/shared/GenerationWarning"
 import { getFriendlyError } from "@/lib/utils/error-messages"
+import { TopicSuggestButton } from "@/components/shared/TopicSuggestButton"
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -257,6 +258,8 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
   const [showEditor, setShowEditor] = useState(false)
 
   const [showSuccess, setShowSuccess] = useState(false)
+  const [showStaleCue, setShowStaleCue] = useState(false)
+  const prevCarouselRef = useRef<GeneratedCarousel | null>(null)
 
   // Copy state
   const [copied, setCopied] = useState(false)
@@ -289,9 +292,12 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
 
   async function generate() {
     if (!topic.trim()) { setError("Please enter a topic for your carousel."); return }
+    const hadPrevCarousel = carousel !== null
+    prevCarouselRef.current = carousel
     setLoading(true)
     setError("")
     setApiError("")
+    setShowStaleCue(false)
     setCarousel(null)
     setActiveSlide(0)
     try {
@@ -308,6 +314,10 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
       setTimeout(() => setShowSuccess(false), 4000)
     } catch (e) {
       setApiError(getFriendlyError(e))
+      if (hadPrevCarousel && prevCarouselRef.current) {
+        setCarousel(prevCarouselRef.current)
+        setShowStaleCue(true)
+      }
     } finally {
       setLoading(false)
     }
@@ -376,6 +386,11 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
                   <AlertCircle className="h-3.5 w-3.5" /> {error}
                 </div>
               )}
+              <TopicSuggestButton
+                brandId={brandId}
+                contentType="carousel"
+                onSelectTopic={(t) => { setTopic(t); setError("") }}
+              />
             </div>
 
             <div className="space-y-1.5">
@@ -436,6 +451,9 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
                   </button>
                 </div>
               </div>
+            )}
+            {showStaleCue && carousel !== null && (
+              <p className="text-xs text-amber-600">Showing your last successful result below.</p>
             )}
           </div>
         </div>

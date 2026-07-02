@@ -8,6 +8,7 @@ import type { StorySlide } from "@/app/api/v1/ai/stories/generate/route"
 import { downloadElementAsImage, downloadMultipleAsImages } from "@/lib/utils/download-as-image"
 import { GenerationWarning } from "@/components/shared/GenerationWarning"
 import { getFriendlyError } from "@/lib/utils/error-messages"
+import { TopicSuggestButton } from "@/components/shared/TopicSuggestButton"
 
 // ─── Story background gradients ────────────────────────────────────────────────
 
@@ -167,6 +168,8 @@ export function StorySequence({ brandId }: { brandId: string }) {
   const [savedToContent, setSavedToContent] = useState(false)
   const [showSuccess, setShowSuccess] = useState(false)
   const [saveAllErr, setSaveAllErr] = useState(false)
+  const [showStaleCue, setShowStaleCue] = useState(false)
+  const prevStoriesRef = useRef<StorySlide[]>([])
   const [selectedProduct, setSelectedProduct] = useState<PickedProduct | null>(null)
   const [uploadedImages, setUploadedImages] = useState<{ preview: string; base64: string }[]>([])
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -211,9 +214,12 @@ export function StorySequence({ brandId }: { brandId: string }) {
 
   async function generate() {
     if (!topic.trim()) { setError("Please enter a topic for your story sequence."); return }
+    const hadPrevStories = stories.length > 0
+    prevStoriesRef.current = stories
     setLoading(true)
     setError("")
     setApiError("")
+    setShowStaleCue(false)
     setStories([])
     try {
       const res = await fetch("/api/v1/ai/stories/generate", {
@@ -254,6 +260,10 @@ export function StorySequence({ brandId }: { brandId: string }) {
       }
     } catch (e) {
       setApiError(getFriendlyError(e))
+      if (hadPrevStories && prevStoriesRef.current.length > 0) {
+        setStories(prevStoriesRef.current)
+        setShowStaleCue(true)
+      }
     } finally {
       setLoading(false)
     }
@@ -308,6 +318,11 @@ export function StorySequence({ brandId }: { brandId: string }) {
               <AlertCircle className="h-3.5 w-3.5" /> {error}
             </div>
           )}
+          <TopicSuggestButton
+            brandId={brandId}
+            contentType="story"
+            onSelectTopic={(t) => { setTopic(t); setError("") }}
+          />
         </div>
 
         {/* Product image for reveal slides */}
@@ -387,6 +402,9 @@ export function StorySequence({ brandId }: { brandId: string }) {
               </button>
             </div>
           </div>
+        )}
+        {showStaleCue && stories.length > 0 && (
+          <p className="text-xs text-amber-600">Showing your last successful result below.</p>
         )}
       </div>
 

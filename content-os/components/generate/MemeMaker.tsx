@@ -1,11 +1,12 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { Loader2, Copy, Check, RefreshCw, Download, AlertCircle, Image } from "lucide-react"
 import type { MemeFormat, MemeResult } from "@/app/api/v1/ai/meme/generate/route"
 import { downloadElementAsImage } from "@/lib/utils/download-as-image"
 import { GenerationWarning } from "@/components/shared/GenerationWarning"
 import { getFriendlyError } from "@/lib/utils/error-messages"
+import { TopicSuggestButton } from "@/components/shared/TopicSuggestButton"
 
 // ─── Meme format cards ─────────────────────────────────────────────────────────
 
@@ -199,6 +200,8 @@ export function MemeMaker({ brandId }: { brandId: string }) {
   const [copied, setCopied] = useState(false)
   const [showSuccess, setShowSuccess] = useState(false)
   const [downloadErr, setDownloadErr] = useState(false)
+  const [showStaleCue, setShowStaleCue] = useState(false)
+  const prevMemeRef = useRef<MemeResult | null>(null)
 
   const activeFormat = MEME_FORMATS.find((f) => f.id === selectedFormat)!
 
@@ -224,9 +227,12 @@ export function MemeMaker({ brandId }: { brandId: string }) {
 
   async function generate() {
     if (!context.trim()) { setError("Please describe what the meme is about."); return }
+    const hadPrevMeme = meme !== null
+    prevMemeRef.current = meme
     setLoading(true)
     setError("")
     setApiError("")
+    setShowStaleCue(false)
     setMeme(null)
     try {
       const res = await fetch("/api/v1/ai/meme/generate", {
@@ -241,6 +247,10 @@ export function MemeMaker({ brandId }: { brandId: string }) {
       setTimeout(() => setShowSuccess(false), 4000)
     } catch (e) {
       setApiError(getFriendlyError(e))
+      if (hadPrevMeme && prevMemeRef.current) {
+        setMeme(prevMemeRef.current)
+        setShowStaleCue(true)
+      }
     } finally {
       setLoading(false)
     }
@@ -307,6 +317,11 @@ export function MemeMaker({ brandId }: { brandId: string }) {
               <AlertCircle className="h-3.5 w-3.5" /> {error}
             </div>
           )}
+          <TopicSuggestButton
+            brandId={brandId}
+            contentType="meme"
+            onSelectTopic={(t) => { setContext(t); setError("") }}
+          />
         </div>
 
         <GenerationWarning isPending={loading} />
@@ -325,6 +340,9 @@ export function MemeMaker({ brandId }: { brandId: string }) {
               </button>
             </div>
           </div>
+        )}
+        {showStaleCue && meme !== null && (
+          <p className="text-xs text-amber-600">Showing your last successful result below.</p>
         )}
       </div>
 

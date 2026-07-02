@@ -499,6 +499,55 @@ export function buildImagePrompt(
   return lines.join(", ")
 }
 
+// ─── Topic suggestions ───────────────────────────────────────────────────────
+
+export function buildTopicSuggestionSystemPrompt(): string {
+  return `You are a creative content strategist for Indian D2C brands.
+You suggest specific, engaging content topics tailored to a brand's niche, audience, and products — never generic placeholders.
+${QUALITY_BAR}
+
+Always respond with valid JSON only. No markdown, no explanation.`
+}
+
+export function buildTopicSuggestionUserPrompt(
+  brand: BrandRow,
+  options: {
+    contentType: "hook" | "carousel" | "story" | "meme"
+    product?: ProductRow | null
+  }
+): string {
+  const brandContext = buildBrandContext(brand, options.product)
+
+  const formatHints: Record<string, string> = {
+    hook: "Each topic is a specific audience pain point, emotion, or relatable scenario that would make a scroll-stopping hook angle.",
+    carousel: "Each topic is a carousel series idea — educational listicle, myth-busting, before/after, or step-by-step transformation.",
+    story: "Each topic is a story sequence angle — product reveal, day-in-the-life, interactive poll question, or behind-the-scenes moment.",
+    meme: "Each topic is a relatable situation, comparison, or audience reaction that's specific to this brand's world and customer experience.",
+  }
+
+  return `${brandContext}
+
+Suggest 5 specific content topics for ${options.contentType} content for the above brand.
+${formatHints[options.contentType]}
+
+Rules:
+- Never suggest generic ideas like "New product launch", "Behind the scenes", "How to use our product", "Customer testimonial"
+- Every topic must be specific to this brand's niche, audience pain points, or product benefits
+- Each topic should immediately spark a usable content idea (5–10 words)
+- No numbering, no surrounding quotes in the JSON string values
+
+Respond with this exact JSON:
+{
+  "topics": [
+    "specific topic idea 1",
+    "specific topic idea 2",
+    "specific topic idea 3",
+    "specific topic idea 4",
+    "specific topic idea 5"
+  ]
+}`
+}
+
 // ─── Influencer fit scoring ───────────────────────────────────────────────
 
 export function buildInfluencerFitScoringSystemPrompt(): string {

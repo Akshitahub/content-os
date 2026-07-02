@@ -16,6 +16,7 @@ import { HOOK_TYPE_COLORS, TEMPLATE_NAMES } from "@/lib/design/constants"
 import type { PreviewTemplate } from "@/components/shared/PostPreviewCard"
 import type { ProductRow } from "@/types/database"
 import type { HookType, Platform } from "@/types/app"
+import { TopicSuggestButton } from "@/components/shared/TopicSuggestButton"
 
 const HOOK_TYPES: { value: HookType; label: string }[] = [
   { value: "question", label: "Question" },
@@ -229,6 +230,12 @@ export function HookGenerator({ brandId, products }: HookGeneratorProps) {
             value={additionalContext}
             onChange={(e) => setAdditionalContext(e.target.value)}
           />
+          <TopicSuggestButton
+            brandId={brandId}
+            productId={selectedProductId}
+            contentType="hook"
+            onSelectTopic={setAdditionalContext}
+          />
         </div>
 
         <Button
@@ -260,6 +267,9 @@ export function HookGenerator({ brandId, products }: HookGeneratorProps) {
               </div>
             </div>
           )
+        )}
+        {error && !(error instanceof ApiResponseError && error.code === "USAGE_LIMIT_EXCEEDED") && hooks.length > 0 && (
+          <p className="text-xs text-amber-600">Showing your last successful result below.</p>
         )}
       </div>
 
