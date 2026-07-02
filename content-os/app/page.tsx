@@ -333,6 +333,43 @@ export default async function RootPage() {
           </div>
         </section>
 
+        {/* BETA TESTER TESTIMONIALS */}
+        <section className="border-t border-gray-100 bg-white px-6 py-20 sm:px-8 sm:py-28">
+          <div className="mx-auto max-w-6xl">
+            <div className="mb-12 text-center">
+              <span className="mb-3 inline-block rounded-full bg-violet-50 px-3 py-1 text-xs font-semibold uppercase tracking-widest text-violet-600">Beta feedback</span>
+              <h2 className="text-3xl font-bold tracking-tight text-gray-900 sm:text-4xl">
+                Loved by Indian creators &amp; D2C brands
+              </h2>
+              <p className="mt-3 text-gray-500">Join hundreds of brands already creating content with ContentOS</p>
+            </div>
+            <div className="grid gap-8 sm:grid-cols-3">
+              {[
+                { quote: "Overall experience is quite good. Really like the calendar section. Very professional and smooth AI.", name: "Beta Tester", role: "D2C Brand Owner", initials: "BT", color: "bg-violet-600" },
+                { quote: "Wow, you built this? The UI is very professional. Left bar is nice and elaborates every section.", name: "Beta Tester", role: "Social Media Manager", initials: "BT", color: "bg-pink-600" },
+                { quote: "The AI actually sounds like our brand. This saves us hours every week.", name: "Beta Tester", role: "Instagram Creator", initials: "BT", color: "bg-emerald-600" },
+              ].map(({ quote, name, role, initials, color }, i) => (
+                <div key={i} className="flex flex-col rounded-2xl border border-gray-100 bg-white p-8 shadow-sm transition-shadow hover:shadow-md">
+                  <div className="mb-3 flex items-center gap-0.5">
+                    {[1, 2, 3, 4, 5].map((s) => (
+                      <Star key={s} className="h-4 w-4 fill-yellow-400 text-yellow-400" />
+                    ))}
+                  </div>
+                  <p className="mb-2 text-5xl font-black leading-none text-violet-200" aria-hidden="true">&ldquo;</p>
+                  <p className="flex-1 text-sm leading-relaxed text-gray-700">{quote}</p>
+                  <div className="mt-6 flex items-center gap-3">
+                    <div className={`${color} flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-xs font-bold text-white`}>{initials}</div>
+                    <div>
+                      <p className="text-sm font-semibold text-gray-900">{name}</p>
+                      <p className="text-xs text-gray-500">{role}</p>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+
         {/* PRICING */}
         <section className="border-t border-gray-100 bg-white px-6 py-20 sm:px-8 sm:py-28">
           <div className="mx-auto max-w-6xl">

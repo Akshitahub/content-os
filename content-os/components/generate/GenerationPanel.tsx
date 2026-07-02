@@ -48,10 +48,29 @@ const TABS: { id: Tab; label: string; icon: React.ElementType; tooltip: string }
 
 export function GenerationPanel({ brandId, products }: GenerationPanelProps) {
   const [activeTab, setActiveTab] = useState<Tab>("ad_maker")
+  const [transitioning, setTransitioning] = useState(false)
+  const [barComplete, setBarComplete] = useState(false)
   const { occasionContext, setOccasionContext } = useGenerationStore()
 
+  function handleTabChange(tab: Tab) {
+    if (tab === activeTab) return
+    setActiveTab(tab)
+    setTransitioning(true)
+    setBarComplete(false)
+    setTimeout(() => setBarComplete(true), 10)
+    setTimeout(() => { setTransitioning(false); setBarComplete(false) }, 450)
+  }
+
   return (
-    <div className="space-y-6">
+    <div className="relative space-y-6">
+      {transitioning && (
+        <div className="absolute inset-x-0 top-0 z-10 h-0.5 bg-violet-100">
+          <div
+            className="h-full bg-violet-600"
+            style={{ width: barComplete ? "100%" : "0%", transition: "width 0.4s ease-out" }}
+          />
+        </div>
+      )}
       {occasionContext && (
         <div className="rounded-lg border border-primary/20 bg-primary/5 p-3 flex items-start justify-between gap-3">
           <p className="text-sm">
@@ -79,7 +98,7 @@ export function GenerationPanel({ brandId, products }: GenerationPanelProps) {
             <button
               key={tab.id}
               type="button"
-              onClick={() => setActiveTab(tab.id)}
+              onClick={() => handleTabChange(tab.id)}
               title={tab.tooltip}
               className={`flex items-center gap-1.5 rounded-full px-4 py-1.5 text-sm font-medium transition-all duration-150 ${
                 active
