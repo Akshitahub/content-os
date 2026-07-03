@@ -8,6 +8,7 @@ const META_OAUTH_SCOPES = [
   "pages_show_list",
   "pages_read_engagement",
   "business_management",
+  "pages_manage_posts",
 ].join(",")
 
 export async function GET(request: Request) {

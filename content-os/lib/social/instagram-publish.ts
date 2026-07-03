@@ -1,34 +1,21 @@
+import { interpretGraphError, type GraphErrorBody } from "./graph-api-errors"
+
 const GRAPH_VERSION = "v21.0"
 
 export type PublishToInstagramResult =
   | { success: true; instagramMediaId: string }
   | { success: false; error: string; retryable: boolean }
 
-type GraphErrorBody = {
-  error?: {
-    message?: string
-    code?: number
-    error_subcode?: number
-  }
-}
+function toPublishError(body: GraphErrorBody): { message: string; retryable: boolean } {
+  const interpreted = interpretGraphError(body)
 
-// Meta rate-limit / throttling error codes — these should be retried on a
-// later cron run, not treated as a permanent failure.
-const RATE_LIMIT_CODES = new Set([4, 17, 32, 613])
-// Invalid/expired OAuth token.
-const INVALID_TOKEN_CODE = 190
-
-function interpretGraphError(body: GraphErrorBody): { message: string; retryable: boolean } {
-  const err = body?.error
-  const code = err?.code
-
-  if (code !== undefined && RATE_LIMIT_CODES.has(code)) {
+  if (interpreted.kind === "rate_limit") {
     return { message: "Instagram rate limit reached — will retry later.", retryable: true }
   }
-  if (code === INVALID_TOKEN_CODE) {
+  if (interpreted.kind === "invalid_token" || interpreted.kind === "permission_error") {
     return { message: "Instagram access token is invalid or expired. Reconnect the account.", retryable: false }
   }
-  return { message: err?.message ?? "Instagram API error.", retryable: false }
+  return { message: interpreted.message, retryable: interpreted.retryable }
 }
 
 /**
@@ -58,7 +45,7 @@ export async function publishToInstagram(
     const containerJson = await containerRes.json()
 
     if (!containerRes.ok || !containerJson.id) {
-      const { message, retryable } = interpretGraphError(containerJson)
+      const { message, retryable } = toPublishError(containerJson)
       console.error("[instagram-publish] media container creation failed:", message)
       return { success: false, error: message, retryable }
     }
@@ -80,7 +67,7 @@ export async function publishToInstagram(
     const publishJson = await publishRes.json()
 
     if (!publishRes.ok || !publishJson.id) {
-      const { message, retryable } = interpretGraphError(publishJson)
+      const { message, retryable } = toPublishError(publishJson)
       console.error("[instagram-publish] media publish failed:", message)
       return { success: false, error: message, retryable }
     }
