@@ -820,6 +820,43 @@ export type Database = {
           user_rating?: number | null
         }
       }
+      social_connections: {
+        Row: {
+          id: string
+          brand_id: string
+          platform: "instagram"
+          ig_business_account_id: string
+          ig_username: string | null
+          facebook_page_id: string
+          access_token: string
+          token_expires_at: string
+          connected_at: string
+          last_refreshed_at: string
+          is_active: boolean
+        }
+        Insert: {
+          id?: string
+          brand_id: string
+          platform: "instagram"
+          ig_business_account_id: string
+          ig_username?: string | null
+          facebook_page_id: string
+          access_token: string
+          token_expires_at: string
+          connected_at?: string
+          last_refreshed_at?: string
+          is_active?: boolean
+        }
+        Update: {
+          ig_business_account_id?: string
+          ig_username?: string | null
+          facebook_page_id?: string
+          access_token?: string
+          token_expires_at?: string
+          last_refreshed_at?: string
+          is_active?: boolean
+        }
+      }
     }
     Views: Record<string, never>
     Functions: Record<string, never>
@@ -845,6 +882,7 @@ export type CarouselRow = Database["public"]["Tables"]["carousels"]["Row"]
 export type AdCopyRow = Database["public"]["Tables"]["ad_copies"]["Row"]
 export type EmailSequenceRow = Database["public"]["Tables"]["email_sequences"]["Row"]
 export type ProductDescriptionRow = Database["public"]["Tables"]["product_descriptions"]["Row"]
+export type SocialConnectionRow = Database["public"]["Tables"]["social_connections"]["Row"]
 
 // Insert types
 export type UserInsert = Database["public"]["Tables"]["users"]["Insert"]
@@ -864,3 +902,4 @@ export type CarouselInsert = Database["public"]["Tables"]["carousels"]["Insert"]
 export type AdCopyInsert = Database["public"]["Tables"]["ad_copies"]["Insert"]
 export type EmailSequenceInsert = Database["public"]["Tables"]["email_sequences"]["Insert"]
 export type ProductDescriptionInsert = Database["public"]["Tables"]["product_descriptions"]["Insert"]
+export type SocialConnectionInsert = Database["public"]["Tables"]["social_connections"]["Insert"]

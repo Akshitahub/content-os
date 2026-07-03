@@ -588,14 +588,13 @@ function DangerZoneSection() {
 // ---------------------------------------------------------------------------
 
 const PLATFORMS_COMING_SOON = [
-  { name: "Instagram", icon: "📸", note: "Requires Meta app review" },
   { name: "TikTok", icon: "🎵", note: "Requires TikTok developer account" },
   { name: "LinkedIn", icon: "💼", note: "Requires LinkedIn app" },
   { name: "YouTube", icon: "▶️", note: "Requires Google OAuth" },
   { name: "Twitter / X", icon: "🐦", note: "Requires X developer account" },
 ] as const
 
-function ConnectionsSection() {
+function ConnectionsSection({ brands }: { brands: BrandProps[] }) {
   return (
     <Card>
       <CardHeader>
@@ -605,6 +604,24 @@ function ConnectionsSection() {
         <p className="text-sm text-muted-foreground">
           Connect your social accounts to auto-post directly from the calendar. Until then, copy content from any calendar entry and post manually.
         </p>
+
+        <div className="flex items-center justify-between rounded-md border px-4 py-3">
+          <div className="flex items-center gap-3">
+            <span className="text-lg">📸</span>
+            <div>
+              <p className="text-sm font-medium">Instagram</p>
+              <p className="text-xs text-muted-foreground">Connect per brand from that brand&apos;s page</p>
+            </div>
+          </div>
+          {brands.length > 0 ? (
+            <Button asChild size="sm" variant="outline">
+              <Link href={`/brands/${brands[0].id}`}>Manage</Link>
+            </Button>
+          ) : (
+            <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">Add a brand first</span>
+          )}
+        </div>
+
         <ul className="space-y-2">
           {PLATFORMS_COMING_SOON.map(platform => (
             <li key={platform.name} className="flex items-center justify-between rounded-md border px-4 py-3">
@@ -648,7 +665,7 @@ export function SettingsContent({ user, brands }: SettingsContentProps) {
       <Separator />
       <PlanSection user={user} />
       <Separator />
-      <ConnectionsSection />
+      <ConnectionsSection brands={brands} />
       <Separator />
       <BrandsSection initialBrands={brands} />
       <Separator />
