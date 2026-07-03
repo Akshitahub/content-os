@@ -1,3 +1,4 @@
+// Deployment check: 2026-07-03
 import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import { buildError, ErrorCodes } from "@/types/api"
