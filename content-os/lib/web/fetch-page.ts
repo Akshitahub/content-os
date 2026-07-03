@@ -90,7 +90,10 @@ export async function fetchPage(url: string): Promise<FetchedPage> {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
         "Accept-Language": "en-US,en;q=0.5",
-        "Accept-Encoding": "gzip, deflate, br",
+        // Do NOT set Accept-Encoding manually — Node's fetch (undici) disables
+        // its automatic response decompression when this header is set
+        // explicitly, causing res.text() to return raw gzip/brotli bytes
+        // instead of decoded HTML. Let fetch negotiate + decompress itself.
         "Connection": "keep-alive",
         "Upgrade-Insecure-Requests": "1",
         "Sec-Fetch-Dest": "document",
@@ -109,6 +112,16 @@ export async function fetchPage(url: string): Promise<FetchedPage> {
     clearTimeout(timeout)
   }
 
+  // TEMPORARY DIAGNOSTIC — remove once decompression fix is confirmed in
+  // Vercel logs. Never logs the page URL's query string or any response
+  // body beyond a short preview.
+  console.log(
+    "[fetch-page] response received:",
+    "status=", res.status,
+    "content-type=", res.headers.get("content-type"),
+    "content-encoding=", res.headers.get("content-encoding")
+  )
+
   if (!res.ok) {
     throw new PageFetchError(`That page returned an error (${res.status}). Check the URL is correct.`)
   }
@@ -119,6 +132,9 @@ export async function fetchPage(url: string): Promise<FetchedPage> {
   }
 
   const html = await res.text()
+
+  // TEMPORARY DIAGNOSTIC — remove once decompression fix is confirmed.
+  console.log("[fetch-page] decoded text preview:", html.slice(0, 200))
 
   const titleMatch = html.match(/<title[^>]*>([^<]*)<\/title>/i)
   const ogImageMatches = [...html.matchAll(/<meta[^>]*property=["']og:image["'][^>]*content=["']([^"']*)["']/gi)]
