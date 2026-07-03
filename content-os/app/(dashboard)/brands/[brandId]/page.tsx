@@ -3,7 +3,7 @@ import Link from "next/link"
 import { Package, Sparkles, Calendar, ArrowRight, Globe, AtSign, Zap } from "lucide-react"
 import { createClient } from "@/lib/supabase/server"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { InstagramConnection } from "@/components/brands/InstagramConnection"
+import { SocialConnections } from "@/components/brands/SocialConnections"
 import type { Metadata } from "next"
 import type { BrandRow } from "@/types/database"
 
@@ -158,7 +158,7 @@ export default async function BrandDetailPage({ params }: PageProps) {
         )}
 
         <div className="lg:col-span-2">
-          <InstagramConnection brandId={brandId} />
+          <SocialConnections brandId={brandId} />
         </div>
       </div>
     </div>

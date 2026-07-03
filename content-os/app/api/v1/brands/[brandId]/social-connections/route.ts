@@ -54,12 +54,12 @@ export async function GET(_request: Request, { params }: RouteParams) {
 
   // Never select access_token here — this response goes straight to the client.
   const { data, error } = await socialConnectionsTable(result.supabase!)
-    .select("ig_username, connected_at, is_active")
+    .select("ig_username, ig_business_account_id, connected_at, is_active")
     .eq("brand_id", brandId)
     .eq("platform", "instagram")
     .eq("is_active", true)
     .maybeSingle() as {
-      data: { ig_username: string | null; connected_at: string; is_active: boolean } | null
+      data: { ig_username: string | null; ig_business_account_id: string | null; connected_at: string; is_active: boolean } | null
       error: { message: string } | null
     }
 
@@ -69,12 +69,18 @@ export async function GET(_request: Request, { params }: RouteParams) {
   }
 
   if (!data) {
-    return NextResponse.json({ data: { connected: false, ig_username: null, connected_at: null } })
+    return NextResponse.json({
+      data: { connected: false, facebook_connected: false, instagram_connected: false, ig_username: null, connected_at: null },
+    })
   }
 
+  // A connection row always has a Facebook Page (facebook_page_id is
+  // NOT NULL); the linked Instagram Business Account is optional.
   return NextResponse.json({
     data: {
       connected: true,
+      facebook_connected: true,
+      instagram_connected: Boolean(data.ig_business_account_id),
       ig_username: data.ig_username,
       connected_at: data.connected_at,
     },
