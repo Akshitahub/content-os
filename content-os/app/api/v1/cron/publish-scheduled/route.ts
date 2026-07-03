@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { createAdminClient } from "@/lib/supabase/server"
 import { publishToInstagram } from "@/lib/social/instagram-publish"
+import { publishToFacebook } from "@/lib/social/facebook-publish"
 import { uploadMediaToStorage } from "@/lib/storage/upload-media"
 import type { SupabaseClient } from "@supabase/supabase-js"
 import type { Database, CalendarEntryRow, SocialConnectionRow } from "@/types/database"
@@ -56,29 +57,36 @@ async function recordFailure(admin: AdminClient, entry: CalendarEntryRow, reason
 }
 
 async function processEntry(admin: AdminClient, entry: CalendarEntryRow): Promise<"published" | "failed" | "skipped"> {
+  // Scoped by brand_id only — a Facebook Page and its linked Instagram
+  // Business Account share one connection row (same Page access token), so
+  // there is no per-platform connection to filter by.
   const { data: connection } = await admin
     .from("social_connections")
     .select("*")
     .eq("brand_id", entry.brand_id)
-    .eq("platform", "instagram")
     .eq("is_active", true)
     .maybeSingle<SocialConnectionRow>()
 
   if (!connection) {
     console.log(
-      `[cron/publish-scheduled] entry ${entry.id}: no active Instagram connection for brand ${entry.brand_id} — leaving scheduled, will retry next run`
+      `[cron/publish-scheduled] entry ${entry.id}: no active social connection for brand ${entry.brand_id} — leaving scheduled, will retry next run`
     )
     return "skipped"
   }
 
+  if (entry.platform === "instagram" && !connection.ig_business_account_id) {
+    console.error(`[cron/publish-scheduled] entry ${entry.id}: brand ${entry.brand_id}'s connection has no linked Instagram Business Account`)
+    return await recordFailure(admin, entry, "Instagram not connected for this brand.")
+  }
+
   if (new Date(connection.token_expires_at).getTime() <= Date.now()) {
-    console.error(`[cron/publish-scheduled] entry ${entry.id}: Instagram token expired for brand ${entry.brand_id}`)
-    return await recordFailure(admin, entry, "Instagram access token has expired. Reconnect the account.")
+    console.error(`[cron/publish-scheduled] entry ${entry.id}: access token expired for brand ${entry.brand_id}`)
+    return await recordFailure(admin, entry, "Access token has expired. Reconnect the account.")
   }
 
   const platformData = (entry.platform_specific_data ?? {}) as Record<string, unknown>
-  let imageUrl = typeof platformData.instagram_hosted_image_url === "string"
-    ? platformData.instagram_hosted_image_url
+  let imageUrl = typeof platformData.hosted_image_url === "string"
+    ? platformData.hosted_image_url
     : null
 
   if (!imageUrl) {
@@ -94,14 +102,14 @@ async function processEntry(admin: AdminClient, entry: CalendarEntryRow): Promis
     )
     if ("error" in uploadResult) {
       console.error(`[cron/publish-scheduled] entry ${entry.id}: failed to host image:`, uploadResult.error)
-      return await recordFailure(admin, entry, `Failed to prepare image for Instagram: ${uploadResult.error}`)
+      return await recordFailure(admin, entry, `Failed to prepare image for publishing: ${uploadResult.error}`)
     }
 
     imageUrl = uploadResult.publicUrl
 
     // Persist the re-hosted URL so a retry doesn't re-fetch/re-upload it.
     const { error: persistError } = await calendarEntriesTable(admin)
-      .update({ platform_specific_data: { ...platformData, instagram_hosted_image_url: imageUrl } })
+      .update({ platform_specific_data: { ...platformData, hosted_image_url: imageUrl } })
       .eq("id", entry.id)
     if (persistError) {
       console.error(`[cron/publish-scheduled] entry ${entry.id}: failed to persist hosted image url:`, persistError.message)
@@ -117,34 +125,36 @@ async function processEntry(admin: AdminClient, entry: CalendarEntryRow): Promis
     return await recordFailure(admin, entry, "No caption text available.")
   }
 
-  const publishResult = await publishToInstagram(connection.ig_business_account_id, connection.access_token, {
-    imageUrl,
-    caption,
-  })
+  const publishResult = entry.platform === "instagram"
+    // ig_business_account_id is guaranteed non-null here — checked above.
+    ? await publishToInstagram(connection.ig_business_account_id!, connection.access_token, { imageUrl, caption })
+    : await publishToFacebook(connection.facebook_page_id, connection.access_token, { imageUrl, message: caption })
 
   if (!publishResult.success) {
     console.error(`[cron/publish-scheduled] entry ${entry.id}: publish failed (retryable=${publishResult.retryable}) — ${publishResult.error}`)
     return await recordFailure(admin, entry, publishResult.error)
   }
 
-  console.log(`[cron/publish-scheduled] entry ${entry.id}: published — Instagram media id ${publishResult.instagramMediaId}`)
+  const externalId = "instagramMediaId" in publishResult ? publishResult.instagramMediaId : publishResult.facebookPostId
+  console.log(`[cron/publish-scheduled] entry ${entry.id}: published — ${entry.platform} id ${externalId}`)
 
   const publishedAt = new Date().toISOString()
+  const mediaIdKey = entry.platform === "instagram" ? "instagram_media_id" : "facebook_post_id"
 
   const { error: updateError } = await calendarEntriesTable(admin)
     .update({
       status: "published",
       platform_specific_data: {
         ...platformData,
-        instagram_hosted_image_url: imageUrl,
-        instagram_media_id: publishResult.instagramMediaId,
+        hosted_image_url: imageUrl,
+        [mediaIdKey]: externalId,
       },
       updated_at: publishedAt,
     })
     .eq("id", entry.id)
 
   if (updateError) {
-    console.error(`[cron/publish-scheduled] entry ${entry.id}: published on Instagram but failed to update calendar entry:`, updateError.message)
+    console.error(`[cron/publish-scheduled] entry ${entry.id}: published on ${entry.platform} but failed to update calendar entry:`, updateError.message)
   }
 
   if (entry.content_project_id) {
@@ -175,7 +185,7 @@ export async function GET(request: Request) {
     .from("calendar_entries")
     .select("*")
     .eq("status", "scheduled")
-    .eq("platform", "instagram")
+    .in("platform", ["instagram", "facebook"])
     .lte("scheduled_date", todayStr)
     .order("scheduled_date", { ascending: true })
     .returns<CalendarEntryRow[]>()
