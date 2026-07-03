@@ -828,7 +828,7 @@ export type Database = {
           id: string
           brand_id: string
           platform: "instagram"
-          ig_business_account_id: string
+          ig_business_account_id: string | null
           ig_username: string | null
           facebook_page_id: string
           access_token: string
@@ -841,7 +841,7 @@ export type Database = {
           id?: string
           brand_id: string
           platform: "instagram"
-          ig_business_account_id: string
+          ig_business_account_id?: string | null
           ig_username?: string | null
           facebook_page_id: string
           access_token: string
@@ -851,7 +851,7 @@ export type Database = {
           is_active?: boolean
         }
         Update: {
-          ig_business_account_id?: string
+          ig_business_account_id?: string | null
           ig_username?: string | null
           facebook_page_id?: string
           access_token?: string

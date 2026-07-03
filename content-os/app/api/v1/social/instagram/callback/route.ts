@@ -138,13 +138,17 @@ export async function GET(request: Request) {
       }
     }
 
-    if (!igBusinessAccountId || !matchedPage) {
-      return redirectToBrand(appUrl, brandId, { ig_error: "no_instagram_account" })
+    // No Page had a linked Instagram Business Account — that's fine, fall
+    // back to a Facebook-only connection using the first Page. A Facebook
+    // Page and its linked Instagram account share the same Page access
+    // token, so Facebook posting doesn't require an Instagram account at all.
+    if (!matchedPage) {
+      matchedPage = pages[0]
     }
 
     // Step 5: upsert the connection. Store the Page access token — it's what
-    // the Graph API requires for subsequent publishing calls against the
-    // linked Instagram Business Account.
+    // the Graph API requires for subsequent publishing calls, for both
+    // Facebook Page posts and (if linked) the Instagram Business Account.
     const tokenExpiresAt = new Date(Date.now() + LONG_LIVED_TOKEN_TTL_SECONDS * 1000).toISOString()
 
     const connectionData: SocialConnectionInsert = {
@@ -167,7 +171,7 @@ export async function GET(request: Request) {
       return redirectToBrand(appUrl, brandId, { ig_error: "server_error" })
     }
 
-    return redirectToBrand(appUrl, brandId, { ig_success: "1" })
+    return redirectToBrand(appUrl, brandId, { ig_success: igBusinessAccountId ? "1" : "partial" })
   } catch (err) {
     console.error("[social/instagram/callback] unexpected error:", err)
     return redirectToBrand(appUrl, brandId, { ig_error: "server_error" })
