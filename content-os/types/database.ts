@@ -376,6 +376,7 @@ export type Database = {
           caption_id: string | null
           is_ready: boolean
           platform_specific_data: Json
+          publish_attempts: number
           created_at: string
           updated_at: string
         }
@@ -401,6 +402,7 @@ export type Database = {
           caption_id?: string | null
           is_ready?: boolean
           platform_specific_data?: Json
+          publish_attempts?: number
           created_at?: string
           updated_at?: string
         }
@@ -423,6 +425,7 @@ export type Database = {
           caption_id?: string | null
           is_ready?: boolean
           platform_specific_data?: Json
+          publish_attempts?: number
           updated_at?: string
         }
       }
