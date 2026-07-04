@@ -4,6 +4,7 @@ import { Package, Sparkles, Calendar, ArrowRight, Globe, AtSign, Zap } from "luc
 import { createClient } from "@/lib/supabase/server"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { SocialConnections } from "@/components/brands/SocialConnections"
+import { AnalyticsDashboard } from "@/components/brands/AnalyticsDashboard"
 import { CompetitorAnalysis } from "@/components/brands/CompetitorAnalysis"
 import type { Metadata } from "next"
 import type { BrandRow } from "@/types/database"
@@ -160,6 +161,10 @@ export default async function BrandDetailPage({ params }: PageProps) {
 
         <div className="lg:col-span-2">
           <SocialConnections brandId={brandId} />
+        </div>
+
+        <div className="lg:col-span-2">
+          <AnalyticsDashboard brandId={brandId} />
         </div>
 
         <div className="lg:col-span-2">
