@@ -59,7 +59,9 @@ export async function POST(request: Request) {
       },
     })
   } catch (err) {
-    const msg = err instanceof Error ? err.message : "Order creation failed"
-    return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, msg), { status: 500 })
+    // Full raw error (e.g. Razorpay's error body) stays server-side only —
+    // never shown to the user.
+    console.error("[billing/create-checkout-session] Razorpay order creation failed:", err instanceof Error ? err.message : err)
+    return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Couldn't start checkout. Please try again."), { status: 500 })
   }
 }

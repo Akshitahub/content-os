@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { createClient, createAdminClient } from "@/lib/supabase/server"
 import { generateImageSchema } from "@/lib/validations/ai"
-import { generateImage, ImageGenerationError } from "@/lib/ai/image-generator"
+import { generateImage } from "@/lib/ai/image-generator"
 import { buildError, ErrorCodes } from "@/types/api"
 import { checkAndIncrementUsage } from "@/lib/usage/check-and-increment-usage"
 import type { BrandRow, ProductRow } from "@/types/database"
@@ -44,14 +44,16 @@ export async function POST(request: Request) {
   try {
     result = await generateImage(brand, { prompt, style, aspectRatio, product })
   } catch (err) {
-    const message = err instanceof ImageGenerationError ? err.message : "Image generation failed. Please try again."
+    // Full raw error (e.g. Pollinations API error text) stays server-side
+    // only — never shown to the user.
+    console.error("[ai/images/generate] generation failed:", err instanceof Error ? err.message : err)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await (supabase.from("ai_generation_logs") as any).insert({
       user_id: user.id, brand_id: brandId, feature: "images", model: "imagen-4.0-generate-001",
       latency_ms: Date.now() - startTime, success: false,
       error_message: err instanceof Error ? err.message : "Unknown error",
     })
-    return NextResponse.json(buildError(ErrorCodes.AI_GENERATION_FAILED, message), { status: 500 })
+    return NextResponse.json(buildError(ErrorCodes.AI_GENERATION_FAILED, "Image generation failed. Please try again."), { status: 500 })
   }
 
   // Upload to Supabase Storage using the admin client (storage RLS expects the
