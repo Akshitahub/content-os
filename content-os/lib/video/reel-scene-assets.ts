@@ -2,11 +2,17 @@ import { getGroqClient } from "@/lib/ai/models"
 import { uploadMediaToStorage } from "@/lib/storage/upload-media"
 import type { ReelScene } from "@/types/app"
 
-// Groq's playai-tts model — priced per character ($50/1M chars as of
-// writing), unlike the free-tier llama models used elsewhere in this
-// codebase. Every video generated has a real, non-trivial cost.
-const TTS_MODEL = "playai-tts"
-const TTS_VOICE = "Fritz-PlayAI"
+// Groq's TTS model — priced per character ($50/1M chars as of writing),
+// unlike the free-tier llama models used elsewhere in this codebase.
+// Every video generated has a real, non-trivial cost.
+//
+// playai-tts was decommissioned by Groq in December 2025, replaced by
+// Canopy Labs' Orpheus models. Valid Orpheus English voices: troy,
+// autumn, diana, hannah, austin, daniel — "troy" is used here as a
+// reasonable default professional-sounding voice. There is no PlayAI
+// voice list to carry over (Fritz-PlayAI no longer exists).
+const TTS_MODEL = "canopylabs/orpheus-v1-english"
+const TTS_VOICE = "troy"
 
 export interface SceneAsset {
   sceneIndex: number
@@ -76,8 +82,11 @@ async function generateSceneVoiceover(
     }
     return { url: uploadResult.publicUrl }
   } catch (err) {
+    // Log the full raw error (e.g. Groq's API error body) server-side only —
+    // never surface it directly, since SDK errors often embed raw JSON in
+    // their message and this ends up rendered in end-user-facing UI.
     console.error(`[reel-scene-assets] TTS failed for scene ${sceneIndex}:`, err instanceof Error ? err.message : err)
-    return { error: err instanceof Error ? err.message : "Voiceover generation failed." }
+    return { error: "Couldn't generate voiceover for this scene. Please try again." }
   }
 }
 

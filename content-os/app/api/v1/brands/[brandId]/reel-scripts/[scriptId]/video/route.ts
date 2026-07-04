@@ -105,12 +105,18 @@ export async function POST(_request: Request, { params }: RouteParams) {
       const hasUsableAssets = sceneAssets.some((s) => s.imageUrl && s.audioUrl)
 
       if (!hasUsableAssets) {
+        // scene_assets (stored, not shown as a raw string) retains each
+        // scene's own error for debugging; error_message shown to the user
+        // stays a fixed, clean sentence — never the raw per-scene error text.
+        if (failedScenes.length > 0) {
+          console.error(`[reel-scripts/video] job ${job.id} scene failures:`, failedScenes.map((s) => s.error))
+        }
         await reelVideoJobsTable(admin)
           .update({
             status: "failed",
             progress_message: null,
             scene_assets: sceneAssets as unknown as Json,
-            error_message: `Couldn't generate any usable scene assets. ${failedScenes[0]?.error ?? ""}`.trim(),
+            error_message: "Couldn't generate any usable scene assets for this video. Please try again.",
           })
           .eq("id", job.id)
         return
@@ -132,12 +138,13 @@ export async function POST(_request: Request, { params }: RouteParams) {
         })
         .eq("id", job.id)
     } catch (err) {
+      // Full raw error stays server-side only — never shown to the user.
       console.error(`[reel-scripts/video] job ${job.id} failed:`, err instanceof Error ? err.message : err)
       await reelVideoJobsTable(admin)
         .update({
           status: "failed",
           progress_message: null,
-          error_message: err instanceof Error ? err.message : "Video asset generation failed.",
+          error_message: "Video generation failed. Please try again.",
         })
         .eq("id", job.id)
     }
