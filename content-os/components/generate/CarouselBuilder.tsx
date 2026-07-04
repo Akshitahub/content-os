@@ -688,9 +688,17 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
           )}
 
           {showSuccess && (
-            <div className="flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 px-4 py-3 animate-in fade-in duration-300">
-              <Sparkles className="h-4 w-4 text-green-500 shrink-0" />
-              <span className="text-sm font-medium text-green-700">✓ Generated successfully — scroll down to see your content</span>
+            <div className="flex items-center justify-between gap-2 rounded-lg border border-green-200 bg-green-50 px-4 py-3 animate-in fade-in duration-300">
+              <div className="flex items-center gap-2 text-green-700">
+                <Sparkles className="h-4 w-4 shrink-0" />
+                <span className="text-sm font-medium">✓ Carousel generated and saved to My Content</span>
+              </div>
+              <Link
+                href={`/brands/${brandId}/library?tab=carousels`}
+                className="text-xs font-medium text-green-700 underline underline-offset-2 hover:text-green-900 shrink-0"
+              >
+                View in My Content →
+              </Link>
             </div>
           )}
 

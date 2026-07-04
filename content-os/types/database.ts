@@ -897,6 +897,32 @@ export type Database = {
           updated_at?: string
         }
       }
+      stories: {
+        Row: {
+          id: string
+          brand_id: string
+          product_id: string | null
+          topic: string | null
+          stories: Json
+          is_saved: boolean
+          user_rating: number | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          brand_id: string
+          product_id?: string | null
+          topic?: string | null
+          stories?: Json
+          is_saved?: boolean
+          user_rating?: number | null
+          created_at?: string
+        }
+        Update: {
+          is_saved?: boolean
+          user_rating?: number | null
+        }
+      }
     }
     Views: Record<string, never>
     Functions: Record<string, never>
@@ -924,6 +950,7 @@ export type EmailSequenceRow = Database["public"]["Tables"]["email_sequences"]["
 export type ProductDescriptionRow = Database["public"]["Tables"]["product_descriptions"]["Row"]
 export type SocialConnectionRow = Database["public"]["Tables"]["social_connections"]["Row"]
 export type ReelVideoJobRow = Database["public"]["Tables"]["reel_video_jobs"]["Row"]
+export type StoryRow = Database["public"]["Tables"]["stories"]["Row"]
 
 // Insert types
 export type UserInsert = Database["public"]["Tables"]["users"]["Insert"]
@@ -945,3 +972,4 @@ export type EmailSequenceInsert = Database["public"]["Tables"]["email_sequences"
 export type ProductDescriptionInsert = Database["public"]["Tables"]["product_descriptions"]["Insert"]
 export type SocialConnectionInsert = Database["public"]["Tables"]["social_connections"]["Insert"]
 export type ReelVideoJobInsert = Database["public"]["Tables"]["reel_video_jobs"]["Insert"]
+export type StoryInsert = Database["public"]["Tables"]["stories"]["Insert"]

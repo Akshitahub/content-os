@@ -160,6 +160,23 @@ export async function POST(request: Request) {
       return NextResponse.json(buildError(ErrorCodes.AI_GENERATION_FAILED, "Carousel generation failed. Please try again."), { status: 500 })
     }
 
+    // Persist (non-fatal) — matches the pattern used by every other
+    // generate route: the generate call itself saves, the client never
+    // needs a separate save request.
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await (supabase.from("carousels") as any).insert({
+        brand_id: brandId,
+        platform,
+        title: typeof d.title === "string" ? d.title : null,
+        slides: d.slides,
+        hashtags: Array.isArray(d.hashtags) ? d.hashtags : [],
+        is_saved: true,
+      })
+    } catch (persistErr) {
+      console.error("[ai/carousel/generate] persist failed (non-fatal):", persistErr)
+    }
+
     return NextResponse.json({ data }, { status: 200 })
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Generation failed"

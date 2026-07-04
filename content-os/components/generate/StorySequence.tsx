@@ -9,6 +9,7 @@ import { downloadElementAsImage, downloadMultipleAsImages } from "@/lib/utils/do
 import { GenerationWarning } from "@/components/shared/GenerationWarning"
 import { getFriendlyError } from "@/lib/utils/error-messages"
 import { TopicSuggestButton } from "@/components/shared/TopicSuggestButton"
+import Link from "next/link"
 
 // ─── Story background gradients ────────────────────────────────────────────────
 
@@ -165,7 +166,6 @@ export function StorySequence({ brandId }: { brandId: string }) {
   const [apiError, setApiError] = useState("")
   const [stories, setStories] = useState<StorySlide[]>([])
   const [allCopied, setAllCopied] = useState(false)
-  const [savedToContent, setSavedToContent] = useState(false)
   const [showSuccess, setShowSuccess] = useState(false)
   const [saveAllErr, setSaveAllErr] = useState(false)
   const [showStaleCue, setShowStaleCue] = useState(false)
@@ -237,27 +237,8 @@ export function StorySequence({ brandId }: { brandId: string }) {
       if (!res.ok || !json.data?.stories) throw new Error(json.error?.message ?? "Generation failed")
       const savedStories = json.data.stories
       setStories(savedStories)
-      setSavedToContent(false)
       setShowSuccess(true)
       setTimeout(() => setShowSuccess(false), 4000)
-      // Save to DB (non-blocking, non-fatal)
-      try {
-        await fetch(`/api/v1/brands/${brandId}/reel-scripts`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            content: savedStories.map((s, i) =>
-              `Story ${i + 1} (${s.type}):\n${s.text}\n${s.subtext}`
-            ).join("\n\n---\n\n"),
-            platform: "instagram",
-            title: `Story sequence: ${topic}`,
-          }),
-        })
-        setSavedToContent(true)
-        setTimeout(() => setSavedToContent(false), 4000)
-      } catch {
-        // Non-fatal — content is shown even if save fails
-      }
     } catch (e) {
       setApiError(getFriendlyError(e))
       if (hadPrevStories && prevStoriesRef.current.length > 0) {
@@ -419,17 +400,17 @@ export function StorySequence({ brandId }: { brandId: string }) {
 
       {/* Success banner */}
       {showSuccess && (
-        <div className="flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 px-4 py-3 animate-in fade-in duration-300">
-          <Check className="h-4 w-4 text-green-500 shrink-0" />
-          <span className="text-sm font-medium text-green-700">✓ Generated successfully — scroll down to see your content</span>
-        </div>
-      )}
-
-      {/* Saved banner */}
-      {savedToContent && (
-        <div className="flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 px-4 py-3">
-          <Check className="h-4 w-4 shrink-0 text-green-600" />
-          <span className="text-sm font-medium text-green-700">Saved to My Content ✓</span>
+        <div className="flex items-center justify-between gap-2 rounded-lg border border-green-200 bg-green-50 px-4 py-3 animate-in fade-in duration-300">
+          <div className="flex items-center gap-2 text-green-700">
+            <Check className="h-4 w-4 shrink-0" />
+            <span className="text-sm font-medium">✓ Story sequence generated and saved to My Content</span>
+          </div>
+          <Link
+            href={`/brands/${brandId}/library?tab=stories`}
+            className="text-xs font-medium text-green-700 underline underline-offset-2 hover:text-green-900 shrink-0"
+          >
+            View in My Content →
+          </Link>
         </div>
       )}
 

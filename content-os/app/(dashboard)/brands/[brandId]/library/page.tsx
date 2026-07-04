@@ -3,12 +3,12 @@
 import { useState, useCallback, useEffect } from "react"
 import { useParams, useSearchParams } from "next/navigation"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
-import { Archive, Copy, Check, Star, Sparkles, BookOpen, ChevronDown, ChevronUp, Film, LayoutGrid, Megaphone, Mail, FileText, ImageIcon, Download, Search } from "lucide-react"
+import { Archive, Copy, Check, Star, Sparkles, BookOpen, ChevronDown, ChevronUp, Film, LayoutGrid, Megaphone, Mail, FileText, ImageIcon, Download, Search, Zap } from "lucide-react"
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import Link from "next/link"
 import { GenerateVideoAction } from "@/components/shared/GenerateVideoAction"
-import type { HookRow, CaptionRow, ReelScriptRow, CarouselRow, AdCopyRow, EmailSequenceRow, ProductDescriptionRow } from "@/types/database"
+import type { HookRow, CaptionRow, ReelScriptRow, CarouselRow, AdCopyRow, EmailSequenceRow, ProductDescriptionRow, StoryRow } from "@/types/database"
 import type { Json } from "@/types/database"
 import { scoreHook, scoreColor, scoreLabel } from "@/lib/utils/content-score"
 
@@ -322,6 +322,49 @@ function CarouselCard({ carousel, brandId }: { carousel: CarouselRow; brandId: s
   )
 }
 
+// ─── Story card ───────────────────────────────────────────────────────────────
+
+interface StorySlideShape { text?: string; subtext?: string; type?: string }
+
+function StoryCard({ story, brandId }: { story: StoryRow; brandId: string }) {
+  const qc = useQueryClient()
+  const slides = (story.stories as Json[]) ?? []
+  const ratingMutation = useMutation({
+    mutationFn: async (rating: number) => {
+      const res = await fetch(`/api/v1/brands/${brandId}/stories/${story.id}`, {
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ user_rating: rating }),
+      })
+      if (!res.ok) throw new Error("Failed to update rating")
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["library", "stories", brandId] }),
+  })
+  return (
+    <Card className="transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md">
+      <CardHeader className="pb-2">
+        <div className="flex items-start justify-between gap-2">
+          {story.topic && <p className="text-sm font-medium leading-snug line-clamp-2">{story.topic}</p>}
+          <span className="shrink-0 text-xs text-muted-foreground">{new Date(story.created_at).toLocaleDateString()}</span>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <p className="text-xs text-muted-foreground">{slides.length} stor{slides.length !== 1 ? "ies" : "y"}</p>
+        {slides[0] && (
+          <p className="text-xs text-muted-foreground line-clamp-2 italic">
+            Story 1: {(slides[0] as StorySlideShape).text ?? ""}
+          </p>
+        )}
+        <div className="flex items-center justify-between gap-2 pt-1 border-t">
+          <StarRating value={story.user_rating} onChange={(r) => ratingMutation.mutate(r)} disabled={ratingMutation.isPending} />
+          <CopyButton
+            text={slides.map((s, i) => `Story ${i + 1} (${(s as StorySlideShape).type ?? ""}):\n${(s as StorySlideShape).text ?? ""}\n${(s as StorySlideShape).subtext ?? ""}`).join("\n\n")}
+          />
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
 // ─── Ad Copy card ─────────────────────────────────────────────────────────────
 
 function AdCopyCard({ ad, brandId }: { ad: AdCopyRow; brandId: string }) {
@@ -562,6 +605,23 @@ function CarouselsTab({ brandId }: { brandId: string }) {
   )
 }
 
+function StoriesTab({ brandId }: { brandId: string }) {
+  const { data: stories = [], isLoading } = useQuery({
+    queryKey: ["library", "stories", brandId],
+    queryFn: async (): Promise<StoryRow[]> => {
+      const res = await fetch(`/api/v1/brands/${brandId}/stories?saved=true`)
+      if (!res.ok) throw new Error("Failed to fetch stories")
+      return ((await res.json()) as { data: StoryRow[] }).data
+    },
+    enabled: !!brandId,
+  })
+  return isLoading ? <SkeletonGrid /> : stories.length === 0 ? <EmptyState label="saved story sequences" brandId={brandId} /> : (
+    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      {stories.map(s => <StoryCard key={s.id} story={s} brandId={brandId} />)}
+    </div>
+  )
+}
+
 function AdCopyTab({ brandId }: { brandId: string }) {
   const { data: ads = [], isLoading } = useQuery({
     queryKey: ["library", "ad-copies", brandId],
@@ -700,15 +760,16 @@ function ImagesTab({ brandId }: { brandId: string }) {
 
 // ─── Page ──────────────────────────────────────────────────────────────────────
 
-type LibraryTab = "hooks" | "captions" | "scripts" | "carousels" | "ad_copy" | "emails" | "product_descriptions" | "images"
+type LibraryTab = "hooks" | "captions" | "scripts" | "carousels" | "stories" | "ad_copy" | "emails" | "product_descriptions" | "images"
 
-const VALID_TABS = new Set<LibraryTab>(["hooks", "captions", "scripts", "carousels", "ad_copy", "emails", "product_descriptions", "images"])
+const VALID_TABS = new Set<LibraryTab>(["hooks", "captions", "scripts", "carousels", "stories", "ad_copy", "emails", "product_descriptions", "images"])
 
 const TABS: { id: LibraryTab; label: string; icon: React.ElementType }[] = [
   { id: "hooks", label: "Hooks", icon: Sparkles },
   { id: "captions", label: "Captions", icon: Archive },
   { id: "scripts", label: "Scripts", icon: Film },
   { id: "carousels", label: "Carousels", icon: LayoutGrid },
+  { id: "stories", label: "Stories", icon: Zap },
   { id: "ad_copy", label: "Ad Copy", icon: Megaphone },
   { id: "emails", label: "Emails", icon: Mail },
   { id: "product_descriptions", label: "Descriptions", icon: FileText },
@@ -772,6 +833,7 @@ export default function LibraryPage() {
       {activeTab === "captions" && <CaptionsTab brandId={brandId} />}
       {activeTab === "scripts" && <ScriptsTab brandId={brandId} />}
       {activeTab === "carousels" && <CarouselsTab brandId={brandId} />}
+      {activeTab === "stories" && <StoriesTab brandId={brandId} />}
       {activeTab === "ad_copy" && <AdCopyTab brandId={brandId} />}
       {activeTab === "emails" && <EmailsTab brandId={brandId} />}
       {activeTab === "product_descriptions" && <ProductDescTab brandId={brandId} />}
