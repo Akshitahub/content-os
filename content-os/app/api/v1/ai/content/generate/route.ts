@@ -66,6 +66,7 @@ export async function POST(request: Request) {
   const latencyMs = Date.now() - startTime
 
   // Persist each format to its own table
+  let reelScriptId: string | null = null
   try {
     if (format === "social_post") {
       const caption = result.data as GeneratedCaption
@@ -80,12 +81,13 @@ export async function POST(request: Request) {
     } else if (format === "reel_script") {
       const script = result.data as ReelScript
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      await (supabase.from("reel_scripts") as any).insert({
+      const { data: savedScript } = await (supabase.from("reel_scripts") as any).insert({
         brand_id: brandId, product_id: productId ?? null,
         platform: platform ?? null, hook: script.hook,
         scenes: script.scenes, caption: script.caption ?? null,
         hashtags: script.hashtags ?? [], is_saved: true,
-      })
+      }).select("id").single()
+      reelScriptId = savedScript?.id ?? null
     } else if (format === "carousel") {
       const carousel = result.data as CarouselContent
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -120,5 +122,8 @@ export async function POST(request: Request) {
 
   await captureServerEvent(user.id, "content_generated", { content_type: format, brand_id: brandId, platform: platform ?? null })
 
-  return NextResponse.json({ data: { format, content: result.data } }, { status: 200 })
+  return NextResponse.json(
+    { data: { format, content: result.data, ...(format === "reel_script" ? { id: reelScriptId } : {}) } },
+    { status: 200 }
+  )
 }

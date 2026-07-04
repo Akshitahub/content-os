@@ -24,7 +24,7 @@ import type { GenerateHooksInput, GenerateCaptionsInput, GenerateImageInput, Gen
 // Discriminated union so components can narrow on result.format
 export type ContentResult =
   | { format: "social_post"; content: GeneratedCaption }
-  | { format: "reel_script"; content: ReelScript }
+  | { format: "reel_script"; content: ReelScript; id: string | null }
   | { format: "story"; content: StoryContent }
   | { format: "carousel"; content: CarouselContent }
   | { format: "blog_post"; content: BlogPost }
