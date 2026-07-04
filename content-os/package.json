@@ -37,6 +37,7 @@
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "react-hook-form": "^7.78.0",
+    "remotion": "^4.0.484",
     "resend": "^6.12.4",
     "stripe": "^22.3.0",
     "tailwind-merge": "^3.6.0",
@@ -47,6 +48,7 @@
   },
   "devDependencies": {
     "@csstools/postcss-oklab-function": "^5.0.6",
+    "@remotion/cli": "^4.0.484",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20.19.43",
     "@types/react": "^19",
