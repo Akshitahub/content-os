@@ -1,12 +1,17 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
-import { Loader2, Copy, Check, RefreshCw, Download, AlertCircle, Image } from "lucide-react"
+import { useState, useEffect, useRef, useCallback } from "react"
+import { Loader2, Copy, Check, RefreshCw, Download, AlertCircle, Image, CalendarClock } from "lucide-react"
 import type { MemeFormat, MemeResult } from "@/app/api/v1/ai/meme/generate/route"
-import { downloadElementAsImage } from "@/lib/utils/download-as-image"
+import { downloadElementAsImage, captureElementAsDataUrl } from "@/lib/utils/download-as-image"
 import { GenerationWarning } from "@/components/shared/GenerationWarning"
 import { getFriendlyError } from "@/lib/utils/error-messages"
 import { TopicSuggestButton } from "@/components/shared/TopicSuggestButton"
+import { Button } from "@/components/ui/button"
+import { Label } from "@/components/ui/label"
+import { Input } from "@/components/ui/input"
+import { isApiError } from "@/types/api"
+import Link from "next/link"
 
 // ─── Meme format cards ─────────────────────────────────────────────────────────
 
@@ -185,6 +190,223 @@ function MemeDisplay({ meme, brandName }: { meme: MemeResult; brandName: string 
   }
   // brand watermark is shown below in parent
   void brandName
+}
+
+// ─── Schedule to Instagram/Facebook ──────────────────────────────────────────
+
+interface ConnectionStatus {
+  connected: boolean
+  facebook_connected: boolean
+  instagram_connected: boolean
+}
+
+function ScheduleAction({
+  brandId,
+  elementId,
+  caption,
+  hashtags,
+}: {
+  brandId: string
+  elementId: string
+  caption: string
+  hashtags: string[]
+}) {
+  const [open, setOpen] = useState(false)
+  const [connection, setConnection] = useState<ConnectionStatus | null>(null)
+  const [checkingConnection, setCheckingConnection] = useState(false)
+  const [connectionError, setConnectionError] = useState(false)
+  const [platform, setPlatform] = useState<"instagram" | "facebook">("instagram")
+  const [date, setDate] = useState(() => {
+    const d = new Date()
+    d.setDate(d.getDate() + 1)
+    return d.toISOString().split("T")[0]
+  })
+  const [time, setTime] = useState("10:00")
+  const [submitState, setSubmitState] = useState<"idle" | "loading" | "success" | "error">("idle")
+  const [errorMsg, setErrorMsg] = useState<string | null>(null)
+  const [successInfo, setSuccessInfo] = useState<{ platform: string; date: string; time: string } | null>(null)
+
+  const checkConnection = useCallback(async () => {
+    setCheckingConnection(true)
+    setConnectionError(false)
+    try {
+      const res = await fetch(`/api/v1/brands/${brandId}/social-connections`)
+      const json: unknown = await res.json()
+      if (res.ok && !isApiError(json)) {
+        const data = (json as { data: ConnectionStatus }).data
+        setConnection(data)
+        setPlatform(data.instagram_connected ? "instagram" : "facebook")
+      } else {
+        setConnectionError(true)
+      }
+    } catch {
+      setConnectionError(true)
+    } finally {
+      setCheckingConnection(false)
+    }
+  }, [brandId])
+
+  const openPanel = useCallback(() => {
+    setOpen(true)
+    if (!connection && !checkingConnection) checkConnection()
+  }, [connection, checkingConnection, checkConnection])
+
+  const closePanel = useCallback(() => {
+    setOpen(false)
+    setSubmitState("idle")
+    setErrorMsg(null)
+    setSuccessInfo(null)
+  }, [])
+
+  const handleConfirm = useCallback(async () => {
+    setSubmitState("loading")
+    setErrorMsg(null)
+
+    // Capture the rendered meme as a data URL right before scheduling —
+    // the meme only exists as a DOM element, not a stored image URL.
+    const imageUrl = await captureElementAsDataUrl(elementId)
+    if (!imageUrl) {
+      setErrorMsg("Couldn't capture the meme image. Please try again.")
+      setSubmitState("error")
+      return
+    }
+
+    try {
+      const res = await fetch("/api/v1/calendar/schedule-post", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          brandId,
+          platform,
+          imageUrl,
+          caption,
+          hashtags: hashtags.map((h) => h.replace(/^#+/, "")),
+          scheduledDate: date,
+          scheduledTime: time,
+        }),
+      })
+      const json: unknown = await res.json()
+      if (!res.ok || isApiError(json)) {
+        const msg = isApiError(json) ? json.error.message : "Failed to schedule post."
+        setErrorMsg(msg)
+        setSubmitState("error")
+        return
+      }
+      setSuccessInfo({ platform, date, time })
+      setSubmitState("success")
+    } catch {
+      setErrorMsg("Network error. Please try again.")
+      setSubmitState("error")
+    }
+  }, [brandId, platform, elementId, caption, hashtags, date, time])
+
+  if (!open) {
+    return (
+      <Button variant="outline" size="sm" onClick={openPanel} className="flex items-center gap-1.5">
+        <CalendarClock className="h-3.5 w-3.5" /> Schedule to Instagram/Facebook
+      </Button>
+    )
+  }
+
+  return (
+    <div className="rounded-lg border bg-card p-4 space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Schedule post</span>
+        <button type="button" onClick={closePanel} className="text-xs text-muted-foreground hover:text-foreground transition-colors">
+          Close
+        </button>
+      </div>
+
+      {checkingConnection && (
+        <p className="text-sm text-muted-foreground">Checking your connection…</p>
+      )}
+
+      {!checkingConnection && connectionError && (
+        <div className="rounded-md border border-amber-200 bg-amber-50 p-3 space-y-1.5">
+          <p className="text-sm text-amber-900">Couldn&apos;t check your connection status.</p>
+          <button
+            type="button"
+            onClick={checkConnection}
+            className="text-xs font-semibold text-amber-700 underline underline-offset-2 hover:text-amber-900"
+          >
+            Try again
+          </button>
+        </div>
+      )}
+
+      {!checkingConnection && !connectionError && connection && !connection.connected && (
+        <div className="rounded-md border border-amber-200 bg-amber-50 p-3 space-y-1.5">
+          <p className="text-sm text-amber-900">Connect Instagram or Facebook first to schedule posts.</p>
+          <Link
+            href={`/brands/${brandId}`}
+            className="text-xs font-semibold text-amber-700 underline underline-offset-2 hover:text-amber-900"
+          >
+            Go to brand settings →
+          </Link>
+        </div>
+      )}
+
+      {!checkingConnection && !connectionError && connection?.connected && submitState !== "success" && (
+        <div className="space-y-3">
+          <div className="space-y-1.5">
+            <Label className="text-xs">Platform</Label>
+            <div className="flex gap-1.5">
+              <button
+                type="button"
+                disabled={!connection.instagram_connected}
+                onClick={() => setPlatform("instagram")}
+                title={!connection.instagram_connected ? "No Instagram Business account linked" : undefined}
+                className={`rounded-full px-3 py-1 text-xs font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+                  platform === "instagram" ? "bg-primary text-primary-foreground" : "bg-secondary text-secondary-foreground hover:bg-secondary/80"
+                }`}
+              >
+                Instagram
+              </button>
+              <button
+                type="button"
+                disabled={!connection.facebook_connected}
+                onClick={() => setPlatform("facebook")}
+                title={!connection.facebook_connected ? "Facebook not connected" : undefined}
+                className={`rounded-full px-3 py-1 text-xs font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+                  platform === "facebook" ? "bg-primary text-primary-foreground" : "bg-secondary text-secondary-foreground hover:bg-secondary/80"
+                }`}
+              >
+                Facebook
+              </button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label className="text-xs">Date</Label>
+              <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Time</Label>
+              <Input type="time" value={time} onChange={(e) => setTime(e.target.value)} />
+            </div>
+          </div>
+
+          <Button size="sm" className="w-full" onClick={handleConfirm} disabled={submitState === "loading"}>
+            {submitState === "loading" ? "Scheduling…" : "Confirm schedule"}
+          </Button>
+
+          {submitState === "error" && errorMsg && (
+            <p className="text-sm text-destructive">{errorMsg}</p>
+          )}
+        </div>
+      )}
+
+      {submitState === "success" && successInfo && (
+        <div className="flex items-center gap-2 rounded-md border border-green-200 bg-green-50 px-3 py-2">
+          <Check className="h-4 w-4 text-green-500 shrink-0" />
+          <span className="text-sm font-medium text-green-700">
+            Scheduled for {successInfo.platform === "instagram" ? "Instagram" : "Facebook"} on {successInfo.date} at {successInfo.time}
+          </span>
+        </div>
+      )}
+    </div>
+  )
 }
 
 // ─── Main component ───────────────────────────────────────────────────────────
@@ -407,6 +629,13 @@ export function MemeMaker({ brandId }: { brandId: string }) {
               <RefreshCw className="h-3.5 w-3.5" /> Regenerate
             </button>
           </div>
+
+          <ScheduleAction
+            brandId={brandId}
+            elementId="meme-result"
+            caption={meme.caption}
+            hashtags={meme.hashtags}
+          />
         </div>
       )}
     </div>

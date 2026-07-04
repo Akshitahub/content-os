@@ -1,14 +1,13 @@
 import { toPng } from "html-to-image"
 
-export async function downloadElementAsImage(
+export async function captureElementAsDataUrl(
   elementId: string,
-  filename: string,
   scale: number = 2
-): Promise<boolean> {
+): Promise<string | null> {
   const element = document.getElementById(elementId)
   if (!element) {
     console.error(`[download] Element "${elementId}" not found in DOM`)
-    return false
+    return null
   }
   try {
     const dataUrl = await toPng(element, {
@@ -22,19 +21,30 @@ export async function downloadElementAsImage(
     })
     if (!dataUrl || dataUrl === "data:,") {
       console.error("[download] toPng returned an empty image")
-      return false
+      return null
     }
-    const link = document.createElement("a")
-    link.download = `${filename}.png`
-    link.href = dataUrl
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
-    return true
+    return dataUrl
   } catch (err) {
     console.error("[download] toPng failed:", err)
-    return false
+    return null
   }
+}
+
+export async function downloadElementAsImage(
+  elementId: string,
+  filename: string,
+  scale: number = 2
+): Promise<boolean> {
+  const dataUrl = await captureElementAsDataUrl(elementId, scale)
+  if (!dataUrl) return false
+
+  const link = document.createElement("a")
+  link.download = `${filename}.png`
+  link.href = dataUrl
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  return true
 }
 
 export async function downloadMultipleAsImages(
