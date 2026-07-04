@@ -1,11 +1,10 @@
 "use client"
 
-import { useState, useCallback } from "react"
+import { useState, useCallback, useEffect } from "react"
 import { Loader2, AlertCircle, TrendingUp, ExternalLink, Flame, Wand2 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Label } from "@/components/ui/label"
-import { Input } from "@/components/ui/input"
+import Link from "next/link"
 import { isApiError } from "@/types/api"
 
 const MAX_COMPETITORS = 5
@@ -47,6 +46,12 @@ interface CompetitorResult {
 interface AnalysisResponse {
   own: AccountMetrics | null
   competitors: CompetitorResult[]
+}
+
+interface ConnectionStatus {
+  connected: boolean
+  facebook_connected: boolean
+  instagram_connected: boolean
 }
 
 function formatRate(rate: number | null): string {
@@ -173,7 +178,7 @@ function AutoDiscoverSection({
       setSuccessMsg(
         data.competitors.length > 0
           ? `Found ${data.competitors.length} verified competitor${data.competitors.length !== 1 ? "s" : ""} and analyzed them.`
-          : "Couldn't verify any competitor Instagram accounts — try entering handles manually below."
+          : "Couldn't verify any competitor Instagram accounts. Add real competitor names in your brand's Competitors field (in brand settings) and try again."
       )
     } catch {
       setError("Network error. Please try again.")
@@ -213,52 +218,37 @@ function AutoDiscoverSection({
   )
 }
 
-export function CompetitorAnalysis({ brandId, competitorNames }: { brandId: string; competitorNames: string[] }) {
-  const [handleInputs, setHandleInputs] = useState<string[]>(() =>
-    Array.from({ length: MAX_COMPETITORS }, (_, i) => "")
-  )
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+export function CompetitorAnalysis({ brandId }: { brandId: string }) {
   const [result, setResult] = useState<AnalysisResponse | null>(null)
+  const [connection, setConnection] = useState<ConnectionStatus | null>(null)
+  const [checkingConnection, setCheckingConnection] = useState(false)
+  const [connectionError, setConnectionError] = useState(false)
 
-  const updateHandle = useCallback((index: number, value: string) => {
-    setHandleInputs((prev) => prev.map((h, i) => (i === index ? value : h)))
-  }, [])
+  const checkConnection = useCallback(async () => {
+    setCheckingConnection(true)
+    setConnectionError(false)
+    try {
+      const res = await fetch(`/api/v1/brands/${brandId}/social-connections`)
+      const json: unknown = await res.json()
+      if (res.ok && !isApiError(json)) {
+        setConnection((json as { data: ConnectionStatus }).data)
+      } else {
+        setConnectionError(true)
+      }
+    } catch {
+      setConnectionError(true)
+    } finally {
+      setCheckingConnection(false)
+    }
+  }, [brandId])
+
+  useEffect(() => {
+    checkConnection()
+  }, [checkConnection])
 
   const handleAutoDiscoverResult = useCallback((data: AnalysisResponse) => {
-    setError(null)
     setResult(data)
   }, [])
-
-  const runAnalysis = useCallback(async () => {
-    const handles = handleInputs.map((h) => h.trim().replace(/^@/, "")).filter(Boolean)
-    if (handles.length === 0) {
-      setError("Enter at least one competitor's Instagram handle.")
-      return
-    }
-
-    setLoading(true)
-    setError(null)
-    setResult(null)
-    try {
-      const res = await fetch(`/api/v1/brands/${brandId}/competitor-analysis`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ handles }),
-      })
-      const json: unknown = await res.json()
-      if (!res.ok || isApiError(json)) {
-        const msg = isApiError(json) ? json.error.message : "Failed to run competitor analysis."
-        setError(msg)
-        return
-      }
-      setResult((json as { data: AnalysisResponse }).data)
-    } catch {
-      setError("Network error. Please try again.")
-    } finally {
-      setLoading(false)
-    }
-  }, [brandId, handleInputs])
 
   return (
     <Card>
@@ -271,40 +261,37 @@ export function CompetitorAnalysis({ brandId, competitorNames }: { brandId: stri
           engagement rates for any public Instagram Business/Creator account. Requires Instagram connected above.
         </p>
 
-        <AutoDiscoverSection brandId={brandId} onResult={handleAutoDiscoverResult} />
+        {checkingConnection && (
+          <p className="text-sm text-muted-foreground">Checking your connection…</p>
+        )}
 
-        <p className="text-center text-xs font-medium text-muted-foreground">Or enter handles manually</p>
+        {!checkingConnection && connectionError && (
+          <div className="rounded-md border border-amber-200 bg-amber-50 p-3 space-y-1.5">
+            <p className="text-sm text-amber-900">Couldn&apos;t check your connection status.</p>
+            <button
+              type="button"
+              onClick={checkConnection}
+              className="text-xs font-semibold text-amber-700 underline underline-offset-2 hover:text-amber-900"
+            >
+              Try again
+            </button>
+          </div>
+        )}
 
-        <div className="space-y-2">
-          {handleInputs.map((value, i) => (
-            <div key={i} className="flex items-center gap-2">
-              <Label className="w-28 shrink-0 truncate text-xs" title={competitorNames[i]}>
-                {competitorNames[i] ?? `Competitor ${i + 1}`}
-              </Label>
-              <Input
-                placeholder="@handle"
-                value={value}
-                onChange={(e) => updateHandle(i, e.target.value)}
-                className="text-sm"
-              />
-            </div>
-          ))}
-        </div>
+        {!checkingConnection && !connectionError && connection && !connection.instagram_connected && (
+          <div className="rounded-md border border-amber-200 bg-amber-50 p-3 space-y-1.5">
+            <p className="text-sm text-amber-900">Connect Instagram first to run competitor analysis.</p>
+            <Link
+              href={`/brands/${brandId}`}
+              className="text-xs font-semibold text-amber-700 underline underline-offset-2 hover:text-amber-900"
+            >
+              Go to brand settings →
+            </Link>
+          </div>
+        )}
 
-        <Button size="sm" onClick={runAnalysis} disabled={loading} className="w-full">
-          {loading ? (
-            <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Running analysis…</>
-          ) : (
-            "Run analysis"
-          )}
-        </Button>
-
-        {error && <p className="text-sm text-destructive">{error}</p>}
-
-        {loading && (
-          <p className="text-xs text-muted-foreground text-center">
-            Looking up each account and generating insights — this can take a moment for multiple competitors.
-          </p>
+        {!checkingConnection && !connectionError && connection?.instagram_connected && (
+          <AutoDiscoverSection brandId={brandId} onResult={handleAutoDiscoverResult} />
         )}
 
         {result && (

@@ -168,7 +168,7 @@ export default async function BrandDetailPage({ params }: PageProps) {
         </div>
 
         <div className="lg:col-span-2">
-          <CompetitorAnalysis brandId={brandId} competitorNames={brand.competitors} />
+          <CompetitorAnalysis brandId={brandId} />
         </div>
       </div>
     </div>
