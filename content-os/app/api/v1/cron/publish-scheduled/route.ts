@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { createAdminClient } from "@/lib/supabase/server"
 import { publishToInstagram } from "@/lib/social/instagram-publish"
 import { publishToFacebook } from "@/lib/social/facebook-publish"
+import { publishCarouselToInstagram } from "@/lib/social/instagram-carousel-publish"
 import { uploadMediaToStorage } from "@/lib/storage/upload-media"
 import type { SupabaseClient } from "@supabase/supabase-js"
 import type { Database, CalendarEntryRow, SocialConnectionRow } from "@/types/database"
@@ -85,34 +86,85 @@ async function processEntry(admin: AdminClient, entry: CalendarEntryRow): Promis
   }
 
   const platformData = (entry.platform_specific_data ?? {}) as Record<string, unknown>
-  let imageUrl = typeof platformData.hosted_image_url === "string"
-    ? platformData.hosted_image_url
-    : null
+  const isCarousel = platformData.content_format === "carousel"
 
-  if (!imageUrl) {
-    const sourceUrl = typeof platformData.image_url === "string" ? platformData.image_url : null
-    if (!sourceUrl) {
-      console.error(`[cron/publish-scheduled] entry ${entry.id}: no publishable image (content_type=${entry.content_type})`)
-      return await recordFailure(admin, entry, "No publishable image available for this content type.")
+  if (isCarousel && entry.platform !== "instagram") {
+    console.error(`[cron/publish-scheduled] entry ${entry.id}: carousel scheduled for ${entry.platform}, which isn't supported`)
+    return await recordFailure(admin, entry, "Carousel scheduling is Instagram-only.")
+  }
+
+  let imageUrl: string | null = null
+  let imageUrls: string[] | null = null
+
+  if (isCarousel) {
+    const cachedUrls = Array.isArray(platformData.hosted_image_urls)
+      ? platformData.hosted_image_urls.filter((u): u is string => typeof u === "string")
+      : null
+
+    if (cachedUrls && cachedUrls.length > 0) {
+      imageUrls = cachedUrls
+    } else {
+      const sourceUrls = Array.isArray(platformData.image_urls)
+        ? platformData.image_urls.filter((u): u is string => typeof u === "string")
+        : []
+      if (sourceUrls.length === 0) {
+        console.error(`[cron/publish-scheduled] entry ${entry.id}: no publishable images (content_type=${entry.content_type})`)
+        return await recordFailure(admin, entry, "No publishable images available for this content type.")
+      }
+
+      const hostedUrls: string[] = []
+      for (let i = 0; i < sourceUrls.length; i++) {
+        const uploadResult = await uploadMediaToStorage(
+          { kind: "remoteUrl", url: sourceUrls[i]! },
+          `${entry.brand_id}/${entry.id}-${i}`
+        )
+        if ("error" in uploadResult) {
+          console.error(`[cron/publish-scheduled] entry ${entry.id}: failed to host carousel image ${i + 1}/${sourceUrls.length}:`, uploadResult.error)
+          return await recordFailure(admin, entry, `Failed to prepare image ${i + 1} of ${sourceUrls.length} for publishing: ${uploadResult.error}`)
+        }
+        hostedUrls.push(uploadResult.publicUrl)
+      }
+
+      imageUrls = hostedUrls
+
+      // Persist the re-hosted URLs so a retry doesn't re-fetch/re-upload them.
+      const { error: persistError } = await calendarEntriesTable(admin)
+        .update({ platform_specific_data: { ...platformData, hosted_image_urls: imageUrls } })
+        .eq("id", entry.id)
+      if (persistError) {
+        console.error(`[cron/publish-scheduled] entry ${entry.id}: failed to persist hosted image urls:`, persistError.message)
+      }
     }
+  } else {
+    imageUrl = typeof platformData.hosted_image_url === "string"
+      ? platformData.hosted_image_url
+      : null
 
-    const uploadResult = await uploadMediaToStorage(
-      { kind: "remoteUrl", url: sourceUrl },
-      `${entry.brand_id}/${entry.id}`
-    )
-    if ("error" in uploadResult) {
-      console.error(`[cron/publish-scheduled] entry ${entry.id}: failed to host image:`, uploadResult.error)
-      return await recordFailure(admin, entry, `Failed to prepare image for publishing: ${uploadResult.error}`)
-    }
+    if (!imageUrl) {
+      const sourceUrl = typeof platformData.image_url === "string" ? platformData.image_url : null
+      if (!sourceUrl) {
+        console.error(`[cron/publish-scheduled] entry ${entry.id}: no publishable image (content_type=${entry.content_type})`)
+        return await recordFailure(admin, entry, "No publishable image available for this content type.")
+      }
 
-    imageUrl = uploadResult.publicUrl
+      const uploadResult = await uploadMediaToStorage(
+        { kind: "remoteUrl", url: sourceUrl },
+        `${entry.brand_id}/${entry.id}`
+      )
+      if ("error" in uploadResult) {
+        console.error(`[cron/publish-scheduled] entry ${entry.id}: failed to host image:`, uploadResult.error)
+        return await recordFailure(admin, entry, `Failed to prepare image for publishing: ${uploadResult.error}`)
+      }
 
-    // Persist the re-hosted URL so a retry doesn't re-fetch/re-upload it.
-    const { error: persistError } = await calendarEntriesTable(admin)
-      .update({ platform_specific_data: { ...platformData, hosted_image_url: imageUrl } })
-      .eq("id", entry.id)
-    if (persistError) {
-      console.error(`[cron/publish-scheduled] entry ${entry.id}: failed to persist hosted image url:`, persistError.message)
+      imageUrl = uploadResult.publicUrl
+
+      // Persist the re-hosted URL so a retry doesn't re-fetch/re-upload it.
+      const { error: persistError } = await calendarEntriesTable(admin)
+        .update({ platform_specific_data: { ...platformData, hosted_image_url: imageUrl } })
+        .eq("id", entry.id)
+      if (persistError) {
+        console.error(`[cron/publish-scheduled] entry ${entry.id}: failed to persist hosted image url:`, persistError.message)
+      }
     }
   }
 
@@ -125,10 +177,12 @@ async function processEntry(admin: AdminClient, entry: CalendarEntryRow): Promis
     return await recordFailure(admin, entry, "No caption text available.")
   }
 
-  const publishResult = entry.platform === "instagram"
+  const publishResult = isCarousel
     // ig_business_account_id is guaranteed non-null here — checked above.
-    ? await publishToInstagram(connection.ig_business_account_id!, connection.access_token, { imageUrl, caption })
-    : await publishToFacebook(connection.facebook_page_id, connection.access_token, { imageUrl, message: caption })
+    ? await publishCarouselToInstagram(connection.ig_business_account_id!, connection.access_token, { imageUrls: imageUrls!, caption })
+    : entry.platform === "instagram"
+      ? await publishToInstagram(connection.ig_business_account_id!, connection.access_token, { imageUrl: imageUrl!, caption })
+      : await publishToFacebook(connection.facebook_page_id, connection.access_token, { imageUrl: imageUrl!, message: caption })
 
   if (!publishResult.success) {
     console.error(`[cron/publish-scheduled] entry ${entry.id}: publish failed (retryable=${publishResult.retryable}) — ${publishResult.error}`)
@@ -146,7 +200,7 @@ async function processEntry(admin: AdminClient, entry: CalendarEntryRow): Promis
       status: "published",
       platform_specific_data: {
         ...platformData,
-        hosted_image_url: imageUrl,
+        ...(isCarousel ? { hosted_image_urls: imageUrls } : { hosted_image_url: imageUrl }),
         [mediaIdKey]: externalId,
       },
       updated_at: publishedAt,
