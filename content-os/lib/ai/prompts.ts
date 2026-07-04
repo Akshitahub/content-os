@@ -1,7 +1,7 @@
 import type { BrandRow, ProductRow } from "@/types/database"
 import type { HookType, Platform } from "@/types/app"
 
-const QUALITY_BAR = `
+export const QUALITY_BAR = `
 
 QUALITY STANDARD — every piece of content must meet this bar:
 - Sound like a skilled human copywriter wrote it, not a generic AI
@@ -11,7 +11,7 @@ QUALITY STANDARD — every piece of content must meet this bar:
 - Match the EXACT tone_of_voice provided — if it's "playful", be genuinely funny; if "premium", be genuinely elevated
 - NEVER mention third-party platforms (Amazon, Flipkart, Myntra, Nykaa, Meesho, etc.) unless explicitly part of the brand's stated sales channels`
 
-function buildBrandContext(brand: BrandRow, product?: ProductRow | null): string {
+export function buildBrandContext(brand: BrandRow, product?: ProductRow | null): string {
   const lines: string[] = [
     `Brand: ${brand.name}`,
   ]
