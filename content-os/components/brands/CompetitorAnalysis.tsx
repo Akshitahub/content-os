@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useCallback } from "react"
-import { Loader2, AlertCircle, TrendingUp, ExternalLink, Flame } from "lucide-react"
+import { Loader2, AlertCircle, TrendingUp, ExternalLink, Flame, Wand2 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
@@ -35,6 +35,8 @@ interface CompetitorMetrics extends AccountMetrics {
 
 interface CompetitorResult {
   handle: string
+  candidateName?: string
+  source?: "brand_field" | "ai_guess"
   success: boolean
   error: string | null
   profile: { username: string; followersCount: number; mediaCount: number; biography: string | null; website: string | null } | null
@@ -72,9 +74,21 @@ function CompetitorCard({ result }: { result: CompetitorResult }) {
 
   return (
     <div className="rounded-lg border bg-card p-4 space-y-3">
-      <div className="flex items-center justify-between">
-        <p className="text-sm font-semibold">@{profile.username}</p>
-        <span className="text-xs text-muted-foreground">{profile.followersCount.toLocaleString()} followers</span>
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 min-w-0">
+          <p className="text-sm font-semibold truncate">@{profile.username}</p>
+          {result.source === "brand_field" && (
+            <span className="shrink-0 rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-semibold text-blue-700">
+              From your competitor list
+            </span>
+          )}
+          {result.source === "ai_guess" && (
+            <span className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
+              AI-suggested match
+            </span>
+          )}
+        </div>
+        <span className="shrink-0 text-xs text-muted-foreground">{profile.followersCount.toLocaleString()} followers</span>
       </div>
       {profile.biography && <p className="text-xs text-muted-foreground line-clamp-2">{profile.biography}</p>}
 
@@ -127,6 +141,78 @@ function CompetitorCard({ result }: { result: CompetitorResult }) {
   )
 }
 
+function AutoDiscoverSection({
+  brandId,
+  onResult,
+}: {
+  brandId: string
+  onResult: (data: AnalysisResponse) => void
+}) {
+  const [loading, setLoading] = useState(false)
+  const [successMsg, setSuccessMsg] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  const handleAutoDiscover = useCallback(async () => {
+    setLoading(true)
+    setSuccessMsg(null)
+    setError(null)
+    try {
+      const res = await fetch(`/api/v1/brands/${brandId}/competitor-analysis/auto-discover`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ count: MAX_COMPETITORS }),
+      })
+      const json: unknown = await res.json()
+      if (!res.ok || isApiError(json)) {
+        const msg = isApiError(json) ? json.error.message : "Auto-discovery failed."
+        setError(msg)
+        return
+      }
+      const data = (json as { data: AnalysisResponse }).data
+      onResult(data)
+      setSuccessMsg(
+        data.competitors.length > 0
+          ? `Found ${data.competitors.length} verified competitor${data.competitors.length !== 1 ? "s" : ""} and analyzed them.`
+          : "Couldn't verify any competitor Instagram accounts — try entering handles manually below."
+      )
+    } catch {
+      setError("Network error. Please try again.")
+    } finally {
+      setLoading(false)
+    }
+  }, [brandId, onResult])
+
+  return (
+    <div className="rounded-lg border border-violet-200 bg-violet-50/30 p-4 space-y-2">
+      <p className="flex items-center gap-2 text-sm font-semibold text-violet-900">
+        <Wand2 className="h-4 w-4 text-violet-600" /> Auto-discover competitors
+      </p>
+      <p className="text-xs text-muted-foreground">
+        Uses your saved competitors first, and verifies each has a real public Instagram account before showing it.
+      </p>
+      <Button
+        size="sm"
+        onClick={handleAutoDiscover}
+        disabled={loading}
+        className="w-full bg-violet-600 hover:bg-violet-700"
+      >
+        {loading ? (
+          <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Searching…</>
+        ) : (
+          <><Wand2 className="h-3.5 w-3.5 mr-1.5" /> Find competitors for me</>
+        )}
+      </Button>
+      {loading && (
+        <p className="animate-pulse text-xs text-muted-foreground text-center">
+          Verifying accounts and generating insights — this can take up to a minute.
+        </p>
+      )}
+      {successMsg && <p className="text-xs font-medium text-green-700">{successMsg}</p>}
+      {error && <p className="text-xs text-destructive">{error}</p>}
+    </div>
+  )
+}
+
 export function CompetitorAnalysis({ brandId, competitorNames }: { brandId: string; competitorNames: string[] }) {
   const [handleInputs, setHandleInputs] = useState<string[]>(() =>
     Array.from({ length: MAX_COMPETITORS }, (_, i) => "")
@@ -137,6 +223,11 @@ export function CompetitorAnalysis({ brandId, competitorNames }: { brandId: stri
 
   const updateHandle = useCallback((index: number, value: string) => {
     setHandleInputs((prev) => prev.map((h, i) => (i === index ? value : h)))
+  }, [])
+
+  const handleAutoDiscoverResult = useCallback((data: AnalysisResponse) => {
+    setError(null)
+    setResult(data)
   }, [])
 
   const runAnalysis = useCallback(async () => {
@@ -179,6 +270,10 @@ export function CompetitorAnalysis({ brandId, competitorNames }: { brandId: stri
           Uses Instagram&apos;s public Business Discovery API — real follower counts, posting frequency, and
           engagement rates for any public Instagram Business/Creator account. Requires Instagram connected above.
         </p>
+
+        <AutoDiscoverSection brandId={brandId} onResult={handleAutoDiscoverResult} />
+
+        <p className="text-center text-xs font-medium text-muted-foreground">Or enter handles manually</p>
 
         <div className="space-y-2">
           {handleInputs.map((value, i) => (
