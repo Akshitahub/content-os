@@ -860,6 +860,43 @@ export type Database = {
           is_active?: boolean
         }
       }
+      reel_video_jobs: {
+        Row: {
+          id: string
+          brand_id: string
+          reel_script_id: string
+          status: "pending" | "generating_images" | "generating_voiceover" | "assets_ready" | "rendering" | "completed" | "failed"
+          progress_message: string | null
+          scene_assets: Json
+          music_url: string | null
+          video_url: string | null
+          error_message: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          brand_id: string
+          reel_script_id: string
+          status?: "pending" | "generating_images" | "generating_voiceover" | "assets_ready" | "rendering" | "completed" | "failed"
+          progress_message?: string | null
+          scene_assets?: Json
+          music_url?: string | null
+          video_url?: string | null
+          error_message?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          status?: "pending" | "generating_images" | "generating_voiceover" | "assets_ready" | "rendering" | "completed" | "failed"
+          progress_message?: string | null
+          scene_assets?: Json
+          music_url?: string | null
+          video_url?: string | null
+          error_message?: string | null
+          updated_at?: string
+        }
+      }
     }
     Views: Record<string, never>
     Functions: Record<string, never>
@@ -886,6 +923,7 @@ export type AdCopyRow = Database["public"]["Tables"]["ad_copies"]["Row"]
 export type EmailSequenceRow = Database["public"]["Tables"]["email_sequences"]["Row"]
 export type ProductDescriptionRow = Database["public"]["Tables"]["product_descriptions"]["Row"]
 export type SocialConnectionRow = Database["public"]["Tables"]["social_connections"]["Row"]
+export type ReelVideoJobRow = Database["public"]["Tables"]["reel_video_jobs"]["Row"]
 
 // Insert types
 export type UserInsert = Database["public"]["Tables"]["users"]["Insert"]
@@ -906,3 +944,4 @@ export type AdCopyInsert = Database["public"]["Tables"]["ad_copies"]["Insert"]
 export type EmailSequenceInsert = Database["public"]["Tables"]["email_sequences"]["Insert"]
 export type ProductDescriptionInsert = Database["public"]["Tables"]["product_descriptions"]["Insert"]
 export type SocialConnectionInsert = Database["public"]["Tables"]["social_connections"]["Insert"]
+export type ReelVideoJobInsert = Database["public"]["Tables"]["reel_video_jobs"]["Insert"]
