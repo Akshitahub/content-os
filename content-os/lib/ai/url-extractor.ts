@@ -101,12 +101,11 @@ export async function extractBrandFromPage(page: FetchedPage): Promise<Extracted
   const response = await groq.chat.completions.create({
     model: MODELS.extraction,
     temperature: 0.3,
+    response_format: { type: "json_object" },
     messages: [
       {
         role: "system",
-        content: `You read a brand's website (usually a homepage or "about" page) and extract a structured brand profile for use in an AI content-generation tool. Infer sensibly from tone and content even if a field isn't stated outright — but don't invent specific facts that aren't present on the page. If something genuinely can't be determined, return an empty string or empty array for it.
-
-Respond with this exact JSON shape:
+        content: `You read a brand's website (usually a homepage or "about" page) and extract a structured brand profile for use in an AI content-generation tool. Infer sensibly from tone and content even if a field isn't stated outright — but don't invent specific facts that aren't present on the page. If something genuinely can't be determined, return an empty string or empty array for it. Respond with ONLY the JSON object below — no preamble, no explanation, no markdown code fences.
 {
   "name": "the brand's name",
   "description": "one-sentence description of what the brand does/sells",
@@ -129,7 +128,14 @@ Respond with this exact JSON shape:
   })
 
   const raw = response.choices[0]?.message?.content ?? "{}"
-  const cleaned = raw.replace(/```json\n?/g, "").replace(/```\n?/g, "").replace(/[\x00-\x1F\x7F]/g, " ").trim()
+  let cleaned = raw.replace(/```json\n?/g, "").replace(/```\n?/g, "").replace(/[\x00-\x1F\x7F]/g, " ").trim()
+  if (!cleaned.startsWith("{")) {
+    const start = cleaned.indexOf("{")
+    const end = cleaned.lastIndexOf("}")
+    if (start !== -1 && end !== -1 && end > start) {
+      cleaned = cleaned.slice(start, end + 1)
+    }
+  }
   let parsed: Partial<ExtractedBrandData>
   try {
     parsed = JSON.parse(cleaned)
@@ -180,12 +186,11 @@ export async function extractProductFromPage(page: FetchedPage): Promise<Extract
   const response = await groq.chat.completions.create({
     model: MODELS.extraction,
     temperature: 0.3,
+    response_format: { type: "json_object" },
     messages: [
       {
         role: "system",
-        content: `You read a single product page (often from a Shopify or D2C store) and extract structured product details for an AI content-generation tool. Prefer JSON-LD structured data for price if present — it's the most reliable source. Don't invent facts not present on the page; use an empty string/array/null if something isn't there.
-
-Respond with this exact JSON shape:
+        content: `You read a single product page (often from a Shopify or D2C store) and extract structured product details for an AI content-generation tool. Prefer JSON-LD structured data for price if present — it's the most reliable source. Don't invent facts not present on the page; use an empty string/array/null if something isn't there. Respond with ONLY the JSON object below — no preamble, no explanation, no markdown code fences.
 {
   "name": "the product's name",
   "description": "1-2 sentence description of what it is / does",
@@ -202,7 +207,14 @@ Respond with this exact JSON shape:
   })
 
   const raw = response.choices[0]?.message?.content ?? "{}"
-  const cleaned = raw.replace(/```json\n?/g, "").replace(/```\n?/g, "").replace(/[\x00-\x1F\x7F]/g, " ").trim()
+  let cleaned = raw.replace(/```json\n?/g, "").replace(/```\n?/g, "").replace(/[\x00-\x1F\x7F]/g, " ").trim()
+  if (!cleaned.startsWith("{")) {
+    const start = cleaned.indexOf("{")
+    const end = cleaned.lastIndexOf("}")
+    if (start !== -1 && end !== -1 && end > start) {
+      cleaned = cleaned.slice(start, end + 1)
+    }
+  }
   let parsed: Partial<ExtractedProductData>
   try {
     parsed = JSON.parse(cleaned)
