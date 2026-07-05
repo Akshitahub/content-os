@@ -98,14 +98,20 @@ export async function POST(request: Request) {
     return NextResponse.json({ data: brand }, { status: 201 })
   } catch (err) {
     console.error("[brands/import] error:", err)
-    if (err instanceof PageFetchError || err instanceof ExtractionError) {
+    if (err instanceof PageFetchError) {
       return NextResponse.json(
-        { data: null, scrape_failed: true, message: "We couldn't access this website automatically — some brands block this for security reasons. Please fill in your brand details manually." },
+        { data: null, scrape_failed: true, message: `Couldn't fetch that page: ${err.message}` },
+        { status: 200 }
+      )
+    }
+    if (err instanceof ExtractionError) {
+      return NextResponse.json(
+        { data: null, scrape_failed: true, message: `AI extraction failed: ${err.message}` },
         { status: 200 }
       )
     }
     return NextResponse.json(
-      { data: null, scrape_failed: true, message: "We couldn't access this website automatically — some brands block this for security reasons. Please fill in your brand details manually." },
+      { data: null, scrape_failed: true, message: `Unexpected error during import: ${err instanceof Error ? err.message : String(err)}` },
       { status: 200 }
     )
   }

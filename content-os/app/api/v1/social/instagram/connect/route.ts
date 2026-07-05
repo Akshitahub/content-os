@@ -3,14 +3,7 @@ import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import { buildError, ErrorCodes } from "@/types/api"
 
-const META_OAUTH_SCOPES = [
-  "instagram_basic",
-  "instagram_content_publish",
-  "pages_show_list",
-  "pages_read_engagement",
-  "business_management",
-  "pages_manage_posts",
-].join(",")
+const META_LOGIN_CONFIG_ID = process.env.META_LOGIN_CONFIG_ID
 
 export async function GET(request: Request) {
   console.log("[social/instagram/connect] GET called")
@@ -47,13 +40,18 @@ export async function GET(request: Request) {
     return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Instagram connect is not configured."), { status: 500 })
   }
 
+  if (!META_LOGIN_CONFIG_ID) {
+    console.error("[social/instagram/connect] META_LOGIN_CONFIG_ID is not configured")
+    return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Instagram connect is not configured."), { status: 500 })
+  }
+
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? origin
   const redirectUri = `${appUrl}/api/v1/social/instagram/callback`
 
   const dialogUrl = new URL("https://www.facebook.com/v21.0/dialog/oauth")
   dialogUrl.searchParams.set("client_id", appId)
   dialogUrl.searchParams.set("redirect_uri", redirectUri)
-  dialogUrl.searchParams.set("scope", META_OAUTH_SCOPES)
+  dialogUrl.searchParams.set("config_id", META_LOGIN_CONFIG_ID)
   dialogUrl.searchParams.set("state", brandId)
   dialogUrl.searchParams.set("response_type", "code")
 
