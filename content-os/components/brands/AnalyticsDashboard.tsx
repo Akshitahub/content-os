@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
-import { Loader2, TrendingUp, TrendingDown, ExternalLink } from "lucide-react"
+import { Loader2, TrendingUp, TrendingDown, ExternalLink, Clock, Download } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import Link from "next/link"
@@ -27,6 +27,25 @@ interface BestPost {
   engagement: number
 }
 
+interface RoiBreakdownItem {
+  type: string
+  label: string
+  count: number
+  minutesPerItem: number
+  minutesSaved: number
+}
+
+interface RoiTracking {
+  periodLabel: string
+  periodStart: string
+  periodEnd: string
+  totalItems: number
+  totalMinutesSaved: number
+  totalHoursSaved: number
+  breakdown: RoiBreakdownItem[]
+  disclosure: string
+}
+
 interface AnalyticsResponse {
   windowDays: number
   reach: MetricAvailability<{ total: number; series: SeriesPoint[] }>
@@ -34,6 +53,7 @@ interface AnalyticsResponse {
   engagement: MetricAvailability<{ totalInteractions: number; accountsEngaged: number | null }>
   bestPosts: BestPost[]
   aiInsights: string | null
+  roi: RoiTracking
 }
 
 function MetricTile({ label, children }: { label: string; children: React.ReactNode }) {
@@ -175,6 +195,36 @@ export function AnalyticsDashboard({ brandId }: { brandId: string }) {
                 <p className="whitespace-pre-wrap text-xs leading-relaxed">{data.aiInsights}</p>
               </div>
             )}
+
+            <div className="rounded-md border p-3 space-y-2">
+              <div className="flex items-center gap-1.5">
+                <Clock className="h-3.5 w-3.5 text-muted-foreground" />
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Time saved (estimate) — {data.roi.periodLabel}</p>
+              </div>
+              <p className="text-lg font-bold">
+                {data.roi.totalHoursSaved} hrs
+                <span className="ml-1.5 text-xs font-normal text-muted-foreground">
+                  across {data.roi.totalItems} piece{data.roi.totalItems !== 1 ? "s" : ""} of content
+                </span>
+              </p>
+              {data.roi.totalItems > 0 && (
+                <ul className="space-y-0.5">
+                  {data.roi.breakdown.filter((b) => b.count > 0).map((b) => (
+                    <li key={b.type} className="text-[11px] text-muted-foreground">
+                      {b.label}: {b.count} × {b.minutesPerItem} min = {b.minutesSaved} min
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <p className="text-[10px] italic text-muted-foreground/80">{data.roi.disclosure}</p>
+            </div>
+
+            <a
+              href={`/api/v1/brands/${brandId}/reports/monthly`}
+              className="flex items-center justify-center gap-1.5 rounded-md border px-3 py-2 text-xs font-medium hover:bg-secondary"
+            >
+              <Download className="h-3.5 w-3.5" /> Download monthly report (PDF)
+            </a>
           </div>
         )}
       </CardContent>

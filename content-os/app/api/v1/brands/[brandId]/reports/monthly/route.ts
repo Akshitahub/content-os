@@ -1,22 +1,24 @@
 import { NextResponse } from "next/server"
+import { renderToBuffer } from "@react-pdf/renderer"
 import { createClient } from "@/lib/supabase/server"
 import { buildError, ErrorCodes } from "@/types/api"
 import { getAccountInsights } from "@/lib/social/instagram-insights"
 import { calculateBestPerformingPosts, generateAccountInsights } from "@/lib/ai/account-analytics"
 import { getRoiTracking, currentMonthRange } from "@/lib/analytics/roi-tracking"
+import { buildMonthlyReportDocument, type MonthlyReportData } from "@/lib/reports/monthly-report-pdf"
 import type { BrandRow, SocialConnectionRow } from "@/types/database"
 
 type RouteParams = { params: Promise<{ brandId: string }> }
 
 export async function GET(_request: Request, { params }: RouteParams) {
   const { brandId } = await params
-  console.log(`[brands/${brandId}/analytics] GET called`)
+  console.log(`[brands/${brandId}/reports/monthly] GET called`)
 
   let supabase
   try {
     supabase = await createClient()
   } catch (err) {
-    console.error("[analytics] createClient failed:", err)
+    console.error("[reports/monthly] createClient failed:", err)
     return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Server error."), { status: 500 })
   }
 
@@ -36,64 +38,60 @@ export async function GET(_request: Request, { params }: RouteParams) {
 
   if (!connection || !connection.ig_business_account_id) {
     return NextResponse.json(
-      buildError(ErrorCodes.VALIDATION_ERROR, "Connect Instagram first to see analytics."),
+      buildError(ErrorCodes.VALIDATION_ERROR, "Connect Instagram first to generate a report."),
       { status: 400 }
     )
   }
 
+  // Same functions as the live analytics route — the numbers in this PDF
+  // must never be able to silently disagree with the dashboard.
   const insightsResult = await getAccountInsights(connection.ig_business_account_id, connection.access_token)
   if (!insightsResult.success) {
-    console.error(`[analytics] insights fetch failed for brand ${brandId}:`, insightsResult.error)
+    console.error(`[reports/monthly] insights fetch failed for brand ${brandId}:`, insightsResult.error)
     return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, insightsResult.error), { status: 500 })
   }
 
   const bestPosts = calculateBestPerformingPosts(insightsResult.data.media)
-  const startTime = Date.now()
-  let aiInsights: string | null = null
-  let aiSuccess = false
-  let model = "none"
-  let promptTokens: number | null = null
-  let completionTokens: number | null = null
 
+  let aiInsights: string | null = null
   try {
     const result = await generateAccountInsights(brand, insightsResult.data, bestPosts)
     aiInsights = result.text
-    model = result.model
-    promptTokens = result.usage?.prompt_tokens ?? null
-    completionTokens = result.usage?.completion_tokens ?? null
-    aiSuccess = true
   } catch (err) {
-    console.error(`[analytics] AI insights generation failed for brand ${brandId}:`, err instanceof Error ? err.message : err)
+    console.error(`[reports/monthly] AI insights generation failed for brand ${brandId}:`, err instanceof Error ? err.message : err)
     aiInsights = "AI insights unavailable right now — the numbers above are still accurate."
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  await (supabase.from("ai_generation_logs") as any).insert({
-    user_id: user.id,
-    brand_id: brandId,
-    feature: "account_analytics",
-    model,
-    prompt_tokens: promptTokens,
-    completion_tokens: completionTokens,
-    total_tokens: promptTokens || completionTokens ? (promptTokens ?? 0) + (completionTokens ?? 0) : null,
-    latency_ms: Date.now() - startTime,
-    success: aiSuccess,
-  })
-
-  // Same function used by the downloadable monthly PDF report — the two
-  // must never be able to silently disagree.
   const { start, end, label } = currentMonthRange()
   const roi = await getRoiTracking(supabase, brandId, start, end, label)
 
-  return NextResponse.json({
-    data: {
-      windowDays: insightsResult.data.windowDays,
-      reach: insightsResult.data.reach,
-      followerGrowth: insightsResult.data.followerGrowth,
-      engagement: insightsResult.data.engagement,
-      bestPosts,
-      aiInsights,
-      roi,
+  const reportData: MonthlyReportData = {
+    brandName: brand.name,
+    periodLabel: label,
+    windowDays: insightsResult.data.windowDays,
+    reach: insightsResult.data.reach,
+    followerGrowth: insightsResult.data.followerGrowth,
+    engagement: insightsResult.data.engagement,
+    bestPosts,
+    aiInsights,
+    roi,
+  }
+
+  let pdfBuffer: Buffer
+  try {
+    pdfBuffer = await renderToBuffer(buildMonthlyReportDocument(reportData))
+  } catch (err) {
+    console.error(`[reports/monthly] PDF render failed for brand ${brandId}:`, err instanceof Error ? err.message : err)
+    return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Failed to generate the report. Please try again."), { status: 500 })
+  }
+
+  const filename = `${brand.name.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}-monthly-report.pdf`
+
+  return new NextResponse(new Uint8Array(pdfBuffer), {
+    status: 200,
+    headers: {
+      "Content-Type": "application/pdf",
+      "Content-Disposition": `attachment; filename="${filename}"`,
     },
   })
 }
