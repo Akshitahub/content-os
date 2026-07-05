@@ -86,7 +86,7 @@ function PhoneStory({
         <div className={`flex h-full flex-col relative ${s.bg}`}>
           {story.type === "reveal" && uploadedImage && (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={uploadedImage} alt="" className="absolute inset-0 h-full w-full object-contain" style={{ background: "rgba(0,0,0,0.35)" }} />
+            <img src={uploadedImage} alt="" crossOrigin="anonymous" className="absolute inset-0 h-full w-full object-contain" style={{ background: "rgba(0,0,0,0.35)" }} />
           )}
           {/* Story progress bars */}
           <div className="flex gap-0.5 px-3 pt-3">
