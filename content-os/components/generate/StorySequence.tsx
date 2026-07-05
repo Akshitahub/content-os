@@ -1,14 +1,18 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
-import { Loader2, Download, Copy, Check, RefreshCw, AlertCircle, Image, Upload, X } from "lucide-react"
+import { useState, useCallback, useEffect, useRef } from "react"
+import { Loader2, Download, Copy, Check, RefreshCw, AlertCircle, Image, Upload, X, CalendarClock } from "lucide-react"
 import { ProductPicker, type PickedProduct } from "@/components/shared/ProductPicker"
 import { useBrand } from "@/hooks/useBrand"
 import type { StorySlide } from "@/app/api/v1/ai/stories/generate/route"
-import { downloadElementAsImage, downloadMultipleAsImages } from "@/lib/utils/download-as-image"
+import { downloadElementAsImage, downloadMultipleAsImages, captureElementAsDataUrl } from "@/lib/utils/download-as-image"
 import { GenerationWarning } from "@/components/shared/GenerationWarning"
 import { getFriendlyError } from "@/lib/utils/error-messages"
 import { TopicSuggestButton } from "@/components/shared/TopicSuggestButton"
+import { Button } from "@/components/ui/button"
+import { Label } from "@/components/ui/label"
+import { Input } from "@/components/ui/input"
+import { isApiError } from "@/types/api"
 import Link from "next/link"
 
 // ─── Story background gradients ────────────────────────────────────────────────
@@ -149,6 +153,208 @@ function PhoneStory({
         </button>
         {dlErr && <p className="text-[10px] text-destructive">Download failed</p>}
       </div>
+    </div>
+  )
+}
+
+// ─── Schedule to Instagram (story-only) ────────────────────────────────────────
+
+interface ConnectionStatus {
+  connected: boolean
+  facebook_connected: boolean
+  instagram_connected: boolean
+}
+
+function ScheduleAction({
+  brandId,
+  slideElementIds,
+  caption,
+}: {
+  brandId: string
+  slideElementIds: string[]
+  caption: string
+}) {
+  const [open, setOpen] = useState(false)
+  const [connection, setConnection] = useState<ConnectionStatus | null>(null)
+  const [checkingConnection, setCheckingConnection] = useState(false)
+  const [connectionError, setConnectionError] = useState(false)
+  const [date, setDate] = useState(() => {
+    const d = new Date()
+    d.setDate(d.getDate() + 1)
+    return d.toISOString().split("T")[0]
+  })
+  const [time, setTime] = useState("10:00")
+  const [submitState, setSubmitState] = useState<"idle" | "capturing" | "loading" | "success" | "error">("idle")
+  const [captureProgress, setCaptureProgress] = useState<{ current: number; total: number } | null>(null)
+  const [errorMsg, setErrorMsg] = useState<string | null>(null)
+  const [successInfo, setSuccessInfo] = useState<{ date: string; time: string } | null>(null)
+
+  const checkConnection = useCallback(async () => {
+    setCheckingConnection(true)
+    setConnectionError(false)
+    try {
+      const res = await fetch(`/api/v1/brands/${brandId}/social-connections`)
+      const json: unknown = await res.json()
+      if (res.ok && !isApiError(json)) {
+        setConnection((json as { data: ConnectionStatus }).data)
+      } else {
+        setConnectionError(true)
+      }
+    } catch {
+      setConnectionError(true)
+    } finally {
+      setCheckingConnection(false)
+    }
+  }, [brandId])
+
+  const openPanel = useCallback(() => {
+    setOpen(true)
+    if (!connection && !checkingConnection) checkConnection()
+  }, [connection, checkingConnection, checkConnection])
+
+  const closePanel = useCallback(() => {
+    setOpen(false)
+    setSubmitState("idle")
+    setCaptureProgress(null)
+    setErrorMsg(null)
+    setSuccessInfo(null)
+  }, [])
+
+  const handleConfirm = useCallback(async () => {
+    setErrorMsg(null)
+    setSubmitState("capturing")
+
+    // Capture every story slide as a data URL right before scheduling — each
+    // slide only exists as a DOM element, not a stored image URL.
+    const imageUrls: string[] = []
+    for (let i = 0; i < slideElementIds.length; i++) {
+      setCaptureProgress({ current: i + 1, total: slideElementIds.length })
+      const dataUrl = await captureElementAsDataUrl(slideElementIds[i]!)
+      if (!dataUrl) {
+        setErrorMsg(`Couldn't capture story ${i + 1}. Please try again.`)
+        setSubmitState("error")
+        setCaptureProgress(null)
+        return
+      }
+      imageUrls.push(dataUrl)
+    }
+    setCaptureProgress(null)
+    setSubmitState("loading")
+
+    try {
+      const res = await fetch("/api/v1/calendar/schedule-post", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          brandId,
+          platform: "instagram",
+          imageUrls,
+          contentFormat: "story",
+          caption,
+          scheduledDate: date,
+          scheduledTime: time,
+        }),
+      })
+      const json: unknown = await res.json()
+      if (!res.ok || isApiError(json)) {
+        const msg = isApiError(json) ? json.error.message : "Failed to schedule post."
+        setErrorMsg(msg)
+        setSubmitState("error")
+        return
+      }
+      setSuccessInfo({ date, time })
+      setSubmitState("success")
+    } catch {
+      setErrorMsg("Network error. Please try again.")
+      setSubmitState("error")
+    }
+  }, [brandId, slideElementIds, caption, date, time])
+
+  if (!open) {
+    return (
+      <Button variant="outline" size="sm" onClick={openPanel} className="flex items-center gap-1.5">
+        <CalendarClock className="h-3.5 w-3.5" /> Schedule to Instagram
+      </Button>
+    )
+  }
+
+  const isBusy = submitState === "capturing" || submitState === "loading"
+
+  return (
+    <div className="rounded-lg border bg-card p-4 space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Schedule story</span>
+        <button type="button" onClick={closePanel} className="text-xs text-muted-foreground hover:text-foreground transition-colors">
+          Close
+        </button>
+      </div>
+
+      {checkingConnection && (
+        <p className="text-sm text-muted-foreground">Checking your connection…</p>
+      )}
+
+      {!checkingConnection && connectionError && (
+        <div className="rounded-md border border-amber-200 bg-amber-50 p-3 space-y-1.5">
+          <p className="text-sm text-amber-900">Couldn&apos;t check your connection status.</p>
+          <button
+            type="button"
+            onClick={checkConnection}
+            className="text-xs font-semibold text-amber-700 underline underline-offset-2 hover:text-amber-900"
+          >
+            Try again
+          </button>
+        </div>
+      )}
+
+      {!checkingConnection && !connectionError && connection && !connection.instagram_connected && (
+        <div className="rounded-md border border-amber-200 bg-amber-50 p-3 space-y-1.5">
+          <p className="text-sm text-amber-900">
+            Connect an Instagram Business account to schedule stories — story scheduling is Instagram-only.
+          </p>
+          <Link
+            href={`/brands/${brandId}`}
+            className="text-xs font-semibold text-amber-700 underline underline-offset-2 hover:text-amber-900"
+          >
+            Go to brand settings →
+          </Link>
+        </div>
+      )}
+
+      {!checkingConnection && !connectionError && connection?.instagram_connected && submitState !== "success" && (
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label className="text-xs">Date</Label>
+              <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} disabled={isBusy} />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Time</Label>
+              <Input type="time" value={time} onChange={(e) => setTime(e.target.value)} disabled={isBusy} />
+            </div>
+          </div>
+
+          <Button size="sm" className="w-full" onClick={handleConfirm} disabled={isBusy}>
+            {submitState === "capturing" && captureProgress
+              ? `Capturing story ${captureProgress.current} of ${captureProgress.total}…`
+              : submitState === "loading"
+                ? "Scheduling…"
+                : "Confirm schedule"}
+          </Button>
+
+          {submitState === "error" && errorMsg && (
+            <p className="text-sm text-destructive">{errorMsg}</p>
+          )}
+        </div>
+      )}
+
+      {submitState === "success" && successInfo && (
+        <div className="flex items-center gap-2 rounded-md border border-green-200 bg-green-50 px-3 py-2">
+          <Check className="h-4 w-4 text-green-500 shrink-0" />
+          <span className="text-sm font-medium text-green-700">
+            Scheduled for Instagram on {successInfo.date} at {successInfo.time}
+          </span>
+        </div>
+      )}
     </div>
   )
 }
@@ -458,6 +664,12 @@ export function StorySequence({ brandId }: { brandId: string }) {
               />
             ))}
           </div>
+
+          <ScheduleAction
+            brandId={brandId}
+            slideElementIds={stories.map((_, i) => `story-card-${i}`)}
+            caption={topic}
+          />
         </div>
       )}
     </div>

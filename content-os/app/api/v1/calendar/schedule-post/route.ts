@@ -7,13 +7,15 @@ import { z } from "zod"
 
 const MIN_CAROUSEL_IMAGES = 2
 const MAX_CAROUSEL_IMAGES = 10
+const MIN_STORY_SLIDES = 1
+const MAX_STORY_SLIDES = 10
 
 const schedulePostSchema = z.object({
   brandId: z.string().uuid(),
   platform: z.enum(["instagram", "facebook"]),
   imageUrl: z.string().min(1).optional(),
   imageUrls: z.array(z.string().min(1)).optional(),
-  contentFormat: z.enum(["single", "carousel"]).default("single"),
+  contentFormat: z.enum(["single", "carousel", "story"]).default("single"),
   caption: z.string().min(1).max(5000),
   hashtags: z.array(z.string().max(200)).optional(),
   scheduledDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
@@ -26,6 +28,14 @@ const schedulePostSchema = z.object({
     ? !!data.imageUrls && data.imageUrls.length >= MIN_CAROUSEL_IMAGES && data.imageUrls.length <= MAX_CAROUSEL_IMAGES
     : true,
   { message: `imageUrls must have between ${MIN_CAROUSEL_IMAGES} and ${MAX_CAROUSEL_IMAGES} images for a carousel.`, path: ["imageUrls"] }
+).refine(
+  (data) => data.contentFormat === "story"
+    ? !!data.imageUrls && data.imageUrls.length >= MIN_STORY_SLIDES && data.imageUrls.length <= MAX_STORY_SLIDES
+    : true,
+  { message: `imageUrls must have between ${MIN_STORY_SLIDES} and ${MAX_STORY_SLIDES} slides for a story sequence.`, path: ["imageUrls"] }
+).refine(
+  (data) => (data.contentFormat === "carousel" || data.contentFormat === "story") ? data.platform === "instagram" : true,
+  { message: "Carousels and story sequences can only be scheduled to Instagram.", path: ["platform"] }
 )
 
 export async function POST(request: Request) {
@@ -57,13 +67,15 @@ export async function POST(request: Request) {
 
   let platformSpecificData: Json
 
-  if (contentFormat === "carousel") {
+  if (contentFormat === "carousel" || contentFormat === "story") {
     // Host EVERY image up front — if any single one fails, the whole
     // request fails before any calendar entry is created (same
     // immediate-failure rule as the single-image path below, just applied
-    // per-image since a carousel can't publish with a missing slide).
+    // per-image since neither a carousel nor a story sequence can publish
+    // with a missing slide).
     const sourceUrls = imageUrls!
     const hostedUrls: string[] = []
+    const noun = contentFormat === "carousel" ? "carousel image" : "story slide"
 
     for (let i = 0; i < sourceUrls.length; i++) {
       const sourceUrl = sourceUrls[i]!
@@ -73,11 +85,11 @@ export async function POST(request: Request) {
       )
 
       if ("error" in uploadResult) {
-        console.error(`[calendar/schedule-post] failed to host carousel image ${i + 1}/${sourceUrls.length}:`, uploadResult.error)
+        console.error(`[calendar/schedule-post] failed to host ${noun} ${i + 1}/${sourceUrls.length}:`, uploadResult.error)
         return NextResponse.json(
           buildError(
             ErrorCodes.INTERNAL_ERROR,
-            `Couldn't prepare image ${i + 1} of ${sourceUrls.length} for scheduling. Please try again.`,
+            `Couldn't prepare ${noun} ${i + 1} of ${sourceUrls.length} for scheduling. Please try again.`,
             uploadResult.error
           ),
           { status: 500 }
@@ -87,7 +99,7 @@ export async function POST(request: Request) {
       hostedUrls.push(uploadResult.publicUrl)
     }
 
-    platformSpecificData = { image_urls: sourceUrls, hosted_image_urls: hostedUrls, content_format: "carousel" }
+    platformSpecificData = { image_urls: sourceUrls, hosted_image_urls: hostedUrls, content_format: contentFormat }
   } else {
     // Host the image up front — if this fails, the user needs to know right
     // now, not days later when the cron tries and gives up after 3 attempts.

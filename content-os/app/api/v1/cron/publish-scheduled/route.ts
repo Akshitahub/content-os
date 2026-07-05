@@ -3,6 +3,7 @@ import { createAdminClient } from "@/lib/supabase/server"
 import { publishToInstagram } from "@/lib/social/instagram-publish"
 import { publishToFacebook } from "@/lib/social/facebook-publish"
 import { publishCarouselToInstagram } from "@/lib/social/instagram-carousel-publish"
+import { publishStorySequenceToInstagram } from "@/lib/social/instagram-story-publish"
 import { uploadMediaToStorage } from "@/lib/storage/upload-media"
 import type { SupabaseClient } from "@supabase/supabase-js"
 import type { Database, CalendarEntryRow, SocialConnectionRow } from "@/types/database"
@@ -87,16 +88,18 @@ async function processEntry(admin: AdminClient, entry: CalendarEntryRow): Promis
 
   const platformData = (entry.platform_specific_data ?? {}) as Record<string, unknown>
   const isCarousel = platformData.content_format === "carousel"
+  const isStory = platformData.content_format === "story"
+  const isMultiImage = isCarousel || isStory
 
-  if (isCarousel && entry.platform !== "instagram") {
-    console.error(`[cron/publish-scheduled] entry ${entry.id}: carousel scheduled for ${entry.platform}, which isn't supported`)
-    return await recordFailure(admin, entry, "Carousel scheduling is Instagram-only.")
+  if (isMultiImage && entry.platform !== "instagram") {
+    console.error(`[cron/publish-scheduled] entry ${entry.id}: ${isStory ? "story sequence" : "carousel"} scheduled for ${entry.platform}, which isn't supported`)
+    return await recordFailure(admin, entry, `${isStory ? "Story sequence" : "Carousel"} scheduling is Instagram-only.`)
   }
 
   let imageUrl: string | null = null
   let imageUrls: string[] | null = null
 
-  if (isCarousel) {
+  if (isMultiImage) {
     const cachedUrls = Array.isArray(platformData.hosted_image_urls)
       ? platformData.hosted_image_urls.filter((u): u is string => typeof u === "string")
       : null
@@ -112,6 +115,7 @@ async function processEntry(admin: AdminClient, entry: CalendarEntryRow): Promis
         return await recordFailure(admin, entry, "No publishable images available for this content type.")
       }
 
+      const noun = isStory ? "story slide" : "carousel image"
       const hostedUrls: string[] = []
       for (let i = 0; i < sourceUrls.length; i++) {
         const uploadResult = await uploadMediaToStorage(
@@ -119,8 +123,8 @@ async function processEntry(admin: AdminClient, entry: CalendarEntryRow): Promis
           `${entry.brand_id}/${entry.id}-${i}`
         )
         if ("error" in uploadResult) {
-          console.error(`[cron/publish-scheduled] entry ${entry.id}: failed to host carousel image ${i + 1}/${sourceUrls.length}:`, uploadResult.error)
-          return await recordFailure(admin, entry, `Failed to prepare image ${i + 1} of ${sourceUrls.length} for publishing: ${uploadResult.error}`)
+          console.error(`[cron/publish-scheduled] entry ${entry.id}: failed to host ${noun} ${i + 1}/${sourceUrls.length}:`, uploadResult.error)
+          return await recordFailure(admin, entry, `Failed to prepare ${noun} ${i + 1} of ${sourceUrls.length} for publishing: ${uploadResult.error}`)
         }
         hostedUrls.push(uploadResult.publicUrl)
       }
@@ -175,6 +179,57 @@ async function processEntry(admin: AdminClient, entry: CalendarEntryRow): Promis
   if (!caption.trim()) {
     console.error(`[cron/publish-scheduled] entry ${entry.id}: no caption text available`)
     return await recordFailure(admin, entry, "No caption text available.")
+  }
+
+  if (isStory) {
+    // Stories have no parent/carousel container — each slide publishes as
+    // its own independent story item, sequentially. The result shape
+    // (publishedCount/failedAtSlide/instagramMediaIds) doesn't match the
+    // single-media-id shape the carousel/single-post result below produces,
+    // so it's handled in its own branch rather than forced into that union.
+    const storyResult = await publishStorySequenceToInstagram(connection.ig_business_account_id!, connection.access_token, imageUrls!)
+
+    if (!storyResult.success) {
+      console.error(
+        `[cron/publish-scheduled] entry ${entry.id}: story sequence publish failed at slide ${storyResult.failedAtSlide}/${imageUrls!.length} ` +
+        `(${storyResult.publishedCount} published, retryable=${storyResult.retryable}) — ${storyResult.error}`
+      )
+      return await recordFailure(
+        admin,
+        entry,
+        `Story ${storyResult.failedAtSlide} of ${imageUrls!.length} failed to publish (${storyResult.publishedCount} published successfully): ${storyResult.error}`
+      )
+    }
+
+    console.log(`[cron/publish-scheduled] entry ${entry.id}: published — instagram story sequence, ${storyResult.instagramMediaIds.length} slides`)
+
+    const publishedAt = new Date().toISOString()
+    const { error: updateError } = await calendarEntriesTable(admin)
+      .update({
+        status: "published",
+        platform_specific_data: {
+          ...platformData,
+          hosted_image_urls: imageUrls,
+          instagram_story_media_ids: storyResult.instagramMediaIds,
+        },
+        updated_at: publishedAt,
+      })
+      .eq("id", entry.id)
+
+    if (updateError) {
+      console.error(`[cron/publish-scheduled] entry ${entry.id}: published on instagram but failed to update calendar entry:`, updateError.message)
+    }
+
+    if (entry.content_project_id) {
+      const { error: projectError } = await contentProjectsTable(admin)
+        .update({ status: "published", published_at: publishedAt, updated_at: publishedAt })
+        .eq("id", entry.content_project_id)
+      if (projectError) {
+        console.error(`[cron/publish-scheduled] entry ${entry.id}: failed to update linked content_project:`, projectError.message)
+      }
+    }
+
+    return "published"
   }
 
   const publishResult = isCarousel
