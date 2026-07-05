@@ -1,7 +1,6 @@
 "use client"
 
 import { useState, useRef, useEffect } from "react"
-import Link from "next/link"
 import { Sparkles, RefreshCw, Check, ChevronLeft, ChevronRight, Copy, RotateCcw, AlertCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
@@ -287,17 +286,9 @@ export function HookGenerator({ brandId, products }: HookGeneratorProps) {
 
       {/* Save confirmation */}
       {justSaved && hooks.length > 0 && (
-        <div className="flex items-center justify-between rounded-lg border border-green-200 bg-green-50 px-4 py-3">
-          <div className="flex items-center gap-2 text-green-700">
-            <Check className="h-4 w-4 shrink-0" />
-            <span className="text-sm font-medium">{hooks.length} hook{hooks.length > 1 ? "s" : ""} generated and saved to My Content</span>
-          </div>
-          <Link
-            href={`/brands/${brandId}/library?tab=hooks`}
-            className="text-xs font-medium text-green-700 underline underline-offset-2 hover:text-green-900 shrink-0"
-          >
-            View in My Content →
-          </Link>
+        <div className="flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-green-700">
+          <Check className="h-4 w-4 shrink-0" />
+          <span className="text-sm font-medium">{hooks.length} hook{hooks.length > 1 ? "s" : ""} generated and saved</span>
         </div>
       )}
 

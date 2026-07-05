@@ -215,6 +215,7 @@ export async function generateContentStrategy(brand: BrandRow, products: Product
     model: MODELS.generation,
     temperature: 0.7,
     max_tokens: 8000,
+    response_format: { type: "json_object" },
     messages: [
       { role: "system", content: buildStrategySystemPrompt() },
       { role: "user", content: buildStrategyUserPrompt(brand, products, params) },
@@ -222,7 +223,9 @@ export async function generateContentStrategy(brand: BrandRow, products: Product
   })
 
   const raw: string = res.choices[0]?.message?.content ?? "{}"
-  const cleaned = sanitizeJsonString(raw)
+  let cleaned = sanitizeJsonString(raw)
+  const jsonMatch = cleaned.match(/\{[\s\S]*\}/)
+  if (jsonMatch) cleaned = jsonMatch[0]
   let parsed: ContentStrategy
   try {
     parsed = JSON.parse(cleaned) as ContentStrategy
@@ -251,6 +254,7 @@ async function generateSlotContent(
     model: MODELS.generation,
     temperature: 0.8,
     max_tokens: isCarousel ? 600 : 400,
+    response_format: { type: "json_object" },
     messages: [
       {
         role: "system",
@@ -266,7 +270,9 @@ async function generateSlotContent(
   })
 
   const raw: string = res.choices[0]?.message?.content ?? ""
-  const cleaned = sanitizeJsonString(raw)
+  let cleaned = sanitizeJsonString(raw)
+  const jsonMatch = cleaned.match(/\{[\s\S]*\}/)
+  if (jsonMatch) cleaned = jsonMatch[0]
 
   try {
     const parsed = JSON.parse(cleaned) as SlotContent

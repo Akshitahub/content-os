@@ -89,7 +89,10 @@ Return ONLY a JSON array of brand name strings: ["Brand One", "Brand Two", ...]`
     })
 
     const raw = res.choices[0]?.message?.content ?? "[]"
-    const parsed = JSON.parse(sanitizeJsonString(raw)) as unknown
+    let cleaned = sanitizeJsonString(raw)
+    const jsonMatch = cleaned.match(/\[[\s\S]*\]/)
+    if (jsonMatch) cleaned = jsonMatch[0]
+    const parsed = JSON.parse(cleaned) as unknown
     if (Array.isArray(parsed)) {
       return parsed.filter((n): n is string => typeof n === "string" && n.trim().length > 0).slice(0, count)
     }

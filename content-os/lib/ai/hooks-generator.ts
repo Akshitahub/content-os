@@ -26,6 +26,7 @@ export async function generateHooks(
     model,
     temperature: 0.85,
     max_tokens: 600,
+    response_format: { type: "json_object" },
     messages: [
       { role: "system", content: buildHookSystemPrompt() },
       { role: "user", content: buildHookUserPrompt(brand, { hookTypes, count, platform: options.platform, additionalContext: options.additionalContext, product: options.product }) },
@@ -33,7 +34,9 @@ export async function generateHooks(
   })
 
   const raw = response.choices[0]?.message?.content ?? "{}"
-  const cleaned = raw.replace(/```json\n?/g, "").replace(/```\n?/g, "").replace(/[\x00-\x1F\x7F]/g, " ").trim()
+  let cleaned = raw.replace(/```json\n?/g, "").replace(/```\n?/g, "").replace(/[\x00-\x1F\x7F]/g, " ").trim()
+  const jsonMatch = cleaned.match(/\{[\s\S]*\}/)
+  if (jsonMatch) cleaned = jsonMatch[0]
   let parsed: { hooks: GeneratedHook[] }
 
   try {

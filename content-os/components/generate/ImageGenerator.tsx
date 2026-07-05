@@ -1,7 +1,6 @@
 "use client"
 
 import { useState, useRef, useEffect } from "react"
-import Link from "next/link"
 import { ImageIcon, Download, RefreshCw, Info, Check, AlertCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
@@ -200,15 +199,9 @@ export function ImageGenerator({ brandId, products }: ImageGeneratorProps) {
       {isPending && <GeneratingState message={`Generating: ${prompt.slice(0, 50)}${prompt.length > 50 ? "…" : ""}  •  This takes 10–20 seconds`} />}
 
       {justSaved && (
-        <div className="flex items-center justify-between rounded-lg border border-green-200 bg-green-50 px-4 py-3">
-          <div className="flex items-center gap-2 text-green-700">
-            <Check className="h-4 w-4 shrink-0" />
-            <span className="text-sm font-medium">✓ Saved to My Content</span>
-          </div>
-          <Link href={`/brands/${brandId}/library?tab=images`}
-            className="text-xs font-medium text-green-700 underline underline-offset-2 hover:text-green-900 shrink-0">
-            View in My Content →
-          </Link>
+        <div className="flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-green-700">
+          <Check className="h-4 w-4 shrink-0" />
+          <span className="text-sm font-medium">✓ Saved</span>
         </div>
       )}
 

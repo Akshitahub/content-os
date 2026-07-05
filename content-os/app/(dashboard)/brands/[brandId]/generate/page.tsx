@@ -90,9 +90,6 @@ function RecentGenerations({ brandId }: { brandId: string }) {
                 </div>
               ))}
             </div>
-            <Link href={`/brands/${brandId}/library?tab=hooks`} className="mt-2 block text-right text-xs text-muted-foreground hover:text-foreground transition-colors">
-              View all hooks →
-            </Link>
           </div>
         )}
 

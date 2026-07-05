@@ -320,13 +320,16 @@ export function ContentTypeGenerator({ brandId, products }: ContentTypeGenerator
 
   const activeConfig = FORMAT_CONFIGS.find((f) => f.value === selectedFormat)!
 
+  // Only formats that /api/v1/ai/content/generate actually persists to a
+  // table have a valid My Content destination — "story" and "blog_post"
+  // aren't saved anywhere, so there's genuinely nothing to view for them.
   const FORMAT_TO_TAB: Partial<Record<ContentFormat, string>> = {
     social_post: "captions",
     reel_script: "scripts",
     carousel: "carousels",
     ad_copy: "ad_copy",
   }
-  const libraryTab = FORMAT_TO_TAB[selectedFormat] ?? "hooks"
+  const libraryTab = FORMAT_TO_TAB[selectedFormat]
 
   return (
     <div className="space-y-6">
@@ -476,12 +479,14 @@ export function ContentTypeGenerator({ brandId, products }: ContentTypeGenerator
             <Check className="h-4 w-4 shrink-0" />
             <span className="text-sm font-medium">✓ Generated successfully — scroll down to see your content</span>
           </div>
-          <Link
-            href={`/brands/${brandId}/library?tab=${libraryTab}`}
-            className="text-xs font-medium text-green-700 underline underline-offset-2 hover:text-green-900 shrink-0"
-          >
-            View →
-          </Link>
+          {libraryTab && (
+            <Link
+              href={`/brands/${brandId}/library?tab=${libraryTab}`}
+              className="text-xs font-medium text-green-700 underline underline-offset-2 hover:text-green-900 shrink-0"
+            >
+              View →
+            </Link>
+          )}
         </div>
       )}
 

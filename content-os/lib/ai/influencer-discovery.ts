@@ -52,7 +52,9 @@ Make the handles realistic and specific, not generic.`,
   })
 
   const raw = res.choices[0]?.message?.content ?? "[]"
-  const cleaned = sanitizeJsonString(raw)
+  let cleaned = sanitizeJsonString(raw)
+  const arrayMatch = cleaned.match(/\[[\s\S]*\]/)
+  if (arrayMatch) cleaned = arrayMatch[0]
   try {
     const parsed = JSON.parse(cleaned) as unknown
     if (Array.isArray(parsed)) {
@@ -108,6 +110,7 @@ export async function autoDiscoverAndScoreInfluencers(
             model: MODELS.scoring,
             temperature: 0.3,
             max_tokens: 400,
+            response_format: { type: "json_object" },
             messages: [
               { role: "system", content: buildInfluencerFitScoringSystemPrompt() },
               {
@@ -124,9 +127,10 @@ export async function autoDiscoverAndScoreInfluencers(
               },
             ],
           })
-          const scoreParsed = JSON.parse(
-            sanitizeJsonString(scoreRes.choices[0]?.message?.content ?? "{}"),
-          ) as {
+          let scoreCleaned = sanitizeJsonString(scoreRes.choices[0]?.message?.content ?? "{}")
+          const scoreJsonMatch = scoreCleaned.match(/\{[\s\S]*\}/)
+          if (scoreJsonMatch) scoreCleaned = scoreJsonMatch[0]
+          const scoreParsed = JSON.parse(scoreCleaned) as {
             score?: number
             fit_score?: number
             reasoning?: string

@@ -20,6 +20,7 @@ export async function generateCaption(
     model,
     temperature: 0.8,
     max_tokens: 400,
+    response_format: { type: "json_object" },
     messages: [
       { role: "system", content: buildCaptionSystemPrompt() },
       { role: "user", content: buildCaptionUserPrompt(brand, options) },
@@ -27,7 +28,9 @@ export async function generateCaption(
   })
 
   const raw = response.choices[0]?.message?.content ?? "{}"
-  const cleaned = raw.replace(/```json\n?/g, "").replace(/```\n?/g, "").replace(/[\x00-\x1F\x7F]/g, " ").trim()
+  let cleaned = raw.replace(/```json\n?/g, "").replace(/```\n?/g, "").replace(/[\x00-\x1F\x7F]/g, " ").trim()
+  const jsonMatch = cleaned.match(/\{[\s\S]*\}/)
+  if (jsonMatch) cleaned = jsonMatch[0]
   let parsed: GeneratedCaption
 
   try {
