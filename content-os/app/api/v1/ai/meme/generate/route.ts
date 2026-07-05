@@ -3,94 +3,53 @@ import { createClient } from "@/lib/supabase/server"
 import { buildError, ErrorCodes } from "@/types/api"
 import { MODELS, getGroqClient } from "@/lib/ai/models"
 import { checkAndIncrementUsage } from "@/lib/usage/check-and-increment-usage"
+import { QUALITY_BAR, buildBrandContext } from "@/lib/ai/prompts"
+import { uploadMediaToStorage } from "@/lib/storage/upload-media"
+import { compositeMemeText } from "@/lib/image/meme-compositor"
 import { z } from "zod"
 import type { BrandRow } from "@/types/database"
 
-export type MemeFormat =
-  | "drake"
-  | "big_brain"
-  | "disaster_girl"
-  | "this_is_fine"
-  | "giga_chad"
-  | "surprised_pikachu"
-  | "distracted_boyfriend"
-  | "custom"
-
 const schema = z.object({
   brandId: z.string().uuid(),
-  format: z.enum(["drake", "big_brain", "disaster_girl", "this_is_fine", "giga_chad", "surprised_pikachu", "distracted_boyfriend", "custom"]),
-  context: z.string().min(5).max(500),
+  idea: z.string().min(5).max(500),
 })
 
 export type MemeResult = {
-  format: MemeFormat
-  panels: { label: string; text: string }[]
+  image_url: string
+  top_text: string
+  bottom_text: string
   caption: string
   hashtags: string[]
 }
 
-const FORMAT_INSTRUCTIONS: Record<MemeFormat, string> = {
-  drake: `Drake meme — 2 panels:
-Panel 1 (Drake dismissing 😒): The bad/old/wrong approach your audience uses
-Panel 2 (Drake approving 😊): Your brand's better solution
-Format: { "panels": [{"label": "Drake says NO to", "text": "..."}, {"label": "Drake says YES to", "text": "..."}] }`,
-
-  big_brain: `Big Brain meme — 4 escalating panels:
-Start with small/obvious thinking, escalate to galaxy-brain level thinking about your product/brand
-Format: { "panels": [{"label": "Small brain", "text": "..."}, {"label": "Normal brain", "text": "..."}, {"label": "Big brain", "text": "..."}, {"label": "Galaxy brain", "text": "..."}] }`,
-
-  disaster_girl: `Disaster Girl — 2 panels:
-Panel 1: The chaos / before state / the problem
-Panel 2: Brand/product smiling in front of solved problem
-Format: { "panels": [{"label": "The problem", "text": "..."}, {"label": "Us after using [brand]", "text": "..."}] }`,
-
-  this_is_fine: `This is Fine — 2 panels:
-Panel 1: Relatable struggle/stress moment (fire everywhere)
-Panel 2: Finding peace/solution with your brand
-Format: { "panels": [{"label": "🔥 This is fine 🔥", "text": "..."}, {"label": "After finding [brand]", "text": "..."}] }`,
-
-  giga_chad: `Giga Chad — 1 panel:
-One ultra-confident, bold statement about your brand or product that sounds impossibly based
-Format: { "panels": [{"label": "Giga Chad energy", "text": "..."}] }`,
-
-  surprised_pikachu: `Surprised Pikachu — 2 panels:
-Panel 1: The relatable action that leads to a predictable result
-Panel 2: Surprised face at the (obvious) outcome
-Format: { "panels": [{"label": "When you...", "text": "..."}, {"label": "😮 Surprised face", "text": "..."}] }`,
-
-  distracted_boyfriend: `Distracted Boyfriend — 3 panels:
-The boyfriend (your audience), the girlfriend (old approach), the other woman (your brand)
-Format: { "panels": [{"label": "Your audience", "text": "Your customer"}, {"label": "Old approach (ignored)", "text": "..."}, {"label": "New shiny thing (your brand)", "text": "..."}] }`,
-
-  custom: `Custom format — 2-3 panels for the context provided
-Format: { "panels": [{"label": "Panel 1", "text": "..."}, {"label": "Panel 2", "text": "..."}] }`,
+interface MemeConcept {
+  image_prompt: string
+  top_text: string
+  bottom_text: string
+  caption: string
+  hashtags: string[]
 }
 
-function buildMemePrompt(brand: BrandRow, format: MemeFormat, context: string): string {
-  return `Brand: ${brand.name}
-Niche: ${brand.niche ?? "D2C brand"}
-Tone: ${brand.tone_of_voice ?? "fun and relatable"}
-Context/Topic: "${context}"
+function buildMemeConceptSystemPrompt(): string {
+  return `You create Reddit/Instagram-style reaction memes for Indian D2C brands. Given a brand's meme idea, you produce: a vivid AI image-generation prompt for the visual scene, and short punchy meme captions in the classic top-text/bottom-text format (top text sets up the joke, bottom text is the punchline -- each under 8 words, written in the implied ALL-CAPS meme convention).
 
-Create a brand meme for Indian D2C audiences using the "${format}" format.
+The image_prompt must describe an original visual scene or reaction moment -- exaggerated expressions, funny situations, relatable scenarios. It must NOT describe any text, caption, or words appearing in the image itself (the text is added separately) and must NOT reference any specific real meme template, real photograph, or real named individual -- describe an original scene instead.
+${QUALITY_BAR}
+Always respond with valid JSON only.`
+}
 
-${FORMAT_INSTRUCTIONS[format]}
+function buildMemeConceptUserPrompt(brand: BrandRow, idea: string): string {
+  return `${buildBrandContext(brand)}
 
-Rules:
-- Make it genuinely funny and relatable for Indian consumers
-- Reference the brand naturally (not forced)
-- Keep text SHORT and punchy (under 10 words per panel)
-- The humor should feel authentic, not cringe
-- Add a witty caption for the post
+Meme idea from the brand: "${idea}"
 
 Respond with ONLY this JSON:
 {
-  "format": "${format}",
-  "panels": [
-    {"label": "panel label", "text": "panel text"}
-  ],
-  "caption": "Witty Instagram caption for this meme (include CTA)",
-  "hashtags": ["#relevant", "#hashtags", "#here"]
+  "image_prompt": "vivid visual scene description for an AI image generator, no text/words in the image",
+  "top_text": "short setup line, under 8 words, empty string if not needed",
+  "bottom_text": "short punchline, under 8 words",
+  "caption": "witty Instagram caption for the post, include a soft CTA",
+  "hashtags": ["5 to 6 relevant hashtags without the # symbol"]
 }`
 }
 
@@ -117,45 +76,76 @@ export async function POST(request: Request) {
     return NextResponse.json(buildError(ErrorCodes.VALIDATION_ERROR, "Validation failed.", parsed.error.issues[0]?.message), { status: 400 })
   }
 
-  const { brandId, format, context } = parsed.data
+  const { brandId, idea } = parsed.data
 
   const { data: brand } = await supabase.from("brands").select("*").eq("id", brandId).eq("user_id", user.id).single<BrandRow>()
   if (!brand) return NextResponse.json(buildError(ErrorCodes.BRAND_NOT_FOUND, "Brand not found."), { status: 404 })
 
   const groq = getGroqClient()
 
+  let concept: MemeConcept
   try {
     const response = await groq.chat.completions.create({
       model: MODELS.generation,
       temperature: 0.9,
-      max_tokens: 600,
+      max_tokens: 500,
+      response_format: { type: "json_object" },
       messages: [
-        {
-          role: "system",
-          content: "You are a witty brand meme writer for Indian D2C brands. Create memes that are funny, relatable, and brand-appropriate. Return valid JSON only.",
-        },
-        { role: "user", content: buildMemePrompt(brand, format, context) },
+        { role: "system", content: buildMemeConceptSystemPrompt() },
+        { role: "user", content: buildMemeConceptUserPrompt(brand, idea) },
       ],
     })
-
     const raw = response.choices[0]?.message?.content ?? "{}"
-    const cleaned = raw.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim()
-
-    let data: unknown
-    try {
-      data = JSON.parse(cleaned)
-    } catch {
-      return NextResponse.json(buildError(ErrorCodes.AI_GENERATION_FAILED, "AI returned invalid JSON. Please try again."), { status: 500 })
-    }
-
-    const d = data as Record<string, unknown>
-    if (!Array.isArray(d.panels) || d.panels.length === 0) {
-      return NextResponse.json(buildError(ErrorCodes.AI_GENERATION_FAILED, "Meme generation failed. Please try again."), { status: 500 })
-    }
-
-    return NextResponse.json({ data }, { status: 200 })
+    let cleaned = raw.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim()
+    const jsonMatch = cleaned.match(/\{[\s\S]*\}/)
+    if (jsonMatch) cleaned = jsonMatch[0]
+    concept = JSON.parse(cleaned) as MemeConcept
   } catch (err) {
-    const msg = err instanceof Error ? err.message : "Generation failed"
-    return NextResponse.json(buildError(ErrorCodes.AI_GENERATION_FAILED, msg), { status: 500 })
+    console.error("[meme/generate] concept generation failed:", err instanceof Error ? err.message : err)
+    return NextResponse.json(buildError(ErrorCodes.AI_GENERATION_FAILED, "Couldn't come up with a meme concept. Please try again."), { status: 500 })
   }
+
+  if (!concept.image_prompt) {
+    return NextResponse.json(buildError(ErrorCodes.AI_GENERATION_FAILED, "Meme generation failed. Please try again."), { status: 500 })
+  }
+
+  const seed = Math.floor(Math.random() * 1_000_000)
+  const pollinationsUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(`${concept.image_prompt}, meme photo style, vibrant colors, high contrast, funny expression`)}?width=1080&height=1080&seed=${seed}&nologo=true&model=flux`
+
+  let imageBuffer: Buffer
+  try {
+    const res = await fetch(pollinationsUrl)
+    if (!res.ok) throw new Error(`Image generation returned ${res.status}`)
+    imageBuffer = Buffer.from(await res.arrayBuffer())
+  } catch (err) {
+    console.error("[meme/generate] base image fetch failed:", err instanceof Error ? err.message : err)
+    return NextResponse.json(buildError(ErrorCodes.AI_GENERATION_FAILED, "Couldn't generate the meme image. Please try again."), { status: 500 })
+  }
+
+  let finalBuffer: Buffer
+  try {
+    finalBuffer = await compositeMemeText(imageBuffer, concept.top_text ?? "", concept.bottom_text ?? "")
+  } catch (err) {
+    console.error("[meme/generate] text compositing failed:", err instanceof Error ? err.message : err)
+    return NextResponse.json(buildError(ErrorCodes.AI_GENERATION_FAILED, "Couldn't add text to the meme image. Please try again."), { status: 500 })
+  }
+
+  const uploadResult = await uploadMediaToStorage(
+    { kind: "buffer", buffer: finalBuffer, mimeType: "image/png" },
+    `${brandId}/memes`
+  )
+  if ("error" in uploadResult) {
+    console.error("[meme/generate] upload failed:", uploadResult.error)
+    return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Couldn't save the meme image. Please try again."), { status: 500 })
+  }
+
+  const result: MemeResult = {
+    image_url: uploadResult.publicUrl,
+    top_text: concept.top_text ?? "",
+    bottom_text: concept.bottom_text ?? "",
+    caption: concept.caption ?? "",
+    hashtags: Array.isArray(concept.hashtags) ? concept.hashtags : [],
+  }
+
+  return NextResponse.json({ data: result }, { status: 200 })
 }

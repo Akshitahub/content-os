@@ -39,6 +39,7 @@
     "react-hook-form": "^7.78.0",
     "remotion": "^4.0.484",
     "resend": "^6.12.4",
+    "sharp": "^0.34.5",
     "stripe": "^22.3.0",
     "tailwind-merge": "^3.6.0",
     "tailwindcss-animate": "^1.0.7",
