@@ -16,12 +16,14 @@ const TTS_VOICE = "troy"
 
 // Stagger each scene's start so we don't fire every scene's image + TTS
 // request at the same instant — that's what was tripping Pollinations'
-// and Groq's rate limits in production for reels with 6-10 scenes.
-const SCENE_STAGGER_MS = 700
+// and Groq's rate limits in production for reels with 6-10 scenes. 700ms
+// wasn't enough headroom under real load; bumped to 1500ms.
+const SCENE_STAGGER_MS = 1500
 
-// Exponential backoff for rate-limited (429) calls: 500ms, 1s, 2s, (4s if
-// ever extended past 3 retries).
-const BACKOFF_DELAYS_MS = [500, 1000, 2000, 4000]
+// Exponential backoff for rate-limited (429) calls: 1s, 2s, 4s, 8s over up
+// to 4 retries — widened from 3 retries (500ms-4s) after production testing
+// still showed most scenes failing with 429s under the shorter backoff.
+const BACKOFF_DELAYS_MS = [1000, 2000, 4000, 8000]
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
@@ -33,7 +35,7 @@ function isRateLimitError(err: unknown): boolean {
 }
 
 /** Retries `fn` with exponential backoff when it fails with a rate-limit (429) error. */
-async function retryOn429<T>(fn: () => Promise<T>, maxRetries = 3): Promise<T> {
+async function retryOn429<T>(fn: () => Promise<T>, maxRetries = 4): Promise<T> {
   for (let attempt = 0; ; attempt++) {
     try {
       return await fn()

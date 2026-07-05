@@ -35,10 +35,11 @@ export async function uploadMediaToStorage(
       mimeType = match[1]
       buffer = Buffer.from(match[2], "base64")
     } else {
-      // Exponential backoff on 429s: 500ms, 1s, 2s, (4s if ever extended
-      // past 3 retries) — Pollinations rate-limits under concurrent load.
-      const backoffDelaysMs = [500, 1000, 2000, 4000]
-      const maxRetries = 3
+      // Exponential backoff on 429s: 1s, 2s, 4s, 8s over up to 4 retries —
+      // widened from 3 retries (500ms-4s) after production testing still
+      // showed most scenes failing with 429s under the shorter backoff.
+      const backoffDelaysMs = [1000, 2000, 4000, 8000]
+      const maxRetries = 4
       let res: Response
       let attempt = 0
       for (;;) {

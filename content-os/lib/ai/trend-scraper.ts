@@ -15,6 +15,13 @@ const NICHE_SUBREDDITS: Record<string, string[]> = {
   pet: ["dogs", "cats", "IndianPets"],
   home: ["HomeImprovement", "IndianHomes"],
   baby: ["beyondthebump", "IndianParents"],
+  gifts: ["gifts", "GiftIdeas"],
+  candles: ["candlemaking", "candles"],
+  crafts: ["crafts", "somethingimade"],
+  handmade: ["handmade", "crafts"],
+  sustainable: ["ZeroWaste", "sustainability"],
+  eco: ["ZeroWaste", "sustainability"],
+  cafe: ["Coffee", "cafe"],
   default: ["india", "IndianDietitian"],
 }
 
@@ -23,6 +30,7 @@ function getNicheSubreddits(niche: string): string[] {
   for (const [key, subs] of Object.entries(NICHE_SUBREDDITS)) {
     if (lower.includes(key)) return subs
   }
+  console.warn(`[trend-scraper] No subreddit mapping for niche "${niche}", falling back to default.`)
   return NICHE_SUBREDDITS.default
 }
 
@@ -47,6 +55,7 @@ async function getRedditInsights(niche: string): Promise<{
     )
 
     if (!response.ok) {
+      console.error(`[trend-scraper] Reddit fetch for r/${subreddit} failed with status ${response.status}.`)
       return { top_topics: [], top_questions: [], scraped_at, success: false }
     }
 
@@ -70,13 +79,18 @@ async function getRedditInsights(niche: string): Promise<{
       )
     })
 
+    if (top_topics.length === 0) {
+      console.warn(`[trend-scraper] r/${subreddit} returned zero posts for niche "${niche}".`)
+    }
+
     return {
       top_topics,
       top_questions,
       scraped_at,
       success: top_topics.length > 0,
     }
-  } catch {
+  } catch (err) {
+    console.error(`[trend-scraper] Reddit fetch threw for niche "${niche}":`, err instanceof Error ? err.message : err)
     return { top_topics: [], top_questions: [], scraped_at, success: false }
   }
 }

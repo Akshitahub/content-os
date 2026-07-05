@@ -7,6 +7,12 @@ import type { ReelScene } from "@/types/app"
 
 type RouteParams = { params: Promise<{ brandId: string; scriptId: string }> }
 
+// Vercel's Hobby plan defaults to a lower function timeout than these
+// longer retry chains need — worst-case timing for a 4-scene reel (staggered
+// starts + full 429 backoff on every call) comes to roughly 20s, safely
+// within this 60s budget.
+export const maxDuration = 60
+
 // Placeholder tracks — see public/audio/README.md. These are genuinely
 // silent, code-generated files, not a real royalty-free asset.
 const MUSIC_TRACKS = [

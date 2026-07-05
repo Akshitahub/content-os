@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect } from "react"
 import {
   FileText, Film, LayoutGrid, Zap, BookOpen, Megaphone,
-  RefreshCw, Copy, Check, AlertCircle,
+  RefreshCw, Copy, Check, AlertCircle, ChevronDown,
 } from "lucide-react"
 import Link from "next/link"
 import { cn } from "@/lib/utils"
@@ -262,6 +262,7 @@ export function ContentTypeGenerator({ brandId, products }: ContentTypeGenerator
     setContentResult,
   } = useGenerationStore()
   const [justSaved, setJustSaved] = useState(false)
+  const [showFormatPicker, setShowFormatPicker] = useState(false)
   const abortControllerRef = useRef<AbortController | null>(null)
 
   // Restore from sessionStorage on mount
@@ -290,6 +291,7 @@ export function ContentTypeGenerator({ brandId, products }: ContentTypeGenerator
   function handleFormatChange(format: ContentFormat) {
     setContentFormat(format)
     setContentResult(null)
+    setShowFormatPicker(false)
   }
 
   function handleGenerate() {
@@ -328,25 +330,41 @@ export function ContentTypeGenerator({ brandId, products }: ContentTypeGenerator
 
   return (
     <div className="space-y-6">
-      {/* Format picker */}
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-        {FORMAT_CONFIGS.map(({ value, label, icon: Icon, description }) => (
-          <button
-            key={value}
-            type="button"
-            onClick={() => handleFormatChange(value)}
-            className={cn(
-              "flex flex-col items-start gap-1 rounded-lg border p-3 text-left transition-colors",
-              selectedFormat === value
-                ? "border-primary bg-primary/5"
-                : "border-input hover:bg-secondary/50"
-            )}
-          >
-            <Icon className={cn("h-4 w-4", selectedFormat === value ? "text-primary" : "text-muted-foreground")} />
-            <span className="text-sm font-medium">{label}</span>
-            <span className="text-xs leading-snug text-muted-foreground">{description}</span>
-          </button>
-        ))}
+      {/* Format picker — collapsed by default since every entry point now
+          arrives with a format already decided (Reel card, Trending Now,
+          etc.); showing the full grid unconditionally made it look like
+          those entry points did nothing. */}
+      <div className="space-y-2">
+        <button
+          type="button"
+          onClick={() => setShowFormatPicker((v) => !v)}
+          className="inline-flex items-center gap-1 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
+        >
+          <ChevronDown className={cn("h-4 w-4 transition-transform duration-200", showFormatPicker && "rotate-180")} />
+          Change format
+        </button>
+
+        {showFormatPicker && (
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+            {FORMAT_CONFIGS.map(({ value, label, icon: Icon, description }) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => handleFormatChange(value)}
+                className={cn(
+                  "flex flex-col items-start gap-1 rounded-lg border p-3 text-left transition-colors",
+                  selectedFormat === value
+                    ? "border-primary bg-primary/5"
+                    : "border-input hover:bg-secondary/50"
+                )}
+              >
+                <Icon className={cn("h-4 w-4", selectedFormat === value ? "text-primary" : "text-muted-foreground")} />
+                <span className="text-sm font-medium">{label}</span>
+                <span className="text-xs leading-snug text-muted-foreground">{description}</span>
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Hook context banner — social post only */}
