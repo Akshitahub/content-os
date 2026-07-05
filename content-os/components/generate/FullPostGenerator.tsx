@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useCallback, useRef, useMemo } from "react"
-import { Sparkles, RefreshCw, Copy, Check, Download, ExternalLink, Archive, Loader2, AlertCircle, CalendarClock } from "lucide-react"
+import { Sparkles, RefreshCw, Copy, Check, Download, ExternalLink, Archive, Loader2, AlertCircle, CalendarClock, ChevronDown } from "lucide-react"
 import { ProductPicker, type PickedProduct } from "@/components/shared/ProductPicker"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
@@ -151,6 +151,7 @@ export function FullPostGenerator({ brandId, products }: Props) {
   const [selectedTemplate, setSelectedTemplate] = useState<PreviewTemplate>(1)
   const [postImageUrl, setPostImageUrl] = useState<string | null>(null)
   const [selectedProduct, setSelectedProduct] = useState<PickedProduct | null>(null)
+  const [showCustomize, setShowCustomize] = useState(false)
   const abortControllerRef = useRef<AbortController | null>(null)
 
   const previewHtml = useMemo(() => {
@@ -269,46 +270,64 @@ export function FullPostGenerator({ brandId, products }: Props) {
       <div className="rounded-lg border bg-card p-5 space-y-4">
         <h3 className="text-sm font-semibold">Full Post Settings</h3>
 
-        {/* Format */}
-        <div className="space-y-1.5">
-          <Label className="text-xs">Content format</Label>
-          <div className="flex flex-wrap gap-1.5">
-            {FORMATS.map((f) => (
-              <button
-                key={f.value}
-                type="button"
-                onClick={() => setFormat(f.value)}
-                className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
-                  format === f.value
-                    ? "bg-primary text-primary-foreground"
-                    : "bg-secondary text-secondary-foreground hover:bg-secondary/80"
-                }`}
-              >
-                {f.label}
-              </button>
-            ))}
-          </div>
-        </div>
+        {/* Format + Platform — collapsed by default since most entry points
+            (Reel card, Trending Now, etc.) arrive with a format already
+            decided; showing this unconditionally made it look redundant. */}
+        <div className="space-y-3">
+          <button
+            type="button"
+            onClick={() => setShowCustomize((v) => !v)}
+            className="inline-flex items-center gap-1 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
+          >
+            <ChevronDown className={`h-4 w-4 transition-transform duration-200 ${showCustomize ? "rotate-180" : ""}`} />
+            Customize format & style
+          </button>
 
-        {/* Platform */}
-        <div className="space-y-1.5">
-          <Label className="text-xs">Platform</Label>
-          <div className="flex flex-wrap gap-1.5">
-            {PLATFORMS.map((p) => (
-              <button
-                key={p.value}
-                type="button"
-                onClick={() => setSelectedPlatform(p.value)}
-                className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
-                  selectedPlatform === p.value
-                    ? "bg-primary text-primary-foreground"
-                    : "bg-secondary text-secondary-foreground hover:bg-secondary/80"
-                }`}
-              >
-                {p.label}
-              </button>
-            ))}
-          </div>
+          {showCustomize && (
+            <div className="space-y-4">
+              {/* Format */}
+              <div className="space-y-1.5">
+                <Label className="text-xs">Content format</Label>
+                <div className="flex flex-wrap gap-1.5">
+                  {FORMATS.map((f) => (
+                    <button
+                      key={f.value}
+                      type="button"
+                      onClick={() => setFormat(f.value)}
+                      className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+                        format === f.value
+                          ? "bg-primary text-primary-foreground"
+                          : "bg-secondary text-secondary-foreground hover:bg-secondary/80"
+                      }`}
+                    >
+                      {f.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Platform */}
+              <div className="space-y-1.5">
+                <Label className="text-xs">Platform</Label>
+                <div className="flex flex-wrap gap-1.5">
+                  {PLATFORMS.map((p) => (
+                    <button
+                      key={p.value}
+                      type="button"
+                      onClick={() => setSelectedPlatform(p.value)}
+                      className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+                        selectedPlatform === p.value
+                          ? "bg-primary text-primary-foreground"
+                          : "bg-secondary text-secondary-foreground hover:bg-secondary/80"
+                      }`}
+                    >
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Product */}

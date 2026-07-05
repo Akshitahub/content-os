@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useCallback, useEffect, useRef } from "react"
-import { Loader2, Download, Copy, Check, RefreshCw, AlertCircle, Image, Upload, X, CalendarClock } from "lucide-react"
+import { Loader2, Download, Copy, Check, RefreshCw, AlertCircle, Image, Upload, X, CalendarClock, Plus, Minus } from "lucide-react"
 import { ProductPicker, type PickedProduct } from "@/components/shared/ProductPicker"
 import { useBrand } from "@/hooks/useBrand"
 import type { StorySlide } from "@/app/api/v1/ai/stories/generate/route"
@@ -564,13 +564,18 @@ export function StorySequence({ brandId }: { brandId: string }) {
 
         <div className="space-y-1.5">
           <label className="text-xs font-medium">Number of stories</label>
-          <div className="flex gap-2">
-            {[3, 4, 5].map((n) => (
-              <button key={n} type="button" onClick={() => setStoryCount(n)}
-                className={`flex-1 rounded-lg border-2 py-2 text-sm font-semibold transition-all ${storyCount === n ? "border-violet-500 bg-violet-50 text-violet-700" : "border-border hover:border-violet-300"}`}>
-                {n}
-              </button>
-            ))}
+          <div className="flex items-center gap-3">
+            <button type="button" onClick={() => setStoryCount((n) => Math.max(1, n - 1))}
+              disabled={storyCount <= 1}
+              className="flex h-9 w-9 items-center justify-center rounded-lg border-2 border-border transition-all hover:border-violet-300 disabled:opacity-40 disabled:cursor-not-allowed">
+              <Minus className="h-4 w-4" />
+            </button>
+            <span className="w-8 text-center text-sm font-semibold">{storyCount}</span>
+            <button type="button" onClick={() => setStoryCount((n) => Math.min(10, n + 1))}
+              disabled={storyCount >= 10}
+              className="flex h-9 w-9 items-center justify-center rounded-lg border-2 border-border transition-all hover:border-violet-300 disabled:opacity-40 disabled:cursor-not-allowed">
+              <Plus className="h-4 w-4" />
+            </button>
           </div>
         </div>
 

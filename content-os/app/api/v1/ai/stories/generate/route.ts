@@ -9,7 +9,7 @@ import type { BrandRow } from "@/types/database"
 const schema = z.object({
   brandId: z.string().uuid(),
   topic: z.string().min(3).max(300),
-  storyCount: z.number().int().min(3).max(5).default(3),
+  storyCount: z.number().int().min(1).max(10).default(3),
   vibe: z.string().optional(),
 })
 
@@ -28,6 +28,19 @@ export type GeneratedStorySequence = {
   stories: StorySlide[]
 }
 
+/**
+ * Builds the narrative-beat sequence for any story count from 1-10.
+ * The shape is always hook → reveal → (storyCount - 3) buildups → cta for
+ * 3+ stories (matching the previous hardcoded 3/4/5 sequences exactly),
+ * tapering down to just ["hook"] or ["hook", "cta"] for 1-2 stories.
+ */
+function buildStoryTypeSequence(storyCount: number): string[] {
+  if (storyCount <= 1) return ["hook"]
+  if (storyCount === 2) return ["hook", "cta"]
+  const buildupCount = storyCount - 3
+  return ["hook", "reveal", ...Array(buildupCount).fill("buildup"), "cta"]
+}
+
 function buildStoriesPrompt(brand: BrandRow, topic: string, storyCount: number, vibe?: string): string {
   const brandCtx = [
     `Brand: ${brand.name}`,
@@ -37,11 +50,7 @@ function buildStoriesPrompt(brand: BrandRow, topic: string, storyCount: number, 
     vibe ? `Visual Vibe: ${vibe}` : null,
   ].filter(Boolean).join("\n")
 
-  const typeSequence = storyCount === 3
-    ? ["hook", "reveal", "cta"]
-    : storyCount === 4
-    ? ["hook", "reveal", "buildup", "cta"]
-    : ["hook", "reveal", "buildup", "buildup", "cta"]
+  const typeSequence = buildStoryTypeSequence(storyCount)
 
   return `${brandCtx}
 

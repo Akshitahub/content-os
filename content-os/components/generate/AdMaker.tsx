@@ -59,6 +59,26 @@ function loadImage(src: string): Promise<HTMLImageElement> {
   })
 }
 
+// Exponential backoff for failed Pollinations loads: 500ms, 1s, 2s over up
+// to 3 retries, regenerating a fresh seed each attempt rather than failing
+// immediately on the first bad/rate-limited response.
+async function loadBackgroundWithRetry(backgroundUrl: string, initialSeed: number, maxRetries = 3): Promise<HTMLImageElement> {
+  const delays = [500, 1000, 2000]
+  let seed = initialSeed
+  for (let attempt = 0; ; attempt++) {
+    const bgUrl = backgroundUrl.replace(/seed=\d+/, `seed=${seed}`)
+    try {
+      return await loadImage(bgUrl)
+    } catch (err) {
+      if (attempt >= maxRetries) throw err
+      const delay = delays[attempt] ?? delays[delays.length - 1]
+      console.warn(`[AdMaker] Background image load failed, retrying with a new seed in ${delay}ms (attempt ${attempt + 1}/${maxRetries})...`)
+      await new Promise((resolve) => setTimeout(resolve, delay))
+      seed = Math.floor(Math.random() * 99999)
+    }
+  }
+}
+
 function getBackgroundUrl(scene: string, customScene: string, brandNiche: string, format: ImageFormat, seed: number): string {
   const dims: Record<ImageFormat, string> = {
     square: "width=1080&height=1080",
@@ -100,8 +120,7 @@ async function compositeAd(
     canvas.height = h
     const ctx = canvas.getContext("2d")!
 
-    const bgUrl = backgroundUrl.replace(/seed=\d+/, `seed=${seed}`)
-    const bg = await loadImage(bgUrl)
+    const bg = await loadBackgroundWithRetry(backgroundUrl, seed)
     ctx.drawImage(bg, 0, 0, w, h)
 
     if (showText && hookText) {
