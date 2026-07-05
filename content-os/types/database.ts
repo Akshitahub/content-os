@@ -923,6 +923,38 @@ export type Database = {
           user_rating?: number | null
         }
       }
+      memes: {
+        Row: {
+          id: string
+          brand_id: string
+          idea: string
+          image_url: string
+          top_text: string | null
+          bottom_text: string | null
+          caption: string | null
+          hashtags: string[]
+          is_saved: boolean
+          user_rating: number | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          brand_id: string
+          idea: string
+          image_url: string
+          top_text?: string | null
+          bottom_text?: string | null
+          caption?: string | null
+          hashtags?: string[]
+          is_saved?: boolean
+          user_rating?: number | null
+          created_at?: string
+        }
+        Update: {
+          is_saved?: boolean
+          user_rating?: number | null
+        }
+      }
     }
     Views: Record<string, never>
     Functions: Record<string, never>
@@ -951,6 +983,7 @@ export type ProductDescriptionRow = Database["public"]["Tables"]["product_descri
 export type SocialConnectionRow = Database["public"]["Tables"]["social_connections"]["Row"]
 export type ReelVideoJobRow = Database["public"]["Tables"]["reel_video_jobs"]["Row"]
 export type StoryRow = Database["public"]["Tables"]["stories"]["Row"]
+export type MemeRow = Database["public"]["Tables"]["memes"]["Row"]
 
 // Insert types
 export type UserInsert = Database["public"]["Tables"]["users"]["Insert"]

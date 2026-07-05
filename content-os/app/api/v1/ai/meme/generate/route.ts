@@ -147,5 +147,24 @@ export async function POST(request: Request) {
     hashtags: Array.isArray(concept.hashtags) ? concept.hashtags : [],
   }
 
+  // Persist (non-fatal) — matches the pattern used by every other
+  // generate route: the generate call itself saves, the client never
+  // needs a separate save request.
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await (supabase.from("memes") as any).insert({
+      brand_id: brandId,
+      idea,
+      image_url: result.image_url,
+      top_text: result.top_text,
+      bottom_text: result.bottom_text,
+      caption: result.caption,
+      hashtags: result.hashtags,
+      is_saved: true,
+    })
+  } catch (persistErr) {
+    console.error("[ai/meme/generate] persist failed (non-fatal):", persistErr)
+  }
+
   return NextResponse.json({ data: result }, { status: 200 })
 }
