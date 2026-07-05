@@ -1,9 +1,14 @@
 "use client"
 
 import { useState, useRef, useCallback, useEffect } from "react"
-import { Upload, Check, Loader2, Download, RefreshCw, ChevronRight, AlertCircle, X } from "lucide-react"
+import { Upload, Check, Loader2, Download, RefreshCw, ChevronRight, AlertCircle, X, CalendarClock } from "lucide-react"
 import { useBrand } from "@/hooks/useBrand"
 import { GenerationWarning } from "@/components/shared/GenerationWarning"
+import { Button } from "@/components/ui/button"
+import { Label } from "@/components/ui/label"
+import { Input } from "@/components/ui/input"
+import { isApiError } from "@/types/api"
+import Link from "next/link"
 
 // ─── Scene definitions ─────────────────────────────────────────────────────
 
@@ -206,6 +211,212 @@ function StepDot({ n, current }: { n: number; current: number }) {
   )
 }
 
+// ─── Schedule to Instagram/Facebook ──────────────────────────────────────────
+
+interface ConnectionStatus {
+  connected: boolean
+  facebook_connected: boolean
+  instagram_connected: boolean
+}
+
+function ScheduleAction({
+  brandId,
+  imageUrl,
+  caption,
+  hashtags,
+}: {
+  brandId: string
+  imageUrl: string
+  caption: string
+  hashtags: string[]
+}) {
+  const [open, setOpen] = useState(false)
+  const [connection, setConnection] = useState<ConnectionStatus | null>(null)
+  const [checkingConnection, setCheckingConnection] = useState(false)
+  const [connectionError, setConnectionError] = useState(false)
+  const [platform, setPlatform] = useState<"instagram" | "facebook">("instagram")
+  const [date, setDate] = useState(() => {
+    const d = new Date()
+    d.setDate(d.getDate() + 1)
+    return d.toISOString().split("T")[0]
+  })
+  const [time, setTime] = useState("10:00")
+  const [submitState, setSubmitState] = useState<"idle" | "loading" | "success" | "error">("idle")
+  const [errorMsg, setErrorMsg] = useState<string | null>(null)
+  const [successInfo, setSuccessInfo] = useState<{ platform: string; date: string; time: string } | null>(null)
+
+  const checkConnection = useCallback(async () => {
+    setCheckingConnection(true)
+    setConnectionError(false)
+    try {
+      const res = await fetch(`/api/v1/brands/${brandId}/social-connections`)
+      const json: unknown = await res.json()
+      if (res.ok && !isApiError(json)) {
+        const data = (json as { data: ConnectionStatus }).data
+        setConnection(data)
+        setPlatform(data.instagram_connected ? "instagram" : "facebook")
+      } else {
+        setConnectionError(true)
+      }
+    } catch {
+      setConnectionError(true)
+    } finally {
+      setCheckingConnection(false)
+    }
+  }, [brandId])
+
+  const openPanel = useCallback(() => {
+    setOpen(true)
+    if (!connection && !checkingConnection) checkConnection()
+  }, [connection, checkingConnection, checkConnection])
+
+  const closePanel = useCallback(() => {
+    setOpen(false)
+    setSubmitState("idle")
+    setErrorMsg(null)
+    setSuccessInfo(null)
+  }, [])
+
+  const handleConfirm = useCallback(async () => {
+    setSubmitState("loading")
+    setErrorMsg(null)
+    try {
+      const res = await fetch("/api/v1/calendar/schedule-post", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          brandId,
+          platform,
+          imageUrl,
+          caption,
+          hashtags: hashtags.map((h) => h.replace(/^#+/, "")),
+          scheduledDate: date,
+          scheduledTime: time,
+        }),
+      })
+      const json: unknown = await res.json()
+      if (!res.ok || isApiError(json)) {
+        const msg = isApiError(json) ? json.error.message : "Failed to schedule post."
+        setErrorMsg(msg)
+        setSubmitState("error")
+        return
+      }
+      setSuccessInfo({ platform, date, time })
+      setSubmitState("success")
+    } catch {
+      setErrorMsg("Network error. Please try again.")
+      setSubmitState("error")
+    }
+  }, [brandId, platform, imageUrl, caption, hashtags, date, time])
+
+  if (!open) {
+    return (
+      <Button variant="outline" size="sm" onClick={openPanel} className="flex items-center gap-1.5">
+        <CalendarClock className="h-3.5 w-3.5" /> Schedule to Instagram/Facebook
+      </Button>
+    )
+  }
+
+  // Only ever show platforms that are actually connected — never a disabled
+  // button for one that isn't.
+  const connectedPlatforms: { id: "instagram" | "facebook"; label: string }[] = connection
+    ? [
+        ...(connection.instagram_connected ? [{ id: "instagram" as const, label: "Instagram" }] : []),
+        ...(connection.facebook_connected ? [{ id: "facebook" as const, label: "Facebook" }] : []),
+      ]
+    : []
+
+  return (
+    <div className="rounded-lg border bg-card p-4 space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Schedule post</span>
+        <button type="button" onClick={closePanel} className="text-xs text-muted-foreground hover:text-foreground transition-colors">
+          Close
+        </button>
+      </div>
+
+      {checkingConnection && (
+        <p className="text-sm text-muted-foreground">Checking your connection…</p>
+      )}
+
+      {!checkingConnection && connectionError && (
+        <div className="rounded-md border border-amber-200 bg-amber-50 p-3 space-y-1.5">
+          <p className="text-sm text-amber-900">Couldn&apos;t check your connection status.</p>
+          <button
+            type="button"
+            onClick={checkConnection}
+            className="text-xs font-semibold text-amber-700 underline underline-offset-2 hover:text-amber-900"
+          >
+            Try again
+          </button>
+        </div>
+      )}
+
+      {!checkingConnection && !connectionError && connection && (!connection.connected || connectedPlatforms.length === 0) && (
+        <div className="rounded-md border border-amber-200 bg-amber-50 p-3 space-y-1.5">
+          <p className="text-sm text-amber-900">Connect Instagram or Facebook first to schedule posts.</p>
+          <Link
+            href={`/brands/${brandId}`}
+            className="text-xs font-semibold text-amber-700 underline underline-offset-2 hover:text-amber-900"
+          >
+            Go to brand settings →
+          </Link>
+        </div>
+      )}
+
+      {!checkingConnection && !connectionError && connection?.connected && connectedPlatforms.length > 0 && submitState !== "success" && (
+        <div className="space-y-3">
+          <div className="space-y-1.5">
+            <Label className="text-xs">Platform</Label>
+            <div className="flex gap-1.5">
+              {connectedPlatforms.map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => setPlatform(p.id)}
+                  className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+                    platform === p.id ? "bg-primary text-primary-foreground" : "bg-secondary text-secondary-foreground hover:bg-secondary/80"
+                  }`}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label className="text-xs">Date</Label>
+              <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Time</Label>
+              <Input type="time" value={time} onChange={(e) => setTime(e.target.value)} />
+            </div>
+          </div>
+
+          <Button size="sm" className="w-full" onClick={handleConfirm} disabled={submitState === "loading"}>
+            {submitState === "loading" ? "Scheduling…" : "Confirm schedule"}
+          </Button>
+
+          {submitState === "error" && errorMsg && (
+            <p className="text-sm text-destructive">{errorMsg}</p>
+          )}
+        </div>
+      )}
+
+      {submitState === "success" && successInfo && (
+        <div className="flex items-center gap-2 rounded-md border border-green-200 bg-green-50 px-3 py-2">
+          <Check className="h-4 w-4 text-green-500 shrink-0" />
+          <span className="text-sm font-medium text-green-700">
+            Scheduled for {successInfo.platform === "instagram" ? "Instagram" : "Facebook"} on {successInfo.date} at {successInfo.time}
+          </span>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── Main component ────────────────────────────────────────────────────────
 
 interface AdMakerProps {
@@ -245,12 +456,25 @@ export function AdMaker({ brandId }: AdMakerProps) {
   const [showSuccess, setShowSuccess] = useState(false)
   const [msgIdx, setMsgIdx] = useState(0)
 
+  // Scheduling — the selected variation only exists as a data URL until
+  // uploaded to real storage, which Instagram/Facebook's publish API needs.
+  const [uploadingForSchedule, setUploadingForSchedule] = useState(false)
+  const [scheduleImageUrl, setScheduleImageUrl] = useState<string | null>(null)
+  const [scheduleError, setScheduleError] = useState("")
+
   useEffect(() => {
     if (!generating) return
     setMsgIdx(0)
     const t = setInterval(() => setMsgIdx(i => (i + 1) % LOADING_MSGS.length), 3000)
     return () => clearInterval(t)
   }, [generating])
+
+  // Reset schedule state whenever the selected variation changes, so a
+  // stale hosted URL from a different variation can never be scheduled.
+  useEffect(() => {
+    setScheduleImageUrl(null)
+    setScheduleError("")
+  }, [expandedIdx])
 
   // Restore from sessionStorage
   useEffect(() => {
@@ -383,6 +607,27 @@ export function AdMaker({ brandId }: AdMakerProps) {
     a.href = url
     a.download = `ad-variation-${idx + 1}.png`
     a.click()
+  }
+
+  async function handleScheduleClick() {
+    if (expandedIdx === null || !results[expandedIdx]) return
+    setUploadingForSchedule(true)
+    setScheduleError("")
+    setScheduleImageUrl(null)
+    try {
+      const res = await fetch(`/api/v1/brands/${brandId}/ai/ad-maker/upload-variation`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dataUrl: results[expandedIdx] }),
+      })
+      const json = await res.json() as { data?: { publicUrl: string }; error?: { message?: string } }
+      if (!res.ok || !json.data) throw new Error(json.error?.message ?? "Failed to prepare image for scheduling.")
+      setScheduleImageUrl(json.data.publicUrl)
+    } catch (err) {
+      setScheduleError(err instanceof Error ? err.message : "Failed to prepare image for scheduling.")
+    } finally {
+      setUploadingForSchedule(false)
+    }
   }
 
   function reset() {
@@ -657,6 +902,11 @@ export function AdMaker({ brandId }: AdMakerProps) {
                   className="flex items-center justify-center gap-1.5 rounded-full border border-input py-2 text-xs font-medium hover:bg-secondary">
                   <Download className="h-3.5 w-3.5" /> Download PNG
                 </button>
+                <button onClick={handleScheduleClick} disabled={uploadingForSchedule}
+                  className="flex items-center justify-center gap-1.5 rounded-full border border-input py-2 text-xs font-medium hover:bg-secondary disabled:opacity-60">
+                  {uploadingForSchedule ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CalendarClock className="h-3.5 w-3.5" />}
+                  Schedule
+                </button>
                 <button onClick={() => { setResults([]); setGenError(""); setStep(2) }}
                   className="flex items-center justify-center gap-1.5 rounded-full border border-input py-2 text-xs font-medium hover:bg-secondary">
                   <RefreshCw className="h-3.5 w-3.5" /> Try different scene
@@ -669,10 +919,23 @@ export function AdMaker({ brandId }: AdMakerProps) {
                   downloadVariation(expandedIdx!)
                   window.location.href = `/brands/${brandId}/generate`
                 }}
-                  className="flex items-center justify-center gap-1.5 rounded-full bg-violet-600 py-2 text-xs font-semibold text-white hover:bg-violet-700 col-span-1">
+                  className="flex items-center justify-center gap-1.5 rounded-full bg-violet-600 py-2 text-xs font-semibold text-white hover:bg-violet-700 col-span-2">
                   📋 Use for my post
                 </button>
               </div>
+
+              {scheduleError && (
+                <p className="text-xs text-destructive">{scheduleError}</p>
+              )}
+
+              {scheduleImageUrl && (
+                <ScheduleAction
+                  brandId={brandId}
+                  imageUrl={scheduleImageUrl}
+                  caption={hookText.trim() || "Check out our latest! ✨"}
+                  hashtags={[]}
+                />
+              )}
             </div>
           )}
         </div>
