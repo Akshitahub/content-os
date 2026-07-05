@@ -124,7 +124,7 @@ export function CalendarEntryPanel({ entry, onClose, onUpdate }: CalendarEntryPa
 
   function buildInstagramCopy(): string {
     if (!entry) return ""
-    const tags = (entry.hashtags ?? []).map(h => `#${h}`).join(" ")
+    const tags = (entry.hashtags ?? []).map(h => `#${h.replace(/^#+/, "")}`).join(" ")
     return [entry.caption_text, tags].filter(Boolean).join("\n\n")
   }
 
@@ -322,7 +322,7 @@ export function CalendarEntryPanel({ entry, onClose, onUpdate }: CalendarEntryPa
                   <div className="mb-1.5 flex items-center justify-between">
                     <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Hashtags</p>
                     <CopyButton
-                      getText={() => entry.hashtags.map(h => `#${h}`).join(" ")}
+                      getText={() => entry.hashtags.map(h => `#${h.replace(/^#+/, "")}`).join(" ")}
                       label="Copy all"
                     />
                   </div>
@@ -331,10 +331,10 @@ export function CalendarEntryPanel({ entry, onClose, onUpdate }: CalendarEntryPa
                       <button
                         key={tag}
                         className="rounded-full bg-muted px-2.5 py-0.5 text-xs text-foreground/80 hover:bg-muted/60 transition-colors"
-                        onClick={() => navigator.clipboard.writeText(`#${tag}`).catch(() => {})}
-                        title={`Copy #${tag}`}
+                        onClick={() => navigator.clipboard.writeText(`#${tag.replace(/^#+/, "")}`).catch(() => {})}
+                        title={`Copy #${tag.replace(/^#+/, "")}`}
                       >
-                        #{tag}
+                        #{tag.replace(/^#+/, "")}
                       </button>
                     ))}
                   </div>

@@ -172,7 +172,7 @@ async function processEntry(admin: AdminClient, entry: CalendarEntryRow): Promis
     }
   }
 
-  const caption = [entry.caption_text, (entry.hashtags ?? []).map(h => `#${h}`).join(" ")]
+  const caption = [entry.caption_text, (entry.hashtags ?? []).map(h => `#${h.replace(/^#+/, "")}`).join(" ")]
     .filter(Boolean)
     .join("\n\n")
 

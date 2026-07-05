@@ -191,13 +191,13 @@ export function UpcomingOccasions({ brandId }: Props) {
                       <div className="mb-1 flex items-center justify-between">
                         <p className="text-xs font-medium text-muted-foreground">Hashtags</p>
                         <CopyButton
-                          text={generatedContent.hashtags.map(h => `#${h}`).join(" ")}
+                          text={generatedContent.hashtags.map(h => `#${h.replace(/^#+/, "")}`).join(" ")}
                           label="Copy all"
                         />
                       </div>
                       <div className="flex flex-wrap gap-1">
                         {generatedContent.hashtags.map(tag => (
-                          <span key={tag} className="rounded-full bg-muted px-2 py-0.5 text-xs">#{tag}</span>
+                          <span key={tag} className="rounded-full bg-muted px-2 py-0.5 text-xs">#{tag.replace(/^#+/, "")}</span>
                         ))}
                       </div>
                     </div>
