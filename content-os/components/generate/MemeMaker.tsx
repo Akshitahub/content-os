@@ -131,6 +131,15 @@ function ScheduleAction({
     )
   }
 
+  // Only ever show platforms that are actually connected — never a disabled
+  // button for one that isn't.
+  const connectedPlatforms: { id: "instagram" | "facebook"; label: string }[] = connection
+    ? [
+        ...(connection.instagram_connected ? [{ id: "instagram" as const, label: "Instagram" }] : []),
+        ...(connection.facebook_connected ? [{ id: "facebook" as const, label: "Facebook" }] : []),
+      ]
+    : []
+
   return (
     <div className="rounded-lg border bg-card p-4 space-y-3">
       <div className="flex items-center justify-between">
@@ -157,7 +166,7 @@ function ScheduleAction({
         </div>
       )}
 
-      {!checkingConnection && !connectionError && connection && !connection.connected && (
+      {!checkingConnection && !connectionError && connection && (!connection.connected || connectedPlatforms.length === 0) && (
         <div className="rounded-md border border-amber-200 bg-amber-50 p-3 space-y-1.5">
           <p className="text-sm text-amber-900">Connect Instagram or Facebook first to schedule posts.</p>
           <Link
@@ -169,33 +178,23 @@ function ScheduleAction({
         </div>
       )}
 
-      {!checkingConnection && !connectionError && connection?.connected && submitState !== "success" && (
+      {!checkingConnection && !connectionError && connection?.connected && connectedPlatforms.length > 0 && submitState !== "success" && (
         <div className="space-y-3">
           <div className="space-y-1.5">
             <Label className="text-xs">Platform</Label>
             <div className="flex gap-1.5">
-              <button
-                type="button"
-                disabled={!connection.instagram_connected}
-                onClick={() => setPlatform("instagram")}
-                title={!connection.instagram_connected ? "No Instagram Business account linked" : undefined}
-                className={`rounded-full px-3 py-1 text-xs font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
-                  platform === "instagram" ? "bg-primary text-primary-foreground" : "bg-secondary text-secondary-foreground hover:bg-secondary/80"
-                }`}
-              >
-                Instagram
-              </button>
-              <button
-                type="button"
-                disabled={!connection.facebook_connected}
-                onClick={() => setPlatform("facebook")}
-                title={!connection.facebook_connected ? "Facebook not connected" : undefined}
-                className={`rounded-full px-3 py-1 text-xs font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
-                  platform === "facebook" ? "bg-primary text-primary-foreground" : "bg-secondary text-secondary-foreground hover:bg-secondary/80"
-                }`}
-              >
-                Facebook
-              </button>
+              {connectedPlatforms.map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => setPlatform(p.id)}
+                  className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+                    platform === p.id ? "bg-primary text-primary-foreground" : "bg-secondary text-secondary-foreground hover:bg-secondary/80"
+                  }`}
+                >
+                  {p.label}
+                </button>
+              ))}
             </div>
           </div>
 

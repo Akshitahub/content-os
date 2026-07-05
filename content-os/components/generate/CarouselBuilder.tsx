@@ -454,7 +454,6 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
   // Settings
   const [topic, setTopic] = useState("")
   const [slideCount, setSlideCount] = useState(7)
-  const [platform, setPlatform] = useState<"instagram" | "linkedin">("instagram")
   const [vibe, setVibe] = useState<Vibe | undefined>()
   const [selectedProduct, setSelectedProduct] = useState<PickedProduct | null>(null)
   const productImage = selectedProduct?.imageUrl ?? null
@@ -525,7 +524,7 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
       const res = await fetch("/api/v1/ai/carousel/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ brandId, topic: topic.trim(), slideCount, platform, vibe }),
+        body: JSON.stringify({ brandId, topic: topic.trim(), slideCount, platform: "instagram", vibe }),
       })
       const json = await res.json() as { data?: GeneratedCarousel; error?: { message?: string } }
       if (!res.ok || !json.data) throw new Error(json.error?.message ?? "Generation failed")
@@ -622,18 +621,6 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
                   <button key={n} type="button" onClick={() => setSlideCount(n)}
                     className={`flex-1 rounded-lg border-2 py-2 text-sm font-semibold transition-all ${slideCount === n ? "border-violet-500 bg-violet-50 text-violet-700" : "border-border hover:border-violet-300"}`}>
                     {n} slides
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium">Platform</label>
-              <div className="flex gap-2">
-                {([["instagram", "📸 Instagram"], ["linkedin", "💼 LinkedIn"]] as const).map(([id, label]) => (
-                  <button key={id} type="button" onClick={() => setPlatform(id)}
-                    className={`flex-1 rounded-lg border-2 py-2 text-sm font-medium transition-all ${platform === id ? "border-violet-500 bg-violet-50 text-violet-700" : "border-border hover:border-violet-300"}`}>
-                    {label}
                   </button>
                 ))}
               </div>
@@ -737,7 +724,7 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
               {/* Title */}
               <div>
                 <p className="text-sm font-semibold">{carousel.title}</p>
-                <p className="text-xs text-muted-foreground">{allSlides.length} slides · {platform}</p>
+                <p className="text-xs text-muted-foreground">{allSlides.length} slides · Instagram</p>
               </div>
 
               {/* Slide navigator */}
@@ -850,14 +837,12 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
                 </button>
               </div>
 
-              {platform === "instagram" && (
-                <ScheduleAction
-                  brandId={brandId}
-                  slideElementIds={allSlides.map((_, i) => `carousel-slide-${i}`)}
-                  caption={carousel.cover_hook || carousel.title}
-                  hashtags={carousel.hashtags}
-                />
-              )}
+              <ScheduleAction
+                brandId={brandId}
+                slideElementIds={allSlides.map((_, i) => `carousel-slide-${i}`)}
+                caption={carousel.cover_hook || carousel.title}
+                hashtags={carousel.hashtags}
+              />
             </div>
           )}
         </div>

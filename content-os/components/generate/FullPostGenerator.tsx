@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useCallback, useRef, useMemo } from "react"
-import { Sparkles, RefreshCw, Copy, Check, Download, ExternalLink, Archive, Loader2, AlertCircle, CalendarClock, ChevronDown } from "lucide-react"
+import { Sparkles, RefreshCw, Copy, Check, Download, ExternalLink, Archive, Loader2, AlertCircle, CalendarClock } from "lucide-react"
 import { ProductPicker, type PickedProduct } from "@/components/shared/ProductPicker"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
@@ -17,7 +17,7 @@ import { useGenerationStore } from "@/stores/generationStore"
 import { useBrand } from "@/hooks/useBrand"
 import type { FullPostResult, ContentResult } from "@/hooks/useGeneration"
 import type { ProductRow } from "@/types/database"
-import type { ContentFormat, Platform, GeneratedHook, GeneratedCaption, ReelScript, CarouselContent, BlogPost, AdCopy, ImageStyle, AspectRatio } from "@/types/app"
+import type { GeneratedHook, GeneratedCaption, ReelScript, CarouselContent, BlogPost, AdCopy, ImageStyle, AspectRatio } from "@/types/app"
 
 // ─── Canvas compositing helpers ──────────────────────────────────────────────
 
@@ -100,23 +100,6 @@ async function compositeProductCard(
   return canvas.toDataURL("image/jpeg", 0.90)
 }
 
-const FORMATS: { value: ContentFormat; label: string }[] = [
-  { value: "social_post", label: "Instagram Post" },
-  { value: "carousel", label: "Carousel" },
-  { value: "reel_script", label: "Reel Script" },
-  { value: "blog_post", label: "Blog Post" },
-  { value: "ad_copy", label: "Ad Copy" },
-]
-
-const PLATFORMS: { value: Platform; label: string }[] = [
-  { value: "instagram", label: "Instagram" },
-  { value: "tiktok", label: "TikTok" },
-  { value: "facebook", label: "Facebook" },
-  { value: "youtube", label: "YouTube" },
-  { value: "linkedin", label: "LinkedIn" },
-  { value: "twitter", label: "Twitter / X" },
-]
-
 interface Props {
   brandId: string
   products: ProductRow[]
@@ -130,8 +113,6 @@ export function FullPostGenerator({ brandId, products }: Props) {
     setFullPostResult,
     selectedProductId,
     setSelectedProductId,
-    selectedPlatform,
-    setSelectedPlatform,
     occasionContext,
     pendingTopic,
     setPendingTopic,
@@ -144,14 +125,12 @@ export function FullPostGenerator({ brandId, products }: Props) {
   const secondaryColor = paletteColors[1] ?? "#818cf8"
   const brandName = brand?.name ?? "Brand"
 
-  const [format, setFormat] = useState<ContentFormat>("social_post")
   const [additionalContext, setAdditionalContext] = useState("")
   const [copied, setCopied] = useState<string | null>(null)
   const [justSaved, setJustSaved] = useState(false)
   const [selectedTemplate, setSelectedTemplate] = useState<PreviewTemplate>(1)
   const [postImageUrl, setPostImageUrl] = useState<string | null>(null)
   const [selectedProduct, setSelectedProduct] = useState<PickedProduct | null>(null)
-  const [showCustomize, setShowCustomize] = useState(false)
   const abortControllerRef = useRef<AbortController | null>(null)
 
   const previewHtml = useMemo(() => {
@@ -227,8 +206,8 @@ export function FullPostGenerator({ brandId, products }: Props) {
       {
         brandId,
         productId: selectedProductId ?? undefined,
-        format,
-        platform: selectedPlatform,
+        format: "social_post",
+        platform: "instagram",
         additionalContext: additionalContext || undefined,
       },
       {
@@ -269,66 +248,6 @@ export function FullPostGenerator({ brandId, products }: Props) {
       {/* Controls */}
       <div className="rounded-lg border bg-card p-5 space-y-4">
         <h3 className="text-sm font-semibold">Full Post Settings</h3>
-
-        {/* Format + Platform — collapsed by default since most entry points
-            (Reel card, Trending Now, etc.) arrive with a format already
-            decided; showing this unconditionally made it look redundant. */}
-        <div className="space-y-3">
-          <button
-            type="button"
-            onClick={() => setShowCustomize((v) => !v)}
-            className="inline-flex items-center gap-1 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
-          >
-            <ChevronDown className={`h-4 w-4 transition-transform duration-200 ${showCustomize ? "rotate-180" : ""}`} />
-            Customize format & style
-          </button>
-
-          {showCustomize && (
-            <div className="space-y-4">
-              {/* Format */}
-              <div className="space-y-1.5">
-                <Label className="text-xs">Content format</Label>
-                <div className="flex flex-wrap gap-1.5">
-                  {FORMATS.map((f) => (
-                    <button
-                      key={f.value}
-                      type="button"
-                      onClick={() => setFormat(f.value)}
-                      className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
-                        format === f.value
-                          ? "bg-primary text-primary-foreground"
-                          : "bg-secondary text-secondary-foreground hover:bg-secondary/80"
-                      }`}
-                    >
-                      {f.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Platform */}
-              <div className="space-y-1.5">
-                <Label className="text-xs">Platform</Label>
-                <div className="flex flex-wrap gap-1.5">
-                  {PLATFORMS.map((p) => (
-                    <button
-                      key={p.value}
-                      type="button"
-                      onClick={() => setSelectedPlatform(p.value)}
-                      className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
-                        selectedPlatform === p.value
-                          ? "bg-primary text-primary-foreground"
-                          : "bg-secondary text-secondary-foreground hover:bg-secondary/80"
-                      }`}
-                    >
-                      {p.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
 
         {/* Product */}
         {products.length > 0 && (
@@ -838,6 +757,15 @@ function ScheduleAction({
     )
   }
 
+  // Only ever show platforms that are actually connected — never a disabled
+  // button for one that isn't.
+  const connectedPlatforms: { id: "instagram" | "facebook"; label: string }[] = connection
+    ? [
+        ...(connection.instagram_connected ? [{ id: "instagram" as const, label: "Instagram" }] : []),
+        ...(connection.facebook_connected ? [{ id: "facebook" as const, label: "Facebook" }] : []),
+      ]
+    : []
+
   return (
     <div className="rounded-lg border bg-card p-4 space-y-3">
       <div className="flex items-center justify-between">
@@ -864,7 +792,7 @@ function ScheduleAction({
         </div>
       )}
 
-      {!checkingConnection && !connectionError && connection && !connection.connected && (
+      {!checkingConnection && !connectionError && connection && (!connection.connected || connectedPlatforms.length === 0) && (
         <div className="rounded-md border border-amber-200 bg-amber-50 p-3 space-y-1.5">
           <p className="text-sm text-amber-900">Connect Instagram or Facebook first to schedule posts.</p>
           <Link
@@ -876,33 +804,23 @@ function ScheduleAction({
         </div>
       )}
 
-      {!checkingConnection && !connectionError && connection?.connected && submitState !== "success" && (
+      {!checkingConnection && !connectionError && connection?.connected && connectedPlatforms.length > 0 && submitState !== "success" && (
         <div className="space-y-3">
           <div className="space-y-1.5">
             <Label className="text-xs">Platform</Label>
             <div className="flex gap-1.5">
-              <button
-                type="button"
-                disabled={!connection.instagram_connected}
-                onClick={() => setPlatform("instagram")}
-                title={!connection.instagram_connected ? "No Instagram Business account linked" : undefined}
-                className={`rounded-full px-3 py-1 text-xs font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
-                  platform === "instagram" ? "bg-primary text-primary-foreground" : "bg-secondary text-secondary-foreground hover:bg-secondary/80"
-                }`}
-              >
-                Instagram
-              </button>
-              <button
-                type="button"
-                disabled={!connection.facebook_connected}
-                onClick={() => setPlatform("facebook")}
-                title={!connection.facebook_connected ? "Facebook not connected" : undefined}
-                className={`rounded-full px-3 py-1 text-xs font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
-                  platform === "facebook" ? "bg-primary text-primary-foreground" : "bg-secondary text-secondary-foreground hover:bg-secondary/80"
-                }`}
-              >
-                Facebook
-              </button>
+              {connectedPlatforms.map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => setPlatform(p.id)}
+                  className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+                    platform === p.id ? "bg-primary text-primary-foreground" : "bg-secondary text-secondary-foreground hover:bg-secondary/80"
+                  }`}
+                >
+                  {p.label}
+                </button>
+              ))}
             </div>
           </div>
 
