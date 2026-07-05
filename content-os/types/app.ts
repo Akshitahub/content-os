@@ -182,11 +182,9 @@ export const PLAN_LIMITS: Record<UserPlan, { generations: number; brands: number
 // ─── Trending context ────────────────────────────────────────────────────────
 
 export interface TrendingContext {
-  trending_hashtags: string[]
-  trending_topics: string[]
-  audience_questions: string[]
+  topics: string[]
   scraped_at: string
-  sources_successful: number
+  success: boolean
 }
 
 // ─── Content strategy (Fastlane) ─────────────────────────────────────────────

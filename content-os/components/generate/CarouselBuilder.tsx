@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
 import { isApiError } from "@/types/api"
+import { useGenerationStore } from "@/stores/generationStore"
 import Link from "next/link"
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
@@ -447,6 +448,7 @@ function ScheduleAction({
 
 export function CarouselBuilder({ brandId }: { brandId: string }) {
   const { data: brand } = useBrand(brandId)
+  const { pendingTopic, setPendingTopic } = useGenerationStore()
   const STORAGE_KEY = `carousel_${brandId}`
 
   // Settings
@@ -499,6 +501,15 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
       sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ ...carousel, topic }))
     }
   }, [carousel, topic, STORAGE_KEY])
+
+  // Consume a topic handed off from Trending Now, if any
+  useEffect(() => {
+    if (pendingTopic) {
+      setTopic(pendingTopic)
+      setPendingTopic(null)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   async function generate() {
     if (!topic.trim()) { setError("Please enter a topic for your carousel."); return }

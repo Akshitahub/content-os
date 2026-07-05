@@ -133,6 +133,8 @@ export function FullPostGenerator({ brandId, products }: Props) {
     selectedPlatform,
     setSelectedPlatform,
     occasionContext,
+    pendingTopic,
+    setPendingTopic,
   } = useGenerationStore()
   const { data: brand } = useBrand(brandId)
 
@@ -165,6 +167,15 @@ export function FullPostGenerator({ brandId, products }: Props) {
   useEffect(() => {
     if (occasionContext) setAdditionalContext(occasionContext.angle)
   }, [occasionContext])
+
+  // Consume a topic handed off from Trending Now, if any
+  useEffect(() => {
+    if (pendingTopic) {
+      setAdditionalContext(pendingTopic)
+      setPendingTopic(null)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // Restore from sessionStorage on mount
   useEffect(() => {

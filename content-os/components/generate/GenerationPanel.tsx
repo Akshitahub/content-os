@@ -72,7 +72,7 @@ export function GenerationPanel({ brandId, products }: GenerationPanelProps) {
         </div>
       )}
 
-      {activeTab === null && <CreatePicker onSelect={handlePickerSelect} />}
+      {activeTab === null && <CreatePicker brandId={brandId} onSelect={handlePickerSelect} />}
 
       {activeTab !== null && (
         <>
