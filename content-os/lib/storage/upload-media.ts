@@ -46,7 +46,11 @@ export async function uploadMediaToStorage(
       buffer = Buffer.from(await res.arrayBuffer())
     }
 
-    const ext = mimeType.includes("png") ? "png" : "jpg"
+    const ext = mimeType.includes("png") ? "png"
+      : mimeType.includes("wav") ? "wav"
+      : mimeType.includes("mp3") || mimeType.includes("mpeg") ? "mp3"
+      : mimeType.includes("jpeg") || mimeType.includes("jpg") ? "jpg"
+      : "bin"
     const path = `${pathPrefix}/${Date.now()}-${crypto.randomUUID()}.${ext}`
 
     const admin = await createAdminClient()

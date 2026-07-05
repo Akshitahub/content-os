@@ -31,6 +31,47 @@ function safeErrorMessage(raw: string | null): string {
   return looksRaw ? "Video generation failed. Please try again." : raw
 }
 
+interface SceneAssetLike {
+  sceneIndex: number
+  error: string | null
+}
+
+/**
+ * scene_assets is stored as jsonb, so it arrives as `unknown` — the shape
+ * is already sanitized server-side in lib/video/reel-scene-assets.ts, this
+ * just narrows it enough to iterate safely.
+ */
+function SceneFailureDetails({ sceneAssets }: { sceneAssets: unknown }) {
+  const [expanded, setExpanded] = useState(false)
+
+  if (!Array.isArray(sceneAssets)) return null
+  const failures = (sceneAssets as SceneAssetLike[]).filter(
+    (scene) => scene && typeof scene === "object" && scene.error
+  )
+  if (failures.length === 0) return null
+
+  return (
+    <div className="mt-1">
+      <button
+        type="button"
+        className="text-muted-foreground underline underline-offset-2"
+        onClick={() => setExpanded((v) => !v)}
+      >
+        {expanded ? "Hide details" : "Show details"}
+      </button>
+      {expanded && (
+        <ul className="mt-1 space-y-0.5 text-muted-foreground">
+          {failures.map((scene) => (
+            <li key={scene.sceneIndex}>
+              Scene {scene.sceneIndex}: {scene.error}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
 /**
  * Kicks off the async reel-to-video job and polls its status. Shared
  * between the Library's saved-script card and the reel generation screen
@@ -96,7 +137,10 @@ export function GenerateVideoAction({ scriptId, brandId }: { scriptId: string; b
             </a>
           )}
           {job.status === "failed" && (
-            <p className="text-destructive">{safeErrorMessage(job.error_message)}</p>
+            <div>
+              <p className="text-destructive">{safeErrorMessage(job.error_message)}</p>
+              <SceneFailureDetails sceneAssets={job.scene_assets} />
+            </div>
           )}
         </div>
       )}
