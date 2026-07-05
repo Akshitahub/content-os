@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import { Film, ChevronDown } from "lucide-react"
-import { TABS, TAB_DESCRIPTIONS, type Tab } from "./GenerationPanel"
+import { TABS, TAB_DESCRIPTIONS, type Tab } from "./tabsConfig"
 
 interface CreatePickerProps {
   onSelect: (tab: Tab, options?: { presetReelScript?: boolean }) => void
