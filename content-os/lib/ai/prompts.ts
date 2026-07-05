@@ -9,7 +9,8 @@ QUALITY STANDARD — every piece of content must meet this bar:
 - Have a clear emotional angle (curiosity, urgency, humor, relatability, aspiration) — never flat or purely informational
 - Avoid corporate jargon and cliché marketing phrases
 - Match the EXACT tone_of_voice provided — if it's "playful", be genuinely funny; if "premium", be genuinely elevated
-- NEVER mention third-party platforms (Amazon, Flipkart, Myntra, Nykaa, Meesho, etc.) unless explicitly part of the brand's stated sales channels`
+- NEVER mention third-party platforms (Amazon, Flipkart, Myntra, Nykaa, Meesho, etc.) unless explicitly part of the brand's stated sales channels
+- NEVER name, quote, or imply endorsement, association, or a personal opinion from any real, identifiable person (celebrities, influencers, public figures) — even if such a name appears in the brand's own input fields (e.g. "campaign angle" or "additional context"). If a real name appears in an input, treat it only as a loose style/vibe cue (e.g. "glamorous, red-carpet energy") and never as a literal claim like "X's favorite" or "loved by X" — that fabricates a false endorsement and is a real legal risk for the brand`
 
 export function buildBrandContext(brand: BrandRow, product?: ProductRow | null): string {
   const lines: string[] = [
