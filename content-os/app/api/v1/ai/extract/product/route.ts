@@ -32,17 +32,27 @@ export async function POST(request: Request) {
     const extracted = await extractProductFromPage(page)
     return NextResponse.json({ data: extracted }, { status: 200 })
   } catch (err) {
-    if (err instanceof PageFetchError || err instanceof ExtractionError) {
+    console.error("[ai/extract/product] error:", err)
+
+    if (err instanceof PageFetchError) {
       return NextResponse.json({
         data: null,
         scrape_failed: true,
-        message: "We couldn't access that product page automatically. Please fill in the details manually below.",
+        message: `Couldn't fetch that product page: ${err.message}`,
       }, { status: 200 })
     }
+    if (err instanceof ExtractionError) {
+      return NextResponse.json({
+        data: null,
+        scrape_failed: true,
+        message: `AI extraction failed: ${err.message}`,
+      }, { status: 200 })
+    }
+    const detail = err instanceof Error ? err.message : String(err)
     return NextResponse.json({
       data: null,
       scrape_failed: true,
-      message: "We couldn't access that product page automatically. Please fill in the details manually below.",
+      message: `Unexpected error during import: ${detail}`,
     }, { status: 200 })
   }
 }
