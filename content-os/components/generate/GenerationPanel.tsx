@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { FileText, Sparkles, Layers, ImageIcon, X, RefreshCw, Wand2, LayoutGrid, Smartphone, Laugh } from "lucide-react"
+import { FileText, Sparkles, Layers, ImageIcon, X, RefreshCw, Wand2, LayoutGrid, Smartphone, Laugh, ChevronLeft } from "lucide-react"
 import { FullPostGenerator } from "./FullPostGenerator"
 import { HookGenerator } from "./HookGenerator"
 import { ContentTypeGenerator } from "./ContentTypeGenerator"
@@ -12,6 +12,7 @@ import { AdMaker } from "./AdMaker"
 import { CarouselBuilder } from "./CarouselBuilder"
 import { StorySequence } from "./StorySequence"
 import { MemeMaker } from "./MemeMaker"
+import { CreatePicker } from "./CreatePicker"
 import { useGenerationStore } from "@/stores/generationStore"
 import type { ProductRow } from "@/types/database"
 
@@ -20,9 +21,9 @@ interface GenerationPanelProps {
   products: ProductRow[]
 }
 
-type Tab = "ad_maker" | "full_post" | "carousel" | "stories" | "memes" | "hooks" | "content" | "images" | "repurpose"
+export type Tab = "ad_maker" | "full_post" | "carousel" | "stories" | "memes" | "hooks" | "content" | "images" | "repurpose"
 
-const TAB_DESCRIPTIONS: Record<Tab, string> = {
+export const TAB_DESCRIPTIONS: Record<Tab, string> = {
   ad_maker:  "Upload your product photo and place it in an AI-generated scene. Perfect for Instagram ads.",
   full_post: "Generate a complete post — hook, caption, hashtags and visual direction in one click.",
   carousel:  "Create a multi-slide carousel for Instagram or LinkedIn with AI-written content per slide.",
@@ -34,7 +35,7 @@ const TAB_DESCRIPTIONS: Record<Tab, string> = {
   repurpose: "Turn one piece of content into multiple formats across platforms.",
 }
 
-const TABS: { id: Tab; label: string; icon: React.ElementType; tooltip: string }[] = [
+export const TABS: { id: Tab; label: string; icon: React.ElementType; tooltip: string }[] = [
   { id: "ad_maker",  label: "Ad Maker ✨",      icon: Wand2,       tooltip: "Create product ads with AI-generated scenes" },
   { id: "full_post", label: "Post Builder",      icon: FileText,    tooltip: "Build a complete post: hook + caption + visual" },
   { id: "carousel",  label: "Carousel 🎠",       icon: LayoutGrid,  tooltip: "Visual carousel builder with slide preview" },
@@ -47,10 +48,10 @@ const TABS: { id: Tab; label: string; icon: React.ElementType; tooltip: string }
 ]
 
 export function GenerationPanel({ brandId, products }: GenerationPanelProps) {
-  const [activeTab, setActiveTab] = useState<Tab>("ad_maker")
+  const [activeTab, setActiveTab] = useState<Tab | null>(null)
   const [transitioning, setTransitioning] = useState(false)
   const [barComplete, setBarComplete] = useState(false)
-  const { occasionContext, setOccasionContext } = useGenerationStore()
+  const { occasionContext, setOccasionContext, setContentFormat } = useGenerationStore()
 
   function handleTabChange(tab: Tab) {
     if (tab === activeTab) return
@@ -59,6 +60,13 @@ export function GenerationPanel({ brandId, products }: GenerationPanelProps) {
     setBarComplete(false)
     setTimeout(() => setBarComplete(true), 10)
     setTimeout(() => { setTransitioning(false); setBarComplete(false) }, 450)
+  }
+
+  function handlePickerSelect(tab: Tab, options?: { presetReelScript?: boolean }) {
+    if (options?.presetReelScript) {
+      setContentFormat("reel_script")
+    }
+    handleTabChange(tab)
   }
 
   return (
@@ -89,47 +97,37 @@ export function GenerationPanel({ brandId, products }: GenerationPanelProps) {
         </div>
       )}
 
-      {/* Pill tabs — horizontally scrollable on mobile */}
-      <div className="flex gap-1.5 overflow-x-auto pb-1 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
-        {TABS.map((tab) => {
-          const Icon = tab.icon
-          const active = activeTab === tab.id
-          return (
-            <button
-              key={tab.id}
-              type="button"
-              onClick={() => handleTabChange(tab.id)}
-              title={tab.tooltip}
-              className={`flex items-center gap-1.5 rounded-full px-4 py-1.5 text-sm font-medium transition-all duration-150 ${
-                active
-                  ? "bg-primary text-primary-foreground shadow-sm"
-                  : "bg-secondary text-secondary-foreground hover:bg-secondary/80 border border-transparent"
-              }`}
-            >
-              <Icon className="h-3.5 w-3.5" />
-              {tab.label}
-            </button>
-          )
-        })}
-      </div>
-      <p className="text-xs text-muted-foreground mt-2 mb-4 px-1">{TAB_DESCRIPTIONS[activeTab]}</p>
+      {activeTab === null && <CreatePicker onSelect={handlePickerSelect} />}
 
-      {activeTab === "ad_maker"  && <AdMaker brandId={brandId} />}
-      {activeTab === "full_post" && <FullPostGenerator brandId={brandId} products={products} />}
-      {activeTab === "carousel"  && <CarouselBuilder brandId={brandId} />}
-      {activeTab === "stories"   && <StorySequence brandId={brandId} />}
-      {activeTab === "memes"     && <MemeMaker brandId={brandId} />}
-      {activeTab === "hooks"     && <HookGenerator brandId={brandId} products={products} />}
-      {activeTab === "content"   && <ContentTypeGenerator brandId={brandId} products={products} />}
-      {activeTab === "images"    && (
-        <div className="space-y-8">
-          <ImageGenerator brandId={brandId} products={products} />
-          <div className="border-t pt-8">
-            <SceneComposer brandId={brandId} />
-          </div>
-        </div>
+      {activeTab !== null && (
+        <>
+          <button
+            type="button"
+            onClick={() => setActiveTab(null)}
+            className="inline-flex items-center gap-1 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <ChevronLeft className="h-4 w-4" /> Change type
+          </button>
+          <p className="text-xs text-muted-foreground mt-2 mb-4 px-1">{TAB_DESCRIPTIONS[activeTab]}</p>
+
+          {activeTab === "ad_maker"  && <AdMaker brandId={brandId} />}
+          {activeTab === "full_post" && <FullPostGenerator brandId={brandId} products={products} />}
+          {activeTab === "carousel"  && <CarouselBuilder brandId={brandId} />}
+          {activeTab === "stories"   && <StorySequence brandId={brandId} />}
+          {activeTab === "memes"     && <MemeMaker brandId={brandId} />}
+          {activeTab === "hooks"     && <HookGenerator brandId={brandId} products={products} />}
+          {activeTab === "content"   && <ContentTypeGenerator brandId={brandId} products={products} />}
+          {activeTab === "images"    && (
+            <div className="space-y-8">
+              <ImageGenerator brandId={brandId} products={products} />
+              <div className="border-t pt-8">
+                <SceneComposer brandId={brandId} />
+              </div>
+            </div>
+          )}
+          {activeTab === "repurpose" && <ContentRepurposer brandId={brandId} />}
+        </>
       )}
-      {activeTab === "repurpose" && <ContentRepurposer brandId={brandId} />}
     </div>
   )
 }
