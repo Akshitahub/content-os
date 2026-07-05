@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import { buildError, ErrorCodes } from "@/types/api"
 import { MODELS, getGroqClient } from "@/lib/ai/models"
+import { checkAndIncrementUsage } from "@/lib/usage/check-and-increment-usage"
 import { z } from "zod"
 import type { BrandRow } from "@/types/database"
 
@@ -79,6 +80,12 @@ export async function POST(request: Request) {
   const { data: { user }, error: authError } = await supabase.auth.getUser()
   if (authError || !user) {
     return NextResponse.json(buildError(ErrorCodes.UNAUTHENTICATED, "You must be logged in."), { status: 401 })
+  }
+
+  const usageCheck = await checkAndIncrementUsage(user.id)
+  if (!usageCheck.ok) {
+    const code = usageCheck.status === 429 ? ErrorCodes.USAGE_LIMIT_EXCEEDED : ErrorCodes.INTERNAL_ERROR
+    return NextResponse.json(buildError(code, usageCheck.message), { status: usageCheck.status })
   }
 
   let body: unknown

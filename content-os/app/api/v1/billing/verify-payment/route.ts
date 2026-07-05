@@ -1,4 +1,5 @@
 import crypto from "crypto"
+import Razorpay from "razorpay"
 import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import { buildError, ErrorCodes } from "@/types/api"
@@ -8,7 +9,6 @@ const schema = z.object({
   razorpay_order_id: z.string(),
   razorpay_payment_id: z.string(),
   razorpay_signature: z.string(),
-  plan: z.enum(["starter", "pro"]),
 })
 
 export async function POST(request: Request) {
@@ -28,7 +28,7 @@ export async function POST(request: Request) {
     return NextResponse.json(buildError(ErrorCodes.VALIDATION_ERROR, "Invalid payload."), { status: 400 })
   }
 
-  const { razorpay_order_id, razorpay_payment_id, razorpay_signature, plan } = parsed.data
+  const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = parsed.data
 
   // Verify HMAC-SHA256 signature — prevents tampering with the payment response
   const body_string = `${razorpay_order_id}|${razorpay_payment_id}`
@@ -37,9 +37,47 @@ export async function POST(request: Request) {
     .update(body_string)
     .digest("hex")
 
-  if (expectedSignature !== razorpay_signature) {
+  const expectedBuffer = Buffer.from(expectedSignature, "hex")
+  const receivedBuffer = Buffer.from(razorpay_signature, "hex")
+
+  if (
+    expectedBuffer.length !== receivedBuffer.length ||
+    !crypto.timingSafeEqual(expectedBuffer, receivedBuffer)
+  ) {
     return NextResponse.json(buildError(ErrorCodes.VALIDATION_ERROR, "Payment verification failed."), { status: 400 })
   }
+
+  // Signature only proves this order_id/payment_id pair was paid — it does
+  // NOT prove which plan was purchased. Fetch the order server-side and use
+  // its notes (set at creation time in create-checkout-session/route.ts) as
+  // the source of truth for plan + owning user, never trust client input.
+  const razorpay = new Razorpay({
+    key_id: process.env.RAZORPAY_KEY_ID!,
+    key_secret: process.env.RAZORPAY_KEY_SECRET!,
+  })
+
+  let order
+  try {
+    order = await razorpay.orders.fetch(razorpay_order_id)
+  } catch (err) {
+    console.error("[billing/verify-payment] Razorpay order fetch failed:", err instanceof Error ? err.message : err)
+    return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Couldn't verify this payment. Please try again."), { status: 500 })
+  }
+
+  const orderUserId = order.notes?.user_id
+  const orderPlan = order.notes?.plan
+
+  if (orderUserId !== user.id) {
+    return NextResponse.json(buildError(ErrorCodes.VALIDATION_ERROR, "This order does not belong to your account."), { status: 400 })
+  }
+  if (orderPlan !== "starter" && orderPlan !== "pro") {
+    return NextResponse.json(buildError(ErrorCodes.VALIDATION_ERROR, "Invalid plan."), { status: 400 })
+  }
+  if (order.status !== "paid") {
+    return NextResponse.json(buildError(ErrorCodes.VALIDATION_ERROR, "This payment hasn't been confirmed as paid yet."), { status: 400 })
+  }
+
+  const plan = orderPlan
 
   // Signature valid — upgrade the user's plan and reset their generation count
   const nextResetDate = new Date()

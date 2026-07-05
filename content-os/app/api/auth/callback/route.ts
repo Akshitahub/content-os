@@ -7,7 +7,13 @@ export async function GET(request: Request) {
 
   const { searchParams, origin } = new URL(request.url)
   const code = searchParams.get("code")
-  const next = searchParams.get("next") ?? "/dashboard"
+  let next = searchParams.get("next") ?? "/dashboard"
+
+  // Guard against open-redirect: must be a single-slash relative path, not a
+  // protocol-relative ("//evil.com") or absolute ("https://evil.com") URL.
+  if (!/^\/(?!\/)/.test(next)) {
+    next = "/dashboard"
+  }
 
   if (code) {
     let supabase

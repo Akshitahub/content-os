@@ -34,6 +34,16 @@ export async function PUT(request: Request, { params }: Params) {
 
   const { brandId, sequenceId } = await params
 
+  const { data: brand } = await supabase
+    .from("brands")
+    .select("user_id")
+    .eq("id", brandId)
+    .single<{ user_id: string }>()
+
+  if (!brand || brand.user_id !== user.id) {
+    return NextResponse.json(buildError(ErrorCodes.UNAUTHORIZED, "Access denied."), { status: 403 })
+  }
+
   try {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { data, error } = await (supabase.from("email_sequences") as any)
