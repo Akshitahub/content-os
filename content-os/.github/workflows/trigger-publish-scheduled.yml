@@ -1,0 +1,17 @@
+name: Trigger scheduled publish
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch: {}
+
+jobs:
+  trigger:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call publish-scheduled endpoint
+        run: |
+          curl -sf -X GET "https://content-os-mu-kohl.vercel.app/api/v1/cron/publish-scheduled" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            --max-time 60
+        shell: bash
