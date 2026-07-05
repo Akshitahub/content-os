@@ -35,11 +35,23 @@ export async function uploadMediaToStorage(
       mimeType = match[1]
       buffer = Buffer.from(match[2], "base64")
     } else {
+      // Exponential backoff on 429s: 500ms, 1s, 2s, (4s if ever extended
+      // past 3 retries) — Pollinations rate-limits under concurrent load.
+      const backoffDelaysMs = [500, 1000, 2000, 4000]
+      const maxRetries = 3
       let res: Response
-      try {
-        res = await fetch(input.url)
-      } catch (err) {
-        return { error: err instanceof Error ? err.message : "Failed to fetch source image." }
+      let attempt = 0
+      for (;;) {
+        try {
+          res = await fetch(input.url)
+        } catch (err) {
+          return { error: err instanceof Error ? err.message : "Failed to fetch source image." }
+        }
+        if (res.status !== 429 || attempt >= maxRetries) break
+        const delay = backoffDelaysMs[attempt] ?? backoffDelaysMs[backoffDelaysMs.length - 1]
+        console.log(`[upload-media] Remote fetch rate limited (429), retrying in ${delay}ms (attempt ${attempt + 1}/${maxRetries})...`)
+        await new Promise((resolve) => setTimeout(resolve, delay))
+        attempt++
       }
       if (!res.ok) return { error: `Failed to fetch source image (${res.status}).` }
       mimeType = res.headers.get("content-type") ?? "image/jpeg"

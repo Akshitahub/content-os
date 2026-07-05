@@ -14,6 +14,38 @@ import type { ReelScene } from "@/types/app"
 const TTS_MODEL = "canopylabs/orpheus-v1-english"
 const TTS_VOICE = "troy"
 
+// Stagger each scene's start so we don't fire every scene's image + TTS
+// request at the same instant — that's what was tripping Pollinations'
+// and Groq's rate limits in production for reels with 6-10 scenes.
+const SCENE_STAGGER_MS = 700
+
+// Exponential backoff for rate-limited (429) calls: 500ms, 1s, 2s, (4s if
+// ever extended past 3 retries).
+const BACKOFF_DELAYS_MS = [500, 1000, 2000, 4000]
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function isRateLimitError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message.toLowerCase() : String(err).toLowerCase()
+  return msg.includes("429") || msg.includes("rate_limit") || msg.includes("rate limit")
+}
+
+/** Retries `fn` with exponential backoff when it fails with a rate-limit (429) error. */
+async function retryOn429<T>(fn: () => Promise<T>, maxRetries = 3): Promise<T> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await fn()
+    } catch (err) {
+      if (attempt >= maxRetries || !isRateLimitError(err)) throw err
+      const delay = BACKOFF_DELAYS_MS[attempt] ?? BACKOFF_DELAYS_MS[BACKOFF_DELAYS_MS.length - 1]
+      console.log(`[reel-scene-assets] Rate limited, retrying in ${delay}ms (attempt ${attempt + 1}/${maxRetries})...`)
+      await sleep(delay)
+    }
+  }
+}
+
 export interface SceneAsset {
   sceneIndex: number
   visualDirection: string
@@ -62,12 +94,14 @@ async function generateSceneVoiceover(
 
   try {
     const groq = getGroqClient()
-    const speech = await groq.audio.speech.create({
-      input: text.slice(0, 2000),
-      model: TTS_MODEL,
-      voice: TTS_VOICE,
-      response_format: "wav",
-    })
+    const speech = await retryOn429(() =>
+      groq.audio.speech.create({
+        input: text.slice(0, 2000),
+        model: TTS_MODEL,
+        voice: TTS_VOICE,
+        response_format: "wav",
+      })
+    )
 
     const arrayBuffer = await speech.arrayBuffer()
     const buffer = Buffer.from(arrayBuffer)
@@ -92,11 +126,13 @@ async function generateSceneVoiceover(
 
 /**
  * Generates one AI image (Pollinations, re-hosted to Supabase Storage for
- * reliability) and one Groq TTS voiceover clip per scene. Runs all scenes
- * in parallel — reel scripts only have 3-5 scenes, so this stays well
- * within reasonable concurrency. Never throws: a failure on one scene is
- * captured in that scene's own `error` field rather than aborting the
- * whole batch, so the caller can decide how to handle partial failures.
+ * reliability) and one Groq TTS voiceover clip per scene. Each scene's start
+ * is staggered by SCENE_STAGGER_MS rather than firing all scenes at once —
+ * reel scripts can have 6-10 scenes, and generating everything simultaneously
+ * was tripping Pollinations' and Groq's rate limits in production. Never
+ * throws: a failure on one scene is captured in that scene's own `error`
+ * field rather than aborting the whole batch, so the caller can decide how
+ * to handle partial failures.
  */
 export async function generateSceneAssets(
   brandId: string,
@@ -105,6 +141,8 @@ export async function generateSceneAssets(
 ): Promise<SceneAsset[]> {
   return Promise.all(
     scenes.map(async (scene, sceneIndex): Promise<SceneAsset> => {
+      await sleep(sceneIndex * SCENE_STAGGER_MS)
+
       const [imageResult, audioResult] = await Promise.all([
         generateSceneImage(brandId, scriptId, sceneIndex, scene.visual_direction),
         generateSceneVoiceover(brandId, scriptId, sceneIndex, scene.voiceover_or_text_overlay),
