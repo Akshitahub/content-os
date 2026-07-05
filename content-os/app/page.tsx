@@ -106,12 +106,7 @@ export default async function RootPage() {
                   </a>
                 </div>
                 <div className="mt-8 flex items-center gap-3">
-                  <div className="flex items-center gap-0.5">
-                    {[1, 2, 3, 4, 5].map((i) => (
-                      <Star key={i} className="h-4 w-4 fill-yellow-400 text-yellow-400" />
-                    ))}
-                  </div>
-                  <span className="text-sm text-gray-400">Trusted by 500+ ecommerce brands</span>
+                  <span className="text-sm text-gray-400">Now in private beta</span>
                 </div>
               </div>
 
@@ -345,16 +340,11 @@ export default async function RootPage() {
             </div>
             <div className="grid gap-8 sm:grid-cols-3">
               {[
-                { quote: "Overall experience is quite good. Really like the calendar section. Very professional and smooth AI.", name: "Beta Tester", role: "D2C Brand Owner", initials: "BT", color: "bg-violet-600" },
-                { quote: "Wow, you built this? The UI is very professional. Left bar is nice and elaborates every section.", name: "Beta Tester", role: "Social Media Manager", initials: "BT", color: "bg-pink-600" },
-                { quote: "The AI actually sounds like our brand. This saves us hours every week.", name: "Beta Tester", role: "Instagram Creator", initials: "BT", color: "bg-emerald-600" },
+                { quote: "Overall experience is quite good. Really like the calendar section. Very professional and smooth AI.", name: "D2C Brand Owner (Beta Tester)", role: "D2C Brand Owner", initials: "BT", color: "bg-violet-600" },
+                { quote: "Wow, you built this? The UI is very professional. Left bar is nice and elaborates every section.", name: "Social Media Manager (Beta Tester)", role: "Social Media Manager", initials: "BT", color: "bg-pink-600" },
+                { quote: "The AI actually sounds like our brand. This saves us hours every week.", name: "Instagram Creator (Beta Tester)", role: "Instagram Creator", initials: "BT", color: "bg-emerald-600" },
               ].map(({ quote, name, role, initials, color }, i) => (
                 <div key={i} className="flex flex-col rounded-2xl border border-gray-100 bg-white p-8 shadow-sm transition-shadow hover:shadow-md">
-                  <div className="mb-3 flex items-center gap-0.5">
-                    {[1, 2, 3, 4, 5].map((s) => (
-                      <Star key={s} className="h-4 w-4 fill-yellow-400 text-yellow-400" />
-                    ))}
-                  </div>
                   <p className="mb-2 text-5xl font-black leading-none text-violet-200" aria-hidden="true">&ldquo;</p>
                   <p className="flex-1 text-sm leading-relaxed text-gray-700">{quote}</p>
                   <div className="mt-6 flex items-center gap-3">
