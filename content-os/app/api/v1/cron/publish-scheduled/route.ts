@@ -5,6 +5,7 @@ import { publishToFacebook } from "@/lib/social/facebook-publish"
 import { publishCarouselToInstagram } from "@/lib/social/instagram-carousel-publish"
 import { publishStorySequenceToInstagram } from "@/lib/social/instagram-story-publish"
 import { publishToThreads } from "@/lib/social/threads-publish"
+import { publishToPinterest } from "@/lib/social/pinterest-publish"
 import { uploadMediaToStorage } from "@/lib/storage/upload-media"
 import type { SupabaseClient } from "@supabase/supabase-js"
 import type { Database, CalendarEntryRow, SocialConnectionRow } from "@/types/database"
@@ -79,13 +80,14 @@ async function recordFailure(admin: AdminClient, entry: CalendarEntryRow, reason
 async function processEntry(admin: AdminClient, entry: CalendarEntryRow): Promise<"published" | "failed" | "skipped"> {
   // A Facebook Page and its linked Instagram Business Account share one
   // connection row (platform="instagram", same Page access token), so a
-  // Facebook-targeted entry still looks up the "instagram" row. Threads has
-  // entirely separate OAuth credentials and its own row (platform="threads").
+  // Facebook-targeted entry still looks up the "instagram" row. Threads and
+  // Pinterest each have entirely separate OAuth credentials and their own
+  // row (platform="threads"/"pinterest").
   const { data: connection } = await admin
     .from("social_connections")
     .select("*")
     .eq("brand_id", entry.brand_id)
-    .eq("platform", entry.platform === "threads" ? "threads" : "instagram")
+    .eq("platform", entry.platform === "threads" ? "threads" : entry.platform === "pinterest" ? "pinterest" : "instagram")
     .eq("is_active", true)
     .maybeSingle<SocialConnectionRow>()
 
@@ -104,6 +106,11 @@ async function processEntry(admin: AdminClient, entry: CalendarEntryRow): Promis
   if (entry.platform === "threads" && !connection.threads_user_id) {
     console.error(`[cron/publish-scheduled] entry ${entry.id}: brand ${entry.brand_id}'s Threads connection is missing a threads_user_id`)
     return await recordFailure(admin, entry, "Threads not connected for this brand.")
+  }
+
+  if (entry.platform === "pinterest" && !connection.pinterest_board_id) {
+    console.error(`[cron/publish-scheduled] entry ${entry.id}: brand ${entry.brand_id}'s Pinterest connection is missing a pinterest_board_id`)
+    return await recordFailure(admin, entry, "Pinterest not connected for this brand.")
   }
 
   if (new Date(connection.token_expires_at).getTime() <= Date.now()) {
@@ -257,6 +264,12 @@ async function processEntry(admin: AdminClient, entry: CalendarEntryRow): Promis
     return "published"
   }
 
+  // Pinterest requires a separate short title (there's no dedicated title
+  // field elsewhere in the scheduling flow) — derived from the caption's
+  // first line, capped at ~90 characters, whichever is shorter.
+  const pinterestTitleLine = caption.split("\n")[0] ?? caption
+  const pinterestTitle = pinterestTitleLine.length > 90 ? pinterestTitleLine.slice(0, 90) : pinterestTitleLine
+
   const publishResult = isCarousel
     // ig_business_account_id is guaranteed non-null here — checked above.
     ? await publishCarouselToInstagram(connection.ig_business_account_id!, connection.access_token, { imageUrls: imageUrls!, caption })
@@ -265,7 +278,10 @@ async function processEntry(admin: AdminClient, entry: CalendarEntryRow): Promis
       : entry.platform === "threads"
         // threads_user_id is guaranteed non-null here — checked above.
         ? await publishToThreads(connection.threads_user_id!, connection.access_token, { imageUrl: imageUrl!, text: caption })
-        : await publishToFacebook(connection.facebook_page_id, connection.access_token, { imageUrl: imageUrl!, message: caption })
+        : entry.platform === "pinterest"
+          // pinterest_board_id is guaranteed non-null here — checked above.
+          ? await publishToPinterest(connection.pinterest_board_id!, connection.access_token, { imageUrl: imageUrl!, title: pinterestTitle, description: caption })
+          : await publishToFacebook(connection.facebook_page_id, connection.access_token, { imageUrl: imageUrl!, message: caption })
 
   if (!publishResult.success) {
     console.error(`[cron/publish-scheduled] entry ${entry.id}: publish failed (retryable=${publishResult.retryable}) — ${publishResult.error}`)
@@ -276,11 +292,19 @@ async function processEntry(admin: AdminClient, entry: CalendarEntryRow): Promis
     ? publishResult.instagramMediaId
     : "threadsPostId" in publishResult
       ? publishResult.threadsPostId
-      : publishResult.facebookPostId
+      : "pinId" in publishResult
+        ? publishResult.pinId
+        : publishResult.facebookPostId
   console.log(`[cron/publish-scheduled] entry ${entry.id}: published — ${entry.platform} id ${externalId}`)
 
   const publishedAt = new Date().toISOString()
-  const mediaIdKey = entry.platform === "instagram" ? "instagram_media_id" : entry.platform === "threads" ? "threads_post_id" : "facebook_post_id"
+  const mediaIdKey = entry.platform === "instagram"
+    ? "instagram_media_id"
+    : entry.platform === "threads"
+      ? "threads_post_id"
+      : entry.platform === "pinterest"
+        ? "pinterest_pin_id"
+        : "facebook_post_id"
 
   const { error: updateError } = await calendarEntriesTable(admin)
     .update({
@@ -326,7 +350,7 @@ export async function GET(request: Request) {
     .from("calendar_entries")
     .select("*")
     .eq("status", "scheduled")
-    .in("platform", ["instagram", "facebook", "threads"])
+    .in("platform", ["instagram", "facebook", "threads", "pinterest"])
     .lte("scheduled_date", todayStr)
     .order("scheduled_date", { ascending: true })
     .returns<CalendarEntryRow[]>()

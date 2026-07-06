@@ -88,9 +88,38 @@ export async function GET(_request: Request, { params }: RouteParams) {
   const threads_connected = Boolean(threadsData?.threads_user_id)
   const threads_username = threadsData?.threads_username ?? null
 
+  // Pinterest is also a separate connection row (its own OAuth
+  // credentials/token). Same non-fatal treatment as Threads above.
+  const { data: pinterestData, error: pinterestError } = await socialConnectionsTable(result.supabase!)
+    .select("pinterest_user_id, pinterest_username")
+    .eq("brand_id", brandId)
+    .eq("platform", "pinterest")
+    .eq("is_active", true)
+    .maybeSingle() as {
+      data: { pinterest_user_id: string | null; pinterest_username: string | null } | null
+      error: { message: string } | null
+    }
+
+  if (pinterestError) {
+    console.error(`[brands/${brandId}/social-connections] GET pinterest error:`, pinterestError)
+  }
+
+  const pinterest_connected = Boolean(pinterestData?.pinterest_user_id)
+  const pinterest_username = pinterestData?.pinterest_username ?? null
+
   if (!data) {
     return NextResponse.json({
-      data: { connected: false, facebook_connected: false, instagram_connected: false, ig_username: null, connected_at: null, threads_connected, threads_username },
+      data: {
+        connected: false,
+        facebook_connected: false,
+        instagram_connected: false,
+        ig_username: null,
+        connected_at: null,
+        threads_connected,
+        threads_username,
+        pinterest_connected,
+        pinterest_username,
+      },
     })
   }
 
@@ -105,6 +134,8 @@ export async function GET(_request: Request, { params }: RouteParams) {
       connected_at: data.connected_at,
       threads_connected,
       threads_username,
+      pinterest_connected,
+      pinterest_username,
     },
   })
 }

@@ -12,7 +12,7 @@ const MAX_STORY_SLIDES = 10
 
 const schedulePostSchema = z.object({
   brandId: z.string().uuid(),
-  platform: z.enum(["instagram", "facebook", "threads"]),
+  platform: z.enum(["instagram", "facebook", "threads", "pinterest"]),
   imageUrl: z.string().min(1).optional(),
   imageUrls: z.array(z.string().min(1)).optional(),
   contentFormat: z.enum(["single", "carousel", "story"]).default("single"),

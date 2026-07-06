@@ -15,12 +15,15 @@ interface ConnectionStatus {
   connected_at: string | null
   threads_connected: boolean
   threads_username: string | null
+  pinterest_connected: boolean
+  pinterest_username: string | null
 }
 
 const ERROR_MESSAGES: Record<string, string> = {
   oauth_denied: "Connection was cancelled.",
   token_exchange_failed: "Could not complete the connection with Meta. Please try again.",
   no_pages: "No Facebook Page was found for your account. Create a Facebook Page first, then try again.",
+  no_boards: "No Pinterest board was found for your account. Create a board first, then try again.",
   server_error: "Something went wrong connecting your account. Please try again.",
 }
 
@@ -61,6 +64,8 @@ export function SocialConnections({ brandId }: { brandId: string }) {
     const error = searchParams.get("ig_error")
     const threadsSuccess = searchParams.get("threads_success")
     const threadsError = searchParams.get("threads_error")
+    const pinterestSuccess = searchParams.get("pinterest_success")
+    const pinterestError = searchParams.get("pinterest_error")
 
     if (success === "1") {
       setBanner({ type: "success", message: "Instagram and Facebook connected successfully." })
@@ -79,6 +84,12 @@ export function SocialConnections({ brandId }: { brandId: string }) {
       router.replace(pathname)
     } else if (threadsError) {
       setBanner({ type: "error", message: ERROR_MESSAGES[threadsError] ?? ERROR_MESSAGES.server_error })
+      router.replace(pathname)
+    } else if (pinterestSuccess === "1") {
+      setBanner({ type: "success", message: "Pinterest connected successfully." })
+      router.replace(pathname)
+    } else if (pinterestError) {
+      setBanner({ type: "error", message: ERROR_MESSAGES[pinterestError] ?? ERROR_MESSAGES.server_error })
       router.replace(pathname)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -103,6 +114,8 @@ export function SocialConnections({ brandId }: { brandId: string }) {
         connected_at: null,
         threads_connected: prev?.threads_connected ?? false,
         threads_username: prev?.threads_username ?? null,
+        pinterest_connected: prev?.pinterest_connected ?? false,
+        pinterest_username: prev?.pinterest_username ?? null,
       }))
       setConfirmDisconnect(false)
     } catch {
@@ -239,6 +252,38 @@ export function SocialConnections({ brandId }: { brandId: string }) {
               </div>
               <Button size="sm" asChild>
                 <a href={`/api/v1/social/threads/connect?brandId=${brandId}`}>Connect Threads</a>
+              </Button>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-sm flex items-center gap-2">
+            <AtSign className="h-4 w-4" /> Pinterest
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {loading ? (
+            <p className="text-sm text-muted-foreground">Checking connection status…</p>
+          ) : status?.pinterest_connected ? (
+            <div className="flex items-center justify-between rounded-md border px-4 py-3">
+              <p className="text-sm font-medium">@{status.pinterest_username ?? "unknown"}</p>
+              <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-semibold text-green-700">
+                Connected
+              </span>
+            </div>
+          ) : (
+            <div className="flex items-center justify-between rounded-md border px-4 py-3">
+              <div>
+                <p className="text-sm font-medium">Not connected</p>
+                <p className="text-xs text-muted-foreground">
+                  Connect Pinterest to schedule and publish pins there.
+                </p>
+              </div>
+              <Button size="sm" asChild>
+                <a href={`/api/v1/social/pinterest/connect?brandId=${brandId}`}>Connect Pinterest</a>
               </Button>
             </div>
           )}
