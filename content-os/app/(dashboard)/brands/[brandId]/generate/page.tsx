@@ -123,7 +123,7 @@ function GenerateContent() {
   const { data: brand } = useBrand(brandId)
   const { data: products = [], isLoading: productsLoading } = useProducts(brandId)
   const { setActiveBrand } = useBrandStore()
-  const { setOccasionContext, setHookAdditionalContext, setContentAdditionalContext } = useGenerationStore()
+  const { setOccasionContext, setContentAdditionalContext, setPendingTopic } = useGenerationStore()
 
   useEffect(() => {
     if (brand) setActiveBrand(brand)
@@ -141,9 +141,9 @@ function GenerateContent() {
       return
     }
     setOccasionContext({ id: occasion.id, name: occasion.name, angle: occasion.suggestedAngle })
-    setHookAdditionalContext(occasion.suggestedAngle)
     setContentAdditionalContext(occasion.suggestedAngle)
-  }, [searchParams, setOccasionContext, setHookAdditionalContext, setContentAdditionalContext])
+    setPendingTopic(occasion.suggestedAngle)
+  }, [searchParams, setOccasionContext, setContentAdditionalContext, setPendingTopic])
 
   return (
     <>
