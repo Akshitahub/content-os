@@ -21,6 +21,7 @@ interface ConnectionStatus {
   instagram_connected: boolean
   threads_connected: boolean
   pinterest_connected: boolean
+  linkedin_connected: boolean
 }
 
 function ScheduleAction({
@@ -40,7 +41,7 @@ function ScheduleAction({
   const [connection, setConnection] = useState<ConnectionStatus | null>(null)
   const [checkingConnection, setCheckingConnection] = useState(false)
   const [connectionError, setConnectionError] = useState(false)
-  const [platform, setPlatform] = useState<"instagram" | "facebook" | "threads" | "pinterest">("instagram")
+  const [platform, setPlatform] = useState<"instagram" | "facebook" | "threads" | "pinterest" | "linkedin">("instagram")
   const [date, setDate] = useState(() => {
     const d = new Date()
     d.setDate(d.getDate() + 1)
@@ -60,7 +61,7 @@ function ScheduleAction({
       if (res.ok && !isApiError(json)) {
         const data = (json as { data: ConnectionStatus }).data
         setConnection(data)
-        setPlatform(data.instagram_connected ? "instagram" : data.facebook_connected ? "facebook" : data.threads_connected ? "threads" : "pinterest")
+        setPlatform(data.instagram_connected ? "instagram" : data.facebook_connected ? "facebook" : data.threads_connected ? "threads" : data.pinterest_connected ? "pinterest" : "linkedin")
       } else {
         setConnectionError(true)
       }
@@ -135,12 +136,13 @@ function ScheduleAction({
 
   // Only ever show platforms that are actually connected — never a disabled
   // button for one that isn't.
-  const connectedPlatforms: { id: "instagram" | "facebook" | "threads" | "pinterest"; label: string }[] = connection
+  const connectedPlatforms: { id: "instagram" | "facebook" | "threads" | "pinterest" | "linkedin"; label: string }[] = connection
     ? [
         ...(connection.instagram_connected ? [{ id: "instagram" as const, label: "Instagram" }] : []),
         ...(connection.facebook_connected ? [{ id: "facebook" as const, label: "Facebook" }] : []),
         ...(connection.threads_connected ? [{ id: "threads" as const, label: "Threads" }] : []),
         ...(connection.pinterest_connected ? [{ id: "pinterest" as const, label: "Pinterest" }] : []),
+        ...(connection.linkedin_connected ? [{ id: "linkedin" as const, label: "LinkedIn" }] : []),
       ]
     : []
 
@@ -227,7 +229,7 @@ function ScheduleAction({
         <div className="flex items-center gap-2 rounded-md border border-green-200 bg-green-50 px-3 py-2">
           <Check className="h-4 w-4 text-green-500 shrink-0" />
           <span className="text-sm font-medium text-green-700">
-            Scheduled for {successInfo.platform === "instagram" ? "Instagram" : successInfo.platform === "threads" ? "Threads" : successInfo.platform === "pinterest" ? "Pinterest" : "Facebook"} on {successInfo.date} at {successInfo.time}
+            Scheduled for {successInfo.platform === "instagram" ? "Instagram" : successInfo.platform === "threads" ? "Threads" : successInfo.platform === "pinterest" ? "Pinterest" : successInfo.platform === "linkedin" ? "LinkedIn" : "Facebook"} on {successInfo.date} at {successInfo.time}
           </span>
         </div>
       )}

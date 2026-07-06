@@ -1,9 +1,12 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useCallback, useEffect } from "react"
 import { useMutation, useQuery } from "@tanstack/react-query"
-import { Film, Loader2, Download } from "lucide-react"
+import { Film, Loader2, Download, CalendarClock, Check } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { Label } from "@/components/ui/label"
+import { Input } from "@/components/ui/input"
+import { isApiError } from "@/types/api"
 
 type VideoJobStatus = "pending" | "generating_images" | "generating_voiceover" | "assets_ready" | "rendering" | "completed" | "failed"
 
@@ -73,11 +76,136 @@ function SceneFailureDetails({ sceneAssets }: { sceneAssets: unknown }) {
 }
 
 /**
+ * Schedules a completed Reel video to YouTube via the Zernio-backed
+ * schedule-post endpoint. Only rendered once the video job has actually
+ * finished, since there's nothing to schedule before that.
+ */
+function ScheduleToYoutube({ brandId, videoUrl, defaultCaption }: { brandId: string; videoUrl: string; defaultCaption?: string }) {
+  const [youtubeConnected, setYoutubeConnected] = useState<boolean | null>(null)
+  const [open, setOpen] = useState(false)
+  const [caption, setCaption] = useState(defaultCaption ?? "")
+  const [date, setDate] = useState(() => {
+    const d = new Date()
+    d.setDate(d.getDate() + 1)
+    return d.toISOString().split("T")[0]
+  })
+  const [time, setTime] = useState("10:00")
+  const [submitState, setSubmitState] = useState<"idle" | "loading" | "success" | "error">("idle")
+  const [errorMsg, setErrorMsg] = useState<string | null>(null)
+
+  const checkConnection = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/v1/brands/${brandId}/social-connections`)
+      const json: unknown = await res.json()
+      if (res.ok && !isApiError(json)) {
+        setYoutubeConnected(Boolean((json as { data: { youtube_connected?: boolean } }).data.youtube_connected))
+      } else {
+        setYoutubeConnected(false)
+      }
+    } catch {
+      setYoutubeConnected(false)
+    }
+  }, [brandId])
+
+  useEffect(() => {
+    checkConnection()
+  }, [checkConnection])
+
+  const handleSchedule = useCallback(async () => {
+    setSubmitState("loading")
+    setErrorMsg(null)
+    try {
+      const res = await fetch("/api/v1/calendar/schedule-post", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          brandId,
+          platform: "youtube",
+          videoUrl,
+          contentFormat: "video",
+          caption,
+          hashtags: [],
+          scheduledDate: date,
+          scheduledTime: time,
+        }),
+      })
+      const json: unknown = await res.json()
+      if (!res.ok || isApiError(json)) {
+        setErrorMsg(isApiError(json) ? json.error.message : "Failed to schedule.")
+        setSubmitState("error")
+        return
+      }
+      setSubmitState("success")
+    } catch {
+      setErrorMsg("Network error. Please try again.")
+      setSubmitState("error")
+    }
+  }, [brandId, videoUrl, caption, date, time])
+
+  if (youtubeConnected === null) return null
+
+  if (!youtubeConnected) {
+    return (
+      <a
+        href={`/api/v1/social/youtube/connect?brandId=${brandId}`}
+        className="text-xs text-primary underline underline-offset-2"
+      >
+        Connect YouTube to schedule this
+      </a>
+    )
+  }
+
+  if (submitState === "success") {
+    return (
+      <div className="flex items-center gap-1.5 text-xs text-green-700">
+        <Check className="h-3 w-3" /> Scheduled for YouTube on {date} at {time}
+      </div>
+    )
+  }
+
+  if (!open) {
+    return (
+      <Button variant="outline" size="sm" className="w-full" onClick={() => setOpen(true)}>
+        <CalendarClock className="mr-1.5 h-3.5 w-3.5" /> Schedule to YouTube
+      </Button>
+    )
+  }
+
+  return (
+    <div className="space-y-2 rounded-md border p-2">
+      <div className="space-y-1">
+        <Label className="text-xs">Caption</Label>
+        <textarea
+          rows={2}
+          className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-xs placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring resize-none"
+          value={caption}
+          onChange={(e) => setCaption(e.target.value)}
+        />
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <div className="space-y-1">
+          <Label className="text-xs">Date</Label>
+          <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+        </div>
+        <div className="space-y-1">
+          <Label className="text-xs">Time</Label>
+          <Input type="time" value={time} onChange={(e) => setTime(e.target.value)} />
+        </div>
+      </div>
+      <Button size="sm" className="w-full" onClick={handleSchedule} disabled={submitState === "loading" || !caption.trim()}>
+        {submitState === "loading" ? "Scheduling…" : "Confirm schedule"}
+      </Button>
+      {submitState === "error" && errorMsg && <p className="text-xs text-destructive">{errorMsg}</p>}
+    </div>
+  )
+}
+
+/**
  * Kicks off the async reel-to-video job and polls its status. Shared
  * between the Library's saved-script card and the reel generation screen
  * itself, so both entry points behave identically.
  */
-export function GenerateVideoAction({ scriptId, brandId }: { scriptId: string; brandId: string }) {
+export function GenerateVideoAction({ scriptId, brandId, defaultCaption }: { scriptId: string; brandId: string; defaultCaption?: string }) {
   const [jobId, setJobId] = useState<string | null>(null)
 
   const startMutation = useMutation({
@@ -127,14 +255,17 @@ export function GenerateVideoAction({ scriptId, brandId }: { scriptId: string; b
             </div>
           )}
           {job.status === "completed" && job.video_url && (
-            <a
-              href={job.video_url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-1.5 text-primary underline underline-offset-2"
-            >
-              <Download className="h-3 w-3" /> Download video
-            </a>
+            <div className="space-y-2">
+              <a
+                href={job.video_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1.5 text-primary underline underline-offset-2"
+              >
+                <Download className="h-3 w-3" /> Download video
+              </a>
+              <ScheduleToYoutube brandId={brandId} videoUrl={job.video_url} defaultCaption={defaultCaption} />
+            </div>
           )}
           {job.status === "failed" && (
             <div>

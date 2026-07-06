@@ -12,10 +12,11 @@ const MAX_STORY_SLIDES = 10
 
 const schedulePostSchema = z.object({
   brandId: z.string().uuid(),
-  platform: z.enum(["instagram", "facebook", "threads", "pinterest"]),
+  platform: z.enum(["instagram", "facebook", "threads", "pinterest", "linkedin", "youtube"]),
   imageUrl: z.string().min(1).optional(),
   imageUrls: z.array(z.string().min(1)).optional(),
-  contentFormat: z.enum(["single", "carousel", "story"]).default("single"),
+  videoUrl: z.string().min(1).optional(),
+  contentFormat: z.enum(["single", "carousel", "story", "video"]).default("single"),
   caption: z.string().min(1).max(5000),
   hashtags: z.array(z.string().max(200)).optional(),
   scheduledDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
@@ -36,6 +37,12 @@ const schedulePostSchema = z.object({
 ).refine(
   (data) => (data.contentFormat === "carousel" || data.contentFormat === "story") ? data.platform === "instagram" : true,
   { message: "Carousels and story sequences can only be scheduled to Instagram.", path: ["platform"] }
+).refine(
+  (data) => data.contentFormat === "video" ? !!data.videoUrl : true,
+  { message: "videoUrl is required for a video post.", path: ["videoUrl"] }
+).refine(
+  (data) => data.contentFormat === "video" ? data.platform === "youtube" : true,
+  { message: "Video scheduling can only be scheduled to YouTube.", path: ["platform"] }
 )
 
 export async function POST(request: Request) {
@@ -59,7 +66,7 @@ export async function POST(request: Request) {
   const parsed = schedulePostSchema.safeParse(body)
   if (!parsed.success) return NextResponse.json(buildError(ErrorCodes.VALIDATION_ERROR, "Validation failed.", parsed.error.message), { status: 400 })
 
-  const { brandId, platform, imageUrl, imageUrls, contentFormat, caption, hashtags, scheduledDate, scheduledTime } = parsed.data
+  const { brandId, platform, imageUrl, imageUrls, videoUrl, contentFormat, caption, hashtags, scheduledDate, scheduledTime } = parsed.data
 
   const { data: brand } = await supabase.from("brands").select("user_id").eq("id", brandId).single<{ user_id: string }>()
   if (!brand) return NextResponse.json(buildError(ErrorCodes.BRAND_NOT_FOUND, "Brand not found."), { status: 404 })
@@ -100,6 +107,11 @@ export async function POST(request: Request) {
     }
 
     platformSpecificData = { image_urls: sourceUrls, hosted_image_urls: hostedUrls, content_format: contentFormat }
+  } else if (contentFormat === "video") {
+    // The Reel-to-video pipeline already hosts the rendered video in
+    // storage before this route is ever called, so there's no upload step
+    // here — unlike the image paths above.
+    platformSpecificData = { video_url: videoUrl, content_format: "video" }
   } else {
     // Host the image up front — if this fails, the user needs to know right
     // now, not days later when the cron tries and gives up after 3 attempts.

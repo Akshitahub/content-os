@@ -269,7 +269,7 @@ function ReelScriptCard({ script, brandId }: { script: ReelScriptRow; brandId: s
           <StarRating value={script.user_rating} onChange={(r) => ratingMutation.mutate(r)} disabled={ratingMutation.isPending} />
           <CopyButton text={`${script.hook}\n\n${scenes.map((s, i) => `Scene ${i + 1}: ${(s as SceneShape).voiceover_or_text_overlay ?? ""}`).join("\n")}`} />
         </div>
-        <GenerateVideoAction scriptId={script.id} brandId={brandId} />
+        <GenerateVideoAction scriptId={script.id} brandId={brandId} defaultCaption={script.caption ?? script.hook} />
       </CardContent>
     </Card>
   )

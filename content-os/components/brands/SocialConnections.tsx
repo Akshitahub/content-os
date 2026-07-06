@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useEffect } from "react"
 import { useSearchParams, useRouter, usePathname } from "next/navigation"
-import { FaInstagram, FaFacebook, FaThreads, FaPinterest } from "react-icons/fa6"
+import { FaInstagram, FaFacebook, FaThreads, FaPinterest, FaLinkedin, FaYoutube } from "react-icons/fa6"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { isApiError } from "@/types/api"
@@ -17,6 +17,10 @@ interface ConnectionStatus {
   threads_username: string | null
   pinterest_connected: boolean
   pinterest_username: string | null
+  linkedin_connected: boolean
+  linkedin_username: string | null
+  youtube_connected: boolean
+  youtube_channel_name: string | null
 }
 
 const ERROR_MESSAGES: Record<string, string> = {
@@ -66,6 +70,10 @@ export function SocialConnections({ brandId }: { brandId: string }) {
     const threadsError = searchParams.get("threads_error")
     const pinterestSuccess = searchParams.get("pinterest_success")
     const pinterestError = searchParams.get("pinterest_error")
+    const linkedinSuccess = searchParams.get("linkedin_success")
+    const linkedinError = searchParams.get("linkedin_error")
+    const youtubeSuccess = searchParams.get("youtube_success")
+    const youtubeError = searchParams.get("youtube_error")
 
     if (success === "1") {
       setBanner({ type: "success", message: "Instagram and Facebook connected successfully." })
@@ -90,6 +98,18 @@ export function SocialConnections({ brandId }: { brandId: string }) {
       router.replace(pathname)
     } else if (pinterestError) {
       setBanner({ type: "error", message: ERROR_MESSAGES[pinterestError] ?? ERROR_MESSAGES.server_error })
+      router.replace(pathname)
+    } else if (linkedinSuccess === "1") {
+      setBanner({ type: "success", message: "LinkedIn connected successfully." })
+      router.replace(pathname)
+    } else if (linkedinError) {
+      setBanner({ type: "error", message: ERROR_MESSAGES[linkedinError] ?? ERROR_MESSAGES.server_error })
+      router.replace(pathname)
+    } else if (youtubeSuccess === "1") {
+      setBanner({ type: "success", message: "YouTube connected successfully." })
+      router.replace(pathname)
+    } else if (youtubeError) {
+      setBanner({ type: "error", message: ERROR_MESSAGES[youtubeError] ?? ERROR_MESSAGES.server_error })
       router.replace(pathname)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -116,6 +136,10 @@ export function SocialConnections({ brandId }: { brandId: string }) {
         threads_username: prev?.threads_username ?? null,
         pinterest_connected: prev?.pinterest_connected ?? false,
         pinterest_username: prev?.pinterest_username ?? null,
+        linkedin_connected: prev?.linkedin_connected ?? false,
+        linkedin_username: prev?.linkedin_username ?? null,
+        youtube_connected: prev?.youtube_connected ?? false,
+        youtube_channel_name: prev?.youtube_channel_name ?? null,
       }))
       setConfirmDisconnect(false)
     } catch {
@@ -286,6 +310,70 @@ export function SocialConnections({ brandId }: { brandId: string }) {
               </div>
               <Button size="sm" asChild>
                 <a href={`/api/v1/social/pinterest/connect?brandId=${brandId}`}>Connect Pinterest</a>
+              </Button>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-sm flex items-center gap-2">
+            <FaLinkedin className="h-5 w-5" style={{ color: "#0A66C2" }} /> LinkedIn
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {loading ? (
+            <p className="text-sm text-muted-foreground">Checking connection status…</p>
+          ) : status?.linkedin_connected ? (
+            <div className="flex items-center justify-between rounded-md border px-4 py-3">
+              <p className="text-sm font-medium">{status.linkedin_username ?? "Connected"}</p>
+              <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-semibold text-green-700">
+                Connected
+              </span>
+            </div>
+          ) : (
+            <div className="flex items-center justify-between rounded-md border px-4 py-3">
+              <div>
+                <p className="text-sm font-medium">Not connected</p>
+                <p className="text-xs text-muted-foreground">
+                  Connect LinkedIn to schedule and publish posts there.
+                </p>
+              </div>
+              <Button size="sm" asChild>
+                <a href={`/api/v1/social/linkedin/connect?brandId=${brandId}`}>Connect LinkedIn</a>
+              </Button>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-sm flex items-center gap-2">
+            <FaYoutube className="h-5 w-5" style={{ color: "#FF0000" }} /> YouTube
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {loading ? (
+            <p className="text-sm text-muted-foreground">Checking connection status…</p>
+          ) : status?.youtube_connected ? (
+            <div className="flex items-center justify-between rounded-md border px-4 py-3">
+              <p className="text-sm font-medium">{status.youtube_channel_name ?? "Connected"}</p>
+              <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-semibold text-green-700">
+                Connected
+              </span>
+            </div>
+          ) : (
+            <div className="flex items-center justify-between rounded-md border px-4 py-3">
+              <div>
+                <p className="text-sm font-medium">Not connected</p>
+                <p className="text-xs text-muted-foreground">
+                  Connect YouTube to schedule video uploads there.
+                </p>
+              </div>
+              <Button size="sm" asChild>
+                <a href={`/api/v1/social/youtube/connect?brandId=${brandId}`}>Connect YouTube</a>
               </Button>
             </div>
           )}

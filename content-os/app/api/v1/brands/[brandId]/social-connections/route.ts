@@ -107,6 +107,44 @@ export async function GET(_request: Request, { params }: RouteParams) {
   const pinterest_connected = Boolean(pinterestData?.pinterest_user_id)
   const pinterest_username = pinterestData?.pinterest_username ?? null
 
+  // LinkedIn and YouTube are both connected via Zernio — a separate
+  // connection row per platform, identified by zernio_account_id rather
+  // than a platform-issued user id (we never see a LinkedIn/YouTube OAuth
+  // token directly). Same non-fatal treatment as Threads/Pinterest above.
+  const { data: linkedinData, error: linkedinError } = await socialConnectionsTable(result.supabase!)
+    .select("zernio_account_id, linkedin_username")
+    .eq("brand_id", brandId)
+    .eq("platform", "linkedin")
+    .eq("is_active", true)
+    .maybeSingle() as {
+      data: { zernio_account_id: string | null; linkedin_username: string | null } | null
+      error: { message: string } | null
+    }
+
+  if (linkedinError) {
+    console.error(`[brands/${brandId}/social-connections] GET linkedin error:`, linkedinError)
+  }
+
+  const linkedin_connected = Boolean(linkedinData?.zernio_account_id)
+  const linkedin_username = linkedinData?.linkedin_username ?? null
+
+  const { data: youtubeData, error: youtubeError } = await socialConnectionsTable(result.supabase!)
+    .select("zernio_account_id, youtube_channel_name")
+    .eq("brand_id", brandId)
+    .eq("platform", "youtube")
+    .eq("is_active", true)
+    .maybeSingle() as {
+      data: { zernio_account_id: string | null; youtube_channel_name: string | null } | null
+      error: { message: string } | null
+    }
+
+  if (youtubeError) {
+    console.error(`[brands/${brandId}/social-connections] GET youtube error:`, youtubeError)
+  }
+
+  const youtube_connected = Boolean(youtubeData?.zernio_account_id)
+  const youtube_channel_name = youtubeData?.youtube_channel_name ?? null
+
   if (!data) {
     return NextResponse.json({
       data: {
@@ -119,6 +157,10 @@ export async function GET(_request: Request, { params }: RouteParams) {
         threads_username,
         pinterest_connected,
         pinterest_username,
+        linkedin_connected,
+        linkedin_username,
+        youtube_connected,
+        youtube_channel_name,
       },
     })
   }
@@ -136,6 +178,10 @@ export async function GET(_request: Request, { params }: RouteParams) {
       threads_username,
       pinterest_connected,
       pinterest_username,
+      linkedin_connected,
+      linkedin_username,
+      youtube_connected,
+      youtube_channel_name,
     },
   })
 }

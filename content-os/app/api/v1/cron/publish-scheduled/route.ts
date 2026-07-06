@@ -6,6 +6,7 @@ import { publishCarouselToInstagram } from "@/lib/social/instagram-carousel-publ
 import { publishStorySequenceToInstagram } from "@/lib/social/instagram-story-publish"
 import { publishToThreads } from "@/lib/social/threads-publish"
 import { publishToPinterest } from "@/lib/social/pinterest-publish"
+import { publishViaZernio } from "@/lib/social/zernio-client"
 import { uploadMediaToStorage } from "@/lib/storage/upload-media"
 import type { SupabaseClient } from "@supabase/supabase-js"
 import type { Database, CalendarEntryRow, SocialConnectionRow } from "@/types/database"
@@ -87,7 +88,7 @@ async function processEntry(admin: AdminClient, entry: CalendarEntryRow): Promis
     .from("social_connections")
     .select("*")
     .eq("brand_id", entry.brand_id)
-    .eq("platform", entry.platform === "threads" ? "threads" : entry.platform === "pinterest" ? "pinterest" : "instagram")
+    .eq("platform", entry.platform === "threads" ? "threads" : entry.platform === "pinterest" ? "pinterest" : entry.platform === "linkedin" ? "linkedin" : entry.platform === "youtube" ? "youtube" : "instagram")
     .eq("is_active", true)
     .maybeSingle<SocialConnectionRow>()
 
@@ -113,7 +114,22 @@ async function processEntry(admin: AdminClient, entry: CalendarEntryRow): Promis
     return await recordFailure(admin, entry, "Pinterest not connected for this brand.")
   }
 
-  if (new Date(connection.token_expires_at).getTime() <= Date.now()) {
+  if (entry.platform === "linkedin" && !connection.zernio_account_id) {
+    console.error(`[cron/publish-scheduled] entry ${entry.id}: brand ${entry.brand_id}'s LinkedIn connection is missing a zernio_account_id`)
+    return await recordFailure(admin, entry, "LinkedIn not connected for this brand.")
+  }
+
+  if (entry.platform === "youtube" && !connection.zernio_account_id) {
+    console.error(`[cron/publish-scheduled] entry ${entry.id}: brand ${entry.brand_id}'s YouTube connection is missing a zernio_account_id`)
+    return await recordFailure(admin, entry, "YouTube not connected for this brand.")
+  }
+
+  // LinkedIn/YouTube connections have no access_token/token_expires_at of
+  // our own — Zernio holds and refreshes that token on its side, so there's
+  // nothing to check locally (token_expires_at is NULL by design for these
+  // two platforms; skipping this check avoids treating that NULL as an
+  // already-expired epoch timestamp).
+  if (entry.platform !== "linkedin" && entry.platform !== "youtube" && new Date(connection.token_expires_at).getTime() <= Date.now()) {
     console.error(`[cron/publish-scheduled] entry ${entry.id}: access token expired for brand ${entry.brand_id}`)
     return await recordFailure(admin, entry, "Access token has expired. Reconnect the account.")
   }
@@ -121,6 +137,7 @@ async function processEntry(admin: AdminClient, entry: CalendarEntryRow): Promis
   const platformData = (entry.platform_specific_data ?? {}) as Record<string, unknown>
   const isCarousel = platformData.content_format === "carousel"
   const isStory = platformData.content_format === "story"
+  const isVideo = platformData.content_format === "video"
   const isMultiImage = isCarousel || isStory
 
   if (isMultiImage && entry.platform !== "instagram") {
@@ -128,10 +145,22 @@ async function processEntry(admin: AdminClient, entry: CalendarEntryRow): Promis
     return await recordFailure(admin, entry, `${isStory ? "Story sequence" : "Carousel"} scheduling is Instagram-only.`)
   }
 
+  if (isVideo && entry.platform !== "youtube") {
+    console.error(`[cron/publish-scheduled] entry ${entry.id}: video content scheduled for ${entry.platform}, which isn't supported`)
+    return await recordFailure(admin, entry, "Video scheduling is YouTube-only.")
+  }
+
   let imageUrl: string | null = null
   let imageUrls: string[] | null = null
+  let videoUrl: string | null = null
 
-  if (isMultiImage) {
+  if (isVideo) {
+    videoUrl = typeof platformData.video_url === "string" ? platformData.video_url : null
+    if (!videoUrl) {
+      console.error(`[cron/publish-scheduled] entry ${entry.id}: no publishable video (content_type=${entry.content_type})`)
+      return await recordFailure(admin, entry, "No publishable video available for this content type.")
+    }
+  } else if (isMultiImage) {
     const cachedUrls = Array.isArray(platformData.hosted_image_urls)
       ? platformData.hosted_image_urls.filter((u): u is string => typeof u === "string")
       : null
@@ -281,20 +310,32 @@ async function processEntry(admin: AdminClient, entry: CalendarEntryRow): Promis
         : entry.platform === "pinterest"
           // pinterest_board_id is guaranteed non-null here — checked above.
           ? await publishToPinterest(connection.pinterest_board_id!, connection.access_token, { imageUrl: imageUrl!, title: pinterestTitle, description: caption })
-          : await publishToFacebook(connection.facebook_page_id, connection.access_token, { imageUrl: imageUrl!, message: caption })
+          : entry.platform === "linkedin"
+            // zernio_account_id is guaranteed non-null here — checked above.
+            ? await publishViaZernio("linkedin", connection.zernio_account_id!, { text: caption, mediaUrls: [imageUrl!] })
+            : entry.platform === "youtube"
+              // zernio_account_id is guaranteed non-null here — checked above.
+              ? await publishViaZernio("youtube", connection.zernio_account_id!, { text: caption, mediaUrls: [videoUrl!] })
+              : await publishToFacebook(connection.facebook_page_id, connection.access_token, { imageUrl: imageUrl!, message: caption })
 
   if (!publishResult.success) {
     console.error(`[cron/publish-scheduled] entry ${entry.id}: publish failed (retryable=${publishResult.retryable}) — ${publishResult.error}`)
     return await recordFailure(admin, entry, publishResult.error)
   }
 
+  // publishViaZernio (LinkedIn/YouTube) returns { success, postId } — a
+  // different shape from the platform-specific publish functions above
+  // (instagramMediaId/threadsPostId/pinId/facebookPostId), so it needs its
+  // own branch here rather than falling through to facebookPostId.
   const externalId = "instagramMediaId" in publishResult
     ? publishResult.instagramMediaId
     : "threadsPostId" in publishResult
       ? publishResult.threadsPostId
       : "pinId" in publishResult
         ? publishResult.pinId
-        : publishResult.facebookPostId
+        : "postId" in publishResult
+          ? publishResult.postId
+          : publishResult.facebookPostId
   console.log(`[cron/publish-scheduled] entry ${entry.id}: published — ${entry.platform} id ${externalId}`)
 
   const publishedAt = new Date().toISOString()
@@ -304,14 +345,18 @@ async function processEntry(admin: AdminClient, entry: CalendarEntryRow): Promis
       ? "threads_post_id"
       : entry.platform === "pinterest"
         ? "pinterest_pin_id"
-        : "facebook_post_id"
+        : entry.platform === "linkedin"
+          ? "linkedin_post_id"
+          : entry.platform === "youtube"
+            ? "youtube_video_id"
+            : "facebook_post_id"
 
   const { error: updateError } = await calendarEntriesTable(admin)
     .update({
       status: "published",
       platform_specific_data: {
         ...platformData,
-        ...(isCarousel ? { hosted_image_urls: imageUrls } : { hosted_image_url: imageUrl }),
+        ...(isCarousel ? { hosted_image_urls: imageUrls } : isVideo ? { video_url: videoUrl } : { hosted_image_url: imageUrl }),
         [mediaIdKey]: externalId,
       },
       updated_at: publishedAt,
@@ -350,7 +395,7 @@ export async function GET(request: Request) {
     .from("calendar_entries")
     .select("*")
     .eq("status", "scheduled")
-    .in("platform", ["instagram", "facebook", "threads", "pinterest"])
+    .in("platform", ["instagram", "facebook", "threads", "pinterest", "linkedin", "youtube"])
     .lte("scheduled_date", todayStr)
     .order("scheduled_date", { ascending: true })
     .returns<CalendarEntryRow[]>()
