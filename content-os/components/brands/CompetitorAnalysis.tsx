@@ -1,11 +1,12 @@
 "use client"
 
 import { useState, useCallback, useEffect } from "react"
-import { Loader2, AlertCircle, TrendingUp, ExternalLink, Flame, Wand2 } from "lucide-react"
+import { Loader2, AlertCircle, TrendingUp, ExternalLink, Flame, Wand2, ChevronDown } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import Link from "next/link"
 import { isApiError } from "@/types/api"
+import { cn } from "@/lib/utils"
 
 const MAX_COMPETITORS = 5
 
@@ -63,6 +64,8 @@ function formatFrequency(perWeek: number | null): string {
 }
 
 function CompetitorCard({ result }: { result: CompetitorResult }) {
+  const [showAnalysis, setShowAnalysis] = useState(false)
+
   if (!result.success || !result.metrics || !result.profile) {
     return (
       <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4">
@@ -136,10 +139,22 @@ function CompetitorCard({ result }: { result: CompetitorResult }) {
 
       {analysis && (
         <div className="rounded-md bg-primary/5 border border-primary/10 p-3">
-          <p className="mb-1 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            <TrendingUp className="h-3.5 w-3.5" /> Content &amp; gap analysis
-          </p>
-          <p className="whitespace-pre-wrap text-xs leading-relaxed">{analysis}</p>
+          <button
+            type="button"
+            onClick={() => setShowAnalysis((v) => !v)}
+            className="flex w-full items-center justify-between gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+          >
+            <span className="flex items-center gap-1.5">
+              <TrendingUp className="h-3.5 w-3.5" /> Content &amp; gap analysis
+            </span>
+            <span className="flex items-center gap-1 normal-case tracking-normal text-muted-foreground/80">
+              {showAnalysis ? "Hide details" : "See details"}
+              <ChevronDown className={cn("h-3.5 w-3.5 transition-transform duration-200", showAnalysis && "rotate-180")} />
+            </span>
+          </button>
+          {showAnalysis && (
+            <p className="mt-2 whitespace-pre-wrap text-xs leading-relaxed">{analysis}</p>
+          )}
         </div>
       )}
     </div>

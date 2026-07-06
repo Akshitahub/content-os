@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useEffect } from "react"
 import { useSearchParams, useRouter, usePathname } from "next/navigation"
-import { AtSign } from "lucide-react"
+import { FaInstagram, FaFacebook, FaThreads, FaPinterest } from "react-icons/fa6"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { isApiError } from "@/types/api"
@@ -142,7 +142,9 @@ export function SocialConnections({ brandId }: { brandId: string }) {
       <Card>
         <CardHeader>
           <CardTitle className="text-sm flex items-center gap-2">
-            <AtSign className="h-4 w-4" /> Instagram &amp; Facebook
+            <FaInstagram className="h-5 w-5" style={{ color: "#E1306C" }} />
+            <FaFacebook className="h-5 w-5" style={{ color: "#1877F2" }} />
+            Instagram &amp; Facebook
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -229,7 +231,7 @@ export function SocialConnections({ brandId }: { brandId: string }) {
       <Card>
         <CardHeader>
           <CardTitle className="text-sm flex items-center gap-2">
-            <AtSign className="h-4 w-4" /> Threads
+            <FaThreads className="h-5 w-5" style={{ color: "#000000" }} /> Threads
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -261,7 +263,7 @@ export function SocialConnections({ brandId }: { brandId: string }) {
       <Card>
         <CardHeader>
           <CardTitle className="text-sm flex items-center gap-2">
-            <AtSign className="h-4 w-4" /> Pinterest
+            <FaPinterest className="h-5 w-5" style={{ color: "#E60023" }} /> Pinterest
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">

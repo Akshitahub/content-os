@@ -1,7 +1,8 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
-import { Loader2, TrendingUp, TrendingDown, ExternalLink, Clock, Download } from "lucide-react"
+import { Loader2, TrendingUp, TrendingDown, ExternalLink, Clock, Download, ChevronDown } from "lucide-react"
+import { cn } from "@/lib/utils"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import Link from "next/link"
@@ -70,6 +71,7 @@ export function AnalyticsDashboard({ brandId }: { brandId: string }) {
   const [notConnected, setNotConnected] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [data, setData] = useState<AnalyticsResponse | null>(null)
+  const [showRoiBreakdown, setShowRoiBreakdown] = useState(false)
 
   const fetchAnalytics = useCallback(async () => {
     setLoading(true)
@@ -208,13 +210,26 @@ export function AnalyticsDashboard({ brandId }: { brandId: string }) {
                 </span>
               </p>
               {data.roi.totalItems > 0 && (
-                <ul className="space-y-0.5">
-                  {data.roi.breakdown.filter((b) => b.count > 0).map((b) => (
-                    <li key={b.type} className="text-[11px] text-muted-foreground">
-                      {b.label}: {b.count} × {b.minutesPerItem} min = {b.minutesSaved} min
-                    </li>
-                  ))}
-                </ul>
+                <div>
+                  <button
+                    type="button"
+                    onClick={() => setShowRoiBreakdown((v) => !v)}
+                    className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+                  >
+                    <ChevronDown className={cn("h-3.5 w-3.5 transition-transform duration-200", showRoiBreakdown && "rotate-180")} />
+                    {showRoiBreakdown ? "Hide breakdown" : "See breakdown"}
+                  </button>
+
+                  {showRoiBreakdown && (
+                    <ul className="mt-1.5 space-y-0.5">
+                      {data.roi.breakdown.filter((b) => b.count > 0).map((b) => (
+                        <li key={b.type} className="text-[11px] text-muted-foreground">
+                          {b.label}: {b.count} × {b.minutesPerItem} min = {b.minutesSaved} min
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
               )}
               <p className="text-[10px] italic text-muted-foreground/80">{data.roi.disclosure}</p>
             </div>

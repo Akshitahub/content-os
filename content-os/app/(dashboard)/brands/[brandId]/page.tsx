@@ -3,9 +3,7 @@ import Link from "next/link"
 import { Package, Sparkles, Calendar, ArrowRight, Globe, AtSign, Zap } from "lucide-react"
 import { createClient } from "@/lib/supabase/server"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { SocialConnections } from "@/components/brands/SocialConnections"
-import { AnalyticsDashboard } from "@/components/brands/AnalyticsDashboard"
-import { CompetitorAnalysis } from "@/components/brands/CompetitorAnalysis"
+import { BrandDetailTabs } from "@/components/brands/BrandDetailTabs"
 import type { Metadata } from "next"
 import type { BrandRow } from "@/types/database"
 
@@ -80,97 +78,89 @@ export default async function BrandDetailPage({ params }: PageProps) {
         </div>
       </div>
 
-      {/* Quick actions */}
-      <div className="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {quickActions.map((action) => {
-          const Icon = action.icon
-          return (
-            <Link key={action.href} href={action.href} className="block focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-lg">
-              <Card className="h-full transition-all hover:shadow-md hover:-translate-y-0.5">
-                <CardHeader className="pb-2">
-                  <div className="flex items-center justify-between">
-                    <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10">
-                      <Icon className="h-4 w-4 text-primary" />
+      <BrandDetailTabs brandId={brandId}>
+        <>
+          {/* Quick actions */}
+          <div className="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            {quickActions.map((action) => {
+              const Icon = action.icon
+              return (
+                <Link key={action.href} href={action.href} className="block focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-lg">
+                  <Card className="h-full transition-all hover:shadow-md hover:-translate-y-0.5">
+                    <CardHeader className="pb-2">
+                      <div className="flex items-center justify-between">
+                        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10">
+                          <Icon className="h-4 w-4 text-primary" />
+                        </div>
+                        <ArrowRight className="h-4 w-4 text-muted-foreground" />
+                      </div>
+                      <CardTitle className="text-sm">{action.label}</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <p className="text-xs text-muted-foreground">{action.description}</p>
+                      {action.count !== null && (
+                        <p className="mt-2 text-lg font-bold">
+                          {action.count}
+                          <span className="ml-1 text-xs font-normal text-muted-foreground">
+                            {action.countLabel}
+                          </span>
+                        </p>
+                      )}
+                    </CardContent>
+                  </Card>
+                </Link>
+              )
+            })}
+          </div>
+
+          {/* Brand details */}
+          <div className="grid gap-6 lg:grid-cols-2">
+            {(brand.target_audience || brand.tone_of_voice) && (
+              <Card>
+                <CardHeader><CardTitle className="text-sm">Audience & tone</CardTitle></CardHeader>
+                <CardContent className="space-y-3 text-sm">
+                  {brand.target_audience && (
+                    <div>
+                      <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1">Target audience</p>
+                      <p>{brand.target_audience}</p>
                     </div>
-                    <ArrowRight className="h-4 w-4 text-muted-foreground" />
-                  </div>
-                  <CardTitle className="text-sm">{action.label}</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-xs text-muted-foreground">{action.description}</p>
-                  {action.count !== null && (
-                    <p className="mt-2 text-lg font-bold">
-                      {action.count}
-                      <span className="ml-1 text-xs font-normal text-muted-foreground">
-                        {action.countLabel}
-                      </span>
-                    </p>
+                  )}
+                  {brand.tone_of_voice && (
+                    <div>
+                      <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1">Tone of voice</p>
+                      <p>{brand.tone_of_voice}</p>
+                    </div>
                   )}
                 </CardContent>
               </Card>
-            </Link>
-          )
-        })}
-      </div>
+            )}
 
-      {/* Brand details */}
-      <div className="grid gap-6 lg:grid-cols-2">
-        {(brand.target_audience || brand.tone_of_voice) && (
-          <Card>
-            <CardHeader><CardTitle className="text-sm">Audience & tone</CardTitle></CardHeader>
-            <CardContent className="space-y-3 text-sm">
-              {brand.target_audience && (
-                <div>
-                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1">Target audience</p>
-                  <p>{brand.target_audience}</p>
-                </div>
-              )}
-              {brand.tone_of_voice && (
-                <div>
-                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1">Tone of voice</p>
-                  <p>{brand.tone_of_voice}</p>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        )}
+            {brand.brand_values.length > 0 && (
+              <Card>
+                <CardHeader><CardTitle className="text-sm">Brand values</CardTitle></CardHeader>
+                <CardContent>
+                  <div className="flex flex-wrap gap-2">
+                    {brand.brand_values.map((value: string) => (
+                      <span key={value} className="rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
+                        {value}
+                      </span>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
 
-        {brand.brand_values.length > 0 && (
-          <Card>
-            <CardHeader><CardTitle className="text-sm">Brand values</CardTitle></CardHeader>
-            <CardContent>
-              <div className="flex flex-wrap gap-2">
-                {brand.brand_values.map((value: string) => (
-                  <span key={value} className="rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
-                    {value}
-                  </span>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
-        {brand.ai_persona && (
-          <Card className="lg:col-span-2">
-            <CardHeader><CardTitle className="text-sm">AI persona</CardTitle></CardHeader>
-            <CardContent>
-              <p className="text-sm text-muted-foreground leading-relaxed">{brand.ai_persona}</p>
-            </CardContent>
-          </Card>
-        )}
-
-        <div className="lg:col-span-2">
-          <SocialConnections brandId={brandId} />
-        </div>
-
-        <div className="lg:col-span-2">
-          <AnalyticsDashboard brandId={brandId} />
-        </div>
-
-        <div className="lg:col-span-2">
-          <CompetitorAnalysis brandId={brandId} />
-        </div>
-      </div>
+            {brand.ai_persona && (
+              <Card className="lg:col-span-2">
+                <CardHeader><CardTitle className="text-sm">AI persona</CardTitle></CardHeader>
+                <CardContent>
+                  <p className="text-sm text-muted-foreground leading-relaxed">{brand.ai_persona}</p>
+                </CardContent>
+              </Card>
+            )}
+          </div>
+        </>
+      </BrandDetailTabs>
     </div>
   )
 }
