@@ -827,7 +827,7 @@ export type Database = {
         Row: {
           id: string
           brand_id: string
-          platform: "instagram" | "threads" | "pinterest"
+          platform: "instagram" | "threads" | "pinterest" | "linkedin"
           ig_business_account_id: string | null
           ig_username: string | null
           facebook_page_id: string
@@ -837,6 +837,9 @@ export type Database = {
           pinterest_username: string | null
           pinterest_board_id: string | null
           pinterest_board_name: string | null
+          zernio_profile_id: string | null
+          zernio_account_id: string | null
+          linkedin_username: string | null
           access_token: string
           refresh_token: string | null
           token_expires_at: string
@@ -847,7 +850,7 @@ export type Database = {
         Insert: {
           id?: string
           brand_id: string
-          platform: "instagram" | "threads" | "pinterest"
+          platform: "instagram" | "threads" | "pinterest" | "linkedin"
           ig_business_account_id?: string | null
           ig_username?: string | null
           facebook_page_id?: string | null
@@ -857,9 +860,12 @@ export type Database = {
           pinterest_username?: string | null
           pinterest_board_id?: string | null
           pinterest_board_name?: string | null
-          access_token: string
+          zernio_profile_id?: string | null
+          zernio_account_id?: string | null
+          linkedin_username?: string | null
+          access_token: string | null
           refresh_token?: string | null
-          token_expires_at: string
+          token_expires_at: string | null
           connected_at?: string
           last_refreshed_at?: string
           is_active?: boolean
@@ -874,9 +880,12 @@ export type Database = {
           pinterest_username?: string | null
           pinterest_board_id?: string | null
           pinterest_board_name?: string | null
-          access_token?: string
+          zernio_profile_id?: string | null
+          zernio_account_id?: string | null
+          linkedin_username?: string | null
+          access_token?: string | null
           refresh_token?: string | null
-          token_expires_at?: string
+          token_expires_at?: string | null
           last_refreshed_at?: string
           is_active?: boolean
         }
