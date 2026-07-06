@@ -10,6 +10,7 @@ export interface MonthlyReportData {
   reach: AccountInsightsData["reach"]
   followerGrowth: AccountInsightsData["followerGrowth"]
   engagement: AccountInsightsData["engagement"]
+  demographics: AccountInsightsData["demographics"]
   bestPosts: BestPost[]
   aiInsights: string | null
   roi: RoiTracking
@@ -132,6 +133,27 @@ export function buildMonthlyReportDocument(data: MonthlyReportData) {
                 {post.caption ? ` — "${post.caption.trim().slice(0, 140)}"` : ""}
               </Text>
             ))}
+          </View>
+        )}
+
+        {data.demographics.available && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Audience demographics</Text>
+            {data.demographics.value!.ageRanges.length > 0 && (
+              <Text style={styles.listItem}>
+                Age: {data.demographics.value!.ageRanges.slice(0, 3).map((a) => `${a.label} (${a.percentage}%)`).join(", ")}
+              </Text>
+            )}
+            {data.demographics.value!.genderSplit.length > 0 && (
+              <Text style={styles.listItem}>
+                Gender: {data.demographics.value!.genderSplit.map((g) => `${g.label} (${g.percentage}%)`).join(", ")}
+              </Text>
+            )}
+            {data.demographics.value!.topCities.length > 0 && (
+              <Text style={styles.listItem}>
+                Top cities: {data.demographics.value!.topCities.slice(0, 3).map((c) => `${c.label} (${c.percentage}%)`).join(", ")}
+              </Text>
+            )}
           </View>
         )}
 

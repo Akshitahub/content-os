@@ -27,11 +27,25 @@ export interface AccountMedia {
   media_url: string | null
 }
 
+export interface DemographicBreakdownItem {
+  label: string
+  value: number
+  percentage: number
+}
+
+export interface AccountDemographics {
+  ageRanges: DemographicBreakdownItem[]
+  genderSplit: DemographicBreakdownItem[]
+  topCities: DemographicBreakdownItem[]
+  topCountries: DemographicBreakdownItem[]
+}
+
 export interface AccountInsightsData {
   windowDays: number
   reach: MetricAvailability<{ total: number; series: InsightsSeriesPoint[] }>
   followerGrowth: MetricAvailability<{ netChange: number; series: InsightsSeriesPoint[] }>
   engagement: MetricAvailability<{ totalInteractions: number; accountsEngaged: number | null }>
+  demographics: MetricAvailability<AccountDemographics>
   media: AccountMedia[]
 }
 
@@ -103,6 +117,115 @@ async function fetchInsightsMetric(
   } catch (err) {
     console.error(`[instagram-insights] unexpected error fetching ${metrics}:`, err instanceof Error ? err.message : err)
     return { ok: false, error: `Unexpected error fetching ${metrics}.` }
+  }
+}
+
+type RawDemographicBreakdownResult = { dimension_values?: string[]; value?: number }
+type RawDemographicMetric = {
+  name?: string
+  total_value?: { breakdowns?: { results?: RawDemographicBreakdownResult[] }[] }
+}
+
+type DemographicFetchResult =
+  | { ok: true; data: RawDemographicMetric[] }
+  | { ok: false; error: string }
+
+const GENDER_LABELS: Record<string, string> = { F: "Female", M: "Male", U: "Unspecified" }
+
+/**
+ * Fetches one dimension of follower_demographics (age/gender/city/country).
+ * This uses different query params (period=lifetime, a breakdown dimension,
+ * no since/until window) than fetchInsightsMetric above, so it's its own
+ * function rather than a variant of that one. Each dimension is fetched
+ * independently — same "one failure can't take down the others" reasoning
+ * as the rest of this file, just applied across four calls instead of one.
+ */
+async function fetchDemographicBreakdown(
+  igBusinessAccountId: string,
+  accessToken: string,
+  breakdown: "age" | "gender" | "city" | "country"
+): Promise<DemographicFetchResult> {
+  try {
+    const url = new URL(`https://graph.facebook.com/${GRAPH_VERSION}/${igBusinessAccountId}/insights`)
+    url.searchParams.set("metric", "follower_demographics")
+    url.searchParams.set("period", "lifetime")
+    url.searchParams.set("metric_type", "total_value")
+    url.searchParams.set("breakdown", breakdown)
+    url.searchParams.set("access_token", accessToken)
+
+    const res = await fetch(url.toString())
+    const json = await res.json()
+
+    if (!res.ok || !Array.isArray(json.data)) {
+      const message = toFriendlyMetricError(json as GraphErrorBody, `Couldn't fetch follower demographics (${breakdown}).`)
+      console.error(`[instagram-insights] demographics fetch failed for ${breakdown}:`, message)
+      return { ok: false, error: message }
+    }
+
+    return { ok: true, data: json.data as RawDemographicMetric[] }
+  } catch (err) {
+    console.error(`[instagram-insights] unexpected error fetching demographics (${breakdown}):`, err instanceof Error ? err.message : err)
+    return { ok: false, error: `Unexpected error fetching follower demographics (${breakdown}).` }
+  }
+}
+
+function extractDemographicResults(result: DemographicFetchResult): RawDemographicBreakdownResult[] {
+  if (!result.ok) return []
+  const metric = result.data.find((m) => m.name === "follower_demographics")
+  return metric?.total_value?.breakdowns?.[0]?.results ?? []
+}
+
+function toBreakdownItems(
+  results: RawDemographicBreakdownResult[],
+  options?: { labelMap?: Record<string, string>; cap?: number }
+): DemographicBreakdownItem[] {
+  const valid = results.filter(
+    (r): r is { dimension_values: string[]; value: number } =>
+      Array.isArray(r.dimension_values) && typeof r.dimension_values[0] === "string" && typeof r.value === "number"
+  )
+  const total = valid.reduce((sum, r) => sum + r.value, 0)
+  if (total === 0) return []
+
+  const items = valid
+    .map((r) => {
+      const rawLabel = r.dimension_values[0]!
+      return {
+        label: options?.labelMap?.[rawLabel] ?? rawLabel,
+        value: r.value,
+        percentage: Math.round((r.value / total) * 100),
+      }
+    })
+    .sort((a, b) => b.value - a.value)
+
+  return options?.cap ? items.slice(0, options.cap) : items
+}
+
+function buildDemographicsMetric(
+  ageResult: DemographicFetchResult,
+  genderResult: DemographicFetchResult,
+  cityResult: DemographicFetchResult,
+  countryResult: DemographicFetchResult
+): AccountInsightsData["demographics"] {
+  const ageRanges = toBreakdownItems(extractDemographicResults(ageResult))
+  const genderSplit = toBreakdownItems(extractDemographicResults(genderResult), { labelMap: GENDER_LABELS })
+  const topCities = toBreakdownItems(extractDemographicResults(cityResult), { cap: 5 })
+  const topCountries = toBreakdownItems(extractDemographicResults(countryResult), { cap: 5 })
+
+  // Only treat the whole feature as unavailable if every dimension came back
+  // empty — a single failing dimension (e.g. gender) shouldn't null out
+  // dimensions that did succeed (e.g. city/country).
+  if (ageRanges.length === 0 && genderSplit.length === 0 && topCities.length === 0 && topCountries.length === 0) {
+    return {
+      available: false,
+      value: null,
+      note: "Not enough audience data yet — Instagram requires 100+ followers before demographics become available.",
+    }
+  }
+
+  return {
+    available: true,
+    value: { ageRanges, genderSplit, topCities, topCountries },
+    note: null,
   }
 }
 
@@ -212,10 +335,14 @@ export async function getAccountInsights(
     const untilUnix = Math.floor(Date.now() / 1000)
     const sinceUnix = untilUnix - INSIGHTS_WINDOW_DAYS * 24 * 60 * 60
 
-    const [reachResult, followerResult, engagementResult, mediaResult] = await Promise.all([
+    const [reachResult, followerResult, engagementResult, ageResult, genderResult, cityResult, countryResult, mediaResult] = await Promise.all([
       fetchInsightsMetric(igBusinessAccountId, accessToken, "reach", "time_series", sinceUnix, untilUnix),
       fetchInsightsMetric(igBusinessAccountId, accessToken, "follower_count", "time_series", sinceUnix, untilUnix),
       fetchInsightsMetric(igBusinessAccountId, accessToken, "accounts_engaged,total_interactions", "total_value", sinceUnix, untilUnix),
+      fetchDemographicBreakdown(igBusinessAccountId, accessToken, "age"),
+      fetchDemographicBreakdown(igBusinessAccountId, accessToken, "gender"),
+      fetchDemographicBreakdown(igBusinessAccountId, accessToken, "city"),
+      fetchDemographicBreakdown(igBusinessAccountId, accessToken, "country"),
       fetchAccountMedia(igBusinessAccountId, accessToken),
     ])
 
@@ -232,6 +359,7 @@ export async function getAccountInsights(
         reach: buildReachMetric(reachResult),
         followerGrowth: buildFollowerGrowthMetric(followerResult),
         engagement: buildEngagementMetric(engagementResult),
+        demographics: buildDemographicsMetric(ageResult, genderResult, cityResult, countryResult),
         media: mediaResult.data,
       },
     }

@@ -47,11 +47,25 @@ interface RoiTracking {
   disclosure: string
 }
 
+interface DemographicBreakdownItem {
+  label: string
+  value: number
+  percentage: number
+}
+
+interface AudienceDemographics {
+  ageRanges: DemographicBreakdownItem[]
+  genderSplit: DemographicBreakdownItem[]
+  topCities: DemographicBreakdownItem[]
+  topCountries: DemographicBreakdownItem[]
+}
+
 interface AnalyticsResponse {
   windowDays: number
   reach: MetricAvailability<{ total: number; series: SeriesPoint[] }>
   followerGrowth: MetricAvailability<{ netChange: number; series: SeriesPoint[] }>
   engagement: MetricAvailability<{ totalInteractions: number; accountsEngaged: number | null }>
+  demographics: MetricAvailability<AudienceDemographics>
   bestPosts: BestPost[]
   aiInsights: string | null
   roi: RoiTracking
@@ -66,12 +80,36 @@ function MetricTile({ label, children }: { label: string; children: React.ReactN
   )
 }
 
+function DemographicBlock({ label, items }: { label: string; items: DemographicBreakdownItem[] }) {
+  return (
+    <div className="rounded-md bg-muted/50 p-3">
+      <p className="text-xs text-muted-foreground mb-1.5">{label}</p>
+      {items.length === 0 ? (
+        <p className="text-[11px] text-muted-foreground/70">No data</p>
+      ) : (
+        <div className="space-y-1">
+          {items.map((item) => (
+            <div key={item.label} className="flex items-center gap-2">
+              <span className="w-14 shrink-0 truncate text-[11px]">{item.label}</span>
+              <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-background">
+                <div className="h-full rounded-full bg-primary" style={{ width: `${item.percentage}%` }} />
+              </div>
+              <span className="w-8 shrink-0 text-right text-[11px] font-medium">{item.percentage}%</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function AnalyticsDashboard({ brandId }: { brandId: string }) {
   const [loading, setLoading] = useState(true)
   const [notConnected, setNotConnected] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [data, setData] = useState<AnalyticsResponse | null>(null)
   const [showRoiBreakdown, setShowRoiBreakdown] = useState(false)
+  const [showDemographics, setShowDemographics] = useState(false)
 
   const fetchAnalytics = useCallback(async () => {
     setLoading(true)
@@ -190,6 +228,30 @@ export function AnalyticsDashboard({ brandId }: { brandId: string }) {
                 </ul>
               </div>
             )}
+
+            <div className="rounded-md border p-3 space-y-2">
+              <button
+                type="button"
+                onClick={() => setShowDemographics((v) => !v)}
+                className="flex w-full items-center justify-between text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+              >
+                <span>Audience demographics</span>
+                <ChevronDown className={cn("h-3.5 w-3.5 transition-transform duration-200", showDemographics && "rotate-180")} />
+              </button>
+
+              {showDemographics && (
+                data.demographics.available ? (
+                  <div className="grid grid-cols-2 gap-3">
+                    <DemographicBlock label="Age" items={data.demographics.value!.ageRanges} />
+                    <DemographicBlock label="Gender" items={data.demographics.value!.genderSplit} />
+                    <DemographicBlock label="Top cities" items={data.demographics.value!.topCities} />
+                    <DemographicBlock label="Top countries" items={data.demographics.value!.topCountries} />
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted-foreground">{data.demographics.note ?? "Not enough data"}</p>
+                )
+              )}
+            </div>
 
             {data.aiInsights && (
               <div className="rounded-md bg-primary/5 border border-primary/10 p-3">

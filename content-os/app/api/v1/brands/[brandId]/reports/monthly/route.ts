@@ -72,6 +72,7 @@ export async function GET(_request: Request, { params }: RouteParams) {
     reach: insightsResult.data.reach,
     followerGrowth: insightsResult.data.followerGrowth,
     engagement: insightsResult.data.engagement,
+    demographics: insightsResult.data.demographics,
     bestPosts,
     aiInsights,
     roi,
