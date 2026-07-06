@@ -68,9 +68,29 @@ export async function GET(_request: Request, { params }: RouteParams) {
     return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Failed to fetch connection status."), { status: 500 })
   }
 
+  // Threads is a separate connection row (its own OAuth credentials/token),
+  // unlike Facebook which shares the Instagram row's Page token. A failure
+  // here is non-fatal to the IG/FB status — just reported as not connected.
+  const { data: threadsData, error: threadsError } = await socialConnectionsTable(result.supabase!)
+    .select("threads_user_id, threads_username")
+    .eq("brand_id", brandId)
+    .eq("platform", "threads")
+    .eq("is_active", true)
+    .maybeSingle() as {
+      data: { threads_user_id: string | null; threads_username: string | null } | null
+      error: { message: string } | null
+    }
+
+  if (threadsError) {
+    console.error(`[brands/${brandId}/social-connections] GET threads error:`, threadsError)
+  }
+
+  const threads_connected = Boolean(threadsData?.threads_user_id)
+  const threads_username = threadsData?.threads_username ?? null
+
   if (!data) {
     return NextResponse.json({
-      data: { connected: false, facebook_connected: false, instagram_connected: false, ig_username: null, connected_at: null },
+      data: { connected: false, facebook_connected: false, instagram_connected: false, ig_username: null, connected_at: null, threads_connected, threads_username },
     })
   }
 
@@ -83,6 +103,8 @@ export async function GET(_request: Request, { params }: RouteParams) {
       instagram_connected: Boolean(data.ig_business_account_id),
       ig_username: data.ig_username,
       connected_at: data.connected_at,
+      threads_connected,
+      threads_username,
     },
   })
 }

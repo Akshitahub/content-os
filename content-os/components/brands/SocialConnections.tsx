@@ -13,6 +13,8 @@ interface ConnectionStatus {
   instagram_connected: boolean
   ig_username: string | null
   connected_at: string | null
+  threads_connected: boolean
+  threads_username: string | null
 }
 
 const ERROR_MESSAGES: Record<string, string> = {
@@ -57,6 +59,8 @@ export function SocialConnections({ brandId }: { brandId: string }) {
   useEffect(() => {
     const success = searchParams.get("ig_success")
     const error = searchParams.get("ig_error")
+    const threadsSuccess = searchParams.get("threads_success")
+    const threadsError = searchParams.get("threads_error")
 
     if (success === "1") {
       setBanner({ type: "success", message: "Instagram and Facebook connected successfully." })
@@ -69,6 +73,12 @@ export function SocialConnections({ brandId }: { brandId: string }) {
       router.replace(pathname)
     } else if (error) {
       setBanner({ type: "error", message: ERROR_MESSAGES[error] ?? ERROR_MESSAGES.server_error })
+      router.replace(pathname)
+    } else if (threadsSuccess === "1") {
+      setBanner({ type: "success", message: "Threads connected successfully." })
+      router.replace(pathname)
+    } else if (threadsError) {
+      setBanner({ type: "error", message: ERROR_MESSAGES[threadsError] ?? ERROR_MESSAGES.server_error })
       router.replace(pathname)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -85,7 +95,15 @@ export function SocialConnections({ brandId }: { brandId: string }) {
         setActionError(msg)
         return
       }
-      setStatus({ connected: false, facebook_connected: false, instagram_connected: false, ig_username: null, connected_at: null })
+      setStatus((prev) => ({
+        connected: false,
+        facebook_connected: false,
+        instagram_connected: false,
+        ig_username: null,
+        connected_at: null,
+        threads_connected: prev?.threads_connected ?? false,
+        threads_username: prev?.threads_username ?? null,
+      }))
       setConfirmDisconnect(false)
     } catch {
       setActionError("Network error. Please try again.")
@@ -95,103 +113,137 @@ export function SocialConnections({ brandId }: { brandId: string }) {
   }, [brandId])
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-sm flex items-center gap-2">
-          <AtSign className="h-4 w-4" /> Instagram &amp; Facebook
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        {banner && (
-          <div
-            className={`rounded-md border px-4 py-3 text-sm ${
-              banner.type === "success"
-                ? "border-green-200 bg-green-50 text-green-700"
-                : "border-destructive/40 bg-destructive/5 text-destructive"
-            }`}
-          >
-            {banner.message}
-          </div>
-        )}
+    <div className="space-y-4">
+      {banner && (
+        <div
+          className={`rounded-md border px-4 py-3 text-sm ${
+            banner.type === "success"
+              ? "border-green-200 bg-green-50 text-green-700"
+              : "border-destructive/40 bg-destructive/5 text-destructive"
+          }`}
+        >
+          {banner.message}
+        </div>
+      )}
 
-        {loading ? (
-          <p className="text-sm text-muted-foreground">Checking connection status…</p>
-        ) : status?.connected ? (
-          <div className="space-y-3">
-            <div className="space-y-2">
-              <div className="flex items-center justify-between rounded-md border px-4 py-3">
-                <div>
-                  <p className="text-sm font-medium">Facebook Page</p>
-                  {status.connected_at && (
-                    <p className="text-xs text-muted-foreground">
-                      Connected {new Date(status.connected_at).toLocaleDateString()}
-                    </p>
-                  )}
-                </div>
-                <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-semibold text-green-700">
-                  Connected
-                </span>
-              </div>
-
-              {status.instagram_connected ? (
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-sm flex items-center gap-2">
+            <AtSign className="h-4 w-4" /> Instagram &amp; Facebook
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {loading ? (
+            <p className="text-sm text-muted-foreground">Checking connection status…</p>
+          ) : status?.connected ? (
+            <div className="space-y-3">
+              <div className="space-y-2">
                 <div className="flex items-center justify-between rounded-md border px-4 py-3">
-                  <p className="text-sm font-medium">@{status.ig_username ?? "unknown"}</p>
+                  <div>
+                    <p className="text-sm font-medium">Facebook Page</p>
+                    {status.connected_at && (
+                      <p className="text-xs text-muted-foreground">
+                        Connected {new Date(status.connected_at).toLocaleDateString()}
+                      </p>
+                    )}
+                  </div>
                   <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-semibold text-green-700">
                     Connected
                   </span>
                 </div>
+
+                {status.instagram_connected ? (
+                  <div className="flex items-center justify-between rounded-md border px-4 py-3">
+                    <p className="text-sm font-medium">@{status.ig_username ?? "unknown"}</p>
+                    <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-semibold text-green-700">
+                      Connected
+                    </span>
+                  </div>
+                ) : (
+                  <div className="rounded-md border px-4 py-3">
+                    <p className="text-sm font-medium">Instagram</p>
+                    <p className="text-xs text-muted-foreground">
+                      Not available — no Instagram Business account is linked to this Page.
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              {!confirmDisconnect ? (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-destructive hover:text-destructive"
+                  onClick={() => setConfirmDisconnect(true)}
+                >
+                  Disconnect
+                </Button>
               ) : (
-                <div className="rounded-md border px-4 py-3">
-                  <p className="text-sm font-medium">Instagram</p>
-                  <p className="text-xs text-muted-foreground">
-                    Not available — no Instagram Business account is linked to this Page.
-                  </p>
+                <div className="flex items-center gap-3 rounded-md border border-destructive/40 bg-destructive/5 p-3">
+                  <p className="text-sm text-muted-foreground">Disconnect Instagram &amp; Facebook?</p>
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    disabled={disconnecting}
+                    onClick={handleDisconnect}
+                  >
+                    {disconnecting ? "Disconnecting…" : "Yes, disconnect"}
+                  </Button>
+                  <Button variant="ghost" size="sm" onClick={() => setConfirmDisconnect(false)}>
+                    Cancel
+                  </Button>
                 </div>
               )}
             </div>
-
-            {!confirmDisconnect ? (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="text-destructive hover:text-destructive"
-                onClick={() => setConfirmDisconnect(true)}
-              >
-                Disconnect
-              </Button>
-            ) : (
-              <div className="flex items-center gap-3 rounded-md border border-destructive/40 bg-destructive/5 p-3">
-                <p className="text-sm text-muted-foreground">Disconnect Instagram &amp; Facebook?</p>
-                <Button
-                  variant="destructive"
-                  size="sm"
-                  disabled={disconnecting}
-                  onClick={handleDisconnect}
-                >
-                  {disconnecting ? "Disconnecting…" : "Yes, disconnect"}
-                </Button>
-                <Button variant="ghost" size="sm" onClick={() => setConfirmDisconnect(false)}>
-                  Cancel
-                </Button>
+          ) : (
+            <div className="flex items-center justify-between rounded-md border px-4 py-3">
+              <div>
+                <p className="text-sm font-medium">Not connected</p>
+                <p className="text-xs text-muted-foreground">
+                  Requires a Facebook Page. An Instagram Business account linked to that Page enables Instagram auto-posting too.
+                </p>
               </div>
-            )}
-          </div>
-        ) : (
-          <div className="flex items-center justify-between rounded-md border px-4 py-3">
-            <div>
-              <p className="text-sm font-medium">Not connected</p>
-              <p className="text-xs text-muted-foreground">
-                Requires a Facebook Page. An Instagram Business account linked to that Page enables Instagram auto-posting too.
-              </p>
+              <Button size="sm" asChild>
+                <a href={`/api/v1/social/instagram/connect?brandId=${brandId}`}>Connect Instagram &amp; Facebook</a>
+              </Button>
             </div>
-            <Button size="sm" asChild>
-              <a href={`/api/v1/social/instagram/connect?brandId=${brandId}`}>Connect Instagram &amp; Facebook</a>
-            </Button>
-          </div>
-        )}
+          )}
 
-        {actionError && <p className="text-sm text-destructive">{actionError}</p>}
-      </CardContent>
-    </Card>
+          {actionError && <p className="text-sm text-destructive">{actionError}</p>}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-sm flex items-center gap-2">
+            <AtSign className="h-4 w-4" /> Threads
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {loading ? (
+            <p className="text-sm text-muted-foreground">Checking connection status…</p>
+          ) : status?.threads_connected ? (
+            <div className="flex items-center justify-between rounded-md border px-4 py-3">
+              <p className="text-sm font-medium">@{status.threads_username ?? "unknown"}</p>
+              <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-semibold text-green-700">
+                Connected
+              </span>
+            </div>
+          ) : (
+            <div className="flex items-center justify-between rounded-md border px-4 py-3">
+              <div>
+                <p className="text-sm font-medium">Not connected</p>
+                <p className="text-xs text-muted-foreground">
+                  Connect Threads to schedule and publish posts there.
+                </p>
+              </div>
+              <Button size="sm" asChild>
+                <a href={`/api/v1/social/threads/connect?brandId=${brandId}`}>Connect Threads</a>
+              </Button>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
   )
 }

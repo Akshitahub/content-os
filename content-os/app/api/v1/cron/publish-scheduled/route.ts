@@ -4,12 +4,30 @@ import { publishToInstagram } from "@/lib/social/instagram-publish"
 import { publishToFacebook } from "@/lib/social/facebook-publish"
 import { publishCarouselToInstagram } from "@/lib/social/instagram-carousel-publish"
 import { publishStorySequenceToInstagram } from "@/lib/social/instagram-story-publish"
+import { publishToThreads } from "@/lib/social/threads-publish"
 import { uploadMediaToStorage } from "@/lib/storage/upload-media"
 import type { SupabaseClient } from "@supabase/supabase-js"
 import type { Database, CalendarEntryRow, SocialConnectionRow } from "@/types/database"
 
 const MAX_PUBLISH_ATTEMPTS = 3
 const DELAY_BETWEEN_POSTS_MS = 2000
+
+// publishToThreads has a hardcoded 30s wait (Threads' recommended delay
+// before publishing an image container). This route has no explicit
+// maxDuration set today (falling back to the platform default), which
+// isn't enough headroom for that wait plus normal processing. Note: the
+// GitHub Actions workflow that triggers this cron (.github/workflows —
+// not touched here) calls it with `curl --max-time 60`, so even with this
+// bump the client-side caller can still abort at 60s; see the interim
+// one-Threads-post-per-run cap below, which keeps runtime well under that.
+export const maxDuration = 60
+
+// Interim safety limit until Threads publishing is verified under real
+// load — the 30s wait per Threads post could compound if several are due
+// in the same run, risking the run exceeding the GitHub Actions caller's
+// 60s timeout. Additional due Threads posts are simply left untouched
+// (still "scheduled") and picked up on the next run, ~15 minutes later.
+const MAX_THREADS_PER_RUN = 1
 
 type AdminClient = SupabaseClient<Database>
 
@@ -59,13 +77,15 @@ async function recordFailure(admin: AdminClient, entry: CalendarEntryRow, reason
 }
 
 async function processEntry(admin: AdminClient, entry: CalendarEntryRow): Promise<"published" | "failed" | "skipped"> {
-  // Scoped by brand_id only — a Facebook Page and its linked Instagram
-  // Business Account share one connection row (same Page access token), so
-  // there is no per-platform connection to filter by.
+  // A Facebook Page and its linked Instagram Business Account share one
+  // connection row (platform="instagram", same Page access token), so a
+  // Facebook-targeted entry still looks up the "instagram" row. Threads has
+  // entirely separate OAuth credentials and its own row (platform="threads").
   const { data: connection } = await admin
     .from("social_connections")
     .select("*")
     .eq("brand_id", entry.brand_id)
+    .eq("platform", entry.platform === "threads" ? "threads" : "instagram")
     .eq("is_active", true)
     .maybeSingle<SocialConnectionRow>()
 
@@ -79,6 +99,11 @@ async function processEntry(admin: AdminClient, entry: CalendarEntryRow): Promis
   if (entry.platform === "instagram" && !connection.ig_business_account_id) {
     console.error(`[cron/publish-scheduled] entry ${entry.id}: brand ${entry.brand_id}'s connection has no linked Instagram Business Account`)
     return await recordFailure(admin, entry, "Instagram not connected for this brand.")
+  }
+
+  if (entry.platform === "threads" && !connection.threads_user_id) {
+    console.error(`[cron/publish-scheduled] entry ${entry.id}: brand ${entry.brand_id}'s Threads connection is missing a threads_user_id`)
+    return await recordFailure(admin, entry, "Threads not connected for this brand.")
   }
 
   if (new Date(connection.token_expires_at).getTime() <= Date.now()) {
@@ -237,18 +262,25 @@ async function processEntry(admin: AdminClient, entry: CalendarEntryRow): Promis
     ? await publishCarouselToInstagram(connection.ig_business_account_id!, connection.access_token, { imageUrls: imageUrls!, caption })
     : entry.platform === "instagram"
       ? await publishToInstagram(connection.ig_business_account_id!, connection.access_token, { imageUrl: imageUrl!, caption })
-      : await publishToFacebook(connection.facebook_page_id, connection.access_token, { imageUrl: imageUrl!, message: caption })
+      : entry.platform === "threads"
+        // threads_user_id is guaranteed non-null here — checked above.
+        ? await publishToThreads(connection.threads_user_id!, connection.access_token, { imageUrl: imageUrl!, text: caption })
+        : await publishToFacebook(connection.facebook_page_id, connection.access_token, { imageUrl: imageUrl!, message: caption })
 
   if (!publishResult.success) {
     console.error(`[cron/publish-scheduled] entry ${entry.id}: publish failed (retryable=${publishResult.retryable}) — ${publishResult.error}`)
     return await recordFailure(admin, entry, publishResult.error)
   }
 
-  const externalId = "instagramMediaId" in publishResult ? publishResult.instagramMediaId : publishResult.facebookPostId
+  const externalId = "instagramMediaId" in publishResult
+    ? publishResult.instagramMediaId
+    : "threadsPostId" in publishResult
+      ? publishResult.threadsPostId
+      : publishResult.facebookPostId
   console.log(`[cron/publish-scheduled] entry ${entry.id}: published — ${entry.platform} id ${externalId}`)
 
   const publishedAt = new Date().toISOString()
-  const mediaIdKey = entry.platform === "instagram" ? "instagram_media_id" : "facebook_post_id"
+  const mediaIdKey = entry.platform === "instagram" ? "instagram_media_id" : entry.platform === "threads" ? "threads_post_id" : "facebook_post_id"
 
   const { error: updateError } = await calendarEntriesTable(admin)
     .update({
@@ -294,7 +326,7 @@ export async function GET(request: Request) {
     .from("calendar_entries")
     .select("*")
     .eq("status", "scheduled")
-    .in("platform", ["instagram", "facebook"])
+    .in("platform", ["instagram", "facebook", "threads"])
     .lte("scheduled_date", todayStr)
     .order("scheduled_date", { ascending: true })
     .returns<CalendarEntryRow[]>()
@@ -312,8 +344,18 @@ export async function GET(request: Request) {
   console.log(`[cron/publish-scheduled] ${dueEntries.length} entr${dueEntries.length === 1 ? "y" : "ies"} due`)
 
   const summary = { processed: 0, published: 0, failed: 0, skipped: 0 }
+  let threadsProcessedThisRun = 0
 
   for (const entry of dueEntries) {
+    if (entry.platform === "threads" && threadsProcessedThisRun >= MAX_THREADS_PER_RUN) {
+      console.log(
+        `[cron/publish-scheduled] entry ${entry.id}: deferring — already processed ${MAX_THREADS_PER_RUN} Threads post(s) this run, leaving scheduled for the next run`
+      )
+      summary.skipped++
+      continue
+    }
+    if (entry.platform === "threads") threadsProcessedThisRun++
+
     summary.processed++
     try {
       const result = await processEntry(admin, entry)
