@@ -827,10 +827,12 @@ export type Database = {
         Row: {
           id: string
           brand_id: string
-          platform: "instagram"
+          platform: "instagram" | "threads"
           ig_business_account_id: string | null
           ig_username: string | null
           facebook_page_id: string
+          threads_user_id: string | null
+          threads_username: string | null
           access_token: string
           token_expires_at: string
           connected_at: string
@@ -840,10 +842,12 @@ export type Database = {
         Insert: {
           id?: string
           brand_id: string
-          platform: "instagram"
+          platform: "instagram" | "threads"
           ig_business_account_id?: string | null
           ig_username?: string | null
-          facebook_page_id: string
+          facebook_page_id?: string | null
+          threads_user_id?: string | null
+          threads_username?: string | null
           access_token: string
           token_expires_at: string
           connected_at?: string
@@ -854,6 +858,8 @@ export type Database = {
           ig_business_account_id?: string | null
           ig_username?: string | null
           facebook_page_id?: string
+          threads_user_id?: string | null
+          threads_username?: string | null
           access_token?: string
           token_expires_at?: string
           last_refreshed_at?: string
