@@ -11,7 +11,7 @@ import type { BrandRow } from "@/types/database"
 
 const schema = z.object({
   brandId: z.string().uuid(),
-  idea: z.string().min(5).max(500),
+  idea: z.string().min(2).max(500),
 })
 
 export type MemeResult = {

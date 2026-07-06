@@ -8,7 +8,7 @@ import type { BrandRow } from "@/types/database"
 
 const schema = z.object({
   brandId: z.string().uuid(),
-  topic: z.string().min(5).max(300),
+  topic: z.string().min(2).max(300),
   slideCount: z.number().int().min(5).max(10).default(7),
   platform: z.enum(["instagram", "linkedin"]).default("instagram"),
   vibe: z.string().optional(),
