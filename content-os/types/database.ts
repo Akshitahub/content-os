@@ -827,13 +827,18 @@ export type Database = {
         Row: {
           id: string
           brand_id: string
-          platform: "instagram" | "threads"
+          platform: "instagram" | "threads" | "pinterest"
           ig_business_account_id: string | null
           ig_username: string | null
           facebook_page_id: string
           threads_user_id: string | null
           threads_username: string | null
+          pinterest_user_id: string | null
+          pinterest_username: string | null
+          pinterest_board_id: string | null
+          pinterest_board_name: string | null
           access_token: string
+          refresh_token: string | null
           token_expires_at: string
           connected_at: string
           last_refreshed_at: string
@@ -842,13 +847,18 @@ export type Database = {
         Insert: {
           id?: string
           brand_id: string
-          platform: "instagram" | "threads"
+          platform: "instagram" | "threads" | "pinterest"
           ig_business_account_id?: string | null
           ig_username?: string | null
           facebook_page_id?: string | null
           threads_user_id?: string | null
           threads_username?: string | null
+          pinterest_user_id?: string | null
+          pinterest_username?: string | null
+          pinterest_board_id?: string | null
+          pinterest_board_name?: string | null
           access_token: string
+          refresh_token?: string | null
           token_expires_at: string
           connected_at?: string
           last_refreshed_at?: string
@@ -860,7 +870,12 @@ export type Database = {
           facebook_page_id?: string
           threads_user_id?: string | null
           threads_username?: string | null
+          pinterest_user_id?: string | null
+          pinterest_username?: string | null
+          pinterest_board_id?: string | null
+          pinterest_board_name?: string | null
           access_token?: string
+          refresh_token?: string | null
           token_expires_at?: string
           last_refreshed_at?: string
           is_active?: boolean
