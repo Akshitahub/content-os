@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import { buildError, ErrorCodes } from "@/types/api"
 import { createZernioProfile, getZernioConnectUrl } from "@/lib/social/zernio-client"
+import { PLAN_LIMITS, type UserPlan } from "@/types/app"
 import type { SupabaseClient } from "@supabase/supabase-js"
 import type { Database } from "@/types/database"
 
@@ -38,6 +39,24 @@ export async function GET(request: Request) {
   }
   if (brand.user_id !== user.id) {
     return NextResponse.json(buildError(ErrorCodes.UNAUTHORIZED, "You do not have access to this brand."), { status: 403 })
+  }
+
+  // LinkedIn/YouTube route through Zernio, a third-party unified API billed
+  // per connected account across our whole Zernio account — gate it to
+  // paid plans so free/starter connections don't become pure cost with no
+  // matching revenue.
+  const { data: userData } = await supabase
+    .from("users")
+    .select("plan")
+    .eq("id", user.id)
+    .single<{ plan: UserPlan }>()
+
+  const plan: UserPlan = userData?.plan ?? "free"
+  if (!PLAN_LIMITS[plan].zernioSocialPlatforms) {
+    return NextResponse.json(
+      buildError(ErrorCodes.USAGE_LIMIT_EXCEEDED, "LinkedIn and YouTube publishing are available on Pro and Agency plans. Upgrade to connect this platform."),
+      { status: 403 }
+    )
   }
 
   if (!process.env.ZERNIO_API_KEY) {

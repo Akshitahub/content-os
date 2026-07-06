@@ -172,11 +172,11 @@ export type ContentFormatOutputMap = {
 
 // ─── Plan limits ────────────────────────────────────────────────────────────
 
-export const PLAN_LIMITS: Record<UserPlan, { generations: number; brands: number; products: number }> = {
-  free:    { generations: 15,   brands: 1,  products: 5 },
-  starter: { generations: 500,  brands: 3,  products: 30 },
-  pro:     { generations: 500,  brands: 10, products: 200 },
-  agency:  { generations: 2000, brands: 50, products: 1000 },
+export const PLAN_LIMITS: Record<UserPlan, { generations: number; brands: number; products: number; zernioSocialPlatforms: boolean }> = {
+  free:    { generations: 15,   brands: 1,  products: 5,    zernioSocialPlatforms: false },
+  starter: { generations: 500,  brands: 3,  products: 30,   zernioSocialPlatforms: false },
+  pro:     { generations: 500,  brands: 10, products: 200,  zernioSocialPlatforms: true },
+  agency:  { generations: 2000, brands: 50, products: 1000, zernioSocialPlatforms: true },
 }
 
 // ─── Trending context ────────────────────────────────────────────────────────

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
+import { PLAN_LIMITS, type UserPlan } from "@/types/app"
 import type { SupabaseClient } from "@supabase/supabase-js"
 import type { Database, SocialConnectionInsert } from "@/types/database"
 
@@ -53,6 +54,22 @@ export async function GET(request: Request) {
   if (!brand || brand.user_id !== user.id) {
     console.error("[social/youtube/callback] brand not found or not owned by user:", brandId)
     return NextResponse.redirect(`${appUrl}/dashboard?youtube_error=server_error`)
+  }
+
+  // Same plan gate as the connect route — a free/starter user could still
+  // hit this callback directly (a stale OAuth flow started before
+  // downgrading, or a replayed/guessed URL), so don't let it silently write
+  // a connection row for a plan that shouldn't have one.
+  const { data: userData } = await supabase
+    .from("users")
+    .select("plan")
+    .eq("id", user.id)
+    .single<{ plan: UserPlan }>()
+
+  const plan: UserPlan = userData?.plan ?? "free"
+  if (!PLAN_LIMITS[plan].zernioSocialPlatforms) {
+    console.error(`[social/youtube/callback] brand ${brandId}'s plan (${plan}) does not include Zernio social platforms`)
+    return redirectToBrand(appUrl, brandId, { youtube_error: "plan_restricted" })
   }
 
   const cookieProfileId = request.headers.get("cookie")?.match(/zernio_profile_id=([^;]+)/)?.[1]

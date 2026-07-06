@@ -2,10 +2,12 @@
 
 import { useState, useCallback, useEffect } from "react"
 import { useSearchParams, useRouter, usePathname } from "next/navigation"
+import Link from "next/link"
 import { FaInstagram, FaFacebook, FaThreads, FaPinterest, FaLinkedin, FaYoutube } from "react-icons/fa6"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { isApiError } from "@/types/api"
+import { PLAN_LIMITS, type UserPlan } from "@/types/app"
 
 interface ConnectionStatus {
   connected: boolean
@@ -29,6 +31,7 @@ const ERROR_MESSAGES: Record<string, string> = {
   no_pages: "No Facebook Page was found for your account. Create a Facebook Page first, then try again.",
   no_boards: "No Pinterest board was found for your account. Create a board first, then try again.",
   server_error: "Something went wrong connecting your account. Please try again.",
+  plan_restricted: "LinkedIn and YouTube publishing are available on Pro and Agency plans. Upgrade to connect this platform.",
 }
 
 export function SocialConnections({ brandId }: { brandId: string }) {
@@ -38,6 +41,7 @@ export function SocialConnections({ brandId }: { brandId: string }) {
 
   const [status, setStatus] = useState<ConnectionStatus | null>(null)
   const [loading, setLoading] = useState(true)
+  const [plan, setPlan] = useState<UserPlan>("free")
   const [confirmDisconnect, setConfirmDisconnect] = useState(false)
   const [disconnecting, setDisconnecting] = useState(false)
   const [actionError, setActionError] = useState<string | null>(null)
@@ -60,6 +64,27 @@ export function SocialConnections({ brandId }: { brandId: string }) {
   useEffect(() => {
     fetchStatus()
   }, [fetchStatus])
+
+  // LinkedIn/YouTube are gated to paid plans (Zernio bills per connected
+  // account) — fetched separately from connection status since it comes
+  // from the user's profile, not the brand's social connections.
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch("/api/v1/user/profile")
+        const json: unknown = await res.json()
+        if (!cancelled && res.ok && !isApiError(json)) {
+          setPlan((json as { data: { plan: UserPlan } }).data.plan)
+        }
+      } catch {
+        // Leave as "free" — the more conservative default for a gated feature
+      }
+    })()
+    return () => { cancelled = true }
+  }, [])
+
+  const hasZernioAccess = PLAN_LIMITS[plan].zernioSocialPlatforms
 
   // Surface the success/error banner from the OAuth callback redirect, then
   // strip the query params so a refresh doesn't re-show it.
@@ -332,6 +357,21 @@ export function SocialConnections({ brandId }: { brandId: string }) {
                 Connected
               </span>
             </div>
+          ) : !hasZernioAccess ? (
+            <div className="flex items-center justify-between rounded-md border border-amber-200 bg-amber-50 px-4 py-3">
+              <div>
+                <div className="flex items-center gap-2">
+                  <p className="text-sm font-medium text-amber-900">Not connected</p>
+                  <span className="rounded-full bg-amber-200 px-2 py-0.5 text-xs font-semibold text-amber-800">Pro</span>
+                </div>
+                <p className="text-xs text-amber-700">
+                  LinkedIn publishing is available on Pro and Agency plans.
+                </p>
+              </div>
+              <Button size="sm" variant="outline" asChild>
+                <Link href="/settings?tab=billing">Upgrade</Link>
+              </Button>
+            </div>
           ) : (
             <div className="flex items-center justify-between rounded-md border px-4 py-3">
               <div>
@@ -363,6 +403,21 @@ export function SocialConnections({ brandId }: { brandId: string }) {
               <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-semibold text-green-700">
                 Connected
               </span>
+            </div>
+          ) : !hasZernioAccess ? (
+            <div className="flex items-center justify-between rounded-md border border-amber-200 bg-amber-50 px-4 py-3">
+              <div>
+                <div className="flex items-center gap-2">
+                  <p className="text-sm font-medium text-amber-900">Not connected</p>
+                  <span className="rounded-full bg-amber-200 px-2 py-0.5 text-xs font-semibold text-amber-800">Pro</span>
+                </div>
+                <p className="text-xs text-amber-700">
+                  YouTube publishing is available on Pro and Agency plans.
+                </p>
+              </div>
+              <Button size="sm" variant="outline" asChild>
+                <Link href="/settings?tab=billing">Upgrade</Link>
+              </Button>
             </div>
           ) : (
             <div className="flex items-center justify-between rounded-md border px-4 py-3">
