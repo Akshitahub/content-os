@@ -34,6 +34,8 @@ function buildMemeConceptSystemPrompt(): string {
   return `You create Reddit/Instagram-style reaction memes for Indian D2C brands. Given a brand's meme idea, you produce: a vivid AI image-generation prompt for the visual scene, and short punchy meme captions in the classic top-text/bottom-text format (top text sets up the joke, bottom text is the punchline -- each under 8 words, written in the implied ALL-CAPS meme convention).
 
 The image_prompt must describe an original visual scene or reaction moment -- exaggerated expressions, funny situations, relatable scenarios. It must NOT describe any text, caption, or words appearing in the image itself (the text is added separately) and must NOT reference any specific real meme template, real photograph, or real named individual -- describe an original scene instead.
+
+top_text and bottom_text must be plain English text only -- no emoji, no special symbols, no non-Latin characters -- since they are rendered directly onto the image using a font that only has basic Latin glyphs.
 ${QUALITY_BAR}
 Always respond with valid JSON only.`
 }
@@ -46,11 +48,22 @@ Meme idea from the brand: "${idea}"
 Respond with ONLY this JSON:
 {
   "image_prompt": "vivid visual scene description for an AI image generator, no text/words in the image",
-  "top_text": "short setup line, under 8 words, empty string if not needed",
-  "bottom_text": "short punchline, under 8 words",
+  "top_text": "short setup line, under 8 words, plain English text only (no emoji or special symbols), empty string if not needed",
+  "bottom_text": "short punchline, under 8 words, plain English text only (no emoji or special symbols)",
   "caption": "witty Instagram caption for the post, include a soft CTA",
   "hashtags": ["5 to 6 relevant hashtags without the # symbol"]
 }`
+}
+
+/**
+ * Defensive backstop before text reaches the font renderer, in case the AI
+ * doesn't perfectly follow the plain-English instruction above — the
+ * embedded font (see lib/image/meme-compositor.ts) only has basic Latin
+ * glyphs, so emoji or other symbols would render as tofu boxes even with
+ * the font embedding fix.
+ */
+function sanitizeCaptionText(text: string): string {
+  return text.replace(/[^\x00-\x7F]/g, "").replace(/\s+/g, " ").trim()
 }
 
 export async function POST(request: Request) {
@@ -122,9 +135,12 @@ export async function POST(request: Request) {
     return NextResponse.json(buildError(ErrorCodes.AI_GENERATION_FAILED, "Couldn't generate the meme image. Please try again."), { status: 500 })
   }
 
+  const sanitizedTopText = sanitizeCaptionText(concept.top_text ?? "")
+  const sanitizedBottomText = sanitizeCaptionText(concept.bottom_text ?? "")
+
   let finalBuffer: Buffer
   try {
-    finalBuffer = await compositeMemeText(imageBuffer, concept.top_text ?? "", concept.bottom_text ?? "")
+    finalBuffer = await compositeMemeText(imageBuffer, sanitizedTopText, sanitizedBottomText)
   } catch (err) {
     console.error("[meme/generate] text compositing failed:", err instanceof Error ? err.message : err)
     return NextResponse.json(buildError(ErrorCodes.AI_GENERATION_FAILED, "Couldn't add text to the meme image. Please try again."), { status: 500 })
@@ -141,8 +157,8 @@ export async function POST(request: Request) {
 
   const result: MemeResult = {
     image_url: uploadResult.publicUrl,
-    top_text: concept.top_text ?? "",
-    bottom_text: concept.bottom_text ?? "",
+    top_text: sanitizedTopText,
+    bottom_text: sanitizedBottomText,
     caption: concept.caption ?? "",
     hashtags: Array.isArray(concept.hashtags) ? concept.hashtags : [],
   }
