@@ -1,13 +1,15 @@
 "use client"
 
+import { useState } from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import {
   Home, Sparkles, Bookmark, Calendar, Zap, Users, Package,
-  Briefcase, Settings, ChevronDown, X, Plus,
+  Briefcase, Settings, HelpCircle, ChevronDown, X, Plus,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useBrandStore } from "@/stores/brandStore"
+import { HelpDrawer } from "@/components/shared/HelpDrawer"
 
 interface SidebarProps {
   isOpen?: boolean
@@ -66,9 +68,35 @@ function NavItem({
   )
 }
 
+/** Same visual language as NavItem, but for actions that open a panel instead of navigating. */
+function NavButton({
+  label,
+  icon: Icon,
+  onClick,
+  dotColor = "bg-muted-foreground/30",
+}: {
+  label: string
+  icon: React.ElementType
+  onClick: () => void
+  dotColor?: string
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm text-sidebar-foreground/70 transition-all duration-150 hover:bg-sidebar-accent/60 hover:text-sidebar-foreground"
+    >
+      <div className={cn("h-1.5 w-1.5 rounded-full shrink-0 transition-colors", dotColor)} />
+      <Icon className="h-4 w-4 shrink-0" />
+      <span className="truncate">{label}</span>
+    </button>
+  )
+}
+
 export function Sidebar({ isOpen = false, onClose }: SidebarProps) {
   const pathname = usePathname()
   const { activeBrandId, activeBrand } = useBrandStore()
+  const [helpOpen, setHelpOpen] = useState(false)
 
   const brandHref = (path: string) =>
     activeBrandId ? `/brands/${activeBrandId}${path}` : "/brands"
@@ -76,6 +104,7 @@ export function Sidebar({ isOpen = false, onClose }: SidebarProps) {
     !!activeBrandId && pathname.startsWith(`/brands/${activeBrandId}${path}`)
 
   return (
+    <>
     <aside
       className={cn(
         "flex h-full w-[220px] shrink-0 flex-col bg-sidebar-background",
@@ -251,7 +280,13 @@ export function Sidebar({ isOpen = false, onClose }: SidebarProps) {
       </nav>
 
       {/* Bottom — settings */}
-      <div className="border-t border-sidebar-border px-3 py-3">
+      <div className="border-t border-sidebar-border px-3 py-3 space-y-0.5">
+        <NavButton
+          label="Help"
+          icon={HelpCircle}
+          onClick={() => setHelpOpen(true)}
+          dotColor="bg-sky-400/60"
+        />
         <NavItem
           href="/settings"
           label="Settings"
@@ -261,5 +296,7 @@ export function Sidebar({ isOpen = false, onClose }: SidebarProps) {
         />
       </div>
     </aside>
+    <HelpDrawer open={helpOpen} onClose={() => setHelpOpen(false)} />
+    </>
   )
 }
