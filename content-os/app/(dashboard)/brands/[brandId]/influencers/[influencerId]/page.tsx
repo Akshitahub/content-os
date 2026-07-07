@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import { useParams } from "next/navigation"
-import { Loader2, ArrowLeft, Camera, Video, Users, Pencil, Check, X, Mail } from "lucide-react"
+import { Loader2, ArrowLeft, Camera, Video, Users, Pencil, Check, X, Mail, Copy } from "lucide-react"
 import { FaLinkedin } from "react-icons/fa6"
 import Link from "next/link"
 import {
@@ -134,6 +134,32 @@ function OverviewTab({ brandId, influencerId }: { brandId: string; influencerId:
 
 // ─── Outreach tab ──────────────────────────────────────────────────────────────
 
+// Same copy-to-clipboard-with-checkmark-feedback pattern as CalendarEntryPanel.tsx's
+// CopyButton — replicated here since that one is a local, unexported function.
+function CopyButton({ getText, label }: { getText: () => string; label?: string }) {
+  const [copied, setCopied] = useState(false)
+
+  async function handleCopy() {
+    try {
+      await navigator.clipboard.writeText(getText())
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    } catch {
+      // clipboard not available
+    }
+  }
+
+  return (
+    <button
+      onClick={handleCopy}
+      className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+    >
+      {copied ? <Check className="h-3 w-3 text-green-500" /> : <Copy className="h-3 w-3" />}
+      {label ?? "Copy"}
+    </button>
+  )
+}
+
 function OutreachMessageCard({
   msg,
   brandId,
@@ -233,6 +259,8 @@ function OutreachMessageCard({
               <Button size="sm" variant="outline" onClick={startEdit}>
                 <Pencil className="h-3.5 w-3.5 mr-1.5" /> Edit
               </Button>
+
+              <CopyButton getText={() => msg.message_text} label="Copy" />
 
               {/* Only email gets a real send button — DM/WhatsApp stay copy-paste,
                   since automating those risks platform-policy or approval issues. */}
