@@ -99,7 +99,15 @@ export async function POST(request: Request, { params }: RouteParams) {
     }
   }
 
-  const sendResult = await sendOutreachEmail(targetEmail, message.subject ?? "", message.message_text, brand.name)
+  // Replies from the influencer should land in the brand owner's inbox, not
+  // ContentOS's shared sending address. Supabase Auth users can in theory
+  // lack an email, so fall back to no replyTo rather than an empty string.
+  const replyToEmail = result.user!.email
+  if (!replyToEmail) {
+    console.warn(`[influencers/outreach/send-email] user ${result.user!.id} has no email on their auth account — sending without replyTo`)
+  }
+
+  const sendResult = await sendOutreachEmail(targetEmail, message.subject ?? "", message.message_text, brand.name, replyToEmail ?? "")
   if (!sendResult.success) {
     return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, sendResult.error ?? "Failed to send email."), { status: 500 })
   }

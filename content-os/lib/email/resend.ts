@@ -83,6 +83,7 @@ export async function sendOutreachEmail(
   subject: string,
   messageText: string,
   brandName: string,
+  replyTo: string,
 ): Promise<{ success: boolean; error?: string }> {
   if (!process.env.RESEND_API_KEY) {
     return { success: false, error: "Email sending is not configured." }
@@ -129,6 +130,7 @@ export async function sendOutreachEmail(
       to,
       subject: effectiveSubject,
       html,
+      ...(replyTo ? { replyTo } : {}),
     })
     return { success: true }
   } catch (err) {
