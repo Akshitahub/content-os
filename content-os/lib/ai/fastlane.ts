@@ -1,7 +1,7 @@
 import { MODELS, getGroqClient } from "./models"
 import { generateCarouselHtml } from "@/lib/design/post-card-generator"
 import { getUpcomingOccasions } from "@/lib/data/indian-occasions"
-import type { BrandRow, ProductRow } from "@/types/database"
+import type { BrandRow, ProductRow, CalendarEntryRow } from "@/types/database"
 import type { ContentStrategy, ContentSlot, FastlaneResult, Platform } from "@/types/app"
 import type { SupabaseClient } from "@supabase/supabase-js"
 
@@ -351,6 +351,7 @@ export async function executeFastlane(
   const slotsPlanned = slots.length
   let slotsGenerated = 0
   let calendarEntriesCreated = 0
+  const createdEntries: CalendarEntryRow[] = []
 
   const batchSize = 3
   const baseDate = new Date()
@@ -447,9 +448,12 @@ export async function executeFastlane(
         if (imageUrl) platformData.image_url = imageUrl
         if (carouselHtmlStr) platformData.carousel_html = carouselHtmlStr
 
-        // Insert calendar entry with full generated content
+        // Insert calendar entry with full generated content. Selecting the
+        // inserted row back lets the caller show a review/approval list
+        // (Autopilot never auto-schedules — status stays content_ready
+        // until the user explicitly bulk-schedules from that review step).
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const { error: insertErr } = await (supabase.from("calendar_entries") as any).insert({
+        const { data: insertedEntry, error: insertErr } = await (supabase.from("calendar_entries") as any).insert({
           brand_id: brandId,
           title: generated.title || slot.theme,
           scheduled_date: scheduledDate,
@@ -471,10 +475,10 @@ export async function executeFastlane(
           color: slot.priority === "high" ? "#6366f1"
             : slot.priority === "medium" ? "#8b5cf6"
             : "#a78bfa",
-        })
+        }).select().single() as { data: CalendarEntryRow | null; error: { message: string } | null }
 
         if (insertErr) throw new Error(`Calendar insert failed for day ${slot.day}: ${insertErr.message}`)
-        return true
+        return insertedEntry
       }),
     )
 
@@ -482,6 +486,7 @@ export async function executeFastlane(
       if (result.status === "fulfilled") {
         slotsGenerated++
         calendarEntriesCreated++
+        if (result.value) createdEntries.push(result.value)
       } else {
         const msg = result.reason instanceof Error ? result.reason.message : String(result.reason)
         errors.push(msg)
@@ -497,5 +502,6 @@ export async function executeFastlane(
     calendar_entries_created: calendarEntriesCreated,
     strategy_summary: strategy.strategy_summary,
     errors,
+    created_entries: createdEntries,
   }
 }

@@ -1,4 +1,4 @@
-import type { BrandRow, ProductRow } from "./database"
+import type { BrandRow, ProductRow, CalendarEntryRow } from "./database"
 
 /**
  * App-level types — these are what components and hooks work with.
@@ -215,6 +215,7 @@ export interface FastlaneResult {
   calendar_entries_created: number
   strategy_summary: string
   errors: string[]
+  created_entries: CalendarEntryRow[]
 }
 
 // ─── Influencer types ────────────────────────────────────────────────────────

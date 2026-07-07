@@ -5,10 +5,20 @@ import { useParams } from "next/navigation"
 import { Loader2, CheckCircle2, XCircle, Calendar, BarChart2, AlertTriangle, Trash2, Plane } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
+import { CalendarEntryPanel } from "@/components/calendar/CalendarEntryPanel"
 import Link from "next/link"
 import posthog from "posthog-js"
 import { POSTHOG_KEY } from "@/lib/analytics/posthog"
 import type { FastlaneResult } from "@/types/app"
+import type { CalendarEntryRow } from "@/types/database"
+
+const STATUS_BADGE: Record<string, string> = {
+  planned: "bg-slate-100 text-slate-700",
+  content_ready: "bg-blue-100 text-blue-700",
+  scheduled: "bg-purple-100 text-purple-700",
+  published: "bg-green-100 text-green-700",
+  missed: "bg-red-100 text-red-700",
+}
 
 type AutopilotState = "SETUP" | "RUNNING" | "DONE" | "ERROR" | "WARNING" | "UPSELL"
 
@@ -70,6 +80,16 @@ export default function AutopilotPage() {
   const [userCredits, setUserCredits] = useState<number | null>(null)
   const [progress, setProgress] = useState(0)
 
+  // Review/approve-then-schedule step — Autopilot itself only ever
+  // produces content_ready entries; nothing flips to scheduled without
+  // this explicit action.
+  const [entries, setEntries] = useState<CalendarEntryRow[]>([])
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [previewEntry, setPreviewEntry] = useState<CalendarEntryRow | null>(null)
+  const [isScheduling, setIsScheduling] = useState(false)
+  const [scheduleSummary, setScheduleSummary] = useState<{ scheduled: number; skipped: number } | null>(null)
+  const [scheduleError, setScheduleError] = useState<string | null>(null)
+
   // Fetch remaining credits for the indicator
   useEffect(() => {
     fetch("/api/v1/user/profile")
@@ -118,6 +138,10 @@ export default function AutopilotPage() {
     setResult(null)
     setErrorMsg("")
     setWarning(null)
+    setEntries([])
+    setSelectedIds(new Set())
+    setScheduleSummary(null)
+    setScheduleError(null)
 
     try {
       const res = await fetch("/api/v1/brands/fastlane", {
@@ -166,6 +190,11 @@ export default function AutopilotPage() {
       }
 
       setResult(json.data ?? null)
+      const createdEntries = json.data?.created_entries ?? []
+      setEntries(createdEntries)
+      // Select all by default — Autopilot generated these intentionally,
+      // so the burden should be deselecting what you don't want, not the reverse.
+      setSelectedIds(new Set(createdEntries.filter(e => e.status === "content_ready").map(e => e.id)))
       setState("DONE")
       try {
         if (POSTHOG_KEY) posthog.capture("autopilot_completed", {
@@ -179,6 +208,58 @@ export default function AutopilotPage() {
       const msg = err instanceof Error ? err.message : "An unexpected error occurred"
       setErrorMsg(msg)
       setState("ERROR")
+    }
+  }
+
+  function toggleEntry(id: string) {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  function selectAll() {
+    setSelectedIds(new Set(entries.filter(e => e.status === "content_ready").map(e => e.id)))
+  }
+
+  function deselectAll() {
+    setSelectedIds(new Set())
+  }
+
+  async function handleBulkSchedule() {
+    const entryIds = Array.from(selectedIds)
+    if (entryIds.length === 0) return
+
+    setIsScheduling(true)
+    setScheduleError(null)
+    try {
+      const res = await fetch(`/api/v1/brands/${brandId}/calendar/bulk-schedule`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ entryIds }),
+      })
+      const json = await res.json() as {
+        data?: { scheduled: number; skipped: number; scheduledIds: string[] }
+        error?: { message?: string }
+      }
+      if (!res.ok || !json.data) {
+        throw new Error(json.error?.message ?? "Failed to schedule posts.")
+      }
+
+      const scheduledSet = new Set(json.data.scheduledIds)
+      setEntries(prev => prev.map(e => (scheduledSet.has(e.id) ? { ...e, status: "scheduled" } : e)))
+      setSelectedIds(prev => {
+        const next = new Set(prev)
+        for (const id of scheduledSet) next.delete(id)
+        return next
+      })
+      setScheduleSummary({ scheduled: json.data.scheduled, skipped: json.data.skipped })
+    } catch (err) {
+      setScheduleError(err instanceof Error ? err.message : "Failed to schedule posts.")
+    } finally {
+      setIsScheduling(false)
     }
   }
 
@@ -402,7 +483,7 @@ export default function AutopilotPage() {
 
       {/* DONE */}
       {state === "DONE" && result && (
-        <div className="w-full max-w-lg text-center">
+        <div className="w-full max-w-2xl text-center">
           <div className="mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-2xl bg-gradient-to-br from-green-500 to-emerald-600 shadow-lg">
             <CheckCircle2 className="h-10 w-10 text-white" />
           </div>
@@ -423,6 +504,92 @@ export default function AutopilotPage() {
               </Card>
             ))}
           </div>
+
+          {/* Review & approve — nothing here is published or even scheduled
+              until the user explicitly bulk-schedules the approved subset. */}
+          {entries.length > 0 && (
+            <Card className="mt-4 text-left">
+              <CardHeader className="pb-2">
+                <div className="flex items-center justify-between gap-2">
+                  <CardTitle className="text-sm">Review &amp; approve your posts</CardTitle>
+                  <div className="flex shrink-0 gap-3">
+                    <button type="button" className="text-xs font-medium text-violet-600 hover:underline" onClick={selectAll}>
+                      Select all
+                    </button>
+                    <button type="button" className="text-xs font-medium text-muted-foreground hover:underline" onClick={deselectAll}>
+                      Deselect all
+                    </button>
+                  </div>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Uncheck anything you don&apos;t want to schedule yet. Nothing publishes until you approve it below.
+                </p>
+              </CardHeader>
+              <CardContent className="max-h-[420px] space-y-1.5 overflow-y-auto">
+                {entries.map((entry) => {
+                  const isLocked = entry.status !== "content_ready"
+                  return (
+                    <div
+                      key={entry.id}
+                      className={`flex items-center gap-3 rounded-lg border px-3 py-2 ${isLocked ? "opacity-60" : ""}`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.has(entry.id)}
+                        disabled={isLocked}
+                        onChange={() => toggleEntry(entry.id)}
+                        className="h-4 w-4 shrink-0 rounded border-input"
+                      />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium">{entry.title}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {entry.scheduled_date}{entry.platform ? ` · ${entry.platform}` : ""}
+                        </p>
+                      </div>
+                      <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium capitalize ${STATUS_BADGE[entry.status] ?? STATUS_BADGE.content_ready}`}>
+                        {entry.status.replace("_", " ")}
+                      </span>
+                      <button
+                        type="button"
+                        className="shrink-0 text-xs font-medium text-muted-foreground underline underline-offset-2 hover:text-foreground"
+                        onClick={() => setPreviewEntry(entry)}
+                      >
+                        Preview
+                      </button>
+                    </div>
+                  )
+                })}
+              </CardContent>
+            </Card>
+          )}
+
+          {entries.length > 0 && (
+            <div className="sticky bottom-4 mt-4 flex flex-col items-start gap-3 rounded-xl border bg-card p-4 text-left shadow-lg sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                {scheduleSummary ? (
+                  <p className="text-sm font-medium text-green-700">
+                    {scheduleSummary.scheduled} post{scheduleSummary.scheduled !== 1 ? "s" : ""} scheduled
+                    {scheduleSummary.skipped > 0
+                      ? `, ${scheduleSummary.skipped} already in progress and left untouched.`
+                      : "."}
+                  </p>
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    {selectedIds.size} post{selectedIds.size !== 1 ? "s" : ""} selected
+                  </p>
+                )}
+                {scheduleError && <p className="mt-1 text-xs text-destructive">{scheduleError}</p>}
+              </div>
+              <Button
+                disabled={selectedIds.size === 0 || isScheduling}
+                onClick={handleBulkSchedule}
+                className="w-full shrink-0 gap-2 sm:w-auto"
+              >
+                {isScheduling ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                Schedule {selectedIds.size} approved post{selectedIds.size !== 1 ? "s" : ""}
+              </Button>
+            </div>
+          )}
 
           {/* Content breakdown summary */}
           <Card className="mt-4 text-left">
@@ -535,6 +702,12 @@ export default function AutopilotPage() {
           </Button>
         </div>
       )}
+
+      <CalendarEntryPanel
+        entry={previewEntry}
+        onClose={() => setPreviewEntry(null)}
+        onUpdate={(updated) => setEntries(prev => prev.map(e => (e.id === updated.id ? updated : e)))}
+      />
     </div>
   )
 }
