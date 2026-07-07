@@ -325,6 +325,7 @@ export type Database = {
           user_rating: number | null
           performance_score: number | null
           created_at: string
+          last_accessed_at: string
         }
         Insert: {
           id?: string
@@ -343,6 +344,7 @@ export type Database = {
           user_rating?: number | null
           performance_score?: number | null
           created_at?: string
+          last_accessed_at?: string
         }
         Update: {
           caption_text?: string
@@ -351,6 +353,7 @@ export type Database = {
           is_saved?: boolean
           user_rating?: number | null
           performance_score?: number | null
+          last_accessed_at?: string
         }
       }
       calendar_entries: {
@@ -686,6 +689,7 @@ export type Database = {
           is_saved: boolean
           user_rating: number | null
           created_at: string
+          last_accessed_at: string
         }
         Insert: {
           id?: string
@@ -700,10 +704,12 @@ export type Database = {
           is_saved?: boolean
           user_rating?: number | null
           created_at?: string
+          last_accessed_at?: string
         }
         Update: {
           is_saved?: boolean
           user_rating?: number | null
+          last_accessed_at?: string
         }
       }
       carousels: {
@@ -718,6 +724,7 @@ export type Database = {
           is_saved: boolean
           user_rating: number | null
           created_at: string
+          last_accessed_at: string
         }
         Insert: {
           id?: string
@@ -730,10 +737,12 @@ export type Database = {
           is_saved?: boolean
           user_rating?: number | null
           created_at?: string
+          last_accessed_at?: string
         }
         Update: {
           is_saved?: boolean
           user_rating?: number | null
+          last_accessed_at?: string
         }
       }
       ad_copies: {
@@ -750,6 +759,7 @@ export type Database = {
           is_saved: boolean
           user_rating: number | null
           created_at: string
+          last_accessed_at: string
         }
         Insert: {
           id?: string
@@ -764,10 +774,12 @@ export type Database = {
           is_saved?: boolean
           user_rating?: number | null
           created_at?: string
+          last_accessed_at?: string
         }
         Update: {
           is_saved?: boolean
           user_rating?: number | null
+          last_accessed_at?: string
         }
       }
       email_sequences: {
@@ -942,6 +954,7 @@ export type Database = {
           is_saved: boolean
           user_rating: number | null
           created_at: string
+          last_accessed_at: string
         }
         Insert: {
           id?: string
@@ -952,10 +965,12 @@ export type Database = {
           is_saved?: boolean
           user_rating?: number | null
           created_at?: string
+          last_accessed_at?: string
         }
         Update: {
           is_saved?: boolean
           user_rating?: number | null
+          last_accessed_at?: string
         }
       }
       memes: {
@@ -971,6 +986,7 @@ export type Database = {
           is_saved: boolean
           user_rating: number | null
           created_at: string
+          last_accessed_at: string
         }
         Insert: {
           id?: string
@@ -984,10 +1000,12 @@ export type Database = {
           is_saved?: boolean
           user_rating?: number | null
           created_at?: string
+          last_accessed_at?: string
         }
         Update: {
           is_saved?: boolean
           user_rating?: number | null
+          last_accessed_at?: string
         }
       }
     }

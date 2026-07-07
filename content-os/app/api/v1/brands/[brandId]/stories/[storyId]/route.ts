@@ -45,9 +45,12 @@ export async function PUT(request: Request, { params }: Params) {
   }
 
   try {
+    // Any successful PUT (rating, save/unsave, or a bare touch call) is
+    // genuine engagement — stamp last_accessed_at so this doesn't look
+    // abandoned to the cleanup cron.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { data, error } = await (supabase.from("stories") as any)
-      .update(parsed.data)
+      .update({ ...parsed.data, last_accessed_at: new Date().toISOString() })
       .eq("id", storyId)
       .eq("brand_id", brandId)
       .select()

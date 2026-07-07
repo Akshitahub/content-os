@@ -3,7 +3,7 @@
 import { useState, useCallback, useEffect } from "react"
 import { useParams, useSearchParams } from "next/navigation"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
-import { Archive, Copy, Check, Star, Sparkles, BookOpen, ChevronDown, ChevronUp, Film, LayoutGrid, Megaphone, Download, Search, Zap, Laugh } from "lucide-react"
+import { Archive, Copy, Check, Star, Sparkles, BookOpen, ChevronDown, ChevronUp, Film, LayoutGrid, Megaphone, Download, Search, Zap, Laugh, Timer } from "lucide-react"
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import Link from "next/link"
@@ -52,18 +52,54 @@ function StarRating({ value, onChange, disabled }: { value: number | null; onCha
   )
 }
 
-function CopyButton({ text, className }: { text: string; className?: string }) {
+function CopyButton({ text, className, touchUrl }: { text: string; className?: string; touchUrl?: string }) {
   const [copied, setCopied] = useState(false)
   const handleCopy = useCallback(async () => {
     await navigator.clipboard.writeText(text)
     setCopied(true)
     setTimeout(() => setCopied(false), 1800)
-  }, [text])
+    // Copying is genuine engagement — bump last_accessed_at so this item
+    // doesn't look abandoned to the cleanup cron. Fire-and-forget: never
+    // block the copy feedback on this, and a failure here is silently
+    // non-fatal since it's just a freshness signal, not user data.
+    if (touchUrl) {
+      fetch(touchUrl, { method: "PUT", headers: { "Content-Type": "application/json" }, body: "{}" }).catch(() => {})
+    }
+  }, [text, touchUrl])
   return (
     <Button variant="ghost" size="sm" onClick={handleCopy} className={className}>
       {copied ? <Check className="h-3.5 w-3.5 text-green-500" /> : <Copy className="h-3.5 w-3.5" />}
       {copied ? "Copied" : "Copy"}
     </Button>
+  )
+}
+
+// 45 days matches the cleanup cron's ABANDONED_AFTER_DAYS
+// (app/api/v1/cron/cleanup-abandoned-drafts/route.ts). Only shown once an
+// item is within a week of that threshold — otherwise every card would be
+// cluttered with a countdown no one needs yet.
+const ABANDONED_AFTER_DAYS = 45
+const EXPIRY_WARNING_WINDOW_DAYS = 7
+
+function ExpiryBadge({ lastAccessedAt }: { lastAccessedAt?: string }) {
+  // Date.now() is impure, so it's read inside an effect rather than
+  // directly in the render body.
+  const [daysLeft, setDaysLeft] = useState<number | null>(null)
+
+  useEffect(() => {
+    if (!lastAccessedAt) {
+      setDaysLeft(null)
+      return
+    }
+    const ageDays = (Date.now() - new Date(lastAccessedAt).getTime()) / (1000 * 60 * 60 * 24)
+    setDaysLeft(Math.ceil(ABANDONED_AFTER_DAYS - ageDays))
+  }, [lastAccessedAt])
+
+  if (daysLeft === null || daysLeft > EXPIRY_WARNING_WINDOW_DAYS || daysLeft < 0) return null
+  return (
+    <span className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">
+      Expires in {daysLeft} day{daysLeft !== 1 ? "s" : ""}
+    </span>
   )
 }
 
@@ -204,6 +240,7 @@ function CaptionCard({ caption, brandId }: { caption: CaptionRow; brandId: strin
           <div className="flex items-center gap-2">
             <PlatformBadge platform={caption.platform} />
             {caption.character_count !== null && <span className="text-xs text-muted-foreground">{caption.character_count} chars</span>}
+            <ExpiryBadge lastAccessedAt={caption.last_accessed_at} />
           </div>
           <span className="shrink-0 text-xs text-muted-foreground">{new Date(caption.created_at).toLocaleDateString()}</span>
         </div>
@@ -225,7 +262,7 @@ function CaptionCard({ caption, brandId }: { caption: CaptionRow; brandId: strin
         )}
         <div className="flex items-center justify-between gap-2 pt-1 border-t">
           <StarRating value={caption.user_rating} onChange={(r) => ratingMutation.mutate(r)} disabled={ratingMutation.isPending} />
-          <CopyButton text={caption.caption_text} />
+          <CopyButton text={caption.caption_text} touchUrl={`/api/v1/brands/${brandId}/captions/${caption.id}`} />
         </div>
       </CardContent>
     </Card>
@@ -253,7 +290,10 @@ function ReelScriptCard({ script, brandId }: { script: ReelScriptRow; brandId: s
     <Card className="transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md">
       <CardHeader className="pb-2">
         <div className="flex items-start justify-between gap-2">
-          <PlatformBadge platform={script.platform} />
+          <div className="flex items-center gap-2">
+            <PlatformBadge platform={script.platform} />
+            <ExpiryBadge lastAccessedAt={script.last_accessed_at} />
+          </div>
           <span className="shrink-0 text-xs text-muted-foreground">{new Date(script.created_at).toLocaleDateString()}</span>
         </div>
       </CardHeader>
@@ -267,7 +307,10 @@ function ReelScriptCard({ script, brandId }: { script: ReelScriptRow; brandId: s
         )}
         <div className="flex items-center justify-between gap-2 pt-1 border-t">
           <StarRating value={script.user_rating} onChange={(r) => ratingMutation.mutate(r)} disabled={ratingMutation.isPending} />
-          <CopyButton text={`${script.hook}\n\n${scenes.map((s, i) => `Scene ${i + 1}: ${(s as SceneShape).voiceover_or_text_overlay ?? ""}`).join("\n")}`} />
+          <CopyButton
+            text={`${script.hook}\n\n${scenes.map((s, i) => `Scene ${i + 1}: ${(s as SceneShape).voiceover_or_text_overlay ?? ""}`).join("\n")}`}
+            touchUrl={`/api/v1/brands/${brandId}/reel-scripts/${script.id}`}
+          />
         </div>
         <GenerateVideoAction scriptId={script.id} brandId={brandId} defaultCaption={script.caption ?? script.hook} />
       </CardContent>
@@ -296,7 +339,10 @@ function CarouselCard({ carousel, brandId }: { carousel: CarouselRow; brandId: s
     <Card className="transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md">
       <CardHeader className="pb-2">
         <div className="flex items-start justify-between gap-2">
-          <PlatformBadge platform={carousel.platform} />
+          <div className="flex items-center gap-2">
+            <PlatformBadge platform={carousel.platform} />
+            <ExpiryBadge lastAccessedAt={carousel.last_accessed_at} />
+          </div>
           <span className="shrink-0 text-xs text-muted-foreground">{new Date(carousel.created_at).toLocaleDateString()}</span>
         </div>
       </CardHeader>
@@ -315,7 +361,10 @@ function CarouselCard({ carousel, brandId }: { carousel: CarouselRow; brandId: s
         )}
         <div className="flex items-center justify-between gap-2 pt-1 border-t">
           <StarRating value={carousel.user_rating} onChange={(r) => ratingMutation.mutate(r)} disabled={ratingMutation.isPending} />
-          <CopyButton text={slides.map((s, i) => `Slide ${i + 1}\n${(s as SlideShape).headline ?? ""}\n${(s as SlideShape).body ?? ""}`).join("\n\n")} />
+          <CopyButton
+            text={slides.map((s, i) => `Slide ${i + 1}\n${(s as SlideShape).headline ?? ""}\n${(s as SlideShape).body ?? ""}`).join("\n\n")}
+            touchUrl={`/api/v1/brands/${brandId}/carousels/${carousel.id}`}
+          />
         </div>
       </CardContent>
     </Card>
@@ -343,7 +392,10 @@ function StoryCard({ story, brandId }: { story: StoryRow; brandId: string }) {
     <Card className="transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md">
       <CardHeader className="pb-2">
         <div className="flex items-start justify-between gap-2">
-          {story.topic && <p className="text-sm font-medium leading-snug line-clamp-2">{story.topic}</p>}
+          <div className="flex items-center gap-2">
+            {story.topic && <p className="text-sm font-medium leading-snug line-clamp-2">{story.topic}</p>}
+            <ExpiryBadge lastAccessedAt={story.last_accessed_at} />
+          </div>
           <span className="shrink-0 text-xs text-muted-foreground">{new Date(story.created_at).toLocaleDateString()}</span>
         </div>
       </CardHeader>
@@ -358,6 +410,7 @@ function StoryCard({ story, brandId }: { story: StoryRow; brandId: string }) {
           <StarRating value={story.user_rating} onChange={(r) => ratingMutation.mutate(r)} disabled={ratingMutation.isPending} />
           <CopyButton
             text={slides.map((s, i) => `Story ${i + 1} (${(s as StorySlideShape).type ?? ""}):\n${(s as StorySlideShape).text ?? ""}\n${(s as StorySlideShape).subtext ?? ""}`).join("\n\n")}
+            touchUrl={`/api/v1/brands/${brandId}/stories/${story.id}`}
           />
         </div>
       </CardContent>
@@ -383,7 +436,10 @@ function AdCopyCard({ ad, brandId }: { ad: AdCopyRow; brandId: string }) {
     <Card className="transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md">
       <CardHeader className="pb-2">
         <div className="flex items-start justify-between gap-2">
-          <PlatformBadge platform={ad.platform} />
+          <div className="flex items-center gap-2">
+            <PlatformBadge platform={ad.platform} />
+            <ExpiryBadge lastAccessedAt={ad.last_accessed_at} />
+          </div>
           <span className="shrink-0 text-xs text-muted-foreground">{new Date(ad.created_at).toLocaleDateString()}</span>
         </div>
       </CardHeader>
@@ -395,7 +451,10 @@ function AdCopyCard({ ad, brandId }: { ad: AdCopyRow; brandId: string }) {
         )}
         <div className="flex items-center justify-between gap-2 pt-1 border-t">
           <StarRating value={ad.user_rating} onChange={(r) => ratingMutation.mutate(r)} disabled={ratingMutation.isPending} />
-          <CopyButton text={`${ad.headline}\n\n${ad.primary_text}${ad.cta_button ? `\n\nCTA: ${ad.cta_button}` : ""}`} />
+          <CopyButton
+            text={`${ad.headline}\n\n${ad.primary_text}${ad.cta_button ? `\n\nCTA: ${ad.cta_button}` : ""}`}
+            touchUrl={`/api/v1/brands/${brandId}/ad-copies/${ad.id}`}
+          />
         </div>
       </CardContent>
     </Card>
@@ -790,6 +849,7 @@ function MemeCard({ meme, brandId }: { meme: MemeRow; brandId: string }) {
         <img src={meme.image_url} alt={meme.idea} className="w-full h-full object-cover" />
       </div>
       <CardContent className="p-3 space-y-3">
+        <ExpiryBadge lastAccessedAt={meme.last_accessed_at} />
         {meme.caption && <p className="text-sm leading-relaxed line-clamp-3">{meme.caption}</p>}
         {hashtags.length > 0 && (
           <div className="flex flex-wrap gap-1">
@@ -801,7 +861,10 @@ function MemeCard({ meme, brandId }: { meme: MemeRow; brandId: string }) {
         <div className="flex items-center justify-between gap-2 pt-1 border-t">
           <StarRating value={meme.user_rating} onChange={(r) => ratingMutation.mutate(r)} disabled={ratingMutation.isPending} />
           <div className="flex gap-1">
-            <CopyButton text={`${meme.caption ?? ""}\n\n${hashtags.map((h) => `#${h.replace(/^#+/, "")}`).join(" ")}`} />
+            <CopyButton
+              text={`${meme.caption ?? ""}\n\n${hashtags.map((h) => `#${h.replace(/^#+/, "")}`).join(" ")}`}
+              touchUrl={`/api/v1/brands/${brandId}/memes/${meme.id}`}
+            />
             <Button variant="ghost" size="sm" onClick={() => unsaveMutation.mutate()} disabled={unsaveMutation.isPending}>
               Unsave
             </Button>
@@ -880,6 +943,15 @@ export default function LibraryPage() {
             Generate more
           </Link>
         </Button>
+      </div>
+
+      {/* Persistent expiry warning — intentionally not dismissible, reappears
+          on every load, matching ClickCast's "expires after 48 hours" banner. */}
+      <div className="mb-6 flex items-center gap-3 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3">
+        <Timer className="h-5 w-5 shrink-0 text-amber-600" />
+        <p className="text-sm font-medium text-amber-900">
+          Unused drafts are automatically removed after 45 days of inactivity. Open, copy, or rate a draft to keep it.
+        </p>
       </div>
 
       {/* Tabs */}

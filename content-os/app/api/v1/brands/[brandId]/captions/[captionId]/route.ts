@@ -55,9 +55,12 @@ export async function PUT(request: Request, { params }: RouteParams) {
       return NextResponse.json(buildError(ErrorCodes.UNAUTHORIZED, "Access denied."), { status: 403 })
     }
 
+    // Any successful PUT (rating, save/unsave, or a bare touch call) is
+    // genuine engagement — stamp last_accessed_at so this doesn't look
+    // abandoned to the cleanup cron.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { data: updated, error } = await (supabase.from("captions") as any)
-      .update(parsed.data)
+      .update({ ...parsed.data, last_accessed_at: new Date().toISOString() })
       .eq("id", captionId)
       .select()
       .single() as { data: CaptionRow | null; error: { message: string } | null }
