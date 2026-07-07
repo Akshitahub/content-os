@@ -707,6 +707,7 @@ export default function AutopilotPage() {
         entry={previewEntry}
         onClose={() => setPreviewEntry(null)}
         onUpdate={(updated) => setEntries(prev => prev.map(e => (e.id === updated.id ? updated : e)))}
+        brandId={brandId}
       />
     </div>
   )

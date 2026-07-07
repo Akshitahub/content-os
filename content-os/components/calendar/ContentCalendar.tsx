@@ -446,6 +446,7 @@ export function ContentCalendar({ brandId }: ContentCalendarProps) {
         entry={selectedEntry}
         onClose={() => setSelectedEntry(null)}
         onUpdate={handleEntryUpdate}
+        brandId={brandId}
       />
     </div>
   )

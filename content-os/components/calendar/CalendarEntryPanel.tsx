@@ -5,6 +5,55 @@ import { X, Copy, Check, Download, ExternalLink } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import type { CalendarEntryRow } from "@/types/database"
 
+// Platforms with a real, working auto-publish pipeline today (cron job +
+// per-platform publish function). TikTok/Twitter have no publish pipeline
+// at all yet, regardless of any future "connection" concept.
+const AUTO_PUBLISH_PLATFORMS = new Set(["instagram", "facebook", "threads", "pinterest", "linkedin", "youtube"])
+
+// calendar_entries has no dedicated published_at column — the cron job only
+// sets one on the linked content_project, if any. The reliable signal that
+// an entry was genuinely published via the real API pipeline (rather than
+// self-reported through "Mark as Published", which never touches
+// platform_specific_data) is the presence of the platform-specific external
+// id the cron job writes back after a successful publish.
+const AUTO_PUBLISH_ID_KEYS = [
+  "instagram_media_id",
+  "instagram_story_media_ids",
+  "threads_post_id",
+  "pinterest_pin_id",
+  "linkedin_post_id",
+  "youtube_video_id",
+  "facebook_post_id",
+]
+
+function wasAutoPublished(entry: CalendarEntryRow): boolean {
+  const data = entry.platform_specific_data as Record<string, unknown> | null
+  if (!data) return false
+  return AUTO_PUBLISH_ID_KEYS.some((key) => data[key] != null)
+}
+
+interface ConnectionStatus {
+  instagram_connected?: boolean
+  facebook_connected?: boolean
+  threads_connected?: boolean
+  pinterest_connected?: boolean
+  linkedin_connected?: boolean
+  youtube_connected?: boolean
+}
+
+function isPlatformConnected(platform: string | null, status: ConnectionStatus | null): boolean {
+  if (!platform || !status) return false
+  switch (platform) {
+    case "instagram": return !!status.instagram_connected
+    case "facebook": return !!status.facebook_connected
+    case "threads": return !!status.threads_connected
+    case "pinterest": return !!status.pinterest_connected
+    case "linkedin": return !!status.linkedin_connected
+    case "youtube": return !!status.youtube_connected
+    default: return false
+  }
+}
+
 const PLATFORM_COLORS: Record<string, string> = {
   instagram: "bg-pink-100 text-pink-700",
   tiktok: "bg-slate-900 text-white",
@@ -26,6 +75,7 @@ interface CalendarEntryPanelProps {
   entry: CalendarEntryRow | null
   onClose: () => void
   onUpdate: (updated: CalendarEntryRow) => void
+  brandId: string
 }
 
 function CopyButton({ getText, label }: { getText: () => string; label?: string }) {
@@ -52,13 +102,31 @@ function CopyButton({ getText, label }: { getText: () => string; label?: string 
   )
 }
 
-export function CalendarEntryPanel({ entry, onClose, onUpdate }: CalendarEntryPanelProps) {
+export function CalendarEntryPanel({ entry, onClose, onUpdate, brandId }: CalendarEntryPanelProps) {
   const [isMarkingPublished, setIsMarkingPublished] = useState(false)
   const [showPublishedBanner, setShowPublishedBanner] = useState(false)
   const [isEditing, setIsEditing] = useState(false)
   const [editCaption, setEditCaption] = useState("")
   const [editHashtags, setEditHashtags] = useState("")
   const [isSaving, setIsSaving] = useState(false)
+  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    fetch(`/api/v1/brands/${brandId}/social-connections`)
+      .then((res) => res.json())
+      .then((json: { data?: ConnectionStatus }) => {
+        if (!cancelled && json.data) setConnectionStatus(json.data)
+      })
+      .catch(() => {
+        // Leave as null — treated as "not connected", the more conservative default.
+      })
+    return () => { cancelled = true }
+  }, [brandId])
+
+  const isConnected = isPlatformConnected(entry?.platform ?? null, connectionStatus)
+  const hasPublishPipeline = entry?.platform ? AUTO_PUBLISH_PLATFORMS.has(entry.platform) : false
+  const autoPublished = entry ? wasAutoPublished(entry) : false
 
   useEffect(() => {
     if (entry) {
@@ -373,9 +441,17 @@ export function CalendarEntryPanel({ entry, onClose, onUpdate }: CalendarEntryPa
                   <CopyButton getText={buildLinkedInCopy} label="LinkedIn" />
                   <CopyButton getText={buildTwitterCopy} label="Twitter / X" />
                 </div>
-                <p className="text-xs text-muted-foreground pt-1">
-                  Copy content and post manually. Auto-posting (coming soon).
-                </p>
+                {entry.status !== "published" && (
+                  <p className="text-xs text-muted-foreground pt-1">
+                    {!hasPublishPipeline
+                      ? "Copy content and post manually — auto-publishing isn't available for this platform yet."
+                      : !isConnected
+                        ? `Copy content and post manually, or connect ${entry.platform} in brand settings to have this publish automatically.`
+                        : entry.status === "scheduled"
+                          ? `Scheduled to publish automatically on ${entry.scheduled_date}. The copy buttons above are just for your own reference.`
+                          : "This post will publish automatically once scheduled — the copy buttons above are just for your own reference."}
+                  </p>
+                )}
               </div>
             </div>
 
@@ -388,13 +464,28 @@ export function CalendarEntryPanel({ entry, onClose, onUpdate }: CalendarEntryPa
                 </div>
               )}
               {entry.status === "published" ? (
-                <div className="flex items-center justify-center gap-2 text-sm font-medium text-green-600">
-                  <Check className="h-4 w-4" /> Published
-                </div>
+                autoPublished ? (
+                  <div className="text-center">
+                    <p className="flex items-center justify-center gap-2 text-sm font-medium text-green-600">
+                      <Check className="h-4 w-4" /> Published automatically
+                    </p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      on {new Date(entry.updated_at).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}
+                      {" at "}
+                      {new Date(entry.updated_at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-center gap-2 text-sm font-medium text-green-600">
+                    <Check className="h-4 w-4" /> Marked as published
+                  </div>
+                )
               ) : (
                 <div className="space-y-2">
                   <p className="text-xs text-muted-foreground text-center">
-                    Copy your content, post it manually, then click Published to mark it done.
+                    {isConnected && hasPublishPipeline && entry.status === "scheduled"
+                      ? `This will publish automatically on ${entry.scheduled_date} — no action needed. You can still copy the content below for your own reference.`
+                      : "Copy your content, post it manually, then click Published to mark it done."}
                   </p>
                   <div className="flex gap-2">
                     <CopyButton
