@@ -19,9 +19,41 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
+// LinkedIn creators don't fit the same "10K-200K follower micro-influencer"
+// framing as Instagram/TikTok/YouTube — a LinkedIn creator with even a few
+// thousand followers can be a legitimate, high-intent thought leader for a
+// B2B-adjacent D2C brand, and the celebrity-exclusion rules for the other
+// platforms don't really apply either. This gets its own prompt rather than
+// being forced through the generic one.
+function buildDiscoveryPrompt(niche: string, platform: "instagram" | "tiktok" | "youtube" | "linkedin", count: number): string {
+  if (platform === "linkedin") {
+    return `For the niche "${niche}", suggest ${count} LinkedIn handles of professional creators/thought leaders who are:
+- Based in India
+- Actively posting professional, thought-leadership content related to ${niche}
+- Real working professionals, founders, or industry voices — not celebrities
+- Likely to have an engaged, higher-intent (not just large) audience — follower count on LinkedIn varies widely and a smaller, senior audience can matter more than raw reach
+- Handles that are realistic and likely to actually exist
+
+Return ONLY a JSON array of handle strings (without @): ["handle1", "handle2", ...]
+Make the handles realistic and specific, not generic.`
+  }
+
+  return `For the niche "${niche}" on ${platform}, suggest ${count} handles of MICRO-INFLUENCERS (10,000 to 200,000 followers) who are:
+- Based in India
+- Actively posting about ${niche}
+- NOT celebrities (no Bollywood actors, no cricket players, no major TV personalities)
+- Real content creators who work with small D2C brands
+- Handles that are realistic and likely to actually exist
+
+Focus on niches like: food bloggers, lifestyle creators, regional language creators, small business owners who post content, niche hobby creators.
+
+Return ONLY a JSON array of handle strings (without @): ["handle1", "handle2", ...]
+Make the handles realistic and specific, not generic.`
+}
+
 export async function discoverInfluencersByNiche(
   niche: string,
-  platform: "instagram" | "tiktok" | "youtube",
+  platform: "instagram" | "tiktok" | "youtube" | "linkedin",
   count: number = 25,
 ): Promise<string[]> {
   const groq = getGroqClient()
@@ -36,17 +68,7 @@ export async function discoverInfluencersByNiche(
       },
       {
         role: "user",
-        content: `For the niche "${niche}" on ${platform}, suggest ${count} handles of MICRO-INFLUENCERS (10,000 to 200,000 followers) who are:
-- Based in India
-- Actively posting about ${niche}
-- NOT celebrities (no Bollywood actors, no cricket players, no major TV personalities)
-- Real content creators who work with small D2C brands
-- Handles that are realistic and likely to actually exist
-
-Focus on niches like: food bloggers, lifestyle creators, regional language creators, small business owners who post content, niche hobby creators.
-
-Return ONLY a JSON array of handle strings (without @): ["handle1", "handle2", ...]
-Make the handles realistic and specific, not generic.`,
+        content: buildDiscoveryPrompt(niche, platform, count),
       },
     ],
   })
@@ -71,7 +93,7 @@ export async function autoDiscoverAndScoreInfluencers(
   supabase: SupabaseClient<any>,
   brand: BrandRow,
   brandId: string,
-  platform: "instagram" | "tiktok" | "youtube",
+  platform: "instagram" | "tiktok" | "youtube" | "linkedin",
   count: number = 25,
 ): Promise<InfluencerRow[]> {
   const groq = getGroqClient()

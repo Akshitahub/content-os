@@ -8,7 +8,7 @@ import type { BrandRow } from "@/types/database"
 type RouteParams = { params: Promise<{ brandId: string }> }
 
 const autoDiscoverSchema = z.object({
-  platform: z.enum(["instagram", "tiktok", "youtube"]),
+  platform: z.enum(["instagram", "tiktok", "youtube", "linkedin"]),
   count: z.number().int().min(1).max(100).default(25),
 })
 

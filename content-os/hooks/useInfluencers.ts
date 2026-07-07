@@ -50,7 +50,7 @@ export function useAutoDiscoverInfluencers(brandId: string) {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: async (input: {
-      platform: "instagram" | "tiktok" | "youtube"
+      platform: "instagram" | "tiktok" | "youtube" | "linkedin"
       count?: number
     }): Promise<{ data: InfluencerRow[]; count: number }> => {
       const res = await fetch(`/api/v1/brands/${brandId}/influencers/auto-discover`, {
@@ -73,7 +73,7 @@ export function useAutoDiscoverInfluencers(brandId: string) {
 export function useDiscoverInfluencer(brandId: string) {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: async (input: { handle: string; platform: "instagram" | "tiktok" | "youtube" }): Promise<InfluencerRow> => {
+    mutationFn: async (input: { handle: string; platform: "instagram" | "tiktok" | "youtube" | "linkedin" }): Promise<InfluencerRow> => {
       const res = await fetch(`/api/v1/brands/${brandId}/influencers/discover`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -176,6 +176,49 @@ export function useGenerateOutreach(brandId: string, influencerId: string) {
       return json.data
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: influencerKeys.outreach(brandId, influencerId) }),
+  })
+}
+
+export function useUpdateOutreachMessage(brandId: string, influencerId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (input: { messageId: string; message_text: string; subject?: string | null }): Promise<OutreachMessageRow> => {
+      const res = await fetch(`/api/v1/brands/${brandId}/influencers/${influencerId}/outreach`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+      })
+      if (!res.ok) {
+        const err = await res.json() as { error?: { message?: string } }
+        throw new Error(err.error?.message ?? "Failed to update message")
+      }
+      const json = await res.json() as { data: OutreachMessageRow }
+      return json.data
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: influencerKeys.outreach(brandId, influencerId) }),
+  })
+}
+
+export function useSendOutreachEmail(brandId: string, influencerId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (input: { messageId: string; email?: string }): Promise<{ sent: boolean }> => {
+      const res = await fetch(`/api/v1/brands/${brandId}/influencers/${influencerId}/outreach/send-email`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+      })
+      if (!res.ok) {
+        const err = await res.json() as { error?: { message?: string } }
+        throw new Error(err.error?.message ?? "Failed to send email")
+      }
+      const json = await res.json() as { data: { sent: boolean } }
+      return json.data
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: influencerKeys.outreach(brandId, influencerId) })
+      qc.invalidateQueries({ queryKey: influencerKeys.detail(brandId, influencerId) })
+    },
   })
 }
 

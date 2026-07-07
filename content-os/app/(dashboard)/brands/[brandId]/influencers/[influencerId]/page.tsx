@@ -2,13 +2,16 @@
 
 import { useState } from "react"
 import { useParams } from "next/navigation"
-import { Loader2, ArrowLeft, Camera, Video, Users } from "lucide-react"
+import { Loader2, ArrowLeft, Camera, Video, Users, Pencil, Check, X, Mail } from "lucide-react"
+import { FaLinkedin } from "react-icons/fa6"
 import Link from "next/link"
 import {
   useInfluencer,
   useUpdateInfluencer,
   useOutreachMessages,
   useGenerateOutreach,
+  useUpdateOutreachMessage,
+  useSendOutreachEmail,
   usePartnerships,
   useGenerateBrief,
 } from "@/hooks/useInfluencers"
@@ -33,6 +36,7 @@ function FitScoreBadge({ score }: { score: number | null }) {
 function PlatformIcon({ platform }: { platform: string }) {
   if (platform === "instagram") return <Camera className="h-4 w-4" />
   if (platform === "youtube") return <Video className="h-4 w-4" />
+  if (platform === "linkedin") return <FaLinkedin className="h-4 w-4" style={{ color: "#0A66C2" }} />
   return <Users className="h-4 w-4" />
 }
 
@@ -130,7 +134,152 @@ function OverviewTab({ brandId, influencerId }: { brandId: string; influencerId:
 
 // ─── Outreach tab ──────────────────────────────────────────────────────────────
 
+function OutreachMessageCard({
+  msg,
+  brandId,
+  influencerId,
+  influencerEmail,
+}: {
+  msg: OutreachMessageRow
+  brandId: string
+  influencerId: string
+  influencerEmail: string | null
+}) {
+  const update = useUpdateOutreachMessage(brandId, influencerId)
+  const sendEmail = useSendOutreachEmail(brandId, influencerId)
+
+  const [isEditing, setIsEditing] = useState(false)
+  const [draftText, setDraftText] = useState(msg.message_text)
+  const [draftSubject, setDraftSubject] = useState(msg.subject ?? "")
+  const [saveError, setSaveError] = useState<string | null>(null)
+  const [savedFlash, setSavedFlash] = useState(false)
+
+  const [showEmailPrompt, setShowEmailPrompt] = useState(false)
+  const [emailInput, setEmailInput] = useState("")
+  const [sendError, setSendError] = useState<string | null>(null)
+
+  function startEdit() {
+    setDraftText(msg.message_text)
+    setDraftSubject(msg.subject ?? "")
+    setSaveError(null)
+    setIsEditing(true)
+  }
+
+  async function handleSave() {
+    setSaveError(null)
+    try {
+      await update.mutateAsync({ messageId: msg.id, message_text: draftText, subject: draftSubject || null })
+      setIsEditing(false)
+      setSavedFlash(true)
+      setTimeout(() => setSavedFlash(false), 2500)
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : "Failed to save.")
+    }
+  }
+
+  async function handleSend(email?: string) {
+    setSendError(null)
+    try {
+      await sendEmail.mutateAsync({ messageId: msg.id, email })
+      setShowEmailPrompt(false)
+    } catch (err) {
+      setSendError(err instanceof Error ? err.message : "Failed to send.")
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-sm capitalize">{msg.channel} message</CardTitle>
+          <span className="text-xs text-muted-foreground">{new Date(msg.created_at).toLocaleDateString()}</span>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-2">
+        {isEditing ? (
+          <div className="space-y-2">
+            {msg.channel === "email" && (
+              <Input
+                placeholder="Subject"
+                value={draftSubject}
+                onChange={(e) => setDraftSubject(e.target.value)}
+                className="text-xs"
+              />
+            )}
+            <textarea
+              value={draftText}
+              onChange={(e) => setDraftText(e.target.value)}
+              rows={6}
+              className="w-full rounded-md border bg-background px-3 py-2 text-sm resize-none"
+            />
+            <div className="flex items-center gap-2">
+              <Button size="sm" disabled={update.isPending || !draftText.trim()} onClick={handleSave}>
+                {update.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : <Check className="h-3.5 w-3.5 mr-1.5" />}
+                Save
+              </Button>
+              <Button size="sm" variant="ghost" disabled={update.isPending} onClick={() => { setIsEditing(false); setSaveError(null) }}>
+                <X className="h-3.5 w-3.5 mr-1.5" /> Cancel
+              </Button>
+            </div>
+            {saveError && <p className="text-xs text-destructive">{saveError}</p>}
+          </div>
+        ) : (
+          <>
+            {msg.subject && <p className="text-xs font-medium text-muted-foreground">Subject: {msg.subject}</p>}
+            <p className="text-sm whitespace-pre-wrap">{msg.message_text}</p>
+            {msg.tone && <p className="text-xs text-muted-foreground italic">Tone: {msg.tone}</p>}
+
+            <div className="flex flex-wrap items-center gap-2 pt-1">
+              <Button size="sm" variant="outline" onClick={startEdit}>
+                <Pencil className="h-3.5 w-3.5 mr-1.5" /> Edit
+              </Button>
+
+              {/* Only email gets a real send button — DM/WhatsApp stay copy-paste,
+                  since automating those risks platform-policy or approval issues. */}
+              {msg.channel === "email" && (
+                msg.sent_at ? (
+                  <span className="text-xs font-medium text-green-700">Sent {new Date(msg.sent_at).toLocaleDateString()}</span>
+                ) : (
+                  <Button
+                    size="sm"
+                    disabled={sendEmail.isPending}
+                    onClick={() => (influencerEmail ? handleSend() : setShowEmailPrompt((v) => !v))}
+                  >
+                    {sendEmail.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : <Mail className="h-3.5 w-3.5 mr-1.5" />}
+                    Send Email
+                  </Button>
+                )
+              )}
+            </div>
+
+            {savedFlash && <p className="text-xs font-medium text-green-700">Saved.</p>}
+
+            {showEmailPrompt && !influencerEmail && (
+              <div className="flex flex-wrap items-center gap-2 pt-1">
+                <Input
+                  placeholder="influencer@email.com"
+                  value={emailInput}
+                  onChange={(e) => setEmailInput(e.target.value)}
+                  className="h-8 max-w-[220px] text-xs"
+                />
+                <Button size="sm" disabled={!emailInput.trim() || sendEmail.isPending} onClick={() => handleSend(emailInput.trim())}>
+                  {sendEmail.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : null}
+                  Confirm &amp; send
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => setShowEmailPrompt(false)}>Cancel</Button>
+              </div>
+            )}
+
+            {sendError && <p className="text-xs text-destructive">{sendError}</p>}
+          </>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
 function OutreachTab({ brandId, influencerId }: { brandId: string; influencerId: string }) {
+  const { data: influencer } = useInfluencer(brandId, influencerId)
   const { data: messages, isLoading } = useOutreachMessages(brandId, influencerId)
   const generate = useGenerateOutreach(brandId, influencerId)
   const [channel, setChannel] = useState<OutreachChannel>("dm")
@@ -163,19 +312,13 @@ function OutreachTab({ brandId, influencerId }: { brandId: string; influencerId:
       {isLoading && <div className="text-center py-8"><Loader2 className="h-5 w-5 animate-spin mx-auto text-muted-foreground" /></div>}
 
       {messages?.map((msg: OutreachMessageRow) => (
-        <Card key={msg.id}>
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-sm capitalize">{msg.channel} message</CardTitle>
-              <span className="text-xs text-muted-foreground">{new Date(msg.created_at).toLocaleDateString()}</span>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            {msg.subject && <p className="text-xs font-medium text-muted-foreground">Subject: {msg.subject}</p>}
-            <p className="text-sm whitespace-pre-wrap">{msg.message_text}</p>
-            {msg.tone && <p className="text-xs text-muted-foreground italic">Tone: {msg.tone}</p>}
-          </CardContent>
-        </Card>
+        <OutreachMessageCard
+          key={msg.id}
+          msg={msg}
+          brandId={brandId}
+          influencerId={influencerId}
+          influencerEmail={influencer?.email ?? null}
+        />
       ))}
     </div>
   )

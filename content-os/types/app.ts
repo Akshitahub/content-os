@@ -230,4 +230,4 @@ export type InfluencerStatus =
 
 export type PartnershipStatus = "draft" | "sent" | "active" | "completed" | "cancelled"
 export type OutreachChannel = "dm" | "email" | "whatsapp"
-export type InfluencerPlatform = "instagram" | "tiktok" | "youtube"
+export type InfluencerPlatform = "instagram" | "tiktok" | "youtube" | "linkedin"

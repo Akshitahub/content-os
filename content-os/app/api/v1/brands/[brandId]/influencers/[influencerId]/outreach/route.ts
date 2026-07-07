@@ -5,7 +5,7 @@ import {
   buildOutreachUserPrompt,
 } from "@/lib/ai/prompts"
 import { MODELS, getGroqClient } from "@/lib/ai/models"
-import { generateOutreachSchema } from "@/lib/validations/influencer"
+import { generateOutreachSchema, updateOutreachMessageSchema } from "@/lib/validations/influencer"
 import { buildError, ErrorCodes } from "@/types/api"
 import type { BrandRow, InfluencerRow, OutreachMessageRow } from "@/types/database"
 
@@ -181,4 +181,54 @@ export async function GET(_req: Request, { params }: RouteParams) {
   }
 
   return NextResponse.json({ data: messages })
+}
+
+export async function PATCH(request: Request, { params }: RouteParams) {
+  const { brandId, influencerId } = await params
+  console.log("[influencers/outreach] PATCH called")
+
+  const result = await getAuthorizedBrand(brandId)
+  if (result.error === "server_error") return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Server error."), { status: 500 })
+  if (result.error === "unauthenticated") return NextResponse.json(buildError(ErrorCodes.UNAUTHENTICATED, "You must be logged in."), { status: 401 })
+  if (result.error === "not_found") return NextResponse.json(buildError(ErrorCodes.BRAND_NOT_FOUND, "Brand not found."), { status: 404 })
+
+  let body: unknown
+  try { body = await request.json() } catch {
+    return NextResponse.json(buildError(ErrorCodes.VALIDATION_ERROR, "Invalid JSON."), { status: 400 })
+  }
+
+  const parsed = updateOutreachMessageSchema.safeParse(body)
+  if (!parsed.success) return NextResponse.json(buildError(ErrorCodes.VALIDATION_ERROR, "Validation failed.", parsed.error.message), { status: 400 })
+
+  const { messageId, message_text, subject } = parsed.data
+
+  // Verify the message belongs to this influencer/brand — same pattern as
+  // the partnerships route's PUT handler.
+  try {
+    const { data: existing } = await result.supabase!
+      .from("outreach_messages")
+      .select("id")
+      .eq("id", messageId)
+      .eq("influencer_id", influencerId)
+      .eq("brand_id", brandId)
+      .single<{ id: string }>()
+
+    if (!existing) return NextResponse.json(buildError(ErrorCodes.NOT_FOUND, "Outreach message not found."), { status: 404 })
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (result.supabase!.from("outreach_messages") as any)
+      .update({ message_text, ...(subject !== undefined ? { subject } : {}) })
+      .eq("id", messageId)
+      .eq("influencer_id", influencerId)
+      .eq("brand_id", brandId)
+      .select()
+      .single() as { data: OutreachMessageRow | null; error: { message: string } | null }
+
+    if (error) return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Failed to update outreach message.", error.message), { status: 500 })
+
+    return NextResponse.json({ data })
+  } catch (err) {
+    console.error("[influencers/outreach] PATCH failed:", err)
+    return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Failed to update outreach message."), { status: 500 })
+  }
 }

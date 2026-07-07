@@ -1,6 +1,6 @@
 export interface ScrapedInfluencerProfile {
   handle: string
-  platform: "instagram" | "tiktok" | "youtube"
+  platform: "instagram" | "tiktok" | "youtube" | "linkedin"
   full_name: string | null
   bio: string | null
   follower_count: number | null
@@ -15,7 +15,7 @@ export interface ScrapedInfluencerProfile {
 const DEFAULT_UA = "Mozilla/5.0 (compatible; bot)"
 
 function makePartial(
-  platform: "instagram" | "tiktok" | "youtube",
+  platform: "instagram" | "tiktok" | "youtube" | "linkedin",
   handle: string,
   profileUrl: string,
   partial: Partial<ScrapedInfluencerProfile>,
@@ -278,10 +278,72 @@ async function scrapeYouTube(handle: string): Promise<ScrapedInfluencerProfile> 
   }
 }
 
+// ─── LinkedIn ─────────────────────────────────────────────────────────────────
+
+// LinkedIn profile pages require a logged-in session to render real content,
+// so this can only ever read the public og:meta tags served to logged-out
+// requests (same technique as the Instagram/YouTube fallback above) — it
+// will fail more often than the other platforms' scrapers, and that's
+// reported honestly via scrape_success/scrape_error rather than guessed at.
+// This is read-only profile info, never an automated connection/message.
+async function scrapeLinkedIn(handle: string): Promise<ScrapedInfluencerProfile> {
+  const profileUrl = `https://www.linkedin.com/in/${handle}/`
+  const partial: Partial<ScrapedInfluencerProfile> = { profile_url: profileUrl }
+
+  try {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), 10_000)
+    let res: Response
+    try {
+      res = await fetch(profileUrl, {
+        headers: { "User-Agent": DEFAULT_UA },
+        signal: controller.signal,
+      })
+    } finally {
+      clearTimeout(timer)
+    }
+
+    if (!res.ok) {
+      return makePartial("linkedin", handle, profileUrl, partial, `HTTP ${res.status}`)
+    }
+
+    const html = await res.text()
+    const ogTitle = extractMetaContent(html, "og:title")
+    const ogDesc = extractMetaContent(html, "og:description")
+    const ogImage = extractMetaContent(html, "og:image")
+
+    if (!ogTitle && !ogDesc) {
+      return makePartial("linkedin", handle, profileUrl, partial, "LinkedIn requires a login to view this profile's details")
+    }
+
+    return {
+      handle,
+      platform: "linkedin",
+      full_name: ogTitle ?? null,
+      bio: ogDesc ?? null,
+      follower_count: null,
+      post_count: null,
+      avatar_url: ogImage ?? null,
+      profile_url: profileUrl,
+      raw: { og_title: ogTitle, og_description: ogDesc, og_image: ogImage },
+      scrape_success: true,
+      scrape_error: null,
+    }
+  } catch (err) {
+    return makePartial(
+      "linkedin",
+      handle,
+      profileUrl,
+      partial,
+      err instanceof Error ? err.message : "LinkedIn fetch failed",
+    )
+  }
+}
+
 // ─── Public entry point ───────────────────────────────────────────────────────
 
 export async function scrapeInfluencerProfile(
-  platform: "instagram" | "tiktok" | "youtube",
+  platform: "instagram" | "tiktok" | "youtube" | "linkedin",
   handle: string,
 ): Promise<ScrapedInfluencerProfile> {
   switch (platform) {
@@ -291,5 +353,7 @@ export async function scrapeInfluencerProfile(
       return scrapeTikTok(handle)
     case "youtube":
       return scrapeYouTube(handle)
+    case "linkedin":
+      return scrapeLinkedIn(handle)
   }
 }

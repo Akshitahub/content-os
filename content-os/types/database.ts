@@ -433,10 +433,11 @@ export type Database = {
         Row: {
           id: string
           brand_id: string
-          platform: "instagram" | "tiktok" | "youtube"
+          platform: "instagram" | "tiktok" | "youtube" | "linkedin"
           handle: string
           full_name: string | null
           bio: string | null
+          email: string | null
           follower_count: number | null
           following_count: number | null
           post_count: number | null
@@ -456,10 +457,11 @@ export type Database = {
         Insert: {
           id?: string
           brand_id: string
-          platform: "instagram" | "tiktok" | "youtube"
+          platform: "instagram" | "tiktok" | "youtube" | "linkedin"
           handle: string
           full_name?: string | null
           bio?: string | null
+          email?: string | null
           follower_count?: number | null
           following_count?: number | null
           post_count?: number | null
@@ -480,6 +482,7 @@ export type Database = {
           handle?: string
           full_name?: string | null
           bio?: string | null
+          email?: string | null
           follower_count?: number | null
           following_count?: number | null
           post_count?: number | null

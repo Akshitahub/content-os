@@ -71,3 +71,68 @@ export async function sendWelcomeEmail(to: string, name?: string): Promise<void>
     console.error("[email/welcome] Failed to send welcome email:", err)
   }
 }
+
+/**
+ * Sends a brand's outreach message directly to an influencer's email.
+ * Unlike sendWelcomeEmail, this returns a result the caller must check —
+ * the user is actively trying to reach someone, so a silent failure here
+ * would look like the email went out when it didn't.
+ */
+export async function sendOutreachEmail(
+  to: string,
+  subject: string,
+  messageText: string,
+  brandName: string,
+): Promise<{ success: boolean; error?: string }> {
+  if (!process.env.RESEND_API_KEY) {
+    return { success: false, error: "Email sending is not configured." }
+  }
+
+  const resend = new Resend(process.env.RESEND_API_KEY)
+  const effectiveSubject = subject.trim() || `Partnership opportunity with ${brandName}`
+  const bodyHtml = messageText
+    .split("\n")
+    .map((line) => (line.trim() ? line : "&nbsp;"))
+    .join("<br>")
+
+  const html = `
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#f9fafb;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f9fafb;padding:40px 20px;">
+    <tr><td align="center">
+      <table width="560" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.08);">
+        <!-- Header -->
+        <tr><td style="background:#0f0f0f;padding:32px 40px;">
+          <p style="margin:0;font-size:20px;font-weight:700;color:#ffffff;letter-spacing:-0.3px;">${brandName}</p>
+        </td></tr>
+        <!-- Body -->
+        <tr><td style="padding:40px;">
+          <div style="margin:0;font-size:15px;color:#374151;line-height:1.6;white-space:pre-wrap;">${bodyHtml}</div>
+        </td></tr>
+        <!-- Footer -->
+        <tr><td style="padding:24px 40px;border-top:1px solid #f3f4f6;">
+          <p style="margin:0;font-size:12px;color:#9ca3af;">
+            Sent by ${brandName} via ContentOS.
+          </p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`.trim()
+
+  try {
+    await resend.emails.send({
+      from: FROM,
+      to,
+      subject: effectiveSubject,
+      html,
+    })
+    return { success: true }
+  } catch (err) {
+    console.error("[email/outreach] Failed to send outreach email:", err)
+    return { success: false, error: err instanceof Error ? err.message : "Failed to send email." }
+  }
+}

@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from "react"
 import { useParams } from "next/navigation"
 import { Search, Plus, Loader2, Users, Video, Camera, Wand2, Sparkles } from "lucide-react"
+import { FaLinkedin } from "react-icons/fa6"
 import {
   useInfluencers,
   useDiscoverInfluencer,
@@ -59,6 +60,7 @@ function TierBadge({ followerCount }: { followerCount: number | null }) {
 function PlatformIcon({ platform }: { platform: string }) {
   if (platform === "instagram") return <Camera className="h-3.5 w-3.5" />
   if (platform === "youtube") return <Video className="h-3.5 w-3.5" />
+  if (platform === "linkedin") return <FaLinkedin className="h-3.5 w-3.5" style={{ color: "#0A66C2" }} />
   return <span className="text-xs font-medium uppercase">{platform.slice(0, 2)}</span>
 }
 
@@ -72,7 +74,7 @@ function formatFollowers(count: number | null): string {
 // ─── Auto-discover form ───────────────────────────────────────────────────────
 
 function AutoDiscoverForm({ brandId }: { brandId: string }) {
-  const [platform, setPlatform] = useState<"instagram" | "tiktok" | "youtube">("instagram")
+  const [platform, setPlatform] = useState<"instagram" | "tiktok" | "youtube" | "linkedin">("instagram")
   const [count, setCount] = useState(25)
   const [successMsg, setSuccessMsg] = useState<string | null>(null)
   const autoDiscover = useAutoDiscoverInfluencers(brandId)
@@ -100,13 +102,14 @@ function AutoDiscoverForm({ brandId }: { brandId: string }) {
         <div className="flex flex-wrap gap-2">
           <select
             value={platform}
-            onChange={(e) => setPlatform(e.target.value as "instagram" | "tiktok" | "youtube")}
+            onChange={(e) => setPlatform(e.target.value as "instagram" | "tiktok" | "youtube" | "linkedin")}
             disabled={autoDiscover.isPending}
             className="rounded-md border bg-background px-3 py-2 text-sm"
           >
             <option value="instagram">Instagram</option>
             <option value="tiktok">TikTok</option>
             <option value="youtube">YouTube</option>
+            <option value="linkedin">LinkedIn</option>
           </select>
           <select
             value={count}
@@ -159,7 +162,7 @@ function AutoDiscoverForm({ brandId }: { brandId: string }) {
 
 function DiscoverForm({ brandId }: { brandId: string }) {
   const [handle, setHandle] = useState("")
-  const [platform, setPlatform] = useState<"instagram" | "tiktok" | "youtube">("instagram")
+  const [platform, setPlatform] = useState<"instagram" | "tiktok" | "youtube" | "linkedin">("instagram")
   const discover = useDiscoverInfluencer(brandId)
 
   async function handleSubmit(e: React.FormEvent) {
@@ -173,12 +176,13 @@ function DiscoverForm({ brandId }: { brandId: string }) {
     <form onSubmit={handleSubmit} className="flex gap-2">
       <select
         value={platform}
-        onChange={(e) => setPlatform(e.target.value as "instagram" | "tiktok" | "youtube")}
+        onChange={(e) => setPlatform(e.target.value as "instagram" | "tiktok" | "youtube" | "linkedin")}
         className="rounded-md border bg-background px-3 py-2 text-sm"
       >
         <option value="instagram">Instagram</option>
         <option value="tiktok">TikTok</option>
         <option value="youtube">YouTube</option>
+        <option value="linkedin">LinkedIn</option>
       </select>
       <div className="relative flex-1">
         <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
