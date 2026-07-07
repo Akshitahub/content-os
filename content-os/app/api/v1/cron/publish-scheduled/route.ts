@@ -88,7 +88,7 @@ async function processEntry(admin: AdminClient, entry: CalendarEntryRow): Promis
     .from("social_connections")
     .select("*")
     .eq("brand_id", entry.brand_id)
-    .eq("platform", entry.platform === "threads" ? "threads" : entry.platform === "pinterest" ? "pinterest" : entry.platform === "linkedin" ? "linkedin" : entry.platform === "youtube" ? "youtube" : "instagram")
+    .eq("platform", entry.platform === "threads" ? "threads" : entry.platform === "pinterest" ? "pinterest" : entry.platform === "linkedin" ? "linkedin" : entry.platform === "youtube" ? "youtube" : entry.platform === "twitter" ? "twitter" : "instagram")
     .eq("is_active", true)
     .maybeSingle<SocialConnectionRow>()
 
@@ -124,12 +124,17 @@ async function processEntry(admin: AdminClient, entry: CalendarEntryRow): Promis
     return await recordFailure(admin, entry, "YouTube not connected for this brand.")
   }
 
-  // LinkedIn/YouTube connections have no access_token/token_expires_at of
-  // our own — Zernio holds and refreshes that token on its side, so there's
-  // nothing to check locally (token_expires_at is NULL by design for these
-  // two platforms; skipping this check avoids treating that NULL as an
+  if (entry.platform === "twitter" && !connection.zernio_account_id) {
+    console.error(`[cron/publish-scheduled] entry ${entry.id}: brand ${entry.brand_id}'s Twitter/X connection is missing a zernio_account_id`)
+    return await recordFailure(admin, entry, "Twitter/X not connected for this brand.")
+  }
+
+  // LinkedIn/YouTube/Twitter connections have no access_token/token_expires_at
+  // of our own — Zernio holds and refreshes that token on its side, so
+  // there's nothing to check locally (token_expires_at is NULL by design for
+  // these platforms; skipping this check avoids treating that NULL as an
   // already-expired epoch timestamp).
-  if (entry.platform !== "linkedin" && entry.platform !== "youtube" && new Date(connection.token_expires_at).getTime() <= Date.now()) {
+  if (entry.platform !== "linkedin" && entry.platform !== "youtube" && entry.platform !== "twitter" && new Date(connection.token_expires_at).getTime() <= Date.now()) {
     console.error(`[cron/publish-scheduled] entry ${entry.id}: access token expired for brand ${entry.brand_id}`)
     return await recordFailure(admin, entry, "Access token has expired. Reconnect the account.")
   }
@@ -316,7 +321,10 @@ async function processEntry(admin: AdminClient, entry: CalendarEntryRow): Promis
             : entry.platform === "youtube"
               // zernio_account_id is guaranteed non-null here — checked above.
               ? await publishViaZernio("youtube", connection.zernio_account_id!, { text: caption, mediaUrls: [videoUrl!] })
-              : await publishToFacebook(connection.facebook_page_id, connection.access_token, { imageUrl: imageUrl!, message: caption })
+              : entry.platform === "twitter"
+                // zernio_account_id is guaranteed non-null here — checked above.
+                ? await publishViaZernio("twitter", connection.zernio_account_id!, { text: caption, mediaUrls: [imageUrl!] })
+                : await publishToFacebook(connection.facebook_page_id, connection.access_token, { imageUrl: imageUrl!, message: caption })
 
   if (!publishResult.success) {
     console.error(`[cron/publish-scheduled] entry ${entry.id}: publish failed (retryable=${publishResult.retryable}) — ${publishResult.error}`)
@@ -349,7 +357,9 @@ async function processEntry(admin: AdminClient, entry: CalendarEntryRow): Promis
           ? "linkedin_post_id"
           : entry.platform === "youtube"
             ? "youtube_video_id"
-            : "facebook_post_id"
+            : entry.platform === "twitter"
+              ? "twitter_post_id"
+              : "facebook_post_id"
 
   const { error: updateError } = await calendarEntriesTable(admin)
     .update({
@@ -395,7 +405,7 @@ export async function GET(request: Request) {
     .from("calendar_entries")
     .select("*")
     .eq("status", "scheduled")
-    .in("platform", ["instagram", "facebook", "threads", "pinterest", "linkedin", "youtube"])
+    .in("platform", ["instagram", "facebook", "threads", "pinterest", "linkedin", "youtube", "twitter"])
     .lte("scheduled_date", todayStr)
     .order("scheduled_date", { ascending: true })
     .returns<CalendarEntryRow[]>()

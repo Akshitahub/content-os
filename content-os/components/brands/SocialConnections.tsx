@@ -3,7 +3,7 @@
 import { useState, useCallback, useEffect } from "react"
 import { useSearchParams, useRouter, usePathname } from "next/navigation"
 import Link from "next/link"
-import { FaInstagram, FaFacebook, FaThreads, FaPinterest, FaLinkedin, FaYoutube } from "react-icons/fa6"
+import { FaInstagram, FaFacebook, FaThreads, FaPinterest, FaLinkedin, FaYoutube, FaXTwitter } from "react-icons/fa6"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { isApiError } from "@/types/api"
@@ -23,6 +23,8 @@ interface ConnectionStatus {
   linkedin_username: string | null
   youtube_connected: boolean
   youtube_channel_name: string | null
+  twitter_connected: boolean
+  twitter_username: string | null
 }
 
 const ERROR_MESSAGES: Record<string, string> = {
@@ -31,7 +33,7 @@ const ERROR_MESSAGES: Record<string, string> = {
   no_pages: "No Facebook Page was found for your account. Create a Facebook Page first, then try again.",
   no_boards: "No Pinterest board was found for your account. Create a board first, then try again.",
   server_error: "Something went wrong connecting your account. Please try again.",
-  plan_restricted: "LinkedIn and YouTube publishing are available on Pro and Agency plans. Upgrade to connect this platform.",
+  plan_restricted: "LinkedIn, YouTube, and Twitter/X publishing are available on Pro and Agency plans. Upgrade to connect this platform.",
 }
 
 export function SocialConnections({ brandId }: { brandId: string }) {
@@ -99,6 +101,8 @@ export function SocialConnections({ brandId }: { brandId: string }) {
     const linkedinError = searchParams.get("linkedin_error")
     const youtubeSuccess = searchParams.get("youtube_success")
     const youtubeError = searchParams.get("youtube_error")
+    const twitterSuccess = searchParams.get("twitter_success")
+    const twitterError = searchParams.get("twitter_error")
 
     if (success === "1") {
       setBanner({ type: "success", message: "Instagram and Facebook connected successfully." })
@@ -136,6 +140,12 @@ export function SocialConnections({ brandId }: { brandId: string }) {
     } else if (youtubeError) {
       setBanner({ type: "error", message: ERROR_MESSAGES[youtubeError] ?? ERROR_MESSAGES.server_error })
       router.replace(pathname)
+    } else if (twitterSuccess === "1") {
+      setBanner({ type: "success", message: "Twitter/X connected successfully." })
+      router.replace(pathname)
+    } else if (twitterError) {
+      setBanner({ type: "error", message: ERROR_MESSAGES[twitterError] ?? ERROR_MESSAGES.server_error })
+      router.replace(pathname)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams])
@@ -165,6 +175,8 @@ export function SocialConnections({ brandId }: { brandId: string }) {
         linkedin_username: prev?.linkedin_username ?? null,
         youtube_connected: prev?.youtube_connected ?? false,
         youtube_channel_name: prev?.youtube_channel_name ?? null,
+        twitter_connected: prev?.twitter_connected ?? false,
+        twitter_username: prev?.twitter_username ?? null,
       }))
       setConfirmDisconnect(false)
     } catch {
@@ -429,6 +441,53 @@ export function SocialConnections({ brandId }: { brandId: string }) {
               </div>
               <Button size="sm" asChild>
                 <a href={`/api/v1/social/youtube/connect?brandId=${brandId}`}>Connect YouTube</a>
+              </Button>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-sm flex items-center gap-2">
+            <FaXTwitter className="h-5 w-5" style={{ color: "#000000" }} /> Twitter / X
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {loading ? (
+            <p className="text-sm text-muted-foreground">Checking connection status…</p>
+          ) : status?.twitter_connected ? (
+            <div className="flex items-center justify-between rounded-md border px-4 py-3">
+              <p className="text-sm font-medium">{status.twitter_username ?? "Connected"}</p>
+              <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-semibold text-green-700">
+                Connected
+              </span>
+            </div>
+          ) : !hasZernioAccess ? (
+            <div className="flex items-center justify-between rounded-md border border-amber-200 bg-amber-50 px-4 py-3">
+              <div>
+                <div className="flex items-center gap-2">
+                  <p className="text-sm font-medium text-amber-900">Not connected</p>
+                  <span className="rounded-full bg-amber-200 px-2 py-0.5 text-xs font-semibold text-amber-800">Pro</span>
+                </div>
+                <p className="text-xs text-amber-700">
+                  Twitter/X publishing is available on Pro and Agency plans.
+                </p>
+              </div>
+              <Button size="sm" variant="outline" asChild>
+                <Link href="/settings?tab=billing">Upgrade</Link>
+              </Button>
+            </div>
+          ) : (
+            <div className="flex items-center justify-between rounded-md border px-4 py-3">
+              <div>
+                <p className="text-sm font-medium">Not connected</p>
+                <p className="text-xs text-muted-foreground">
+                  Connect Twitter/X to schedule and publish posts there.
+                </p>
+              </div>
+              <Button size="sm" asChild>
+                <a href={`/api/v1/social/twitter/connect?brandId=${brandId}`}>Connect Twitter/X</a>
               </Button>
             </div>
           )}

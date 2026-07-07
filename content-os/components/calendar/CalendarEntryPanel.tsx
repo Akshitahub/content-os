@@ -6,9 +6,9 @@ import { Button } from "@/components/ui/button"
 import type { CalendarEntryRow } from "@/types/database"
 
 // Platforms with a real, working auto-publish pipeline today (cron job +
-// per-platform publish function). TikTok/Twitter have no publish pipeline
-// at all yet, regardless of any future "connection" concept.
-const AUTO_PUBLISH_PLATFORMS = new Set(["instagram", "facebook", "threads", "pinterest", "linkedin", "youtube"])
+// per-platform publish function). TikTok has no publish pipeline at all
+// yet, regardless of any future "connection" concept.
+const AUTO_PUBLISH_PLATFORMS = new Set(["instagram", "facebook", "threads", "pinterest", "linkedin", "youtube", "twitter"])
 
 // calendar_entries has no dedicated published_at column — the cron job only
 // sets one on the linked content_project, if any. The reliable signal that
@@ -24,6 +24,7 @@ const AUTO_PUBLISH_ID_KEYS = [
   "linkedin_post_id",
   "youtube_video_id",
   "facebook_post_id",
+  "twitter_post_id",
 ]
 
 function wasAutoPublished(entry: CalendarEntryRow): boolean {
@@ -39,6 +40,7 @@ interface ConnectionStatus {
   pinterest_connected?: boolean
   linkedin_connected?: boolean
   youtube_connected?: boolean
+  twitter_connected?: boolean
 }
 
 function isPlatformConnected(platform: string | null, status: ConnectionStatus | null): boolean {
@@ -50,6 +52,7 @@ function isPlatformConnected(platform: string | null, status: ConnectionStatus |
     case "pinterest": return !!status.pinterest_connected
     case "linkedin": return !!status.linkedin_connected
     case "youtube": return !!status.youtube_connected
+    case "twitter": return !!status.twitter_connected
     default: return false
   }
 }

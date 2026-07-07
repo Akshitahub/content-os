@@ -842,7 +842,7 @@ export type Database = {
         Row: {
           id: string
           brand_id: string
-          platform: "instagram" | "threads" | "pinterest" | "linkedin" | "youtube"
+          platform: "instagram" | "threads" | "pinterest" | "linkedin" | "youtube" | "twitter"
           ig_business_account_id: string | null
           ig_username: string | null
           facebook_page_id: string
@@ -856,6 +856,7 @@ export type Database = {
           zernio_account_id: string | null
           linkedin_username: string | null
           youtube_channel_name: string | null
+          twitter_username: string | null
           access_token: string
           refresh_token: string | null
           token_expires_at: string
@@ -866,7 +867,7 @@ export type Database = {
         Insert: {
           id?: string
           brand_id: string
-          platform: "instagram" | "threads" | "pinterest" | "linkedin" | "youtube"
+          platform: "instagram" | "threads" | "pinterest" | "linkedin" | "youtube" | "twitter"
           ig_business_account_id?: string | null
           ig_username?: string | null
           facebook_page_id?: string | null
@@ -880,6 +881,7 @@ export type Database = {
           zernio_account_id?: string | null
           linkedin_username?: string | null
           youtube_channel_name?: string | null
+          twitter_username?: string | null
           access_token: string | null
           refresh_token?: string | null
           token_expires_at: string | null
@@ -900,6 +902,7 @@ export type Database = {
           zernio_profile_id?: string | null
           zernio_account_id?: string | null
           linkedin_username?: string | null
+          twitter_username?: string | null
           access_token?: string | null
           refresh_token?: string | null
           token_expires_at?: string | null

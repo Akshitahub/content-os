@@ -145,6 +145,23 @@ export async function GET(_request: Request, { params }: RouteParams) {
   const youtube_connected = Boolean(youtubeData?.zernio_account_id)
   const youtube_channel_name = youtubeData?.youtube_channel_name ?? null
 
+  const { data: twitterData, error: twitterError } = await socialConnectionsTable(result.supabase!)
+    .select("zernio_account_id, twitter_username")
+    .eq("brand_id", brandId)
+    .eq("platform", "twitter")
+    .eq("is_active", true)
+    .maybeSingle() as {
+      data: { zernio_account_id: string | null; twitter_username: string | null } | null
+      error: { message: string } | null
+    }
+
+  if (twitterError) {
+    console.error(`[brands/${brandId}/social-connections] GET twitter error:`, twitterError)
+  }
+
+  const twitter_connected = Boolean(twitterData?.zernio_account_id)
+  const twitter_username = twitterData?.twitter_username ?? null
+
   if (!data) {
     return NextResponse.json({
       data: {
@@ -161,6 +178,8 @@ export async function GET(_request: Request, { params }: RouteParams) {
         linkedin_username,
         youtube_connected,
         youtube_channel_name,
+        twitter_connected,
+        twitter_username,
       },
     })
   }
@@ -182,6 +201,8 @@ export async function GET(_request: Request, { params }: RouteParams) {
       linkedin_username,
       youtube_connected,
       youtube_channel_name,
+      twitter_connected,
+      twitter_username,
     },
   })
 }
