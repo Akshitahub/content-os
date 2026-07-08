@@ -2,6 +2,7 @@ import { NextResponse, after } from "next/server"
 import { createClient, createAdminClient } from "@/lib/supabase/server"
 import { buildError, ErrorCodes } from "@/types/api"
 import { generateSceneAssets } from "@/lib/video/reel-scene-assets"
+import { checkAndIncrementReelUsage } from "@/lib/usage/check-and-increment-reel-usage"
 import type { ReelScriptRow, ReelVideoJobRow, ReelVideoJobInsert, Json } from "@/types/database"
 import type { ReelScene } from "@/types/app"
 
@@ -60,6 +61,11 @@ export async function POST(_request: Request, { params }: RouteParams) {
 
   const { data: brand } = await supabase.from("brands").select("id").eq("id", brandId).eq("user_id", user.id).single<{ id: string }>()
   if (!brand) return NextResponse.json(buildError(ErrorCodes.BRAND_NOT_FOUND, "Brand not found."), { status: 404 })
+
+  const reelUsageCheck = await checkAndIncrementReelUsage(user.id)
+  if (!reelUsageCheck.ok) {
+    return NextResponse.json(buildError(ErrorCodes.USAGE_LIMIT_EXCEEDED, reelUsageCheck.message), { status: reelUsageCheck.status })
+  }
 
   const { data: script } = await supabase
     .from("reel_scripts")

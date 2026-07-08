@@ -174,11 +174,11 @@ export type ContentFormatOutputMap = {
 
 // ─── Plan limits ────────────────────────────────────────────────────────────
 
-export const PLAN_LIMITS: Record<UserPlan, { generations: number; brands: number; products: number; zernioSocialPlatforms: boolean }> = {
-  free:    { generations: 15,   brands: 1,  products: 5,    zernioSocialPlatforms: false },
-  starter: { generations: 500,  brands: 3,  products: 30,   zernioSocialPlatforms: false },
-  pro:     { generations: 500,  brands: 10, products: 200,  zernioSocialPlatforms: true },
-  agency:  { generations: 2000, brands: 50, products: 1000, zernioSocialPlatforms: true },
+export const PLAN_LIMITS: Record<UserPlan, { generations: number; brands: number; products: number; zernioSocialPlatforms: boolean; reelsPerWeek: number }> = {
+  free:    { generations: 15,   brands: 1, products: 5,    zernioSocialPlatforms: false, reelsPerWeek: 0 },
+  starter: { generations: 500,  brands: 2, products: 30,   zernioSocialPlatforms: false, reelsPerWeek: 0 },
+  pro:     { generations: 1200, brands: 3, products: 200,  zernioSocialPlatforms: true,  reelsPerWeek: 1 },
+  agency:  { generations: 2000, brands: 5, products: 1000, zernioSocialPlatforms: true,  reelsPerWeek: 4 },
 }
 
 // ─── Trending context ────────────────────────────────────────────────────────
