@@ -11,6 +11,7 @@ export async function generateCaption(
     contentType: string
     additionalContext?: string
     product?: ProductRow | null
+    pastExamples?: string[]
   }
 ): Promise<{ caption: GeneratedCaption; model: string; usage: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } | undefined }> {
   const groq = getGroqClient()

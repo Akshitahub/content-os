@@ -56,6 +56,8 @@ export type GeneratedCaption = {
   hashtags: string[]
   cta: string
   character_count: number
+  /** Honest, non-predictive pattern-match note vs. the brand's own rating history. */
+  pattern_note?: string | null
 }
 
 export type AspectRatio = "1:1" | "4:5" | "9:16" | "16:9"

@@ -68,11 +68,95 @@ Consider platform-specific best practices, posting cadence, content variety, and
 Always respond with valid JSON only. No markdown, no explanation outside the JSON.`
 }
 
-interface AutopilotParams {
+export interface AutopilotParams {
   frequency?: string
   platforms?: string[]
   vibe?: string
   focusAreas?: string[]
+}
+
+export interface StrategyOverview {
+  goal: string
+  suggested_frequency: string
+  week_themes: string[]
+}
+
+function buildStrategyOverviewSystemPrompt(): string {
+  return `You are a senior content strategist for Indian D2C brands.
+Given a brand's identity, produce a short, honest one-month content strategy overview: a stated goal, a suggested posting cadence, and week-by-week themes.
+Base the goal strictly on the brand's actual niche, audience, and values provided — never invent facts about the brand that weren't given to you.
+Always respond with valid JSON only. No markdown, no explanation.`
+}
+
+function buildStrategyOverviewUserPrompt(brand: BrandRow, params?: AutopilotParams): string {
+  const context = [
+    `Brand: ${brand.name}`,
+    brand.niche ? `Niche: ${brand.niche}` : null,
+    brand.target_audience ? `Target audience: ${brand.target_audience}` : null,
+    brand.tone_of_voice ? `Tone of voice: ${brand.tone_of_voice}` : null,
+    brand.brand_values?.length ? `Brand values: ${brand.brand_values.join(", ")}` : null,
+    brand.content_pillars?.length ? `Content pillars: ${brand.content_pillars.join(", ")}` : null,
+    brand.target_emotion ? `Target emotion: ${brand.target_emotion}` : null,
+    brand.vibe ? `Brand vibe: ${brand.vibe}` : null,
+  ].filter(Boolean).join("\n")
+
+  const frequency = params?.frequency ?? brand.posting_frequency ?? null
+  const platforms = params?.platforms?.length ? params.platforms : (brand.target_platforms ?? [])
+
+  return `${context}
+${frequency ? `User's preferred posting frequency: ${frequency}` : ""}
+${platforms.length ? `Target platforms: ${platforms.join(", ")}` : ""}
+
+Synthesize a concise one-month content strategy for this brand:
+- goal: one sentence stating the primary objective for this month, inferred from the brand's actual niche/audience/values above — specific to this brand, not generic
+- suggested_frequency: one short phrase for posting cadence (respect the user's stated preference above if given, otherwise suggest a sensible one for this niche)
+- week_themes: exactly 4 short, punchy weekly focus phrases tied to the stated goal, formatted like "Week 1: <theme>"
+
+Respond with this exact JSON:
+{
+  "goal": "one sentence goal for the month",
+  "suggested_frequency": "e.g. 5 posts/week",
+  "week_themes": ["Week 1: ...", "Week 2: ...", "Week 3: ...", "Week 4: ..."]
+}`
+}
+
+/**
+ * A single lightweight Groq call producing a strategy preview the user
+ * confirms BEFORE the full 30-slot generation runs. Cheap to regenerate —
+ * unlike executeFastlane below, which this function never touches.
+ */
+export async function generateStrategyOverview(brand: BrandRow, params?: AutopilotParams): Promise<StrategyOverview> {
+  const groq = getGroqClient()
+  const res = await groq.chat.completions.create({
+    model: MODELS.generation,
+    temperature: 0.7,
+    max_tokens: 500,
+    response_format: { type: "json_object" },
+    messages: [
+      { role: "system", content: buildStrategyOverviewSystemPrompt() },
+      { role: "user", content: buildStrategyOverviewUserPrompt(brand, params) },
+    ],
+  })
+
+  const raw = res.choices[0]?.message?.content ?? "{}"
+  let cleaned = sanitizeJsonString(raw)
+  const jsonMatch = cleaned.match(/\{[\s\S]*\}/)
+  if (jsonMatch) cleaned = jsonMatch[0]
+
+  let parsed: StrategyOverview
+  try {
+    parsed = JSON.parse(cleaned) as StrategyOverview
+  } catch {
+    console.error("[fastlane] strategy overview JSON parse failed. Raw:", raw.slice(0, 300))
+    throw new Error("AI returned invalid JSON for strategy overview")
+  }
+
+  if (!parsed.goal || !Array.isArray(parsed.week_themes) || parsed.week_themes.length === 0) {
+    console.error("[fastlane] strategy overview missing required fields:", JSON.stringify(parsed).slice(0, 300))
+    throw new Error("AI returned an incomplete strategy overview")
+  }
+
+  return parsed
 }
 
 function buildContentMix(focusAreas?: string[]): typeof CONTENT_MIX {

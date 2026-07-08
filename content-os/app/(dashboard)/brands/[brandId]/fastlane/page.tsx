@@ -20,11 +20,17 @@ const STATUS_BADGE: Record<string, string> = {
   missed: "bg-red-100 text-red-700",
 }
 
-type AutopilotState = "SETUP" | "RUNNING" | "DONE" | "ERROR" | "WARNING" | "UPSELL"
+type AutopilotState = "SETUP" | "STRATEGY" | "RUNNING" | "DONE" | "ERROR" | "WARNING" | "UPSELL"
 
 interface WarningData {
   message: string
   existing_count: number
+}
+
+interface StrategyOverview {
+  goal: string
+  suggested_frequency: string
+  week_themes: string[]
 }
 
 interface UpsellData {
@@ -90,6 +96,12 @@ export default function AutopilotPage() {
   const [scheduleSummary, setScheduleSummary] = useState<{ scheduled: number; skipped: number } | null>(null)
   const [scheduleError, setScheduleError] = useState<string | null>(null)
 
+  // Strategy preview — shown before the real 30-slot generation runs.
+  // Cheap to regenerate, unlike the full Autopilot run it precedes.
+  const [strategyPreview, setStrategyPreview] = useState<StrategyOverview | null>(null)
+  const [strategyLoading, setStrategyLoading] = useState(false)
+  const [strategyError, setStrategyError] = useState<string | null>(null)
+
   // Fetch remaining credits for the indicator
   useEffect(() => {
     fetch("/api/v1/user/profile")
@@ -127,6 +139,41 @@ export default function AutopilotPage() {
     setFocusAreas(prev =>
       prev.includes(id) ? prev.filter(f => f !== id) : [...prev, id]
     )
+  }
+
+  async function fetchStrategyPreview() {
+    if (selectedPlatforms.length === 0) {
+      setSelectedPlatforms(["instagram"])
+    }
+
+    setState("STRATEGY")
+    setStrategyLoading(true)
+    setStrategyError(null)
+
+    try {
+      const res = await fetch("/api/v1/brands/fastlane/strategy", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          brandId,
+          frequency,
+          platforms: selectedPlatforms.length > 0 ? selectedPlatforms : ["instagram"],
+          vibe,
+          focusAreas,
+        }),
+      })
+
+      const json = await res.json() as { data?: StrategyOverview; error?: { message?: string } }
+      if (!res.ok || !json.data) {
+        throw new Error(json.error?.message ?? "Couldn't generate a strategy preview.")
+      }
+
+      setStrategyPreview(json.data)
+    } catch (err) {
+      setStrategyError(err instanceof Error ? err.message : "Couldn't generate a strategy preview.")
+    } finally {
+      setStrategyLoading(false)
+    }
   }
 
   async function runAutopilot(opts: { force?: boolean; clearAndRegenerate?: boolean } = {}) {
@@ -378,7 +425,7 @@ export default function AutopilotPage() {
               <Button
                 size="lg"
                 className="w-full gap-2 bg-gradient-to-r from-violet-600 to-indigo-600 text-white hover:from-violet-700 hover:to-indigo-700 shadow-md"
-                onClick={() => runAutopilot()}
+                onClick={() => fetchStrategyPreview()}
               >
                 <Plane className="h-5 w-5" />
                 Launch Autopilot
@@ -388,6 +435,85 @@ export default function AutopilotPage() {
               </p>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* STRATEGY — preview before the full 30-slot generation runs */}
+      {state === "STRATEGY" && (
+        <div className="w-full max-w-lg">
+          {strategyLoading && (
+            <div className="text-center">
+              <div className="mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-600 to-indigo-600 shadow-lg shadow-violet-200">
+                <Loader2 className="h-10 w-10 text-white animate-spin" />
+              </div>
+              <h2 className="text-2xl font-bold">Thinking through your strategy…</h2>
+              <p className="mt-2 text-muted-foreground">Analysing your brand to shape a month-long plan.</p>
+            </div>
+          )}
+
+          {!strategyLoading && strategyError && (
+            <div className="text-center">
+              <div className="mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-2xl bg-destructive shadow-lg">
+                <XCircle className="h-10 w-10 text-destructive-foreground" />
+              </div>
+              <h2 className="text-2xl font-bold">Something went wrong</h2>
+              <p className="mt-2 text-muted-foreground">{strategyError}</p>
+              <div className="mt-8 space-y-3">
+                <Button className="w-full" onClick={() => fetchStrategyPreview()}>Try again</Button>
+                <Button variant="ghost" className="w-full" onClick={() => setState("SETUP")}>← Go back</Button>
+              </div>
+            </div>
+          )}
+
+          {!strategyLoading && !strategyError && strategyPreview && (
+            <>
+              <div className="text-center mb-6">
+                <div className="mx-auto mb-5 flex h-20 w-20 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-600 to-indigo-600 shadow-lg shadow-violet-200">
+                  <BarChart2 className="h-10 w-10 text-white" />
+                </div>
+                <h2 className="text-2xl font-bold">Here&apos;s your content strategy for this month</h2>
+                <p className="mt-2 text-muted-foreground">Review it, then generate your calendar — or regenerate for a different angle.</p>
+              </div>
+
+              <Card className="text-left">
+                <CardContent className="pt-4 space-y-4">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Goal</p>
+                    <p className="mt-1 text-sm">{strategyPreview.goal}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Suggested posting frequency</p>
+                    <p className="mt-1 text-sm">{strategyPreview.suggested_frequency}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Week-by-week themes</p>
+                    <ul className="mt-1.5 space-y-1.5">
+                      {strategyPreview.week_themes.map((theme, i) => (
+                        <li key={i} className="rounded-lg bg-violet-50 px-3 py-2 text-sm text-violet-800">{theme}</li>
+                      ))}
+                    </ul>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <div className="mt-6 space-y-3">
+                <Button
+                  size="lg"
+                  className="w-full gap-2 bg-gradient-to-r from-violet-600 to-indigo-600 text-white hover:from-violet-700 hover:to-indigo-700 shadow-md"
+                  onClick={() => runAutopilot()}
+                >
+                  <Plane className="h-5 w-5" />
+                  Looks good, generate my calendar
+                </Button>
+                <Button variant="outline" className="w-full" onClick={() => fetchStrategyPreview()}>
+                  Regenerate strategy
+                </Button>
+                <Button variant="ghost" className="w-full text-xs text-muted-foreground" onClick={() => setState("SETUP")}>
+                  ← Back to setup
+                </Button>
+              </div>
+            </>
+          )}
         </div>
       )}
 

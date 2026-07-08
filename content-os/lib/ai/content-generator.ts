@@ -21,6 +21,8 @@ export type GenerateContentOptions = {
   platform?: Platform
   additionalContext?: string
   hookText?: string
+  /** Brand's own past highly-rated content of this format, fed back in as few-shot examples. */
+  pastExamples?: string[]
 }
 
 type PromptConfig = { system: string; user: string; maxTokens: number }
@@ -40,6 +42,7 @@ function buildPrompts(
           hookText: options.hookText,
           additionalContext: options.additionalContext,
           product: options.product,
+          pastExamples: options.pastExamples,
         }),
         maxTokens: 400,
       }

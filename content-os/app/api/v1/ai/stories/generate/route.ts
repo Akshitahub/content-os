@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server"
 import { buildError, ErrorCodes } from "@/types/api"
 import { MODELS, getGroqClient } from "@/lib/ai/models"
 import { checkAndIncrementUsage } from "@/lib/usage/check-and-increment-usage"
+import { buildPastExamplesBlock } from "@/lib/ai/prompts"
 import { z } from "zod"
 import type { BrandRow } from "@/types/database"
 
@@ -41,7 +42,7 @@ function buildStoryTypeSequence(storyCount: number): string[] {
   return ["hook", "reveal", ...Array(buildupCount).fill("buildup"), "cta"]
 }
 
-function buildStoriesPrompt(brand: BrandRow, topic: string, storyCount: number, vibe?: string): string {
+function buildStoriesPrompt(brand: BrandRow, topic: string, storyCount: number, vibe?: string, pastExamples: string[] = []): string {
   const brandCtx = [
     `Brand: ${brand.name}`,
     brand.niche ? `Niche: ${brand.niche}` : null,
@@ -51,8 +52,9 @@ function buildStoriesPrompt(brand: BrandRow, topic: string, storyCount: number, 
   ].filter(Boolean).join("\n")
 
   const typeSequence = buildStoryTypeSequence(storyCount)
+  const pastExamplesBlock = buildPastExamplesBlock(pastExamples, "stories")
 
-  return `${brandCtx}
+  return `${brandCtx}${pastExamplesBlock}
 
 STORY TOPIC: "${topic}"
 NUMBER OF STORIES: ${storyCount}
@@ -139,8 +141,32 @@ export async function POST(request: Request) {
   const { data: brand } = await supabase.from("brands").select("*").eq("id", brandId).eq("user_id", user.id).single<BrandRow>()
   if (!brand) return NextResponse.json(buildError(ErrorCodes.BRAND_NOT_FOUND, "Brand not found."), { status: 404 })
 
+  // Feed the brand's own past highly-rated stories back into the prompt as
+  // few-shot examples — skip entirely if none exist yet.
+  const pastExamples: string[] = []
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data: pastStories } = await (supabase.from("stories") as any)
+      .select("stories")
+      .eq("brand_id", brandId)
+      .gte("user_rating", 4)
+      .order("user_rating", { ascending: false })
+      .order("created_at", { ascending: false })
+      .limit(5) as { data: { stories: unknown }[] | null }
+
+    for (const s of pastStories ?? []) {
+      if (!Array.isArray(s.stories)) continue
+      const texts = s.stories
+        .map((slide) => (slide && typeof slide === "object" && "text" in slide ? String((slide as { text: unknown }).text) : null))
+        .filter((t): t is string => !!t)
+      if (texts.length > 0) pastExamples.push(texts.join(" / "))
+    }
+  } catch (err) {
+    console.error("[ai/stories/generate] fetching past examples failed (non-fatal):", err)
+  }
+
   const groq = getGroqClient()
-  const prompt = buildStoriesPrompt(brand, topic, storyCount, vibe)
+  const prompt = buildStoriesPrompt(brand, topic, storyCount, vibe, pastExamples)
 
   try {
     const response = await groq.chat.completions.create({

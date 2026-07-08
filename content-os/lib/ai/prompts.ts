@@ -46,6 +46,16 @@ export function buildBrandContext(brand: BrandRow, product?: ProductRow | null):
   return lines.join("\n")
 }
 
+/**
+ * Injects the brand's own past highly-rated content as few-shot examples.
+ * Returns an empty string when there's nothing to show — never fabricates
+ * a style pattern for a brand with no rating history yet.
+ */
+export function buildPastExamplesBlock(examples: string[], label: string): string {
+  if (examples.length === 0) return ""
+  return `\n\nHere are examples of ${label} this brand's user has previously rated highly — match this style and quality bar where relevant:\n${examples.map((e, i) => `${i + 1}. ${e}`).join("\n\n")}`
+}
+
 function hookTypeInstruction(types: HookType[]): string {
   const descriptions: Record<HookType, string> = {
     question: "Start with a compelling question that stops the scroll",
@@ -192,11 +202,13 @@ export function buildCaptionUserPrompt(
     contentType: string
     additionalContext?: string
     product?: ProductRow | null
+    pastExamples?: string[]
   }
 ): string {
   const brandContext = buildBrandContext(brand, options.product)
   const hookLine = options.hookText ? `Opening hook to use: "${options.hookText}"` : "Create your own strong opening"
   const extraContext = options.additionalContext ? `Additional context: ${options.additionalContext}` : ""
+  const pastExamplesBlock = buildPastExamplesBlock(options.pastExamples ?? [], "captions")
 
   const b = brand as BrandRow & {
     cta_phrase?: string | null
@@ -217,7 +229,7 @@ export function buildCaptionUserPrompt(
     ? `"${ctaPhrase} 👇\\n${handle}"`
     : `"${ctaPhrase} 👇"`
 
-  return `${brandContext}
+  return `${brandContext}${pastExamplesBlock}
 Platform: ${options.platform} — ${platformRules[options.platform]}
 Content type: ${options.contentType}
 ${hookLine}
@@ -255,12 +267,14 @@ export function buildReelScriptUserPrompt(
   options: {
     additionalContext?: string
     product?: ProductRow | null
+    pastExamples?: string[]
   }
 ): string {
   const brandContext = buildBrandContext(brand, options.product)
   const extraContext = options.additionalContext ? `Additional context: ${options.additionalContext}` : ""
+  const pastExamplesBlock = buildPastExamplesBlock(options.pastExamples ?? [], "reel scripts")
 
-  return `${brandContext}
+  return `${brandContext}${pastExamplesBlock}
 ${extraContext}
 
 Write a reel script for the above brand${options.product ? ` promoting "${options.product.name}"` : ""}.
@@ -304,12 +318,14 @@ export function buildStoryUserPrompt(
   options: {
     additionalContext?: string
     product?: ProductRow | null
+    pastExamples?: string[]
   }
 ): string {
   const brandContext = buildBrandContext(brand, options.product)
   const extraContext = options.additionalContext ? `Additional context: ${options.additionalContext}` : ""
+  const pastExamplesBlock = buildPastExamplesBlock(options.pastExamples ?? [], "stories")
 
-  return `${brandContext}
+  return `${brandContext}${pastExamplesBlock}
 ${extraContext}
 
 Write an Instagram Story for the above brand${options.product ? ` featuring "${options.product.name}"` : ""}.
@@ -342,12 +358,14 @@ export function buildCarouselUserPrompt(
   options: {
     additionalContext?: string
     product?: ProductRow | null
+    pastExamples?: string[]
   }
 ): string {
   const brandContext = buildBrandContext(brand, options.product)
   const extraContext = options.additionalContext ? `Additional context: ${options.additionalContext}` : ""
+  const pastExamplesBlock = buildPastExamplesBlock(options.pastExamples ?? [], "carousels")
 
-  return `${brandContext}
+  return `${brandContext}${pastExamplesBlock}
 ${extraContext}
 
 Create a carousel for the above brand${options.product ? ` about "${options.product.name}"` : ""}.
@@ -432,12 +450,14 @@ export function buildAdCopyUserPrompt(
   options: {
     additionalContext?: string
     product?: ProductRow | null
+    pastExamples?: string[]
   }
 ): string {
   const brandContext = buildBrandContext(brand, options.product)
   const extraContext = options.additionalContext ? `Campaign angle: ${options.additionalContext}` : ""
+  const pastExamplesBlock = buildPastExamplesBlock(options.pastExamples ?? [], "ad copies")
 
-  return `${brandContext}
+  return `${brandContext}${pastExamplesBlock}
 ${extraContext}
 
 Write Meta ad copy for the above brand${options.product ? ` promoting "${options.product.name}"` : ""}.

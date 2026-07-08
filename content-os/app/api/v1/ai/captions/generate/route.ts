@@ -4,6 +4,7 @@ import { generateCaptionsSchema } from "@/lib/validations/ai"
 import { generateCaption } from "@/lib/ai/captions-generator"
 import { buildError, ErrorCodes } from "@/types/api"
 import { checkAndIncrementUsage } from "@/lib/usage/check-and-increment-usage"
+import { buildPatternNote } from "@/lib/ai/pattern-match"
 import type { BrandRow, ProductRow } from "@/types/database"
 
 export async function POST(request: Request) {
@@ -52,11 +53,37 @@ export async function POST(request: Request) {
     resolvedHookText = hook?.hook_text
   }
 
+  // Feed the brand's own past highly-rated captions back into the prompt as
+  // few-shot examples — ratings were being captured and never used. Only
+  // ever real, brand-specific examples; skip entirely if none exist yet
+  // rather than fabricating a style pattern for a new brand.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: pastRatedCaptions } = await (supabase.from("captions") as any)
+    .select("caption_text")
+    .eq("brand_id", brandId)
+    .gte("user_rating", 4)
+    .order("user_rating", { ascending: false })
+    .order("created_at", { ascending: false })
+    .limit(5) as { data: { caption_text: string }[] | null }
+
+  const pastExamples = (pastRatedCaptions ?? []).map((c) => c.caption_text)
+
+  // Separate pool (any rating, not just >=4) used only for the "how this
+  // compares" pattern note below — a rough honest observation, not a
+  // performance prediction.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: allRatedCaptions } = await (supabase.from("captions") as any)
+    .select("caption_text, user_rating")
+    .eq("brand_id", brandId)
+    .not("user_rating", "is", null)
+    .order("created_at", { ascending: false })
+    .limit(20) as { data: { caption_text: string; user_rating: number }[] | null }
+
   const startTime = Date.now()
   let result: Awaited<ReturnType<typeof generateCaption>>
 
   try {
-    result = await generateCaption(brand, { hookText: resolvedHookText, platform, contentType, additionalContext, product })
+    result = await generateCaption(brand, { hookText: resolvedHookText, platform, contentType, additionalContext, product, pastExamples })
   } catch (err) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await (supabase.from("ai_generation_logs") as any).insert({
@@ -92,5 +119,10 @@ export async function POST(request: Request) {
     latency_ms: latencyMs, success: true,
   })
 
-  return NextResponse.json({ data: { ...result.caption, id: savedCaption?.id ?? null } }, { status: 200 })
+  const patternNote = buildPatternNote(
+    result.caption.caption_text,
+    (allRatedCaptions ?? []).map((c) => ({ text: c.caption_text, rating: c.user_rating }))
+  )
+
+  return NextResponse.json({ data: { ...result.caption, id: savedCaption?.id ?? null, pattern_note: patternNote } }, { status: 200 })
 }

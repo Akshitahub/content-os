@@ -82,6 +82,9 @@ function ResultOutput({ result }: { result: ContentResult }) {
         {c.cta && <p className="text-sm font-medium text-primary">{c.cta}</p>}
         <HashtagLine tags={c.hashtags} />
         <p className="text-xs text-muted-foreground">{c.character_count} characters</p>
+        {c.pattern_note && (
+          <p className="rounded-md bg-violet-50 px-2.5 py-1.5 text-xs text-violet-700">{c.pattern_note}</p>
+        )}
       </div>
     )
   }

@@ -286,6 +286,11 @@ export function CaptionGenerator({ brandId, products }: CaptionGeneratorProps) {
                   </p>
                 )}
                 <p className="text-xs text-muted-foreground">{caption.character_count} characters</p>
+                {caption.pattern_note && (
+                  <p className="rounded-md bg-violet-50 px-2.5 py-1.5 text-xs text-violet-700">
+                    {caption.pattern_note}
+                  </p>
+                )}
               </div>
             )
           })}

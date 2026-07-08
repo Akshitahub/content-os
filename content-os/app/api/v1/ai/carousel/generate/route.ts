@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server"
 import { buildError, ErrorCodes } from "@/types/api"
 import { MODELS, getGroqClient } from "@/lib/ai/models"
 import { checkAndIncrementUsage } from "@/lib/usage/check-and-increment-usage"
+import { buildPastExamplesBlock } from "@/lib/ai/prompts"
 import { z } from "zod"
 import type { BrandRow } from "@/types/database"
 
@@ -24,7 +25,7 @@ function extractJSON(raw: string): string {
   return cleaned
 }
 
-function buildCarouselPrompt(brand: BrandRow, topic: string, slideCount: number, platform: string, vibe?: string): string {
+function buildCarouselPrompt(brand: BrandRow, topic: string, slideCount: number, platform: string, vibe?: string, pastExamples: string[] = []): string {
   const brandCtx = [
     `Brand: ${brand.name}`,
     brand.niche ? `Niche: ${brand.niche}` : null,
@@ -33,8 +34,9 @@ function buildCarouselPrompt(brand: BrandRow, topic: string, slideCount: number,
     brand.instagram_handle ? `Handle: @${brand.instagram_handle}` : null,
     vibe ? `Visual Vibe: ${vibe}` : null,
   ].filter(Boolean).join("\n")
+  const pastExamplesBlock = buildPastExamplesBlock(pastExamples, "carousels")
 
-  return `${brandCtx}
+  return `${brandCtx}${pastExamplesBlock}
 
 CAROUSEL TOPIC: "${topic}"
 PLATFORM: ${platform}
@@ -149,8 +151,32 @@ export async function POST(request: Request) {
   const { data: brand } = await supabase.from("brands").select("*").eq("id", brandId).eq("user_id", user.id).single<BrandRow>()
   if (!brand) return NextResponse.json(buildError(ErrorCodes.BRAND_NOT_FOUND, "Brand not found."), { status: 404 })
 
+  // Feed the brand's own past highly-rated carousels back into the prompt
+  // as few-shot examples — skip entirely if none exist yet.
+  const pastExamples: string[] = []
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data: pastCarousels } = await (supabase.from("carousels") as any)
+      .select("slides")
+      .eq("brand_id", brandId)
+      .gte("user_rating", 4)
+      .order("user_rating", { ascending: false })
+      .order("created_at", { ascending: false })
+      .limit(5) as { data: { slides: unknown }[] | null }
+
+    for (const c of pastCarousels ?? []) {
+      if (!Array.isArray(c.slides)) continue
+      const headlines = c.slides
+        .map((s) => (s && typeof s === "object" && "headline" in s ? String((s as { headline: unknown }).headline) : null))
+        .filter((h): h is string => !!h)
+      if (headlines.length > 0) pastExamples.push(headlines.join(" / "))
+    }
+  } catch (err) {
+    console.error("[ai/carousel/generate] fetching past examples failed (non-fatal):", err)
+  }
+
   const groq = getGroqClient()
-  const prompt = buildCarouselPrompt(brand, topic, slideCount, platform, vibe)
+  const prompt = buildCarouselPrompt(brand, topic, slideCount, platform, vibe, pastExamples)
 
   try {
     const data = await generateCarouselWithRetry(groq, prompt, slideCount)
