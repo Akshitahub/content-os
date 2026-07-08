@@ -17,9 +17,9 @@ export default async function SettingsPage() {
   const [profileResult, brandsResult] = await Promise.all([
     supabase
       .from("users")
-      .select("full_name, email, plan, generation_count, generation_count_reset_at")
+      .select("full_name, email, plan, generation_count, generation_count_reset_at, reel_count_this_week, reel_count_reset_at, free_reel_used_at")
       .eq("id", user.id)
-      .single<Pick<UserRow, "full_name" | "email" | "plan" | "generation_count" | "generation_count_reset_at">>(),
+      .single<Pick<UserRow, "full_name" | "email" | "plan" | "generation_count" | "generation_count_reset_at" | "reel_count_this_week" | "reel_count_reset_at" | "free_reel_used_at">>(),
     supabase
       .from("brands")
       .select("id, name, niche, is_active")
@@ -46,6 +46,9 @@ export default async function SettingsPage() {
           plan: profile?.plan ?? "free",
           generation_count: profile?.generation_count ?? 0,
           generation_count_reset_at: profile?.generation_count_reset_at ?? null,
+          reel_count_this_week: profile?.reel_count_this_week ?? 0,
+          reel_count_reset_at: profile?.reel_count_reset_at ?? null,
+          free_reel_used_at: profile?.free_reel_used_at ?? null,
         }}
         brands={brands}
       />

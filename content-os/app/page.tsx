@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server"
 import { ScrollNavHandler } from "@/components/landing/ScrollNavHandler"
 import { LiveDemo } from "@/components/landing/LiveDemo"
 import { FaqAccordion } from "@/components/landing/FaqAccordion"
+import { PricingSection } from "@/components/landing/PricingSection"
 
 export default async function RootPage() {
   let primaryHref = "/signup"
@@ -362,77 +363,7 @@ export default async function RootPage() {
 
         {/* PRICING */}
         <section className="border-t border-gray-100 bg-white px-6 py-20 sm:px-8 sm:py-28">
-          <div className="mx-auto max-w-6xl">
-            <div className="mb-12 text-center">
-              <span className="mb-3 inline-block rounded-full bg-violet-50 px-3 py-1 text-xs font-semibold uppercase tracking-widest text-violet-600">Pricing</span>
-              <h2 className="text-3xl font-bold tracking-tight text-gray-900 sm:text-4xl">Simple, honest pricing</h2>
-            </div>
-            <div className="grid gap-6 sm:grid-cols-3">
-              <div className="flex flex-col rounded-2xl border border-gray-200 p-8">
-                <div className="mb-6">
-                  <h3 className="text-lg font-bold text-gray-900">Free</h3>
-                  <div className="mt-3 flex items-baseline gap-1">
-                    <span className="text-4xl font-bold text-gray-900">₹0</span>
-                    <span className="text-gray-400">/mo</span>
-                  </div>
-                  <p className="mt-1 text-sm text-gray-500">No credit card needed</p>
-                </div>
-                <ul className="mb-8 flex-1 space-y-3">
-                  {["10 generations / month", "1 brand profile", "Hook & caption tools"].map((f) => (
-                    <li key={f} className="flex items-center gap-2 text-sm text-gray-600">
-                      <Check className="h-4 w-4 shrink-0 text-emerald-500" /> {f}
-                    </li>
-                  ))}
-                </ul>
-                <Link href="/signup" className="rounded-full border border-gray-200 px-5 py-2.5 text-center text-sm font-semibold text-gray-700 transition hover:bg-gray-50">
-                  Get started free
-                </Link>
-              </div>
-
-              <div className="relative flex flex-col rounded-2xl border-2 border-violet-600 p-8 shadow-lg shadow-violet-100">
-                <span className="absolute -top-3.5 left-1/2 -translate-x-1/2 rounded-full bg-violet-600 px-4 py-1 text-xs font-bold text-white">Most popular</span>
-                <div className="mb-6">
-                  <h3 className="text-lg font-bold text-gray-900">Starter</h3>
-                  <div className="mt-3 flex items-baseline gap-1">
-                    <span className="text-4xl font-bold text-gray-900">₹999</span>
-                    <span className="text-gray-400">/mo</span>
-                  </div>
-                  <p className="mt-1 text-sm text-gray-500">Billed monthly</p>
-                </div>
-                <ul className="mb-8 flex-1 space-y-3">
-                  {["100 generations / month", "3 brand profiles", "All content formats", "Autopilot (30-day planner)"].map((f) => (
-                    <li key={f} className="flex items-center gap-2 text-sm text-gray-600">
-                      <Check className="h-4 w-4 shrink-0 text-violet-500" /> {f}
-                    </li>
-                  ))}
-                </ul>
-                <Link href="/signup" className="rounded-full bg-violet-600 px-5 py-2.5 text-center text-sm font-semibold text-white transition hover:bg-violet-700">
-                  Start Starter plan
-                </Link>
-              </div>
-
-              <div className="flex flex-col rounded-2xl border border-gray-200 p-8">
-                <div className="mb-6">
-                  <h3 className="text-lg font-bold text-gray-900">Pro</h3>
-                  <div className="mt-3 flex items-baseline gap-1">
-                    <span className="text-4xl font-bold text-gray-900">₹2,999</span>
-                    <span className="text-gray-400">/mo</span>
-                  </div>
-                  <p className="mt-1 text-sm text-gray-500">Billed monthly</p>
-                </div>
-                <ul className="mb-8 flex-1 space-y-3">
-                  {["500 generations / month", "10 brand profiles", "All content formats", "Autopilot (30-day planner)", "Influencer Outreach module", "Priority support"].map((f) => (
-                    <li key={f} className="flex items-center gap-2 text-sm text-gray-600">
-                      <Check className="h-4 w-4 shrink-0 text-emerald-500" /> {f}
-                    </li>
-                  ))}
-                </ul>
-                <Link href="/signup" className="rounded-full border border-gray-200 px-5 py-2.5 text-center text-sm font-semibold text-gray-700 transition hover:bg-gray-50">
-                  Start Pro plan
-                </Link>
-              </div>
-            </div>
-          </div>
+          <PricingSection />
         </section>
 
         {/* TESTIMONIALS */}

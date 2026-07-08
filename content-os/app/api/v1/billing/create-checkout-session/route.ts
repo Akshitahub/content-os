@@ -5,13 +5,14 @@ import { buildError, ErrorCodes } from "@/types/api"
 import { z } from "zod"
 
 const schema = z.object({
-  plan: z.enum(["starter", "pro"]),
+  plan: z.enum(["starter", "pro", "agency"]),
 })
 
 // Prices in paise — match values displayed in the UI
 const PLAN_PRICES: Record<string, number> = {
-  starter: 99900,  // ₹999
-  pro: 299900,     // ₹2,999
+  starter: 69900,   // ₹699
+  pro: 249900,      // ₹2,499
+  agency: 699900,   // ₹6,999
 }
 
 export async function POST(request: Request) {

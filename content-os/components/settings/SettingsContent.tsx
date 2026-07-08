@@ -14,6 +14,7 @@ import { Separator } from "@/components/ui/separator"
 import { isApiError } from "@/types/api"
 import posthog from "posthog-js"
 import { POSTHOG_KEY } from "@/lib/analytics/posthog"
+import { PLAN_LIMITS } from "@/types/app"
 
 // ---------------------------------------------------------------------------
 // Types
@@ -27,6 +28,9 @@ interface UserProps {
   plan: Plan
   generation_count: number
   generation_count_reset_at: string | null
+  reel_count_this_week: number
+  reel_count_reset_at: string | null
+  free_reel_used_at: string | null
 }
 
 interface BrandProps {
@@ -45,12 +49,10 @@ interface SettingsContentProps {
 // Constants
 // ---------------------------------------------------------------------------
 
-const PLAN_LIMITS: Record<Plan, number> = {
-  free: 15,
-  starter: 500,
-  pro: 500,
-  agency: 2000,
-}
+// Generation/brand/reel limits come from PLAN_LIMITS in types/app.ts — the
+// single source of truth shared with the backend usage checkers. This file
+// previously hand-maintained its own stale copy (Pro showed a 500/mo cap
+// here when the real limit had already moved to 1200).
 
 const PLAN_COLORS: Record<Plan, string> = {
   free: "bg-gray-100 text-gray-700",
@@ -62,11 +64,15 @@ const PLAN_COLORS: Record<Plan, string> = {
 const PLAN_FEATURES: { label: string; plans: Plan[] }[] = [
   { label: "AI content generation", plans: ["free", "starter", "pro", "agency"] },
   { label: "Brand management", plans: ["free", "starter", "pro", "agency"] },
-  { label: "Influencer discovery", plans: ["starter", "pro", "agency"] },
-  { label: "Content calendar", plans: ["starter", "pro", "agency"] },
-  { label: "Image generation", plans: ["pro", "agency"] },
-  { label: "Multiple brands", plans: ["pro", "agency"] },
-  { label: "Priority support", plans: ["agency"] },
+  { label: "Auto-post & schedule (Instagram, Facebook, Threads, Pinterest)", plans: ["starter", "pro", "agency"] },
+  { label: "Autopilot (30-day content planner)", plans: ["starter", "pro", "agency"] },
+  { label: "Influencer outreach tools", plans: ["starter", "pro", "agency"] },
+  { label: "LinkedIn, YouTube, Twitter/X publishing", plans: ["pro", "agency"] },
+  { label: "AI video reels", plans: ["free", "pro", "agency"] },
+  { label: "Competitor tracking", plans: ["starter", "pro", "agency"] },
+  { label: "Full analytics + demographics + best-time-to-post", plans: ["pro", "agency"] },
+  { label: "Monthly PDF reports", plans: ["starter", "pro", "agency"] },
+  { label: "Dedicated support", plans: ["agency"] },
 ]
 
 // ---------------------------------------------------------------------------
@@ -203,9 +209,14 @@ interface RazorpayResponse {
 }
 
 function PlanSection({ user }: { user: UserProps }) {
-  const limit = PLAN_LIMITS[user.plan]
+  const limit = PLAN_LIMITS[user.plan].generations
   const count = user.generation_count
   const pct = Math.min(100, Math.round((count / limit) * 100))
+
+  const reelsPerWeek = PLAN_LIMITS[user.plan].reelsPerWeek
+  const reelResetAt = user.reel_count_reset_at ? new Date(user.reel_count_reset_at) : null
+  const reelCountNeedsReset = !reelResetAt || reelResetAt <= new Date()
+  const reelCountThisWeek = reelCountNeedsReset ? 0 : user.reel_count_this_week
 
   const [upgradeState, setUpgradeState] = useState<"idle" | "loading">("idle")
   const [billingError, setBillingError] = useState<string | null>(null)
@@ -222,7 +233,7 @@ function PlanSection({ user }: { user: UserProps }) {
     }
   }, [])
 
-  const handleUpgrade = useCallback(async (plan: "starter" | "pro") => {
+  const handleUpgrade = useCallback(async (plan: "starter" | "pro" | "agency") => {
     setUpgradeState("loading")
     setBillingError(null)
     setPaymentSuccess(false)
@@ -251,7 +262,7 @@ function PlanSection({ user }: { user: UserProps }) {
         amount,
         currency,
         name: "ContentOS",
-        description: `${plan === "starter" ? "Starter" : "Pro"} Plan`,
+        description: `${{ starter: "Starter", pro: "Pro", agency: "Agency" }[plan]} Plan`,
         order_id: orderId,
         handler: async function (response: RazorpayResponse) {
           try {
@@ -292,11 +303,21 @@ function PlanSection({ user }: { user: UserProps }) {
       </CardHeader>
       <CardContent className="space-y-5">
         {/* Current plan badge */}
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <span className="text-sm font-medium text-muted-foreground">Current plan</span>
           <span className={`rounded-full px-3 py-0.5 text-xs font-semibold capitalize ${PLAN_COLORS[user.plan]}`}>
             {user.plan}
           </span>
+          {user.plan === "free" && (
+            <span className="text-xs text-muted-foreground">
+              {user.free_reel_used_at ? "Free reel used" : "1 free AI video reel available"}
+            </span>
+          )}
+          {(user.plan === "pro" || user.plan === "agency") && (
+            <span className="text-xs text-muted-foreground">
+              {reelCountThisWeek} of {reelsPerWeek} AI video reels used this week
+            </span>
+          )}
         </div>
 
         {/* Generation usage */}
@@ -349,14 +370,21 @@ function PlanSection({ user }: { user: UserProps }) {
               disabled={upgradeState === "loading"}
               className="bg-violet-600 hover:bg-violet-700 text-white"
             >
-              {upgradeState === "loading" ? "Loading…" : "Upgrade to Starter — ₹999/mo"}
+              {upgradeState === "loading" ? "Loading…" : "Upgrade to Starter — ₹699/mo"}
             </Button>
             <Button
               variant="outline"
               onClick={() => handleUpgrade("pro")}
               disabled={upgradeState === "loading"}
             >
-              Upgrade to Pro — ₹2,999/mo
+              Upgrade to Pro — ₹2,499/mo
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => handleUpgrade("agency")}
+              disabled={upgradeState === "loading"}
+            >
+              Upgrade to Agency — ₹6,999/mo
             </Button>
           </div>
         )}
@@ -368,7 +396,26 @@ function PlanSection({ user }: { user: UserProps }) {
               disabled={upgradeState === "loading"}
               className="bg-violet-600 hover:bg-violet-700 text-white"
             >
-              {upgradeState === "loading" ? "Loading…" : "Upgrade to Pro — ₹2,999/mo"}
+              {upgradeState === "loading" ? "Loading…" : "Upgrade to Pro — ₹2,499/mo"}
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => handleUpgrade("agency")}
+              disabled={upgradeState === "loading"}
+            >
+              Upgrade to Agency — ₹6,999/mo
+            </Button>
+          </div>
+        )}
+
+        {user.plan === "pro" && (
+          <div className="flex flex-wrap gap-3">
+            <Button
+              onClick={() => handleUpgrade("agency")}
+              disabled={upgradeState === "loading"}
+              className="bg-violet-600 hover:bg-violet-700 text-white"
+            >
+              {upgradeState === "loading" ? "Loading…" : "Upgrade to Agency — ₹6,999/mo"}
             </Button>
           </div>
         )}
