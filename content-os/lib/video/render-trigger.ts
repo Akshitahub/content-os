@@ -1,3 +1,10 @@
+// NOTE: kept as `imageUrl` to match remotion/ReelComposition.tsx's existing
+// prop name (both untouched here — composition/rendering is a separate,
+// later task). Scene generation itself now produces a real Kling video
+// clip per scene (see lib/video/reel-scene-assets.ts's SceneAsset.videoUrl)
+// rather than a still image — whoever implements this render step for real
+// will need to swap ReelComposition's <Img> for a <Video> and rename this
+// field to match at that point.
 export interface RenderReelVideoInput {
   jobId: string
   scenes: { imageUrl: string; audioUrl: string | null; text: string; durationSeconds: number }[]

@@ -498,7 +498,12 @@ export function ContentTypeGenerator({ brandId, products }: ContentTypeGenerator
         <div className="space-y-3">
           <ResultOutput result={result} />
           {result.format === "reel_script" && result.id && (
-            <GenerateVideoAction scriptId={result.id} brandId={brandId} defaultCaption={result.content.caption} />
+            <GenerateVideoAction
+              scriptId={result.id}
+              brandId={brandId}
+              defaultCaption={result.content.caption}
+              initialScenePrompts={result.content.scenes.map((s) => s.visual_direction)}
+            />
           )}
         </div>
       )}

@@ -3,16 +3,27 @@ import { createClient, createAdminClient } from "@/lib/supabase/server"
 import { buildError, ErrorCodes } from "@/types/api"
 import { generateSceneAssets } from "@/lib/video/reel-scene-assets"
 import { checkAndIncrementReelUsage } from "@/lib/usage/check-and-increment-reel-usage"
+import { z } from "zod"
 import type { ReelScriptRow, ReelVideoJobRow, ReelVideoJobInsert, Json } from "@/types/database"
 import type { ReelScene } from "@/types/app"
 
 type RouteParams = { params: Promise<{ brandId: string; scriptId: string }> }
 
-// Vercel's Hobby plan defaults to a lower function timeout than these
-// longer retry chains need — worst-case timing for a 4-scene reel (staggered
-// starts + full 429 backoff on every call) comes to roughly 20s, safely
-// within this 60s budget.
-export const maxDuration = 60
+const bodySchema = z.object({
+  // Per-scene prompt overrides from the prompt-customization/suggestion
+  // step, index-aligned with the script's own scenes. Optional — omitted
+  // (or an empty array) falls back to each scene's original visual_direction.
+  scenePrompts: z.array(z.string()).optional(),
+})
+
+// Kling video generation is genuinely slow (submit + poll, often
+// 30s-several minutes per clip) — nothing like Pollinations' near-instant
+// stills. 300s is Vercel Pro's function-duration ceiling; Vercel Hobby hard-
+// caps at 60s regardless of this setting and cannot run this reliably at
+// all with real scene counts. If jobs are timing out in production, the
+// real fix is moving off in-request polling (Kling supports a
+// `callBackUrl` webhook) rather than raising this further.
+export const maxDuration = 300
 
 // Placeholder tracks — see public/audio/README.md. These are genuinely
 // silent, code-generated files, not a real royalty-free asset.
@@ -44,9 +55,17 @@ function parseScenes(raw: Json): ReelScene[] {
   return scenes
 }
 
-export async function POST(_request: Request, { params }: RouteParams) {
+export async function POST(request: Request, { params }: RouteParams) {
   const { brandId, scriptId } = await params
   console.log(`[reel-scripts/${scriptId}/video] POST called`)
+
+  // Fails fast, before touching the user's reel quota — a missing key means
+  // no generation can possibly succeed, so there's nothing worth spending
+  // their one-time free reel or weekly allowance on.
+  if (!process.env.KLING_API_KEY) {
+    console.error("[reel-scripts/video] KLING_API_KEY is not configured")
+    return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Video generation isn't configured yet."), { status: 500 })
+  }
 
   let supabase
   try {
@@ -65,6 +84,22 @@ export async function POST(_request: Request, { params }: RouteParams) {
   const reelUsageCheck = await checkAndIncrementReelUsage(user.id)
   if (!reelUsageCheck.ok) {
     return NextResponse.json(buildError(ErrorCodes.USAGE_LIMIT_EXCEEDED, reelUsageCheck.message), { status: reelUsageCheck.status })
+  }
+
+  // Body is optional — an empty/absent body falls back to each scene's own
+  // visual_direction (no prompt customization step used).
+  let scenePrompts: string[] | undefined
+  try {
+    const rawBody = await request.text()
+    if (rawBody.trim()) {
+      const parsed = bodySchema.safeParse(JSON.parse(rawBody))
+      if (!parsed.success) {
+        return NextResponse.json(buildError(ErrorCodes.VALIDATION_ERROR, "Validation failed.", parsed.error.issues[0]?.message), { status: 400 })
+      }
+      scenePrompts = parsed.data.scenePrompts
+    }
+  } catch {
+    return NextResponse.json(buildError(ErrorCodes.VALIDATION_ERROR, "Invalid JSON."), { status: 400 })
   }
 
   const { data: script } = await supabase
@@ -102,19 +137,21 @@ export async function POST(_request: Request, { params }: RouteParams) {
   }
 
   // Runs after the response is sent, so the client isn't held open while
-  // several image + TTS calls complete. Still bounded by the function's
-  // own max execution duration — it just doesn't block the HTTP response.
+  // several Kling video + TTS calls complete. Still bounded by the
+  // function's own max execution duration — it just doesn't block the HTTP
+  // response. Kling generation is genuinely slow now (see maxDuration
+  // comment above), so this can legitimately run for minutes.
   after(async () => {
     const admin = await createAdminClient()
 
     try {
       await reelVideoJobsTable(admin)
-        .update({ status: "generating_images", progress_message: "Generating scene images and voiceover…" })
+        .update({ status: "generating_images", progress_message: "Generating AI video scenes and voiceover — this can take a few minutes…" })
         .eq("id", job.id)
 
-      const sceneAssets = await generateSceneAssets(brandId, scriptId, scenes)
+      const sceneAssets = await generateSceneAssets(brandId, scriptId, scenes, scenePrompts)
       const failedScenes = sceneAssets.filter((s) => s.error)
-      const hasUsableAssets = sceneAssets.some((s) => s.imageUrl && s.audioUrl)
+      const hasUsableAssets = sceneAssets.some((s) => s.videoUrl && s.audioUrl)
 
       if (!hasUsableAssets) {
         // scene_assets (stored, not shown as a raw string) retains each
@@ -144,8 +181,8 @@ export async function POST(_request: Request, { params }: RouteParams) {
           status: "assets_ready",
           progress_message:
             failedScenes.length > 0
-              ? `Scene assets ready — ${failedScenes.length} scene(s) had an issue and may need attention.`
-              : "All scene assets generated. Video rendering isn't wired up yet (see project notes).",
+              ? `Video scenes ready — ${failedScenes.length} scene(s) had an issue and may need attention.`
+              : "All video scenes generated. Final render/composition isn't wired up yet (see project notes).",
           scene_assets: sceneAssets as unknown as Json,
         })
         .eq("id", job.id)

@@ -1,5 +1,6 @@
 import { getGroqClient } from "@/lib/ai/models"
 import { uploadMediaToStorage } from "@/lib/storage/upload-media"
+import { generateKlingVideo } from "@/lib/video/kling-client"
 import type { ReelScene } from "@/types/app"
 
 // Groq's TTS model — priced per character ($50/1M chars as of writing),
@@ -14,10 +15,12 @@ import type { ReelScene } from "@/types/app"
 const TTS_MODEL = "canopylabs/orpheus-v1-english"
 const TTS_VOICE = "troy"
 
-// Stagger each scene's start so we don't fire every scene's image + TTS
-// request at the same instant — that's what was tripping Pollinations'
-// and Groq's rate limits in production for reels with 6-10 scenes. 700ms
-// wasn't enough headroom under real load; bumped to 1500ms.
+// Stagger each scene's start so we don't fire every scene's video + TTS
+// request at the same instant — this originally guarded against
+// Pollinations' and Groq's rate limits (700ms wasn't enough headroom under
+// real load; bumped to 1500ms), and matters just as much now that "image"
+// generation means a real Kling job with its own per-account concurrency
+// limits.
 const SCENE_STAGGER_MS = 1500
 
 // Exponential backoff for rate-limited (429) calls: 1s, 2s, 4s, 8s over up
@@ -53,32 +56,40 @@ export interface SceneAsset {
   visualDirection: string
   voiceoverText: string
   durationSeconds: number
-  imageUrl: string | null
+  videoUrl: string | null
   audioUrl: string | null
   error: string | null
 }
 
-function buildScenePollinationsUrl(visualDirection: string, seed: number): string {
-  // Same prompt-shaping already used for reel scene previews in
-  // components/generate/FullPostGenerator.tsx's ContentDisplay.
-  const prompt = encodeURIComponent(`${visualDirection}, cinematic, vertical video frame, 9:16`)
-  return `https://image.pollinations.ai/prompt/${prompt}?width=1080&height=1920&seed=${seed}&nologo=true&model=flux`
-}
-
-async function generateSceneImage(
+/**
+ * Generates a real motion video clip for one scene via Kling AI (replacing
+ * the earlier Pollinations still-image approach), then re-hosts it to
+ * Supabase Storage — Kling's own returned URLs aren't guaranteed to stay
+ * reachable long-term, same reasoning as the image/audio re-hosting below.
+ */
+async function generateSceneVideo(
   brandId: string,
   scriptId: string,
   sceneIndex: number,
-  visualDirection: string
+  visualDirection: string,
+  durationSeconds: number
 ): Promise<{ url: string } | { error: string }> {
-  const pollinationsUrl = buildScenePollinationsUrl(visualDirection, sceneIndex + 1)
+  const result = await generateKlingVideo(visualDirection, {
+    durationSeconds,
+    aspectRatio: "9:16",
+  })
+
+  if (!result.success) {
+    console.error(`[reel-scene-assets] scene ${sceneIndex} Kling generation failed:`, result.error)
+    return { error: result.error }
+  }
 
   const uploadResult = await uploadMediaToStorage(
-    { kind: "remoteUrl", url: pollinationsUrl },
-    `${brandId}/reel-video/${scriptId}/scene-${sceneIndex}-image`
+    { kind: "remoteUrl", url: result.videoUrl },
+    `${brandId}/reel-video/${scriptId}/scene-${sceneIndex}-video`
   )
   if ("error" in uploadResult) {
-    console.error(`[reel-scene-assets] scene ${sceneIndex} image hosting failed:`, uploadResult.error)
+    console.error(`[reel-scene-assets] scene ${sceneIndex} video hosting failed:`, uploadResult.error)
     return { error: uploadResult.error }
   }
   return { url: uploadResult.publicUrl }
@@ -127,40 +138,49 @@ async function generateSceneVoiceover(
 }
 
 /**
- * Generates one AI image (Pollinations, re-hosted to Supabase Storage for
+ * Generates one real AI video clip (Kling, re-hosted to Supabase Storage for
  * reliability) and one Groq TTS voiceover clip per scene. Each scene's start
  * is staggered by SCENE_STAGGER_MS rather than firing all scenes at once —
  * reel scripts can have 6-10 scenes, and generating everything simultaneously
- * was tripping Pollinations' and Groq's rate limits in production. Never
- * throws: a failure on one scene is captured in that scene's own `error`
- * field rather than aborting the whole batch, so the caller can decide how
- * to handle partial failures.
+ * risks tripping Kling's and Groq's rate/concurrency limits. Never throws: a
+ * failure on one scene is captured in that scene's own `error` field rather
+ * than aborting the whole batch, so the caller can decide how to handle
+ * partial failures.
+ *
+ * `scenePromptOverrides` lets a caller substitute a scene's own
+ * `visual_direction` with a user-confirmed prompt (raw or AI-enhanced, from
+ * the prompt-suggestion step) — index-aligned with `scenes`, and optional
+ * per-index so a script's original prompt is used wherever no override was
+ * supplied.
  */
 export async function generateSceneAssets(
   brandId: string,
   scriptId: string,
-  scenes: ReelScene[]
+  scenes: ReelScene[],
+  scenePromptOverrides?: (string | undefined)[]
 ): Promise<SceneAsset[]> {
   return Promise.all(
     scenes.map(async (scene, sceneIndex): Promise<SceneAsset> => {
       await sleep(sceneIndex * SCENE_STAGGER_MS)
 
-      const [imageResult, audioResult] = await Promise.all([
-        generateSceneImage(brandId, scriptId, sceneIndex, scene.visual_direction),
+      const prompt = scenePromptOverrides?.[sceneIndex]?.trim() || scene.visual_direction
+
+      const [videoResult, audioResult] = await Promise.all([
+        generateSceneVideo(brandId, scriptId, sceneIndex, prompt, scene.duration_seconds),
         generateSceneVoiceover(brandId, scriptId, sceneIndex, scene.voiceover_or_text_overlay),
       ])
 
       const errors = [
-        "error" in imageResult ? `Image: ${imageResult.error}` : null,
+        "error" in videoResult ? `Video: ${videoResult.error}` : null,
         "error" in audioResult ? `Voiceover: ${audioResult.error}` : null,
       ].filter((e): e is string => e !== null)
 
       return {
         sceneIndex,
-        visualDirection: scene.visual_direction,
+        visualDirection: prompt,
         voiceoverText: scene.voiceover_or_text_overlay,
         durationSeconds: scene.duration_seconds,
-        imageUrl: "url" in imageResult ? imageResult.url : null,
+        videoUrl: "url" in videoResult ? videoResult.url : null,
         audioUrl: "url" in audioResult ? audioResult.url : null,
         error: errors.length > 0 ? errors.join(" ") : null,
       }

@@ -312,7 +312,12 @@ function ReelScriptCard({ script, brandId }: { script: ReelScriptRow; brandId: s
             touchUrl={`/api/v1/brands/${brandId}/reel-scripts/${script.id}`}
           />
         </div>
-        <GenerateVideoAction scriptId={script.id} brandId={brandId} defaultCaption={script.caption ?? script.hook} />
+        <GenerateVideoAction
+          scriptId={script.id}
+          brandId={brandId}
+          defaultCaption={script.caption ?? script.hook}
+          initialScenePrompts={scenes.map((s) => (s as SceneShape).visual_direction ?? "")}
+        />
       </CardContent>
     </Card>
   )

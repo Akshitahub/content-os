@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useEffect } from "react"
 import { useMutation, useQuery } from "@tanstack/react-query"
-import { Film, Loader2, Download, CalendarClock, Check } from "lucide-react"
+import { Film, Loader2, Download, CalendarClock, Check, Sparkles } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
@@ -200,22 +200,139 @@ function ScheduleToYoutube({ brandId, videoUrl, defaultCaption }: { brandId: str
   )
 }
 
+interface SceneSuggestionState {
+  loading: boolean
+  suggestions: string[]
+  enhancedPrompt: string | null
+  error: string | null
+}
+
+/**
+ * Lets the user review and edit each scene's video prompt before Kling
+ * generation starts, with an opt-in AI suggestion step per scene. The
+ * user's own edited text is always what's sent — "Use this version" is the
+ * only way an enhanced prompt is ever adopted; nothing here auto-substitutes.
+ */
+function ScenePromptEditor({
+  brandId,
+  scriptId,
+  prompts,
+  onChange,
+}: {
+  brandId: string
+  scriptId: string
+  prompts: string[]
+  onChange: (index: number, value: string) => void
+}) {
+  const [suggestionState, setSuggestionState] = useState<Record<number, SceneSuggestionState>>({})
+
+  const fetchSuggestions = useCallback(async (index: number, prompt: string) => {
+    setSuggestionState((prev) => ({ ...prev, [index]: { loading: true, suggestions: [], enhancedPrompt: null, error: null } }))
+    try {
+      const res = await fetch(`/api/v1/brands/${brandId}/reel-scripts/${scriptId}/prompt-suggestions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt }),
+      })
+      const json = await res.json() as { data?: { suggestions: string[]; enhancedPrompt: string }; error?: { message?: string } }
+      if (!res.ok || !json.data) throw new Error(json.error?.message ?? "Couldn't get suggestions.")
+      setSuggestionState((prev) => ({
+        ...prev,
+        [index]: { loading: false, suggestions: json.data!.suggestions, enhancedPrompt: json.data!.enhancedPrompt, error: null },
+      }))
+    } catch (err) {
+      setSuggestionState((prev) => ({
+        ...prev,
+        [index]: { loading: false, suggestions: [], enhancedPrompt: null, error: err instanceof Error ? err.message : "Couldn't get suggestions." },
+      }))
+    }
+  }, [brandId, scriptId])
+
+  return (
+    <div className="space-y-2">
+      {prompts.map((prompt, i) => {
+        const state = suggestionState[i]
+        return (
+          <div key={i} className="space-y-1.5 rounded-md border p-2">
+            <Label className="text-xs">Scene {i + 1} prompt</Label>
+            <textarea
+              rows={2}
+              className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-xs placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring resize-none"
+              value={prompt}
+              onChange={(e) => onChange(i, e.target.value)}
+            />
+            <button
+              type="button"
+              className="flex items-center gap-1 text-xs font-medium text-primary underline underline-offset-2 disabled:opacity-50"
+              onClick={() => fetchSuggestions(i, prompt)}
+              disabled={state?.loading || !prompt.trim()}
+            >
+              <Sparkles className="h-3 w-3" />
+              {state?.loading ? "Getting suggestions…" : "Suggest improvements"}
+            </button>
+            {state?.error && <p className="text-xs text-destructive">{state.error}</p>}
+            {state && !state.loading && state.suggestions.length > 0 && (
+              <div className="space-y-1.5 rounded-md bg-violet-50 p-2 text-xs text-violet-900">
+                <ul className="list-disc space-y-0.5 pl-4">
+                  {state.suggestions.map((s, si) => <li key={si}>{s}</li>)}
+                </ul>
+                {state.enhancedPrompt && state.enhancedPrompt !== prompt && (
+                  <div className="rounded-md bg-white/70 p-1.5">
+                    <p className="italic">&ldquo;{state.enhancedPrompt}&rdquo;</p>
+                    <button
+                      type="button"
+                      className="mt-1 font-medium text-primary underline underline-offset-2"
+                      onClick={() => onChange(i, state.enhancedPrompt!)}
+                    >
+                      Use this version
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 /**
  * Kicks off the async reel-to-video job and polls its status. Shared
  * between the Library's saved-script card and the reel generation screen
  * itself, so both entry points behave identically.
  */
-export function GenerateVideoAction({ scriptId, brandId, defaultCaption }: { scriptId: string; brandId: string; defaultCaption?: string }) {
+export function GenerateVideoAction({
+  scriptId,
+  brandId,
+  defaultCaption,
+  initialScenePrompts,
+}: {
+  scriptId: string
+  brandId: string
+  defaultCaption?: string
+  /** One entry per scene (visual_direction) — enables the prompt-review/suggestion step before generation. */
+  initialScenePrompts?: string[]
+}) {
   const [jobId, setJobId] = useState<string | null>(null)
+  const [customizing, setCustomizing] = useState(false)
+  const [scenePrompts, setScenePrompts] = useState<string[]>(initialScenePrompts ?? [])
 
   const startMutation = useMutation({
     mutationFn: async () => {
-      const res = await fetch(`/api/v1/brands/${brandId}/reel-scripts/${scriptId}/video`, { method: "POST" })
+      const res = await fetch(`/api/v1/brands/${brandId}/reel-scripts/${scriptId}/video`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(scenePrompts.length > 0 ? { scenePrompts } : {}),
+      })
       const json = await res.json() as { data?: { jobId: string }; error?: { message?: string } }
       if (!res.ok || !json.data) throw new Error(json.error?.message ?? "Failed to start video generation.")
       return json.data
     },
-    onSuccess: (data) => setJobId(data.jobId),
+    onSuccess: (data) => {
+      setJobId(data.jobId)
+      setCustomizing(false)
+    },
   })
 
   const statusQuery = useQuery({
@@ -234,11 +351,42 @@ export function GenerateVideoAction({ scriptId, brandId, defaultCaption }: { scr
 
   return (
     <div className="space-y-1.5 border-t pt-2">
-      {!jobId && (
-        <Button size="sm" variant="outline" className="w-full" onClick={() => startMutation.mutate()} disabled={startMutation.isPending}>
+      {!jobId && !customizing && (
+        <Button
+          size="sm"
+          variant="outline"
+          className="w-full"
+          onClick={() => (scenePrompts.length > 0 ? setCustomizing(true) : startMutation.mutate())}
+          disabled={startMutation.isPending}
+        >
           <Film className="mr-1.5 h-3.5 w-3.5" />
           {startMutation.isPending ? "Starting…" : "Generate video"}
         </Button>
+      )}
+
+      {!jobId && customizing && (
+        <div className="space-y-2">
+          <p className="text-xs text-muted-foreground">
+            Review each scene&apos;s video prompt before generating — edit freely, or get AI suggestions.
+          </p>
+          <ScenePromptEditor
+            brandId={brandId}
+            scriptId={scriptId}
+            prompts={scenePrompts}
+            onChange={(i, value) => setScenePrompts((prev) => prev.map((p, idx) => (idx === i ? value : p)))}
+          />
+          {startMutation.isError && (
+            <p className="text-xs text-destructive">{startMutation.error instanceof Error ? startMutation.error.message : "Failed to start video generation."}</p>
+          )}
+          <div className="flex gap-2">
+            <Button size="sm" className="flex-1" onClick={() => startMutation.mutate()} disabled={startMutation.isPending}>
+              {startMutation.isPending ? "Starting…" : "Start generating video"}
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setCustomizing(false)} disabled={startMutation.isPending}>
+              Cancel
+            </Button>
+          </div>
+        </div>
       )}
 
       {jobId && job && (
@@ -276,7 +424,7 @@ export function GenerateVideoAction({ scriptId, brandId, defaultCaption }: { scr
         </div>
       )}
 
-      {startMutation.isError && (
+      {!customizing && startMutation.isError && (
         <p className="text-xs text-destructive">{startMutation.error instanceof Error ? startMutation.error.message : "Failed to start video generation."}</p>
       )}
     </div>

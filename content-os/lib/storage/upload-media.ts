@@ -61,6 +61,7 @@ export async function uploadMediaToStorage(
 
     const ext = mimeType.includes("png") ? "png"
       : mimeType.includes("wav") ? "wav"
+      : mimeType.includes("mp4") ? "mp4"
       : mimeType.includes("mp3") || mimeType.includes("mpeg") ? "mp3"
       : mimeType.includes("jpeg") || mimeType.includes("jpg") ? "jpg"
       : "bin"
