@@ -515,7 +515,8 @@ export function buildImagePrompt(
     if (colors.length) lines.push(`color palette ${colors.join(", ")}`)
   }
 
-  lines.push("professional photography, no text, no watermarks, no logos, 8K ultra HD")
+  lines.push("professional photography, no text, no watermarks, no logos, no illegible text or symbols, anatomically correct human features if any people are shown, correct number of fingers and limbs, natural hand positioning, 8K ultra HD, sharp focus")
+  lines.push("prefer clear product framing or wide/environmental shots over close-up human hand or body detail when the scene allows it")
 
   return lines.join(", ")
 }

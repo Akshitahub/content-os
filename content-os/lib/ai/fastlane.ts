@@ -52,7 +52,7 @@ async function generatePostImage(
 ): Promise<string | null> {
   try {
     const safeDirection = visual_direction.slice(0, 200)
-    const prompt = `${safeDirection}, professional quality, ${brand_name}, ${platform} social media post, high quality`
+    const prompt = `${safeDirection}, professional quality, ${brand_name}, ${platform} social media post, high quality, no text, no watermarks, no logos, no illegible text or symbols, anatomically correct human features if any people are shown, correct number of fingers and limbs, natural hand positioning`
     const encodedPrompt = encodeURIComponent(prompt)
     const seed = Math.floor(Math.random() * 100000)
     return `https://image.pollinations.ai/prompt/${encodedPrompt}?width=1080&height=1080&seed=${seed}&nologo=true&model=flux`

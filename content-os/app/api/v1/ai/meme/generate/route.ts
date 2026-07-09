@@ -35,6 +35,8 @@ function buildMemeConceptSystemPrompt(): string {
 
 The image_prompt must describe an original visual scene or reaction moment -- exaggerated expressions, funny situations, relatable scenarios. It must NOT describe any text, caption, or words appearing in the image itself (the text is added separately) and must NOT reference any specific real meme template, real photograph, or real named individual -- describe an original scene instead.
 
+Favor scenes where the humor comes through facial expression, body language, or the situation itself rather than close-up or complex hand gestures/actions -- these are harder for image generation to render cleanly. Simple poses (sitting, standing, reacting with facial expression) work better than dynamic actions involving hands or props.
+
 top_text and bottom_text must be plain English text only -- no emoji, no special symbols, no non-Latin characters -- since they are rendered directly onto the image using a font that only has basic Latin glyphs.
 ${QUALITY_BAR}
 Always respond with valid JSON only.`
@@ -123,7 +125,7 @@ export async function POST(request: Request) {
   }
 
   const seed = Math.floor(Math.random() * 1_000_000)
-  const pollinationsUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(`${concept.image_prompt}, meme photo style, vibrant colors, high contrast, funny expression`)}?width=1080&height=1080&seed=${seed}&nologo=true&model=flux`
+  const pollinationsUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(`${concept.image_prompt}, meme photo style, vibrant colors, high contrast, funny expression, no text, no illegible symbols, anatomically correct features, correct number of fingers and limbs, natural hand positioning`)}?width=1080&height=1080&seed=${seed}&nologo=true&model=flux`
 
   let imageBuffer: Buffer
   try {
