@@ -12,7 +12,7 @@ import type { BrandRow } from "@/types/database"
 // suggestions endpoint.
 const schema = z.object({
   brandId: z.string().uuid(),
-  prompt: z.string().min(1).max(500),
+  prompt: z.string().min(1).max(1500),
 })
 
 export async function POST(request: Request) {

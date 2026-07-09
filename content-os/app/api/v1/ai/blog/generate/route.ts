@@ -11,7 +11,7 @@ const schema = z.object({
   productId: z.string().uuid().optional(),
   // The user's own topic/prompt — required. This feature never auto-generates
   // a blog post from nothing.
-  prompt: z.string().min(3).max(500),
+  prompt: z.string().min(3).max(1500),
 })
 
 export async function POST(request: Request) {
