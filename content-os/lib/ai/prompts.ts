@@ -433,6 +433,56 @@ Respond with this exact JSON:
 }`
 }
 
+// ─── Blog post — dedicated long-form article generator (Create tab) ───────
+// Distinct from buildBlogPostSystemPrompt/buildBlogPostUserPrompt above,
+// which power the generic content-generator.ts "blog_post" format (short,
+// plain-prose, optional topic). This pair backs the dedicated Blog Post
+// card instead: a required user topic, structured subheadings, and
+// suggested tags — a genuinely different content shape, so it gets its own
+// builders rather than overloading the generic ones.
+
+export function buildBlogArticleSystemPrompt(): string {
+  return `You are an SEO content writer for Indian D2C brand blogs.
+You write helpful, well-structured long-form articles that rank and convert — not fluffy filler content or keyword-stuffed spam.
+Articles are written in the brand's tone, reference the Indian consumer context where relevant, and end with a natural conclusion — never fake urgency ("only 2 left!", "offer ends tonight") or invented statistics/claims about the brand or its products.
+Structure: an intro paragraph, 2-4 subheadings each with real substance underneath, and a conclusion paragraph. Use natural keyword usage relevant to the brand's niche — never keyword-stuffed.
+${QUALITY_BAR}
+
+Always respond with valid JSON only. No markdown, no explanation.`
+}
+
+export function buildBlogArticleUserPrompt(
+  brand: BrandRow,
+  options: {
+    userPrompt: string
+    product?: ProductRow | null
+    pastExamples?: string[]
+  }
+): string {
+  const brandContext = buildBrandContext(brand, options.product)
+  const pastExamplesBlock = buildPastExamplesBlock(options.pastExamples ?? [], "blog posts")
+
+  return `${brandContext}${pastExamplesBlock}
+
+Topic requested by the brand's user: "${options.userPrompt}"
+
+Write a full SEO-friendly blog article for the above brand on this topic${options.product ? `, naturally featuring "${options.product.name}" where relevant` : ""}. Stay faithful to the requested topic — do not drift to an unrelated angle.
+
+Requirements:
+- title: SEO-friendly, compelling, under 70 characters
+- body: intro paragraph, then 2-4 subheadings each followed by 1-3 paragraphs of real substance, then a conclusion paragraph. Format subheadings as a line of their own (no markdown # symbols), with \\n\\n separating paragraphs and subheadings.
+- meta_description: 140-160 characters, includes the primary keyword, written for search results
+- suggested_tags: 4-6 short topic/category tags for this post (no # symbol)
+
+Respond with this exact JSON:
+{
+  "title": "post title",
+  "body": "full article body with subheadings and \\n\\n paragraph breaks",
+  "meta_description": "SEO meta description under 160 chars",
+  "suggested_tags": ["tag1", "tag2"]
+}`
+}
+
 // ─── Ad copy ─────────────────────────────────────────────────────────────
 
 export function buildAdCopySystemPrompt(): string {

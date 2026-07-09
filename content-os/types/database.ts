@@ -791,6 +791,39 @@ export type Database = {
           last_accessed_at?: string
         }
       }
+      blog_posts: {
+        Row: {
+          id: string
+          brand_id: string
+          user_prompt: string
+          title: string
+          body: string
+          meta_description: string | null
+          suggested_tags: string[]
+          is_saved: boolean
+          user_rating: number | null
+          created_at: string
+          last_accessed_at: string
+        }
+        Insert: {
+          id?: string
+          brand_id: string
+          user_prompt: string
+          title: string
+          body: string
+          meta_description?: string | null
+          suggested_tags?: string[]
+          is_saved?: boolean
+          user_rating?: number | null
+          created_at?: string
+          last_accessed_at?: string
+        }
+        Update: {
+          is_saved?: boolean
+          user_rating?: number | null
+          last_accessed_at?: string
+        }
+      }
       email_sequences: {
         Row: {
           id: string
@@ -1043,6 +1076,7 @@ export type OutreachMessageRow = Database["public"]["Tables"]["outreach_messages
 export type ReelScriptRow = Database["public"]["Tables"]["reel_scripts"]["Row"]
 export type CarouselRow = Database["public"]["Tables"]["carousels"]["Row"]
 export type AdCopyRow = Database["public"]["Tables"]["ad_copies"]["Row"]
+export type BlogPostRow = Database["public"]["Tables"]["blog_posts"]["Row"]
 export type EmailSequenceRow = Database["public"]["Tables"]["email_sequences"]["Row"]
 export type ProductDescriptionRow = Database["public"]["Tables"]["product_descriptions"]["Row"]
 export type SocialConnectionRow = Database["public"]["Tables"]["social_connections"]["Row"]

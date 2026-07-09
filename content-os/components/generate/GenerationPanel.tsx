@@ -12,6 +12,7 @@ import { AdMaker } from "./AdMaker"
 import { CarouselBuilder } from "./CarouselBuilder"
 import { StorySequence } from "./StorySequence"
 import { MemeMaker } from "./MemeMaker"
+import { BlogPostGenerator } from "./BlogPostGenerator"
 import { CreatePicker } from "./CreatePicker"
 import { TAB_DESCRIPTIONS, type Tab } from "./tabsConfig"
 import { useGenerationStore } from "@/stores/generationStore"
@@ -101,6 +102,7 @@ export function GenerationPanel({ brandId, products }: GenerationPanelProps) {
             </div>
           )}
           {activeTab === "repurpose" && <ContentRepurposer brandId={brandId} />}
+          {activeTab === "blog"      && <BlogPostGenerator brandId={brandId} />}
         </>
       )}
     </div>

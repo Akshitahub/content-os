@@ -3,12 +3,12 @@
 import { useState, useCallback, useEffect } from "react"
 import { useParams, useSearchParams } from "next/navigation"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
-import { Archive, Copy, Check, Star, Sparkles, BookOpen, ChevronDown, ChevronUp, Film, LayoutGrid, Megaphone, Download, Search, Zap, Laugh, Timer } from "lucide-react"
+import { Archive, Copy, Check, Star, Sparkles, BookOpen, ChevronDown, ChevronUp, Film, LayoutGrid, Megaphone, Download, Search, Zap, Laugh, Timer, Newspaper } from "lucide-react"
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import Link from "next/link"
 import { GenerateVideoAction } from "@/components/shared/GenerateVideoAction"
-import type { HookRow, CaptionRow, ReelScriptRow, CarouselRow, AdCopyRow, EmailSequenceRow, ProductDescriptionRow, StoryRow, MemeRow } from "@/types/database"
+import type { HookRow, CaptionRow, ReelScriptRow, CarouselRow, AdCopyRow, EmailSequenceRow, ProductDescriptionRow, StoryRow, MemeRow, BlogPostRow } from "@/types/database"
 import type { Json } from "@/types/database"
 import { scoreHook, scoreColor, scoreLabel } from "@/lib/utils/content-score"
 
@@ -903,11 +903,73 @@ function MemesTab({ brandId }: { brandId: string }) {
   )
 }
 
+// ─── Blog Post card ───────────────────────────────────────────────────────────
+
+function BlogPostCard({ post, brandId }: { post: BlogPostRow; brandId: string }) {
+  const qc = useQueryClient()
+  const tags = post.suggested_tags ?? []
+  const ratingMutation = useMutation({
+    mutationFn: async (rating: number) => {
+      const res = await fetch(`/api/v1/brands/${brandId}/blog-posts/${post.id}`, {
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ user_rating: rating }),
+      })
+      if (!res.ok) throw new Error("Failed to update rating")
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["library", "blog-posts", brandId] }),
+  })
+  return (
+    <Card className="transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md">
+      <CardHeader className="pb-2">
+        <div className="flex items-start justify-between gap-2">
+          <ExpiryBadge lastAccessedAt={post.last_accessed_at} />
+          <span className="shrink-0 ml-auto text-xs text-muted-foreground">{new Date(post.created_at).toLocaleDateString()}</span>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <p className="text-sm font-bold line-clamp-2">{post.title}</p>
+        <p className="text-xs text-muted-foreground line-clamp-3 leading-relaxed">{post.body}</p>
+        {tags.length > 0 && (
+          <div className="flex flex-wrap gap-1">
+            {tags.slice(0, 4).map((tag) => (
+              <span key={tag} className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">{tag}</span>
+            ))}
+          </div>
+        )}
+        <div className="flex items-center justify-between gap-2 pt-1 border-t">
+          <StarRating value={post.user_rating} onChange={(r) => ratingMutation.mutate(r)} disabled={ratingMutation.isPending} />
+          <CopyButton
+            text={`${post.title}\n\n${post.body}${tags.length ? `\n\nTags: ${tags.join(", ")}` : ""}`}
+            touchUrl={`/api/v1/brands/${brandId}/blog-posts/${post.id}`}
+          />
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+function BlogPostsTab({ brandId }: { brandId: string }) {
+  const { data: posts = [], isLoading } = useQuery({
+    queryKey: ["library", "blog-posts", brandId],
+    queryFn: async (): Promise<BlogPostRow[]> => {
+      const res = await fetch(`/api/v1/brands/${brandId}/blog-posts?saved=true`)
+      if (!res.ok) throw new Error("Failed to fetch blog posts")
+      return ((await res.json()) as { data: BlogPostRow[] }).data
+    },
+    enabled: !!brandId,
+  })
+  return isLoading ? <SkeletonGrid /> : posts.length === 0 ? <EmptyState label="saved blog posts" brandId={brandId} /> : (
+    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      {posts.map(p => <BlogPostCard key={p.id} post={p} brandId={brandId} />)}
+    </div>
+  )
+}
+
 // ─── Page ──────────────────────────────────────────────────────────────────────
 
-type LibraryTab = "captions" | "scripts" | "carousels" | "stories" | "ad_copy" | "memes"
+type LibraryTab = "captions" | "scripts" | "carousels" | "stories" | "ad_copy" | "memes" | "blog_posts"
 
-const VALID_TABS = new Set<LibraryTab>(["captions", "scripts", "carousels", "stories", "ad_copy", "memes"])
+const VALID_TABS = new Set<LibraryTab>(["captions", "scripts", "carousels", "stories", "ad_copy", "memes", "blog_posts"])
 
 const TABS: { id: LibraryTab; label: string; icon: React.ElementType }[] = [
   { id: "captions", label: "Captions", icon: Archive },
@@ -916,6 +978,7 @@ const TABS: { id: LibraryTab; label: string; icon: React.ElementType }[] = [
   { id: "stories", label: "Stories", icon: Zap },
   { id: "ad_copy", label: "Ad Copy", icon: Megaphone },
   { id: "memes", label: "Memes", icon: Laugh },
+  { id: "blog_posts", label: "Blog Posts", icon: Newspaper },
 ]
 
 export default function LibraryPage() {
@@ -986,6 +1049,7 @@ export default function LibraryPage() {
       {activeTab === "stories" && <StoriesTab brandId={brandId} />}
       {activeTab === "ad_copy" && <AdCopyTab brandId={brandId} />}
       {activeTab === "memes" && <MemesTab brandId={brandId} />}
+      {activeTab === "blog_posts" && <BlogPostsTab brandId={brandId} />}
     </div>
   )
 }

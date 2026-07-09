@@ -11,11 +11,12 @@ const ABANDONED_AFTER_DAYS = 45
 const STORAGE_BUCKET = "published-media"
 
 // Tables reachable from the "My Content" library page that get
-// last_accessed_at tracking (migration 018). hooks, generated_images, and
+// last_accessed_at tracking (migration 018, plus blog_posts added directly
+// with the column in migration 021). hooks, generated_images, and
 // product_descriptions are deliberately excluded — see that migration's
 // comment: there's no UI to view/open them today, so they'd always look
 // abandoned regardless of whether anyone cares about them.
-const TEXT_ONLY_TABLES = ["captions", "reel_scripts", "carousels", "stories", "ad_copies"] as const
+const TEXT_ONLY_TABLES = ["captions", "reel_scripts", "carousels", "stories", "ad_copies", "blog_posts"] as const
 
 type AdminClient = SupabaseClient<Database>
 

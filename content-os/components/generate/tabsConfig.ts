@@ -1,6 +1,6 @@
-import { FileText, Sparkles, Layers, ImageIcon, RefreshCw, Wand2, LayoutGrid, Smartphone, Laugh } from "lucide-react"
+import { FileText, Sparkles, Layers, ImageIcon, RefreshCw, Wand2, LayoutGrid, Smartphone, Laugh, Newspaper } from "lucide-react"
 
-export type Tab = "ad_maker" | "full_post" | "carousel" | "stories" | "memes" | "hooks" | "content" | "images" | "repurpose"
+export type Tab = "ad_maker" | "full_post" | "carousel" | "stories" | "memes" | "hooks" | "content" | "images" | "repurpose" | "blog"
 
 export const TAB_DESCRIPTIONS: Record<Tab, string> = {
   ad_maker:  "Upload your product photo and place it in an AI-generated scene. Perfect for Instagram ads.",
@@ -12,6 +12,7 @@ export const TAB_DESCRIPTIONS: Record<Tab, string> = {
   content:   "Write reel scripts, email sequences, product descriptions and long-form content.",
   images:    "Generate brand-consistent visuals and product photos with AI.",
   repurpose: "Turn one piece of content into multiple formats across platforms.",
+  blog:      "Write a full SEO-friendly blog article for your brand, starting from your own topic.",
 }
 
 export const TABS: { id: Tab; label: string; icon: React.ElementType; tooltip: string }[] = [
@@ -24,4 +25,5 @@ export const TABS: { id: Tab; label: string; icon: React.ElementType; tooltip: s
   { id: "content",   label: "Deep Content",      icon: Layers,      tooltip: "Reels, carousels, ad copy, email sequences" },
   { id: "images",    label: "Visuals",           icon: ImageIcon,   tooltip: "AI-generated images in your brand style" },
   { id: "repurpose", label: "Repurpose",         icon: RefreshCw,   tooltip: "Turn existing content into multiple formats" },
+  { id: "blog",      label: "Blog Post",         icon: Newspaper,   tooltip: "SEO article with AI suggestions" },
 ]

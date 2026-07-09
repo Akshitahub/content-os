@@ -32,6 +32,7 @@ const PRIMARY_CARDS: CardMeta[] = [
   { tab: "ad_maker",  title: "Ad",        description: "Product photo placed in an AI scene",   icon: iconFor("ad_maker") },
   { tab: "stories",   title: "Stories",   description: "3 to 5 connected story slides",         icon: iconFor("stories"), platforms: "Instagram" },
   { tab: "memes",     title: "Meme",      description: "AI image with a real meme caption",     icon: iconFor("memes"), platforms: "Instagram · Facebook" },
+  { tab: "blog",      title: "Blog Post", description: "SEO article with AI suggestions",       icon: iconFor("blog") },
   { title: "Trending Now", description: "Real discussions from your niche, turned into content", icon: TrendingUp, isTrendingNow: true },
 ]
 

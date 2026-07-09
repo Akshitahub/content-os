@@ -152,6 +152,8 @@ export type BlogPost = {
   title: string
   body: string
   meta_description: string
+  /** Only populated by the dedicated Blog Post generator (lib/ai/blog-generator.ts) — optional so the generic content-generator.ts path is unaffected. */
+  suggested_tags?: string[]
 }
 
 export type AdCopy = {
