@@ -1,5 +1,13 @@
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
+## Environment variables & secrets
+
+Copy `.env.local.example` to `.env.local` and fill in real values — see that file for what each variable does and whether it's safe to expose to the client (only `NEXT_PUBLIC_*` variables are, and only when explicitly noted).
+
+**⚠️ Secret rotation warning:** if any API key, database credential, or other secret was ever hardcoded directly in source code at any point in this project's history — even if it has since been removed — that old value is still permanently readable in git history (`git log -p`) and in any fork/clone made before the removal. Removing a hardcoded secret from the current code does **not** invalidate it. If you have any reason to believe a real secret was ever committed, rotate it immediately at the provider (Supabase, Groq, Razorpay, Meta, etc.) rather than relying on it having been deleted from the working tree.
+
+A full audit of this codebase found no hardcoded secrets in the current source or in git history as of the last review — this warning is left here as standing guidance for future contributors, not because a leak was found.
+
 ## Getting Started
 
 First, run the development server:

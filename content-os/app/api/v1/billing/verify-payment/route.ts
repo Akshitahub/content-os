@@ -70,7 +70,7 @@ export async function POST(request: Request) {
   if (orderUserId !== user.id) {
     return NextResponse.json(buildError(ErrorCodes.VALIDATION_ERROR, "This order does not belong to your account."), { status: 400 })
   }
-  if (orderPlan !== "starter" && orderPlan !== "pro") {
+  if (orderPlan !== "starter" && orderPlan !== "pro" && orderPlan !== "agency") {
     return NextResponse.json(buildError(ErrorCodes.VALIDATION_ERROR, "Invalid plan."), { status: 400 })
   }
   if (order.status !== "paid") {

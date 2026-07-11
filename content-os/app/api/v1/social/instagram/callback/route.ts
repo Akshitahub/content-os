@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
+import { redactTokenFields } from "@/lib/social/oauth-log-safe"
 import type { SupabaseClient } from "@supabase/supabase-js"
 import type { Database, SocialConnectionInsert } from "@/types/database"
 
@@ -81,7 +82,7 @@ export async function GET(request: Request) {
     const shortTokenRes = await fetch(shortTokenUrl.toString(), { method: "POST" })
     const shortTokenJson = await shortTokenRes.json()
     if (!shortTokenRes.ok || !shortTokenJson.access_token) {
-      console.error("[social/instagram/callback] short-lived token exchange failed:", shortTokenJson)
+      console.error("[social/instagram/callback] short-lived token exchange failed:", redactTokenFields(shortTokenJson))
       return redirectToBrand(appUrl, brandId, { ig_error: "token_exchange_failed" })
     }
     const shortLivedToken: string = shortTokenJson.access_token
@@ -96,7 +97,7 @@ export async function GET(request: Request) {
     const longTokenRes = await fetch(longTokenUrl.toString())
     const longTokenJson = await longTokenRes.json()
     if (!longTokenRes.ok || !longTokenJson.access_token) {
-      console.error("[social/instagram/callback] long-lived token exchange failed:", longTokenJson)
+      console.error("[social/instagram/callback] long-lived token exchange failed:", redactTokenFields(longTokenJson))
       return redirectToBrand(appUrl, brandId, { ig_error: "token_exchange_failed" })
     }
     const longLivedUserToken: string = longTokenJson.access_token
@@ -108,7 +109,7 @@ export async function GET(request: Request) {
     const pagesRes = await fetch(pagesUrl.toString())
     const pagesJson = await pagesRes.json()
     if (!pagesRes.ok || !Array.isArray(pagesJson.data)) {
-      console.error("[social/instagram/callback] failed to list Facebook Pages:", pagesJson)
+      console.error("[social/instagram/callback] failed to list Facebook Pages:", redactTokenFields(pagesJson))
       return redirectToBrand(appUrl, brandId, { ig_error: "token_exchange_failed" })
     }
     const pages = pagesJson.data as FacebookPage[]

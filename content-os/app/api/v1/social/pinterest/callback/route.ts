@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
+import { redactTokenFields } from "@/lib/social/oauth-log-safe"
 import type { SupabaseClient } from "@supabase/supabase-js"
 import type { Database, SocialConnectionInsert } from "@/types/database"
 
@@ -78,7 +79,7 @@ export async function GET(request: Request) {
     })
     const tokenJson = await tokenRes.json()
     if (!tokenRes.ok || !tokenJson.access_token) {
-      console.error("[social/pinterest/callback] token exchange failed:", tokenJson)
+      console.error("[social/pinterest/callback] token exchange failed:", redactTokenFields(tokenJson))
       return redirectToBrand(appUrl, brandId, { pinterest_error: "token_exchange_failed" })
     }
     const accessToken: string = tokenJson.access_token
