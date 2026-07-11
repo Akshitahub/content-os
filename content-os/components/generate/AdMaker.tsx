@@ -436,6 +436,7 @@ export function AdMaker({ brandId }: AdMakerProps) {
   const [bgError, setBgError] = useState("")
   const [pasteUrl, setPasteUrl] = useState("")
   const [fetchingUrl, setFetchingUrl] = useState(false)
+  const [isDragging, setIsDragging] = useState(false)
 
   // Step 2
   const [scene, setScene] = useState("white_studio")
@@ -514,14 +515,44 @@ export function AdMaker({ brandId }: AdMakerProps) {
     }
   }, [productDataUrl, scene, results.length, STORAGE_KEY])
 
-  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
+  // Shared by all three upload paths — file browse, drag-drop, and
+  // clipboard paste — so validation/preview-setting logic lives in exactly
+  // one place instead of being duplicated per input method.
+  function processImageFile(file: File | undefined | null) {
     if (!file) return
+    if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
+      setBgError("Please use a JPG, PNG, or WEBP image.")
+      return
+    }
     setBgError("")
     setProductDataUrl(null)
     const reader = new FileReader()
     reader.onload = () => setOriginalPreview(reader.result as string)
     reader.readAsDataURL(file)
+  }
+
+  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    processImageFile(e.target.files?.[0])
+  }
+
+  function handleDrop(e: React.DragEvent) {
+    e.preventDefault()
+    setIsDragging(false)
+    processImageFile(e.dataTransfer.files?.[0])
+  }
+
+  function handlePaste(e: React.ClipboardEvent) {
+    const items = e.clipboardData?.items
+    if (!items) return
+    for (const item of items) {
+      if (item.type.startsWith("image/")) {
+        const file = item.getAsFile()
+        if (file) {
+          processImageFile(file)
+          break
+        }
+      }
+    }
   }
 
   const handleRemoveBg = useCallback(async (file: File | null, dataUrl: string | null) => {
@@ -664,12 +695,19 @@ export function AdMaker({ brandId }: AdMakerProps) {
           </div>
 
           {!originalPreview ? (
-            <button type="button" onClick={() => fileInputRef.current?.click()}
-              className="flex w-full flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-muted-foreground/30 py-10 text-center transition-colors hover:border-violet-400 hover:bg-violet-50/30">
+            <button type="button" tabIndex={0} onClick={() => fileInputRef.current?.click()}
+              onDragOver={(e) => { e.preventDefault(); setIsDragging(true) }}
+              onDragLeave={() => setIsDragging(false)}
+              onDrop={handleDrop}
+              onPaste={handlePaste}
+              className={`flex w-full flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed py-10 text-center transition-colors ${
+                isDragging ? "border-violet-500 bg-violet-50" : "border-muted-foreground/30 hover:border-violet-400 hover:bg-violet-50/30"
+              }`}>
               <Upload className="h-8 w-8 text-muted-foreground/40" />
               <div>
                 <p className="text-sm font-medium">Drop your product photo here</p>
                 <p className="text-xs text-muted-foreground mt-0.5">or click to browse</p>
+                <p className="text-xs text-muted-foreground mt-0.5">or paste from clipboard (Ctrl+V)</p>
               </div>
               <p className="text-xs text-muted-foreground/60">JPG, PNG or WEBP · Max 10MB</p>
             </button>
