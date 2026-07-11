@@ -8,6 +8,15 @@ Copy `.env.local.example` to `.env.local` and fill in real values — see that f
 
 A full audit of this codebase found no hardcoded secrets in the current source or in git history as of the last review — this warning is left here as standing guidance for future contributors, not because a leak was found.
 
+## Before deploying to production
+
+Most pre-deploy hardening (fail-fast env var checks, security headers, error-detail redaction) is already in the code — see `lib/env.ts` and `next.config.ts`. Two things are **not** controllable from this codebase and need to be checked directly in each provider's dashboard before going live:
+
+- **Auth rate limiting.** Login, signup, password reset, and email OTP all go straight from the browser to Supabase Auth (`supabase.auth.signInWithPassword`/`signUp`/`resetPasswordForEmail`/`resend`) — there is no custom Next.js API route in this app's own request path for any of these, so there is nothing in this codebase to rate-limit. Supabase Auth has its own built-in per-IP rate limits, but confirm/tighten them under **Supabase Dashboard → Authentication → Rate Limits** before launch (defaults have historically been looser than a production auth flow usually wants, and are unrelated to this app's own `checkAndIncrementUsage`-style quotas, which only cover AI generation, not login attempts).
+- **Database network exposure.** This app never opens a raw Postgres connection — all data access goes through Supabase's HTTPS REST API (`@supabase/ssr`), which is TLS-only by construction and requires a per-project API key. If you ever enable direct Postgres access (e.g. for `pg_dump`/migrations tooling) via **Supabase Dashboard → Database → Network Restrictions**, restrict it to known IPs rather than leaving it open.
+
+The `Content-Security-Policy` in `next.config.ts` was built from every external domain found by static analysis (Razorpay checkout, Google Fonts, Pollinations, Supabase, PostHog) — it has **not** been exercised against a live browser. Test the checkout flow, image generation, and post-preview rendering after your first deploy and check the browser console for CSP violations; Razorpay's checkout in particular calls several fraud-detection subdomains (Cardinal Commerce) that are allowlisted by wildcard but not individually verified.
+
 ## Getting Started
 
 First, run the development server:

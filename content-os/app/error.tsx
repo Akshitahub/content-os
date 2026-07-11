@@ -21,11 +21,19 @@ export default function GlobalError({ error, reset }: ErrorPageProps) {
         An unexpected error occurred. You can try again or go back to the dashboard.
       </p>
 
-      {error.message && (
+      {/* The raw error message is only ever shown in development — in
+          production it may contain internal details (file paths, query
+          info, third-party error bodies) that were never meant for an
+          end user. error.digest is Next.js's own safe correlation ID for
+          this exact case: it's a stable per-error hash you can grep server
+          logs for, without exposing what actually went wrong. */}
+      {process.env.NODE_ENV === "development" && error.message ? (
         <pre className="mb-6 max-w-lg rounded-lg bg-muted px-4 py-3 text-left text-xs text-muted-foreground overflow-auto whitespace-pre-wrap">
           {error.message}
         </pre>
-      )}
+      ) : error.digest ? (
+        <p className="mb-6 text-xs text-muted-foreground">Reference code: {error.digest}</p>
+      ) : null}
 
       <div className="flex flex-wrap gap-3 justify-center">
         <button

@@ -17,6 +17,8 @@ export type ApiError = {
     code: string
     message: string
     details?: string
+    /** Safe to show/report to the user — greppable in server logs to find the full error, without exposing internals in the response itself. */
+    correlationId: string
   }
 }
 
@@ -53,10 +55,18 @@ export function buildError(
   message: string,
   details?: string
 ): ApiError {
+  // A short per-error ID, safe to return to the client and to ask a user
+  // to quote in a support request — logged here (server-side only) so it
+  // can be grepped against whatever richer, route-specific console.error
+  // context was already logged immediately before this was called.
+  const correlationId = crypto.randomUUID()
+  console.error(`[${correlationId}] ${code}: ${message}`)
+
   return {
     error: {
       code,
       message,
+      correlationId,
       ...(details && process.env.NODE_ENV === "development" ? { details } : {}),
     },
   }

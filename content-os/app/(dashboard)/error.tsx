@@ -22,11 +22,16 @@ export default function DashboardError({ error, reset }: ErrorPageProps) {
         This section encountered an error. Try again or go back.
       </p>
 
-      {error.message && (
+      {/* Raw error.message is dev-only — production could otherwise leak
+          internal details. error.digest is Next.js's own safe per-error
+          correlation ID, greppable in server logs without exposing why. */}
+      {process.env.NODE_ENV === "development" && error.message ? (
         <pre className="mb-6 max-w-lg rounded-lg bg-muted px-4 py-3 text-left text-xs text-muted-foreground overflow-auto whitespace-pre-wrap">
           {error.message}
         </pre>
-      )}
+      ) : error.digest ? (
+        <p className="mb-6 text-xs text-muted-foreground">Reference code: {error.digest}</p>
+      ) : null}
 
       <div className="flex flex-wrap gap-3 justify-center">
         <button
