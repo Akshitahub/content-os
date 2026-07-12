@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import { buildError, ErrorCodes } from "@/types/api"
 import { uploadMediaToStorage } from "@/lib/storage/upload-media"
+import { checkAndIncrementScheduleUsage } from "@/lib/usage/check-and-increment-abuse-limits"
 import type { CalendarEntryInsert, CalendarEntryRow, Json } from "@/types/database"
 import { z } from "zod"
 
@@ -71,6 +72,15 @@ export async function POST(request: Request) {
   const { data: brand } = await supabase.from("brands").select("user_id").eq("id", brandId).single<{ user_id: string }>()
   if (!brand) return NextResponse.json(buildError(ErrorCodes.BRAND_NOT_FOUND, "Brand not found."), { status: 404 })
   if (brand.user_id !== user.id) return NextResponse.json(buildError(ErrorCodes.UNAUTHORIZED, "Access denied."), { status: 403 })
+
+  // Scheduling doesn't consume a generation credit (the content itself
+  // already did, at generation time) — but every call still re-hosts media
+  // to Supabase Storage, which has a real cost and was otherwise completely
+  // uncapped in how often it could be called.
+  const scheduleUsageCheck = await checkAndIncrementScheduleUsage(user.id)
+  if (!scheduleUsageCheck.ok) {
+    return NextResponse.json(buildError(ErrorCodes.USAGE_LIMIT_EXCEEDED, scheduleUsageCheck.message), { status: scheduleUsageCheck.status })
+  }
 
   let platformSpecificData: Json
 

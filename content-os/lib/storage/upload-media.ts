@@ -2,6 +2,28 @@ import { createAdminClient } from "@/lib/supabase/server"
 
 const BUCKET = "published-media"
 
+// Every legitimate mimeType this app actually produces or re-hosts:
+// generated/uploaded images, TTS voiceover audio, and Kling video clips.
+// Anything else is rejected outright — the dataUrl and remoteUrl branches
+// take mimeType from data the caller doesn't fully control (a client-
+// supplied data: URL header, or a remote server's Content-Type response
+// header), so without this allowlist an attacker could get arbitrary
+// content (e.g. image/svg+xml with an embedded <script>) stored and
+// served back with a matching, browser-trusted Content-Type from this
+// app's own public bucket.
+const ALLOWED_MIME_TYPES = new Set([
+  "image/jpeg",
+  "image/jpg",
+  "image/png",
+  "image/webp",
+  "audio/wav",
+  "audio/wave",
+  "audio/x-wav",
+  "video/mp4",
+])
+
+const MAX_UPLOAD_BYTES = 25 * 1024 * 1024 // 25MB — generous for a short Kling video clip, still bounded
+
 export type UploadMediaInput =
   | { kind: "buffer"; buffer: Buffer; mimeType: string }
   | { kind: "dataUrl"; dataUrl: string }
@@ -55,8 +77,15 @@ export async function uploadMediaToStorage(
         attempt++
       }
       if (!res.ok) return { error: `Failed to fetch source image (${res.status}).` }
-      mimeType = res.headers.get("content-type") ?? "image/jpeg"
+      mimeType = (res.headers.get("content-type") ?? "image/jpeg").split(";")[0]!.trim()
       buffer = Buffer.from(await res.arrayBuffer())
+    }
+
+    if (!ALLOWED_MIME_TYPES.has(mimeType)) {
+      return { error: `Unsupported file type: ${mimeType}` }
+    }
+    if (buffer.length > MAX_UPLOAD_BYTES) {
+      return { error: `File too large (max ${MAX_UPLOAD_BYTES / 1024 / 1024}MB).` }
     }
 
     const ext = mimeType.includes("png") ? "png"

@@ -2,6 +2,7 @@ import crypto from "crypto"
 import Razorpay from "razorpay"
 import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
+import { applyPlanUpgrade } from "@/lib/billing/apply-plan-upgrade"
 import { buildError, ErrorCodes } from "@/types/api"
 import { z } from "zod"
 
@@ -80,17 +81,7 @@ export async function POST(request: Request) {
   const plan = orderPlan
 
   // Signature valid — upgrade the user's plan and reset their generation count
-  const nextResetDate = new Date()
-  nextResetDate.setMonth(nextResetDate.getMonth() + 1)
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { error: updateError } = await (supabase.from("users") as any)
-    .update({
-      plan,
-      generation_count: 0,
-      generation_count_reset_at: nextResetDate.toISOString(),
-    })
-    .eq("id", user.id)
+  const { error: updateError } = await applyPlanUpgrade(supabase, user.id, plan)
 
   if (updateError) {
     return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Failed to update plan."), { status: 500 })

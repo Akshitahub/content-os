@@ -30,6 +30,10 @@ export type Database = {
           reel_count_this_week: number
           reel_count_reset_at: string | null
           free_reel_used_at: string | null
+          schedule_post_count_today: number
+          schedule_post_count_reset_at: string | null
+          outreach_email_count_today: number
+          outreach_email_count_reset_at: string | null
           onboarding_completed: boolean | null
           onboarding_type: string | null
           created_at: string
@@ -47,6 +51,10 @@ export type Database = {
           reel_count_this_week?: number
           reel_count_reset_at?: string | null
           free_reel_used_at?: string | null
+          schedule_post_count_today?: number
+          schedule_post_count_reset_at?: string | null
+          outreach_email_count_today?: number
+          outreach_email_count_reset_at?: string | null
           onboarding_completed?: boolean | null
           onboarding_type?: string | null
           created_at?: string
@@ -63,6 +71,10 @@ export type Database = {
           reel_count_this_week?: number
           reel_count_reset_at?: string | null
           free_reel_used_at?: string | null
+          schedule_post_count_today?: number
+          schedule_post_count_reset_at?: string | null
+          outreach_email_count_today?: number
+          outreach_email_count_reset_at?: string | null
           onboarding_completed?: boolean | null
           onboarding_type?: string | null
           updated_at?: string

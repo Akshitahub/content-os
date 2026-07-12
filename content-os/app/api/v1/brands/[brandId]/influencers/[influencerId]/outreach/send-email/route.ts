@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server"
 import { sendOutreachEmail } from "@/lib/email/resend"
 import { sendOutreachEmailSchema } from "@/lib/validations/influencer"
 import { buildError, ErrorCodes } from "@/types/api"
+import { checkAndIncrementOutreachEmailUsage } from "@/lib/usage/check-and-increment-abuse-limits"
 import type { BrandRow, InfluencerRow, OutreachMessageRow } from "@/types/database"
 
 type RouteParams = { params: Promise<{ brandId: string; influencerId: string }> }
@@ -28,6 +29,15 @@ export async function POST(request: Request, { params }: RouteParams) {
   if (result.error === "server_error") return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Server error."), { status: 500 })
   if (result.error === "unauthenticated") return NextResponse.json(buildError(ErrorCodes.UNAUTHENTICATED, "You must be logged in."), { status: 401 })
   if (result.error === "not_found") return NextResponse.json(buildError(ErrorCodes.BRAND_NOT_FOUND, "Brand not found."), { status: 404 })
+
+  // The target address is user-supplied and unverified (it doesn't have to
+  // be a real influencer's email) — without a limit here, this endpoint
+  // could be used to send arbitrary email to arbitrary addresses using this
+  // app's own Resend sending reputation.
+  const outreachUsageCheck = await checkAndIncrementOutreachEmailUsage(result.user!.id)
+  if (!outreachUsageCheck.ok) {
+    return NextResponse.json(buildError(ErrorCodes.USAGE_LIMIT_EXCEEDED, outreachUsageCheck.message), { status: outreachUsageCheck.status })
+  }
 
   let body: unknown
   try { body = await request.json() } catch {

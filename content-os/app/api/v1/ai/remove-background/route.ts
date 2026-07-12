@@ -42,6 +42,15 @@ export async function POST(request: Request) {
     return NextResponse.json(buildError(ErrorCodes.VALIDATION_ERROR, "No image provided."), { status: 400 })
   }
 
+  const ALLOWED_TYPES = new Set(["image/jpeg", "image/jpg", "image/png", "image/webp"])
+  const MAX_SIZE_BYTES = 10 * 1024 * 1024
+  if (!ALLOWED_TYPES.has(imageFile.type)) {
+    return NextResponse.json(buildError(ErrorCodes.VALIDATION_ERROR, "Please use a JPG, PNG, or WEBP image."), { status: 400 })
+  }
+  if (imageFile.size > MAX_SIZE_BYTES) {
+    return NextResponse.json(buildError(ErrorCodes.VALIDATION_ERROR, "Image must be under 10MB."), { status: 400 })
+  }
+
   try {
     const removeBgForm = new FormData()
     removeBgForm.append("image_file", imageFile)
