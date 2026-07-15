@@ -13,6 +13,11 @@ const DAY_MS = 24 * 60 * 60 * 1000
 // so without a limit here there was nothing bounding call frequency at all.
 const SCHEDULE_POST_DAILY_LIMIT = 100
 const OUTREACH_EMAIL_DAILY_LIMIT = 50
+// Generous — covers legitimate onboarding usage of importing multiple
+// brand/product URLs, while still bounding automated abuse of the two
+// AI extraction routes (each call fetches an arbitrary URL and hits an AI
+// model, with no other cost/limit tied to it).
+const URL_EXTRACTION_DAILY_LIMIT = 20
 
 interface DailyCounterRow {
   count: number
@@ -88,5 +93,19 @@ export async function checkAndIncrementOutreachEmailUsage(userId: string): Promi
     "outreach_email_count_reset_at",
     OUTREACH_EMAIL_DAILY_LIMIT,
     `You've reached today's limit of ${OUTREACH_EMAIL_DAILY_LIMIT} outreach emails. Try again tomorrow.`
+  )
+}
+
+/** Bounds how many brand/product URL extractions a user can run per day —
+ * each call fetches an arbitrary caller-supplied URL and runs it through an
+ * AI model, with no other cost/limit tied to it. */
+export async function checkAndIncrementUrlExtractionUsage(userId: string): Promise<AbuseLimitCheckResult> {
+  return checkAndIncrementDailyCounter(
+    userId,
+    "url_extraction_count_today, url_extraction_count_reset_at",
+    "url_extraction_count_today",
+    "url_extraction_count_reset_at",
+    URL_EXTRACTION_DAILY_LIMIT,
+    `You've reached today's limit of ${URL_EXTRACTION_DAILY_LIMIT} URL imports. Try again tomorrow.`
   )
 }

@@ -4,12 +4,18 @@ import { extractFromUrlSchema } from "@/lib/validations/ai"
 import { fetchPage, PageFetchError } from "@/lib/web/fetch-page"
 import { extractBrandFromPage, ExtractionError } from "@/lib/ai/url-extractor"
 import { buildError, ErrorCodes } from "@/types/api"
+import { checkAndIncrementUrlExtractionUsage } from "@/lib/usage/check-and-increment-abuse-limits"
 
 export async function POST(request: Request) {
   const supabase = await createClient()
   const { data: { user }, error: authError } = await supabase.auth.getUser()
   if (authError || !user) {
     return NextResponse.json(buildError(ErrorCodes.UNAUTHENTICATED, "You must be logged in."), { status: 401 })
+  }
+
+  const usageCheck = await checkAndIncrementUrlExtractionUsage(user.id)
+  if (!usageCheck.ok) {
+    return NextResponse.json(buildError(ErrorCodes.USAGE_LIMIT_EXCEEDED, usageCheck.message), { status: usageCheck.status })
   }
 
   let body: unknown

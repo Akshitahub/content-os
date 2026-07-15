@@ -3,6 +3,8 @@ import { createClient } from "@/lib/supabase/server"
 import { createProductSchema } from "@/lib/validations/product"
 import { buildError, ErrorCodes } from "@/types/api"
 import type { ProductRow } from "@/types/database"
+import { PLAN_LIMITS } from "@/types/app"
+import type { UserPlan } from "@/types/app"
 
 type RouteParams = { params: Promise<{ brandId: string }> }
 
@@ -77,6 +79,55 @@ export async function POST(request: Request, { params }: RouteParams) {
 
   const parsed = createProductSchema.safeParse(body)
   if (!parsed.success) return NextResponse.json(buildError(ErrorCodes.VALIDATION_ERROR, "Validation failed.", parsed.error.message), { status: 400 })
+
+  try {
+    const { data: userRow, error: userError } = await result.supabase!
+      .from("users")
+      .select("plan")
+      .eq("id", result.user!.id)
+      .single<{ plan: UserPlan }>()
+
+    if (userError || !userRow) {
+      console.error(`[products/${brandId}] POST plan lookup error:`, userError)
+      return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Failed to verify plan."), { status: 500 })
+    }
+
+    // Product limit is per-account, not per-brand (matches how brands/generations
+    // limits work) — so this counts active products across all of the user's brands,
+    // not just the one being posted to.
+    const { data: ownedBrands, error: brandsError } = await result.supabase!
+      .from("brands")
+      .select("id")
+      .eq("user_id", result.user!.id)
+      .returns<{ id: string }[]>()
+
+    if (brandsError || !ownedBrands) {
+      console.error(`[products/${brandId}] POST owned-brands lookup error:`, brandsError)
+      return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Failed to verify product count."), { status: 500 })
+    }
+
+    const { count: productCount, error: countError } = await result.supabase!
+      .from("products")
+      .select("*", { count: "exact", head: true })
+      .in("brand_id", ownedBrands.map((b) => b.id))
+      .eq("is_active", true)
+
+    if (countError) {
+      console.error(`[products/${brandId}] POST product count error:`, countError)
+      return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Failed to verify product count."), { status: 500 })
+    }
+
+    const productLimit = PLAN_LIMITS[userRow.plan].products
+    if ((productCount ?? 0) >= productLimit) {
+      return NextResponse.json(
+        buildError(ErrorCodes.USAGE_LIMIT_EXCEEDED, `You've reached the maximum of ${productLimit} products on your plan. Upgrade to add more.`),
+        { status: 403 }
+      )
+    }
+  } catch (err) {
+    console.error(`[products/${brandId}] POST plan/limit check unexpected error:`, err)
+    return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Failed to verify plan limits."), { status: 500 })
+  }
 
   try {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
