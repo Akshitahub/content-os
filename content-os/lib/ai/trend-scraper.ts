@@ -49,7 +49,7 @@ async function getRedditInsights(niche: string): Promise<{
       `https://www.reddit.com/r/${subreddit}/top.json?t=week&limit=10`,
       {
         headers: {
-          "User-Agent": "ContentOS/1.0 (brand content tool)",
+          "User-Agent": "SocioPosts/1.0 (brand content tool)",
         },
       }
     )

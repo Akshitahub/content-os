@@ -39,7 +39,7 @@ export async function GET() {
             <path d="M13 2L4 13h7l-2 7 9-11h-7l2-7z" fill="#6366f1" />
           </svg>
           <span style={{ color: "#ffffff", fontSize: "28px", fontWeight: 700, letterSpacing: "-0.5px" }}>
-            ContentOS
+            SocioPosts
           </span>
         </div>
 

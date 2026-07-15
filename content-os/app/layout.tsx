@@ -14,10 +14,10 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 })
 
-const BASE_URL = process.env.NEXT_PUBLIC_APP_URL ?? "https://content-os-mu-kohl.vercel.app"
+const BASE_URL = process.env.NEXT_PUBLIC_APP_URL ?? "https://www.socioposts.com"
 
 export const metadata: Metadata = {
-  title: "ContentOS — AI Content Generator for Indian D2C Brands & Creators",
+  title: "SocioPosts — AI Content Generator for Indian D2C Brands & Creators",
   description:
     "Turn your brand's website into 30 days of Instagram content in seconds. AI-powered hooks, captions, carousels, ad creatives and more — built for Indian D2C brands and creators.",
   keywords: [
@@ -34,17 +34,17 @@ export const metadata: Metadata = {
     shortcut: "/favicon.svg",
   },
   openGraph: {
-    title: "ContentOS — AI Content Generator for Indian D2C Brands",
+    title: "SocioPosts — AI Content Generator for Indian D2C Brands",
     description: "Turn your brand's website into 30 days of Instagram content in seconds.",
     url: BASE_URL,
-    siteName: "ContentOS",
+    siteName: "SocioPosts",
     images: [{ url: "/og-image.png", width: 1200, height: 630 }],
     locale: "en_IN",
     type: "website",
   },
   twitter: {
     card: "summary_large_image",
-    title: "ContentOS — AI Content Generator for Indian D2C Brands",
+    title: "SocioPosts — AI Content Generator for Indian D2C Brands",
     description: "Turn your brand's website into 30 days of Instagram content in seconds.",
     images: ["/og-image.png"],
   },

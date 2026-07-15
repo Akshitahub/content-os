@@ -1,8 +1,8 @@
 import type { Metadata } from "next"
 
 export const metadata: Metadata = {
-  title: "Privacy Policy — ContentOS",
-  description: "Privacy Policy for ContentOS, the AI content operating system for ecommerce brands.",
+  title: "Privacy Policy — SocioPosts",
+  description: "Privacy Policy for SocioPosts, the AI content operating system for ecommerce brands.",
 }
 
 export default function PrivacyPage() {
@@ -16,7 +16,7 @@ export default function PrivacyPage() {
       </p>
 
       <Section title="1. Who We Are">
-        <p>ContentOS is operated by Akshita Singh. This Privacy Policy explains how we collect, use, and protect your personal data when you use our Service. &ldquo;We,&rdquo; &ldquo;us,&rdquo; and &ldquo;our&rdquo; refer to ContentOS/Akshita Singh. &ldquo;You&rdquo; refers to you, the user of our Service.</p>
+        <p>SocioPosts is operated by Akshita Singh. This Privacy Policy explains how we collect, use, and protect your personal data when you use our Service. &ldquo;We,&rdquo; &ldquo;us,&rdquo; and &ldquo;our&rdquo; refer to SocioPosts/Akshita Singh. &ldquo;You&rdquo; refers to you, the user of our Service.</p>
         <p>For privacy-related queries, contact us at <a href="mailto:privacy@contentos.in" style={{ color: "#6366f1" }}>privacy@contentos.in</a>.</p>
       </Section>
 
@@ -35,7 +35,7 @@ export default function PrivacyPage() {
       <Section title="3. How We Use Your Information">
         <p>We use your information to:</p>
         <ul>
-          <li>Provide and improve the ContentOS Service</li>
+          <li>Provide and improve the SocioPosts Service</li>
           <li>Generate AI content tailored to your brand voice</li>
           <li>Process payments and manage your subscription</li>
           <li>Send transactional emails (account verification, billing receipts)</li>
@@ -47,7 +47,7 @@ export default function PrivacyPage() {
       </Section>
 
       <Section title="4. Third-Party Services">
-        <p>ContentOS uses the following third-party services that may process your data:</p>
+        <p>SocioPosts uses the following third-party services that may process your data:</p>
         <ul>
           <li><strong>Supabase</strong> — Database and authentication (data stored in EU region)</li>
           <li><strong>Stripe</strong> — Payment processing (PCI-DSS compliant)</li>
@@ -78,7 +78,7 @@ export default function PrivacyPage() {
       </Section>
 
       <Section title="7. Cookies and Tracking">
-        <p>ContentOS uses cookies and similar technologies for:</p>
+        <p>SocioPosts uses cookies and similar technologies for:</p>
         <ul>
           <li>Authentication (session cookies via Supabase)</li>
           <li>Analytics (PostHog, anonymised)</li>

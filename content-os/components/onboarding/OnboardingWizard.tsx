@@ -36,7 +36,7 @@ function Step1Welcome({ onNext }: { onNext: () => void }) {
     <div className="text-center">
       <ProgressDots step={1} />
       <div className="mb-6 text-5xl">👋</div>
-      <h1 className="text-3xl font-bold tracking-tight">Welcome to ContentOS</h1>
+      <h1 className="text-3xl font-bold tracking-tight">Welcome to SocioPosts</h1>
       <p className="mt-3 text-muted-foreground max-w-md mx-auto">
         You&apos;re 3 steps away from your first AI-generated content calendar. Let&apos;s set up your brand.
       </p>

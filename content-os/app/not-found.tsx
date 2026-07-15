@@ -7,7 +7,7 @@ export default function NotFound() {
       className="flex min-h-screen flex-col items-center justify-center px-4 text-center"
     >
       <div className="mb-8">
-        <p className="text-sm font-semibold uppercase tracking-widest text-violet-400">⚡ ContentOS</p>
+        <p className="text-sm font-semibold uppercase tracking-widest text-violet-400">⚡ SocioPosts</p>
       </div>
 
       <p className="mb-2 text-8xl font-black text-violet-500">404</p>

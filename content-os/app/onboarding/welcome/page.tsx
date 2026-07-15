@@ -10,7 +10,7 @@ export default function WelcomePage() {
         <Sparkles className="h-8 w-8 text-violet-400" />
       </div>
 
-      <h1 className="text-3xl font-bold text-white sm:text-4xl">Welcome to ContentOS</h1>
+      <h1 className="text-3xl font-bold text-white sm:text-4xl">Welcome to SocioPosts</h1>
       <p className="mt-3 text-gray-400 text-base">
         Let&apos;s set up your brand in 2 minutes. Paste your website URL and we&apos;ll build your entire content strategy.
       </p>

@@ -172,7 +172,7 @@ export function AnalyticsDashboard({ brandId }: { brandId: string }) {
         {!loading && data && (
           <div className="space-y-4">
             <p className="text-xs text-muted-foreground">
-              Last {data.windowDays} days, from Instagram&apos;s own account Insights — independent of whether posts were published through ContentOS.
+              Last {data.windowDays} days, from Instagram&apos;s own account Insights — independent of whether posts were published through SocioPosts.
             </p>
 
             <div className="grid grid-cols-3 gap-3">

@@ -11,7 +11,7 @@ export default function LegalLayout({ children }: { children: ReactNode }) {
             <svg width="20" height="20" viewBox="0 0 22 22" fill="none" aria-hidden="true">
               <path d="M13 2L4 13h7l-2 7 9-11h-7l2-7z" fill="#6366f1" strokeLinejoin="round" />
             </svg>
-            ContentOS
+            SocioPosts
           </Link>
         </div>
       </header>
@@ -24,7 +24,7 @@ export default function LegalLayout({ children }: { children: ReactNode }) {
       {/* Footer */}
       <footer className="border-t border-gray-100 px-6 py-8">
         <div className="mx-auto max-w-3xl flex flex-wrap items-center justify-between gap-4 text-sm text-gray-500">
-          <span>&copy; {new Date().getFullYear()} ContentOS. All rights reserved.</span>
+          <span>&copy; {new Date().getFullYear()} SocioPosts. All rights reserved.</span>
           <nav className="flex items-center gap-4">
             <Link href="/" className="hover:text-gray-900 transition-colors">Home</Link>
             <Link href="/terms" className="hover:text-gray-900 transition-colors">Terms</Link>

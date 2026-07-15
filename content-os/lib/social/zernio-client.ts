@@ -18,7 +18,7 @@ export async function createZernioProfile(name: string): Promise<ZernioProfile> 
   const res = await fetch(`${ZERNIO_API_BASE}/profiles`, {
     method: "POST",
     headers: zernioHeaders(),
-    body: JSON.stringify({ name, description: `ContentOS brand: ${name}` }),
+    body: JSON.stringify({ name, description: `SocioPosts brand: ${name}` }),
   })
   const json = await res.json()
   if (!res.ok || !json._id) {

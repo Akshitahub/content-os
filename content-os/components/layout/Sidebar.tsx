@@ -133,7 +133,7 @@ export function Sidebar({ isOpen = false, onClose }: SidebarProps) {
           </div>
           <div className="flex flex-col leading-none">
             <span className="text-sm font-semibold text-sidebar-foreground">
-              ContentOS
+              SocioPosts
             </span>
             <span className="text-[10px] text-sidebar-foreground/40 mt-0.5">
               for creators

@@ -6,7 +6,7 @@ import { ChevronDown } from "lucide-react"
 const FAQS = [
   {
     q: "Do I need any design skills?",
-    a: "No. ContentOS creates everything automatically — hooks, captions, carousels, ad copy. You just paste your brand URL and hit generate.",
+    a: "No. SocioPosts creates everything automatically — hooks, captions, carousels, ad copy. You just paste your brand URL and hit generate.",
   },
   {
     q: "Will the content sound like my brand?",

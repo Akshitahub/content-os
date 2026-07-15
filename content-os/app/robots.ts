@@ -7,6 +7,6 @@ export default function robots(): MetadataRoute.Robots {
       allow: "/",
       disallow: ["/api/", "/dashboard/", "/brands/", "/settings/"],
     },
-    sitemap: "https://content-os-mu-kohl.vercel.app/sitemap.xml",
+    sitemap: "https://www.socioposts.com/sitemap.xml",
   }
 }

@@ -4,7 +4,7 @@ import { SettingsContent } from "@/components/settings/SettingsContent"
 import type { Metadata } from "next"
 import type { UserRow, BrandRow } from "@/types/database"
 
-export const metadata: Metadata = { title: "Settings — ContentOS" }
+export const metadata: Metadata = { title: "Settings — SocioPosts" }
 
 export default async function SettingsPage() {
   const supabase = await createClient()

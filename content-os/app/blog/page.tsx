@@ -2,7 +2,7 @@ import type { Metadata } from "next"
 import Link from "next/link"
 
 export const metadata: Metadata = {
-  title: "Blog — ContentOS",
+  title: "Blog — SocioPosts",
   description: "AI content generation tips, guides, and case studies for Indian D2C brands and creators.",
 }
 
@@ -12,11 +12,11 @@ export default function BlogPage() {
       <div className="mx-auto max-w-3xl">
         <div className="mb-8">
           <Link href="/" className="text-sm text-violet-600 hover:underline">
-            ← ContentOS
+            ← SocioPosts
           </Link>
         </div>
 
-        <h1 className="text-3xl font-bold tracking-tight text-gray-900">ContentOS Blog</h1>
+        <h1 className="text-3xl font-bold tracking-tight text-gray-900">SocioPosts Blog</h1>
         <p className="mt-3 text-lg text-gray-500">
           Tips, guides, and case studies for Indian D2C brands and creators.
         </p>

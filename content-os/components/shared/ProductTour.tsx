@@ -16,7 +16,7 @@ const STEPS: TourStep[] = [
   {
     targetId: "tour-brand-selector",
     title: "This is your brand 👋",
-    body: "ContentOS creates all content in your brand's voice. Switch brands here anytime.",
+    body: "SocioPosts creates all content in your brand's voice. Switch brands here anytime.",
     emoji: "🏷️",
   },
   {
@@ -163,7 +163,7 @@ function FinishedCard({ onRunAutopilot, brandId }: { onRunAutopilot: () => void;
       <div className="text-center space-y-2 mb-4">
         <p className="text-2xl">🎉</p>
         <h3 className="font-bold text-gray-900">You&apos;re ready!</h3>
-        <p className="text-sm text-gray-500">ContentOS is set up and ready to go. The easiest first step is to run Autopilot.</p>
+        <p className="text-sm text-gray-500">SocioPosts is set up and ready to go. The easiest first step is to run Autopilot.</p>
       </div>
       <button onClick={onRunAutopilot}
         className="w-full rounded-full bg-violet-600 py-2.5 text-sm font-semibold text-white hover:bg-violet-700">

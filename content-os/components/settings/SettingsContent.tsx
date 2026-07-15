@@ -261,7 +261,7 @@ function PlanSection({ user }: { user: UserProps }) {
         key: keyId,
         amount,
         currency,
-        name: "ContentOS",
+        name: "SocioPosts",
         description: `${{ starter: "Starter", pro: "Pro", agency: "Agency" }[plan]} Plan`,
         order_id: orderId,
         handler: async function (response: RazorpayResponse) {

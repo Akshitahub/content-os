@@ -24,7 +24,7 @@ const FAQ_CATEGORIES: FaqCategory[] = [
     items: [
       {
         q: "How do I set up my first brand?",
-        a: "During onboarding, enter your website URL and ContentOS analyzes it to pre-fill your brand profile — audience, tone, products, and more. You can edit anything afterward from your brand's settings.",
+        a: "During onboarding, enter your website URL and SocioPosts analyzes it to pre-fill your brand profile — audience, tone, products, and more. You can edit anything afterward from your brand's settings.",
       },
       {
         q: "What is Autopilot / Fastlane?",
@@ -49,7 +49,7 @@ const FAQ_CATEGORIES: FaqCategory[] = [
       },
       {
         q: "How does the Meme Maker work?",
-        a: "You pick a topic or template, and ContentOS generates an AI image with a real, on-image meme caption baked in — not just a caption placed under a stock photo.",
+        a: "You pick a topic or template, and SocioPosts generates an AI image with a real, on-image meme caption baked in — not just a caption placed under a stock photo.",
       },
     ],
   },
@@ -62,7 +62,7 @@ const FAQ_CATEGORIES: FaqCategory[] = [
       },
       {
         q: "How does scheduling work?",
-        a: "Pick a date, time, and platform when you schedule a post — ContentOS publishes it automatically at that time. Check upcoming and published posts from your Calendar.",
+        a: "Pick a date, time, and platform when you schedule a post — SocioPosts publishes it automatically at that time. Check upcoming and published posts from your Calendar.",
       },
       {
         q: "My post didn't publish — what happened?",

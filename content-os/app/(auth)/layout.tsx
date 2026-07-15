@@ -3,7 +3,7 @@ import type { Metadata } from "next"
 export const metadata: Metadata = {
   title: {
     default: "Sign in",
-    template: "%s | ContentOS",
+    template: "%s | SocioPosts",
   },
 }
 
@@ -31,7 +31,7 @@ export default function AuthLayout({
             />
           </svg>
         </div>
-        <span className="text-xl font-semibold tracking-tight">ContentOS</span>
+        <span className="text-xl font-semibold tracking-tight">SocioPosts</span>
       </div>
       {children}
     </div>

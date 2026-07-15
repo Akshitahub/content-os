@@ -62,13 +62,13 @@ export default async function RootPage() {
               <svg width="22" height="22" viewBox="0 0 22 22" fill="none" aria-hidden="true">
                 <path d="M13 2L4 13h7l-2 7 9-11h-7l2-7z" fill="white" stroke="white" strokeWidth="1" strokeLinejoin="round" />
               </svg>
-              <span className="font-semibold tracking-tight text-white" style={{ fontSize: "0.95rem" }}>ContentOS</span>
+              <span className="font-semibold tracking-tight text-white" style={{ fontSize: "0.95rem" }}>SocioPosts</span>
             </span>
             <span className="nav-logo-light items-center gap-2" style={{ display: "none" }}>
               <svg width="22" height="22" viewBox="0 0 22 22" fill="none" aria-hidden="true">
                 <path d="M13 2L4 13h7l-2 7 9-11h-7l2-7z" fill="#7c3aed" stroke="#7c3aed" strokeWidth="1" strokeLinejoin="round" />
               </svg>
-              <span className="font-semibold tracking-tight text-gray-900" style={{ fontSize: "0.95rem" }}>ContentOS</span>
+              <span className="font-semibold tracking-tight text-gray-900" style={{ fontSize: "0.95rem" }}>SocioPosts</span>
             </span>
             <div className="flex items-center gap-4 sm:gap-6">
               <Link href="/login" className="nav-link text-sm font-medium transition-colors" style={{ color: "#ffffff" }}>
@@ -96,7 +96,7 @@ export default async function RootPage() {
                   <span className="text-violet-400">30 days</span> of content
                 </h1>
                 <p className="mt-6 max-w-lg text-lg leading-relaxed text-gray-400">
-                  ContentOS learns your brand voice from your website and generates hooks, captions, reels, carousels, ad copy, and email sequences — tailored to you, not templates.
+                  SocioPosts learns your brand voice from your website and generates hooks, captions, reels, carousels, ad copy, and email sequences — tailored to you, not templates.
                 </p>
                 <div className="mt-8 flex flex-wrap items-center gap-4">
                   <Link href={primaryHref} className="inline-flex items-center gap-2 rounded-full bg-violet-600 px-6 py-3 text-sm font-semibold text-white transition-all hover:bg-violet-700 hover:scale-[1.02]">
@@ -195,7 +195,7 @@ export default async function RootPage() {
             </div>
             <div className="grid gap-8 sm:grid-cols-3">
               {[
-                { Icon: Globe, step: "01", title: "Paste your URL", desc: "Drop in your website or store URL. ContentOS reads your pages, products, and copy to understand your brand." },
+                { Icon: Globe, step: "01", title: "Paste your URL", desc: "Drop in your website or store URL. SocioPosts reads your pages, products, and copy to understand your brand." },
                 { Icon: Sparkles, step: "02", title: "AI learns your brand", desc: "Our AI extracts your tone, audience, and positioning — building a brand profile unique to you." },
                 { Icon: Zap, step: "03", title: "Generate everything", desc: "Hooks, captions, reels, carousels, email sequences — 30 days of on-brand content in one click." },
               ].map(({ Icon, step, title, desc }) => (
@@ -337,7 +337,7 @@ export default async function RootPage() {
               <h2 className="text-3xl font-bold tracking-tight text-gray-900 sm:text-4xl">
                 Loved by Indian creators &amp; D2C brands
               </h2>
-              <p className="mt-3 text-gray-500">Join hundreds of brands already creating content with ContentOS</p>
+              <p className="mt-3 text-gray-500">Join hundreds of brands already creating content with SocioPosts</p>
             </div>
             <div className="grid gap-8 sm:grid-cols-3">
               {[
@@ -376,7 +376,7 @@ export default async function RootPage() {
               {[
                 { quote: "I used to spend 2 hours on a Sunday planning content. Now I run Fastlane on Monday morning and I'm done in 4 minutes.", name: "Priya M.", role: "Founder, handmade jewellery brand", initials: "PM", color: "bg-violet-600" },
                 { quote: "The hooks it generates actually sound like me. Not some American SaaS voice — my voice. That was the thing I was most afraid of with AI tools.", name: "Rajan S.", role: "D2C wellness brand", initials: "RS", color: "bg-blue-600" },
-                { quote: "Switched from a freelancer to ContentOS. Same output quality, a fraction of the cost, and I can generate on-demand instead of waiting a week.", name: "Anika T.", role: "Home décor brand, Meesho", initials: "AT", color: "bg-emerald-600" },
+                { quote: "Switched from a freelancer to SocioPosts. Same output quality, a fraction of the cost, and I can generate on-demand instead of waiting a week.", name: "Anika T.", role: "Home décor brand, Meesho", initials: "AT", color: "bg-emerald-600" },
               ].map(({ quote, name, role, initials, color }) => (
                 <div key={name} className="rounded-2xl border border-white/5 bg-white/5 p-6">
                   <div className="mb-4 flex items-center gap-1">
@@ -432,7 +432,7 @@ export default async function RootPage() {
                   <svg width="20" height="20" viewBox="0 0 22 22" fill="none" aria-hidden="true">
                     <path d="M13 2L4 13h7l-2 7 9-11h-7l2-7z" fill="#7c3aed" stroke="#7c3aed" strokeWidth="1" strokeLinejoin="round" />
                   </svg>
-                  <span className="font-semibold text-white">ContentOS</span>
+                  <span className="font-semibold text-white">SocioPosts</span>
                 </div>
                 <p className="mt-3 text-sm leading-relaxed text-gray-400">The AI content operating system for ecommerce brands.</p>
               </div>
@@ -462,7 +462,7 @@ export default async function RootPage() {
               </div>
             </div>
             <div className="mt-10 border-t pt-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between" style={{ borderColor: "#1f1f1f" }}>
-              <p className="text-xs text-gray-600">&copy; {new Date().getFullYear()} ContentOS. Made with ❤️ in India 🇮🇳. All rights reserved.</p>
+              <p className="text-xs text-gray-600">&copy; {new Date().getFullYear()} SocioPosts. Made with ❤️ in India 🇮🇳. All rights reserved.</p>
               <div className="flex items-center gap-4">
                 <a href="https://instagram.com" target="_blank" rel="noopener noreferrer" className="text-xs text-gray-500 hover:text-white transition-colors">Instagram</a>
                 <a href="https://twitter.com" target="_blank" rel="noopener noreferrer" className="text-xs text-gray-500 hover:text-white transition-colors">Twitter</a>

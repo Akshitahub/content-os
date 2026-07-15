@@ -47,7 +47,7 @@ export function LiveDemo() {
           </div>
           {/* URL bar */}
           <div className="flex-1 overflow-hidden rounded-md border border-border/50 bg-background px-3 py-1.5 text-xs text-muted-foreground">
-            <span>contentos.ai</span>
+            <span>socioposts.ai</span>
           </div>
         </div>
 

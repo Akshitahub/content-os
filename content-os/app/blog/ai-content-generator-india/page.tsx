@@ -62,15 +62,15 @@ export default function AiContentGeneratorIndiaArticle() {
           </ul>
 
           <h2 className="pt-2 text-xl font-bold text-gray-900">
-            Introducing ContentOS: Built for Indian D2C Brands
+            Introducing SocioPosts: Built for Indian D2C Brands
           </h2>
           <p>
-            ContentOS is an AI content OS built specifically for Indian D2C brands and creators. You paste
-            your brand URL, and ContentOS reads your products, tone of voice, and audience to generate
+            SocioPosts is an AI content OS built specifically for Indian D2C brands and creators. You paste
+            your brand URL, and SocioPosts reads your products, tone of voice, and audience to generate
             content that sounds like <em>you</em> — not a generic AI.
           </p>
 
-          <h3 className="text-lg font-semibold text-gray-900">What ContentOS Generates:</h3>
+          <h3 className="text-lg font-semibold text-gray-900">What SocioPosts Generates:</h3>
           <ul className="list-disc space-y-2 pl-5">
             <li><strong>Instagram captions</strong> — with hooks, body, and CTAs in your brand voice</li>
             <li><strong>Carousel scripts</strong> — slide-by-slide content for educational carousels</li>
@@ -82,8 +82,8 @@ export default function AiContentGeneratorIndiaArticle() {
 
           <h3 className="text-lg font-semibold text-gray-900">Indian Occasions Built In</h3>
           <p>
-            ContentOS has a built-in occasion calendar with 60+ Indian occasions — from major festivals to
-            niche awareness days relevant to D2C brands. Click an occasion, and ContentOS generates content
+            SocioPosts has a built-in occasion calendar with 60+ Indian occasions — from major festivals to
+            niche awareness days relevant to D2C brands. Click an occasion, and SocioPosts generates content
             tailored to that moment.
           </p>
 
@@ -98,15 +98,15 @@ export default function AiContentGeneratorIndiaArticle() {
 
           <h2 className="pt-2 text-xl font-bold text-gray-900">How to Get Started</h2>
           <ol className="list-decimal space-y-2 pl-5">
-            <li>Sign up for ContentOS (free plan available)</li>
+            <li>Sign up for SocioPosts (free plan available)</li>
             <li>Paste your brand website URL</li>
-            <li>ContentOS reads your brand in 30 seconds</li>
+            <li>SocioPosts reads your brand in 30 seconds</li>
             <li>Choose a content type — caption, carousel, story, ad, or meme</li>
             <li>Generate, edit, and schedule to your content calendar</li>
           </ol>
 
           <h2 className="pt-2 text-xl font-bold text-gray-900">Pricing</h2>
-          <p>ContentOS offers three plans:</p>
+          <p>SocioPosts offers three plans:</p>
           <ul className="list-disc space-y-2 pl-5">
             <li><strong>Free</strong> — 15 generations/month, 1 brand</li>
             <li><strong>Starter (&#8377;999/month)</strong> — 500 generations/month, 3 brands</li>
@@ -117,7 +117,7 @@ export default function AiContentGeneratorIndiaArticle() {
 
         {/* CTA */}
         <div className="mt-16 rounded-2xl bg-violet-50 px-8 py-10 text-center">
-          <h2 className="text-2xl font-bold text-gray-900">Try ContentOS Free</h2>
+          <h2 className="text-2xl font-bold text-gray-900">Try SocioPosts Free</h2>
           <p className="mt-2 text-gray-600">Paste your brand URL. Get 30 days of content in minutes.</p>
           <Link
             href="/"
@@ -128,7 +128,7 @@ export default function AiContentGeneratorIndiaArticle() {
         </div>
 
         <p className="mt-8 text-center text-xs text-gray-400">
-          ContentOS is made in India, for Indian brands.
+          SocioPosts is made in India, for Indian brands.
         </p>
       </div>
     </main>

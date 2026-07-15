@@ -133,7 +133,7 @@ export function DashboardStats({
         <div className="rounded-xl border bg-gradient-to-br from-violet-50 to-indigo-50 dark:from-violet-900/20 dark:to-indigo-900/20 p-6 text-center space-y-3">
           <div className="text-3xl">👋</div>
           <div>
-            <p className="text-lg font-semibold">Welcome to ContentOS!</p>
+            <p className="text-lg font-semibold">Welcome to SocioPosts!</p>
             <p className="mt-1 text-sm text-muted-foreground">Your AI content engine is ready. Create your first piece of content in seconds.</p>
           </div>
           <Link
