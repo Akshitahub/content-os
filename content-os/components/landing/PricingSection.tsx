@@ -36,9 +36,9 @@ const TIERS: PricingTier[] = [
     id: "starter",
     name: "Starter",
     tagline: "For getting serious",
-    monthlyPrice: "₹699",
-    annualMonthlyPrice: "₹583",
-    annualBilledLabel: "Billed ₹6,999/year",
+    monthlyPrice: "₹999",
+    annualMonthlyPrice: "₹833",
+    annualBilledLabel: "Billed ₹9,999/year",
     features: [
       "2 brands",
       "500 AI generations / month",

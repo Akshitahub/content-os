@@ -386,7 +386,7 @@ function PlanSection({ user }: { user: UserProps }) {
               disabled={upgradeState === "loading"}
               className="bg-violet-600 hover:bg-violet-700 text-white"
             >
-              {upgradeState === "loading" ? "Loading…" : "Upgrade to Starter — ₹699/mo"}
+              {upgradeState === "loading" ? "Loading…" : "Upgrade to Starter — ₹999/mo"}
             </Button>
             <Button
               variant="outline"
