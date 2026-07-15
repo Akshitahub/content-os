@@ -287,8 +287,24 @@ function PlanSection({ user }: { user: UserProps }) {
             setBillingError("Could not verify payment. Please contact support.")
           }
         },
+        // Fires when the user closes the modal without paying — without
+        // this, cancelling looks identical to doing nothing (no error, no
+        // feedback), which reads as broken rather than intentional.
+        modal: {
+          ondismiss: () => {
+            setBillingError("Payment cancelled.")
+          },
+        },
         theme: { color: "#7c3aed" },
       })
+
+      // Declined cards, failed OTPs, etc. — Razorpay reports these via this
+      // event rather than ever calling `handler`, so without listening for
+      // it a failed payment would otherwise show no feedback at all.
+      rzp.on("payment.failed", function (response: { error?: { description?: string } }) {
+        setBillingError(response.error?.description ?? "Payment failed. Please try again.")
+      })
+
       rzp.open()
     } catch {
       setBillingError("Network error. Please try again.")
