@@ -127,7 +127,13 @@ export async function POST(request: Request) {
   }
 
   const seed = Math.floor(Math.random() * 1_000_000)
-  const pollinationsUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(`${concept.image_prompt}, meme photo style, vibrant colors, high contrast, funny expression, no text, no illegible symbols, anatomically correct features, correct number of fingers and limbs, natural hand positioning`)}?width=1080&height=1080&seed=${seed}&nologo=true&model=flux`
+  // model=flux -- checked https://image.pollinations.ai/models and tried
+  // switching to nanobanana/seedream, but both 500 with "only available on
+  // enter.pollinations.ai" (a separate paid tier this app isn't set up to
+  // use), and the one model actually listed there ("sana") produced
+  // byte-identical output to flux at the same seed in testing -- i.e. not
+  // a real distinct option on this public endpoint. flux stays.
+  const pollinationsUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(`${concept.image_prompt}, meme photo style, vibrant colors, high contrast, funny expression, no text, no illegible symbols, anatomically correct features, correct number of fingers and limbs, natural hand positioning`)}?width=1080&height=1080&seed=${seed}&nologo=true&model=flux&enhance=true`
 
   let imageBuffer: Buffer
   try {
