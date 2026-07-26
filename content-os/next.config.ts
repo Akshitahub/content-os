@@ -34,6 +34,11 @@ const CSP = [
 ].join("; ")
 
 const nextConfig: NextConfig = {
+  // @resvg/resvg-js (lib/image/meme-compositor.ts) ships a native .node
+  // binding loaded via require() — bundling it fails ("asset is not
+  // placeable in ESM chunks"), so it needs native Node.js require instead,
+  // same as sharp (already externalized by Next.js's own default list).
+  serverExternalPackages: ["@resvg/resvg-js"],
   async headers() {
     return [
       {

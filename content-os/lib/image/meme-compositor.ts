@@ -1,20 +1,38 @@
 import sharp from "sharp"
-import { readFileSync } from "fs"
+import { readFileSync, writeFileSync, existsSync } from "fs"
 import { join } from "path"
+import { tmpdir } from "os"
+import { Resvg } from "@resvg/resvg-js"
+import { decompress } from "wawoff2"
 
 // Bundled directly (rather than relying on a system font name like "DejaVu
 // Sans") since Vercel's serverless Linux environment has no guarantee that
-// any particular font is installed — without an embedded font, librsvg has
-// nothing to render glyphs with and falls back to tofu boxes (□□□).
-// Base64-encoded once and cached across invocations of the same warm
+// any particular font is installed — without an embedded font, the renderer
+// has nothing to render glyphs with and falls back to tofu boxes (□□□).
+//
+// This used to embed the font as base64 into an SVG @font-face rule and let
+// sharp (via librsvg) rasterize it, but librsvg does not reliably support
+// @font-face with base64-embedded fonts — it silently fails to load the
+// font and produces tofu boxes instead of an error. resvg-js loads custom
+// fonts directly (bypassing @font-face) and does so reliably, but its
+// underlying font loader only accepts raw TrueType/OpenType files, not
+// woff/woff2 — passing the woff2 straight through also silently fails
+// ("malformed font"). @fontsource/anton only ships woff/woff2, so it's
+// decompressed to a raw TTF once and cached on disk in /tmp (the one
+// writable path in that environment) across invocations of the same warm
 // serverless instance.
-let cachedFontBase64: string | null = null
+let cachedFontPath: string | null = null
 
-function getFontBase64(): string {
-  if (cachedFontBase64) return cachedFontBase64
-  const fontPath = join(process.cwd(), "node_modules/@fontsource/anton/files/anton-latin-400-normal.woff2")
-  cachedFontBase64 = readFileSync(fontPath).toString("base64")
-  return cachedFontBase64
+async function getFontPath(): Promise<string> {
+  if (cachedFontPath && existsSync(cachedFontPath)) return cachedFontPath
+
+  const woff2Path = join(process.cwd(), "node_modules/@fontsource/anton/files/anton-latin-400-normal.woff2")
+  const ttfBuffer = await decompress(readFileSync(woff2Path))
+
+  const ttfPath = join(tmpdir(), "meme-compositor-anton.ttf")
+  writeFileSync(ttfPath, ttfBuffer)
+  cachedFontPath = ttfPath
+  return ttfPath
 }
 
 function escapeXml(s: string): string {
@@ -71,12 +89,20 @@ export async function compositeMemeText(
     return base.png().toBuffer()
   }
 
-  const fontBase64 = getFontBase64()
-  const fontFace = `<defs><style>@font-face { font-family: 'MemeFont'; src: url(data:font/woff2;base64,${fontBase64}) format('woff2'); }</style></defs>`
-  const svg = `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">${fontFace}${topSvg}${bottomSvg}</svg>`
+  const svg = `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">${topSvg}${bottomSvg}</svg>`
+
+  const fontPath = await getFontPath()
+  const resvg = new Resvg(svg, {
+    font: {
+      fontFiles: [fontPath],
+      loadSystemFonts: false,
+      defaultFontFamily: "MemeFont",
+    },
+  })
+  const textLayerPng = resvg.render().asPng()
 
   return base
-    .composite([{ input: Buffer.from(svg), top: 0, left: 0 }])
+    .composite([{ input: textLayerPng, top: 0, left: 0 }])
     .png()
     .toBuffer()
 }
