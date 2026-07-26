@@ -38,6 +38,8 @@ The image_prompt must describe an original visual scene or reaction moment -- ex
 Favor scenes where the humor comes through facial expression, body language, or the situation itself rather than close-up or complex hand gestures/actions -- these are harder for image generation to render cleanly. Simple poses (sitting, standing, reacting with facial expression) work better than dynamic actions involving hands or props.
 
 top_text and bottom_text must be plain English text only -- no emoji, no special symbols, no non-Latin characters -- since they are rendered directly onto the image using a font that only has basic Latin glyphs.
+
+The caption must explicitly reference or riff on this specific meme's scenario/punchline -- not generic brand messaging that could sit under any image. Someone scrolling past may not fully register the visual joke from the image alone, so the caption should carry it: open by acknowledging or extending the joke in your own words, then transition naturally into the brand's angle and a soft CTA, in that order -- joke first, brand second.
 ${QUALITY_BAR}
 Always respond with valid JSON only.`
 }
