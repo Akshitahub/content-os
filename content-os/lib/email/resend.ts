@@ -1,6 +1,6 @@
 import { Resend } from "resend"
 
-const FROM = "SocioPosts <hello@contentos.in>"
+const FROM = "SocioPosts <hello@socioposts.com>"
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"
 
 export async function sendWelcomeEmail(to: string, name?: string): Promise<void> {
