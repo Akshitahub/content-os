@@ -20,7 +20,7 @@
  * retry counts, or poll timeouts.
  */
 
-const KLING_API_BASE = "https://api.klingapi.com/v1"
+const KLING_API_BASE = "https://api.piapi.ai/api/v1"
 
 // Kling generation is genuinely slow (roughly 30s-several minutes per clip
 // depending on provider/load) — this is not a near-instant call like
@@ -39,16 +39,19 @@ function sleep(ms: number): Promise<void> {
 }
 
 interface KlingSubmitResponse {
-  task_id?: string
   code?: number
-  message?: string
+  data?: {
+    task_id?: string
+    status?: "pending" | "processing" | "failed" | "completed"
+    error?: { message?: string }
+  }
 }
 
 interface KlingPollResponse {
-  task_status?: "submitted" | "processing" | "succeed" | "failed"
-  task_status_msg?: string
-  task_result?: {
-    videos?: { url: string }[]
+  data?: {
+    status?: "pending" | "processing" | "failed" | "completed"
+    output?: { video_url?: string }
+    error?: { message?: string }
   }
 }
 
@@ -67,26 +70,29 @@ async function submitKlingJob(
 ): Promise<KlingSubmitResult> {
   // Kling only supports fixed 5s/10s clip lengths as of writing — round to
   // the nearest supported duration rather than failing outright.
-  const duration = options.durationSeconds > 7 ? "10" : "5"
+  const duration = options.durationSeconds > 7 ? 10 : 5
 
   for (let attempt = 0; ; attempt++) {
     let res: Response
     try {
-      res = await fetch(`${KLING_API_BASE}/videos/text2video`, {
+      res = await fetch(`${KLING_API_BASE}/task`, {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${apiKey}`,
+          "x-api-key": apiKey,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          model: "kling-v1",
-          prompt: prompt.slice(0, 2500),
-          duration,
-          aspect_ratio: options.aspectRatio,
-          // "std" is the budget tier and excludes Kling's native audio —
-          // we generate our own voiceover via Groq TTS and layer it in
-          // separately, so paying for Kling's audio would be redundant.
-          mode: "std",
+          model: "kling",
+          task_type: "video_generation",
+          input: {
+            prompt: prompt.slice(0, 2500),
+            duration,
+            aspect_ratio: options.aspectRatio,
+            // "std" is the budget tier and excludes Kling's native audio —
+            // we generate our own voiceover via Groq TTS and layer it in
+            // separately, so paying for Kling's audio would be redundant.
+            mode: "std",
+          },
         }),
       })
     } catch (err) {
@@ -102,14 +108,16 @@ async function submitKlingJob(
     }
 
     const json = await res.json().catch(() => null) as KlingSubmitResponse | null
+    const taskId = json?.data?.task_id
+    const submitError = json?.data?.error?.message
 
-    if (!res.ok || !json?.task_id) {
-      const message = json?.message ?? `Kling submit failed (${res.status})`
+    if (!res.ok || json?.code !== 200 || submitError || !taskId) {
+      const message = submitError ?? `Kling submit failed (${res.status})`
       console.error("[kling-client] submit failed:", message)
       return { error: message, retryable: res.status === 429 || res.status >= 500 }
     }
 
-    return { taskId: json.task_id }
+    return { taskId }
   }
 }
 
@@ -119,8 +127,8 @@ async function pollKlingJob(apiKey: string, taskId: string): Promise<KlingPollRe
 
     let res: Response
     try {
-      res = await fetch(`${KLING_API_BASE}/videos/text2video/${taskId}`, {
-        headers: { Authorization: `Bearer ${apiKey}` },
+      res = await fetch(`${KLING_API_BASE}/task/${taskId}`, {
+        headers: { "x-api-key": apiKey },
       })
     } catch (err) {
       // Transient network hiccup — keep polling rather than failing the
@@ -135,20 +143,21 @@ async function pollKlingJob(apiKey: string, taskId: string): Promise<KlingPollRe
     }
 
     const json = await res.json().catch(() => null) as KlingPollResponse | null
+    const status = json?.data?.status
 
-    if (json?.task_status === "succeed") {
-      const videoUrl = json.task_result?.videos?.[0]?.url
+    if (status === "completed") {
+      const videoUrl = json?.data?.output?.video_url
       if (!videoUrl) {
         return { error: "Kling reported success but returned no video.", retryable: false }
       }
       return { videoUrl }
     }
 
-    if (json?.task_status === "failed") {
-      return { error: json.task_status_msg ?? "Kling video generation failed.", retryable: false }
+    if (status === "failed") {
+      return { error: json?.data?.error?.message ?? "Kling video generation failed.", retryable: false }
     }
 
-    // "submitted" / "processing" (or an unrecognized transient shape) —
+    // "pending" / "processing" (or an unrecognized transient shape) —
     // keep polling until MAX_POLL_ATTEMPTS is exhausted.
   }
 
