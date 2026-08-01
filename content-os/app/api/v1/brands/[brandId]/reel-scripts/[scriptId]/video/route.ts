@@ -2,6 +2,8 @@ import { NextResponse, after } from "next/server"
 import { createClient, createAdminClient } from "@/lib/supabase/server"
 import { buildError, ErrorCodes } from "@/types/api"
 import { generateSceneAssets } from "@/lib/video/reel-scene-assets"
+import { renderReelVideo } from "@/lib/video/render-trigger"
+import type { RenderReelVideoInput } from "@/lib/video/render-trigger"
 import { checkAndIncrementReelUsage } from "@/lib/usage/check-and-increment-reel-usage"
 import { z } from "zod"
 import type { ReelScriptRow, ReelVideoJobRow, ReelVideoJobInsert, Json } from "@/types/database"
@@ -171,11 +173,6 @@ export async function POST(request: Request, { params }: RouteParams) {
         return
       }
 
-      // Rendering is intentionally not implemented yet — see
-      // lib/video/render-trigger.ts. The job stops here, at a genuine
-      // success state for everything that IS built, rather than a
-      // "rendering" state that never progresses or a "failed" state for
-      // a known, disclosed limitation rather than a bug.
       await reelVideoJobsTable(admin)
         .update({
           status: "assets_ready",
@@ -186,6 +183,30 @@ export async function POST(request: Request, { params }: RouteParams) {
           scene_assets: sceneAssets as unknown as Json,
         })
         .eq("id", job.id)
+
+      await reelVideoJobsTable(admin)
+        .update({ status: "rendering", progress_message: "Combining your scenes into the final video…" })
+        .eq("id", job.id)
+
+      const renderInput: RenderReelVideoInput = {
+        jobId: job.id,
+        scenes: sceneAssets
+          .filter((s) => s.videoUrl !== null)
+          .map((s) => ({ imageUrl: s.videoUrl!, audioUrl: s.audioUrl, text: s.voiceoverText, durationSeconds: s.durationSeconds })),
+        musicUrl: job.music_url ?? musicUrl,
+      }
+
+      const renderResult = await renderReelVideo(renderInput)
+
+      if (renderResult.success) {
+        await reelVideoJobsTable(admin)
+          .update({ status: "completed", progress_message: null, video_url: renderResult.videoUrl })
+          .eq("id", job.id)
+      } else {
+        await reelVideoJobsTable(admin)
+          .update({ status: "failed", progress_message: null, error_message: renderResult.error })
+          .eq("id", job.id)
+      }
     } catch (err) {
       // Full raw error stays server-side only — never shown to the user.
       console.error(`[reel-scripts/video] job ${job.id} failed:`, err instanceof Error ? err.message : err)
