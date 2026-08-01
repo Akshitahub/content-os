@@ -315,8 +315,7 @@ export function GenerateVideoAction({
   initialScenePrompts?: string[]
 }) {
   const [jobId, setJobId] = useState<string | null>(null)
-  const [customizing, setCustomizing] = useState(false)
-  const [scenePrompts, setScenePrompts] = useState<string[]>(initialScenePrompts ?? [])
+  const scenePrompts = initialScenePrompts ?? []
 
   const startMutation = useMutation({
     mutationFn: async () => {
@@ -331,7 +330,6 @@ export function GenerateVideoAction({
     },
     onSuccess: (data) => {
       setJobId(data.jobId)
-      setCustomizing(false)
     },
   })
 
@@ -351,42 +349,17 @@ export function GenerateVideoAction({
 
   return (
     <div className="space-y-1.5 border-t pt-2">
-      {!jobId && !customizing && (
+      {!jobId && (
         <Button
           size="sm"
           variant="outline"
           className="w-full"
-          onClick={() => (scenePrompts.length > 0 ? setCustomizing(true) : startMutation.mutate())}
+          onClick={() => startMutation.mutate()}
           disabled={startMutation.isPending}
         >
           <Film className="mr-1.5 h-3.5 w-3.5" />
           {startMutation.isPending ? "Starting…" : "Generate video"}
         </Button>
-      )}
-
-      {!jobId && customizing && (
-        <div className="space-y-2">
-          <p className="text-xs text-muted-foreground">
-            Review each scene&apos;s video prompt before generating — edit freely, or get AI suggestions.
-          </p>
-          <ScenePromptEditor
-            brandId={brandId}
-            scriptId={scriptId}
-            prompts={scenePrompts}
-            onChange={(i, value) => setScenePrompts((prev) => prev.map((p, idx) => (idx === i ? value : p)))}
-          />
-          {startMutation.isError && (
-            <p className="text-xs text-destructive">{startMutation.error instanceof Error ? startMutation.error.message : "Failed to start video generation."}</p>
-          )}
-          <div className="flex gap-2">
-            <Button size="sm" className="flex-1" onClick={() => startMutation.mutate()} disabled={startMutation.isPending}>
-              {startMutation.isPending ? "Starting…" : "Start generating video"}
-            </Button>
-            <Button size="sm" variant="ghost" onClick={() => setCustomizing(false)} disabled={startMutation.isPending}>
-              Cancel
-            </Button>
-          </div>
-        </div>
       )}
 
       {jobId && job && (
@@ -397,10 +370,9 @@ export function GenerateVideoAction({
             </p>
           )}
           {job.status === "assets_ready" && (
-            <div className="rounded-md border border-amber-200 bg-amber-50 p-2 text-amber-900">
-              <p className="font-medium">Scene assets generated ✓</p>
-              <p className="mt-0.5">{job.progress_message}</p>
-            </div>
+            <p className="flex items-center gap-1.5 text-muted-foreground">
+              <Loader2 className="h-3 w-3 animate-spin" /> Almost done — finishing up your video…
+            </p>
           )}
           {job.status === "completed" && job.video_url && (
             <div className="space-y-2">
@@ -416,15 +388,12 @@ export function GenerateVideoAction({
             </div>
           )}
           {job.status === "failed" && (
-            <div>
-              <p className="text-destructive">{safeErrorMessage(job.error_message)}</p>
-              <SceneFailureDetails sceneAssets={job.scene_assets} />
-            </div>
+            <p className="text-destructive">Something went wrong generating this video. Please try again.</p>
           )}
         </div>
       )}
 
-      {!customizing && startMutation.isError && (
+      {startMutation.isError && (
         <p className="text-xs text-destructive">{startMutation.error instanceof Error ? startMutation.error.message : "Failed to start video generation."}</p>
       )}
     </div>
