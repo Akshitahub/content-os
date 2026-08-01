@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { createAdminClient } from "@/lib/supabase/server"
 import { publishToInstagram } from "@/lib/social/instagram-publish"
+import { publishReelToInstagram } from "@/lib/social/instagram-reel-publish"
 import { publishToFacebook } from "@/lib/social/facebook-publish"
 import { publishCarouselToInstagram } from "@/lib/social/instagram-carousel-publish"
 import { publishStorySequenceToInstagram } from "@/lib/social/instagram-story-publish"
@@ -150,9 +151,9 @@ async function processEntry(admin: AdminClient, entry: CalendarEntryRow): Promis
     return await recordFailure(admin, entry, `${isStory ? "Story sequence" : "Carousel"} scheduling is Instagram-only.`)
   }
 
-  if (isVideo && entry.platform !== "youtube") {
+  if (isVideo && entry.platform !== "youtube" && entry.platform !== "instagram") {
     console.error(`[cron/publish-scheduled] entry ${entry.id}: video content scheduled for ${entry.platform}, which isn't supported`)
-    return await recordFailure(admin, entry, "Video scheduling is YouTube-only.")
+    return await recordFailure(admin, entry, "Video scheduling is only supported on YouTube and Instagram.")
   }
 
   let imageUrl: string | null = null
@@ -307,24 +308,26 @@ async function processEntry(admin: AdminClient, entry: CalendarEntryRow): Promis
   const publishResult = isCarousel
     // ig_business_account_id is guaranteed non-null here — checked above.
     ? await publishCarouselToInstagram(connection.ig_business_account_id!, connection.access_token, { imageUrls: imageUrls!, caption })
-    : entry.platform === "instagram"
-      ? await publishToInstagram(connection.ig_business_account_id!, connection.access_token, { imageUrl: imageUrl!, caption })
-      : entry.platform === "threads"
-        // threads_user_id is guaranteed non-null here — checked above.
-        ? await publishToThreads(connection.threads_user_id!, connection.access_token, { imageUrl: imageUrl!, text: caption })
-        : entry.platform === "pinterest"
-          // pinterest_board_id is guaranteed non-null here — checked above.
-          ? await publishToPinterest(connection.pinterest_board_id!, connection.access_token, { imageUrl: imageUrl!, title: pinterestTitle, description: caption })
-          : entry.platform === "linkedin"
-            // zernio_account_id is guaranteed non-null here — checked above.
-            ? await publishViaZernio("linkedin", connection.zernio_account_id!, { text: caption, mediaUrls: [imageUrl!] })
-            : entry.platform === "youtube"
+    : entry.platform === "instagram" && isVideo
+      ? await publishReelToInstagram(connection.ig_business_account_id!, connection.access_token, { videoUrl: videoUrl!, caption })
+      : entry.platform === "instagram"
+        ? await publishToInstagram(connection.ig_business_account_id!, connection.access_token, { imageUrl: imageUrl!, caption })
+        : entry.platform === "threads"
+          // threads_user_id is guaranteed non-null here — checked above.
+          ? await publishToThreads(connection.threads_user_id!, connection.access_token, { imageUrl: imageUrl!, text: caption })
+          : entry.platform === "pinterest"
+            // pinterest_board_id is guaranteed non-null here — checked above.
+            ? await publishToPinterest(connection.pinterest_board_id!, connection.access_token, { imageUrl: imageUrl!, title: pinterestTitle, description: caption })
+            : entry.platform === "linkedin"
               // zernio_account_id is guaranteed non-null here — checked above.
-              ? await publishViaZernio("youtube", connection.zernio_account_id!, { text: caption, mediaUrls: [videoUrl!] })
-              : entry.platform === "twitter"
+              ? await publishViaZernio("linkedin", connection.zernio_account_id!, { text: caption, mediaUrls: [imageUrl!] })
+              : entry.platform === "youtube"
                 // zernio_account_id is guaranteed non-null here — checked above.
-                ? await publishViaZernio("twitter", connection.zernio_account_id!, { text: caption, mediaUrls: [imageUrl!] })
-                : await publishToFacebook(connection.facebook_page_id, connection.access_token, { imageUrl: imageUrl!, message: caption })
+                ? await publishViaZernio("youtube", connection.zernio_account_id!, { text: caption, mediaUrls: [videoUrl!] })
+                : entry.platform === "twitter"
+                  // zernio_account_id is guaranteed non-null here — checked above.
+                  ? await publishViaZernio("twitter", connection.zernio_account_id!, { text: caption, mediaUrls: [imageUrl!] })
+                  : await publishToFacebook(connection.facebook_page_id, connection.access_token, { imageUrl: imageUrl!, message: caption })
 
   if (!publishResult.success) {
     console.error(`[cron/publish-scheduled] entry ${entry.id}: publish failed (retryable=${publishResult.retryable}) — ${publishResult.error}`)
