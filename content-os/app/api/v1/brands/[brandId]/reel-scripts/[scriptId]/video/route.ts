@@ -5,6 +5,7 @@ import { generateSceneAssets } from "@/lib/video/reel-scene-assets"
 import { renderReelVideo } from "@/lib/video/render-trigger"
 import type { RenderReelVideoInput } from "@/lib/video/render-trigger"
 import { checkAndIncrementReelUsage } from "@/lib/usage/check-and-increment-reel-usage"
+import { MUSIC_OPTIONS } from "@/lib/video/music-options"
 import { z } from "zod"
 import type { ReelScriptRow, ReelVideoJobRow, ReelVideoJobInsert, Json } from "@/types/database"
 import type { ReelScene } from "@/types/app"
@@ -16,6 +17,9 @@ const bodySchema = z.object({
   // step, index-aligned with the script's own scenes. Optional — omitted
   // (or an empty array) falls back to each scene's original visual_direction.
   scenePrompts: z.array(z.string()).optional(),
+  // Which MUSIC_OPTIONS entry to use as background music. Optional —
+  // omitted or an unrecognized id falls back to "upbeat".
+  musicTrackId: z.string().optional(),
 })
 
 // Kling video generation is genuinely slow (submit + poll, often
@@ -26,14 +30,6 @@ const bodySchema = z.object({
 // real fix is moving off in-request polling (Kling supports a
 // `callBackUrl` webhook) rather than raising this further.
 export const maxDuration = 300
-
-// Placeholder tracks — see public/audio/README.md. These are genuinely
-// silent, code-generated files, not a real royalty-free asset.
-const MUSIC_TRACKS = [
-  "/audio/reel-music-1-placeholder-silent.wav",
-  "/audio/reel-music-2-placeholder-silent.wav",
-  "/audio/reel-music-3-placeholder-silent.wav",
-]
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function reelVideoJobsTable(supabase: any): any {
@@ -91,6 +87,7 @@ export async function POST(request: Request, { params }: RouteParams) {
   // Body is optional — an empty/absent body falls back to each scene's own
   // visual_direction (no prompt customization step used).
   let scenePrompts: string[] | undefined
+  let musicTrackId: string | undefined
   try {
     const rawBody = await request.text()
     if (rawBody.trim()) {
@@ -99,6 +96,7 @@ export async function POST(request: Request, { params }: RouteParams) {
         return NextResponse.json(buildError(ErrorCodes.VALIDATION_ERROR, "Validation failed.", parsed.error.issues[0]?.message), { status: 400 })
       }
       scenePrompts = parsed.data.scenePrompts
+      musicTrackId = parsed.data.musicTrackId
     }
   } catch {
     return NextResponse.json(buildError(ErrorCodes.VALIDATION_ERROR, "Invalid JSON."), { status: 400 })
@@ -118,7 +116,9 @@ export async function POST(request: Request, { params }: RouteParams) {
     return NextResponse.json(buildError(ErrorCodes.VALIDATION_ERROR, "This reel script has no scenes to turn into a video."), { status: 400 })
   }
 
-  const musicUrl = MUSIC_TRACKS[Math.floor(Math.random() * MUSIC_TRACKS.length)]!
+  const musicOption =
+    MUSIC_OPTIONS.find((m) => m.id === musicTrackId) ?? MUSIC_OPTIONS.find((m) => m.id === "upbeat")!
+  const musicUrl = musicOption.url
 
   const jobInsert: ReelVideoJobInsert = {
     brand_id: brandId,

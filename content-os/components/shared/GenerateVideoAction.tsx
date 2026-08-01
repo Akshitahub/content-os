@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
 import { isApiError } from "@/types/api"
+import { MUSIC_OPTIONS } from "@/lib/video/music-options"
 
 type VideoJobStatus = "pending" | "generating_images" | "generating_voiceover" | "assets_ready" | "rendering" | "completed" | "failed"
 
@@ -440,6 +441,7 @@ export function GenerateVideoAction({
   initialScenePrompts?: string[]
 }) {
   const [jobId, setJobId] = useState<string | null>(null)
+  const [musicTrackId, setMusicTrackId] = useState("upbeat")
   const scenePrompts = initialScenePrompts ?? []
 
   const startMutation = useMutation({
@@ -447,7 +449,7 @@ export function GenerateVideoAction({
       const res = await fetch(`/api/v1/brands/${brandId}/reel-scripts/${scriptId}/video`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(scenePrompts.length > 0 ? { scenePrompts } : {}),
+        body: JSON.stringify({ ...(scenePrompts.length > 0 ? { scenePrompts } : {}), musicTrackId }),
       })
       const json = await res.json() as { data?: { jobId: string }; error?: { message?: string } }
       if (!res.ok || !json.data) throw new Error(json.error?.message ?? "Failed to start video generation.")
@@ -475,16 +477,29 @@ export function GenerateVideoAction({
   return (
     <div className="space-y-1.5 border-t pt-2">
       {!jobId && (
-        <Button
-          size="sm"
-          variant="outline"
-          className="w-full"
-          onClick={() => startMutation.mutate()}
-          disabled={startMutation.isPending}
-        >
-          <Film className="mr-1.5 h-3.5 w-3.5" />
-          {startMutation.isPending ? "Starting…" : "Generate video"}
-        </Button>
+        <div className="space-y-1.5">
+          <select
+            className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
+            value={musicTrackId}
+            onChange={(e) => setMusicTrackId(e.target.value)}
+          >
+            {MUSIC_OPTIONS.map((option) => (
+              <option key={option.id} value={option.id}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+          <Button
+            size="sm"
+            variant="outline"
+            className="w-full"
+            onClick={() => startMutation.mutate()}
+            disabled={startMutation.isPending}
+          >
+            <Film className="mr-1.5 h-3.5 w-3.5" />
+            {startMutation.isPending ? "Starting…" : "Generate video"}
+          </Button>
+        </div>
       )}
 
       {jobId && job && (

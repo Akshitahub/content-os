@@ -8,7 +8,7 @@
 export interface RenderReelVideoInput {
   jobId: string
   scenes: { imageUrl: string; audioUrl: string | null; text: string; durationSeconds: number }[]
-  musicUrl: string
+  musicUrl: string | null
 }
 
 export type RenderReelVideoResult =
@@ -71,9 +71,9 @@ export async function renderReelVideo(input: RenderReelVideoInput): Promise<Rend
             ...(scene.audioUrl ? [{ type: "audio", src: scene.audioUrl }] : []),
           ],
         })),
-        elements: [
-          { type: "audio", src: input.musicUrl, volume: 0.2, duration: -1 },
-        ],
+        elements: input.musicUrl
+          ? [{ type: "audio", src: input.musicUrl, volume: 0.2, duration: -1 }]
+          : [],
       }),
     })
 
