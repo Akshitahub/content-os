@@ -200,6 +200,131 @@ function ScheduleToYoutube({ brandId, videoUrl, defaultCaption }: { brandId: str
   )
 }
 
+/**
+ * Schedules a completed Reel video to Instagram via the Zernio-backed
+ * schedule-post endpoint. Only rendered once the video job has actually
+ * finished, since there's nothing to schedule before that.
+ */
+function ScheduleToInstagram({ brandId, videoUrl, defaultCaption }: { brandId: string; videoUrl: string; defaultCaption?: string }) {
+  const [instagramConnected, setInstagramConnected] = useState<boolean | null>(null)
+  const [open, setOpen] = useState(false)
+  const [caption, setCaption] = useState(defaultCaption ?? "")
+  const [date, setDate] = useState(() => {
+    const d = new Date()
+    d.setDate(d.getDate() + 1)
+    return d.toISOString().split("T")[0]
+  })
+  const [time, setTime] = useState("10:00")
+  const [submitState, setSubmitState] = useState<"idle" | "loading" | "success" | "error">("idle")
+  const [errorMsg, setErrorMsg] = useState<string | null>(null)
+
+  const checkConnection = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/v1/brands/${brandId}/social-connections`)
+      const json: unknown = await res.json()
+      if (res.ok && !isApiError(json)) {
+        setInstagramConnected(Boolean((json as { data: { instagram_connected?: boolean } }).data.instagram_connected))
+      } else {
+        setInstagramConnected(false)
+      }
+    } catch {
+      setInstagramConnected(false)
+    }
+  }, [brandId])
+
+  useEffect(() => {
+    checkConnection()
+  }, [checkConnection])
+
+  const handleSchedule = useCallback(async () => {
+    setSubmitState("loading")
+    setErrorMsg(null)
+    try {
+      const res = await fetch("/api/v1/calendar/schedule-post", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          brandId,
+          platform: "instagram",
+          videoUrl,
+          contentFormat: "video",
+          caption,
+          hashtags: [],
+          scheduledDate: date,
+          scheduledTime: time,
+        }),
+      })
+      const json: unknown = await res.json()
+      if (!res.ok || isApiError(json)) {
+        setErrorMsg(isApiError(json) ? json.error.message : "Failed to schedule.")
+        setSubmitState("error")
+        return
+      }
+      setSubmitState("success")
+    } catch {
+      setErrorMsg("Network error. Please try again.")
+      setSubmitState("error")
+    }
+  }, [brandId, videoUrl, caption, date, time])
+
+  if (instagramConnected === null) return null
+
+  if (!instagramConnected) {
+    return (
+      <a
+        href={`/api/v1/social/instagram/connect?brandId=${brandId}`}
+        className="text-xs text-primary underline underline-offset-2"
+      >
+        Connect Instagram to schedule this
+      </a>
+    )
+  }
+
+  if (submitState === "success") {
+    return (
+      <div className="flex items-center gap-1.5 text-xs text-green-700">
+        <Check className="h-3 w-3" /> Scheduled for Instagram on {date} at {time}
+      </div>
+    )
+  }
+
+  if (!open) {
+    return (
+      <Button variant="outline" size="sm" className="w-full" onClick={() => setOpen(true)}>
+        <CalendarClock className="mr-1.5 h-3.5 w-3.5" /> Schedule to Instagram
+      </Button>
+    )
+  }
+
+  return (
+    <div className="space-y-2 rounded-md border p-2">
+      <div className="space-y-1">
+        <Label className="text-xs">Caption</Label>
+        <textarea
+          rows={2}
+          className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-xs placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring resize-none"
+          value={caption}
+          onChange={(e) => setCaption(e.target.value)}
+        />
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <div className="space-y-1">
+          <Label className="text-xs">Date</Label>
+          <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+        </div>
+        <div className="space-y-1">
+          <Label className="text-xs">Time</Label>
+          <Input type="time" value={time} onChange={(e) => setTime(e.target.value)} />
+        </div>
+      </div>
+      <Button size="sm" className="w-full" onClick={handleSchedule} disabled={submitState === "loading" || !caption.trim()}>
+        {submitState === "loading" ? "Scheduling…" : "Confirm schedule"}
+      </Button>
+      {submitState === "error" && errorMsg && <p className="text-xs text-destructive">{errorMsg}</p>}
+    </div>
+  )
+}
+
 interface SceneSuggestionState {
   loading: boolean
   suggestions: string[]
@@ -385,6 +510,7 @@ export function GenerateVideoAction({
                 <Download className="h-3 w-3" /> Download video
               </a>
               <ScheduleToYoutube brandId={brandId} videoUrl={job.video_url} defaultCaption={defaultCaption} />
+              <ScheduleToInstagram brandId={brandId} videoUrl={job.video_url} defaultCaption={defaultCaption} />
             </div>
           )}
           {job.status === "failed" && (
