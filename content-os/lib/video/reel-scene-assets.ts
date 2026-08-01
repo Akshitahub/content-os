@@ -109,7 +109,7 @@ async function generateSceneVoiceover(
     const groq = getGroqClient()
     const speech = await retryOn429(() =>
       groq.audio.speech.create({
-        input: text.slice(0, 2000),
+        input: text.slice(0, 200),
         model: TTS_MODEL,
         voice: TTS_VOICE,
         response_format: "wav",
