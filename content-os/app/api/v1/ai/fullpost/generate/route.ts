@@ -6,6 +6,7 @@ import { generateContent } from "@/lib/ai/content-generator"
 import { generatePostCardHtml } from "@/lib/design/post-card-generator"
 import { buildError, ErrorCodes } from "@/types/api"
 import { checkAndIncrementUsage } from "@/lib/usage/check-and-increment-usage"
+import { createPostImageSession } from "@/lib/usage/post-image-regenerate-session"
 import type { BrandRow, ProductRow } from "@/types/database"
 import type { GeneratedCaption, ReelScript, CarouselContent, AdCopy } from "@/types/app"
 
@@ -59,7 +60,22 @@ export async function POST(request: Request) {
       platform,
       hookText: format === "social_post" ? hook.hook_text : undefined,
       additionalContext,
+      includeImagePrompt: format === "social_post",
     })
+
+    // Only social_post has an AI-generated post image to regenerate — the
+    // session lets /api/v1/ai/post-image/generate know whether a given
+    // call is the chargeable initial generation, the free first
+    // regenerate, or a chargeable later one, without trusting the client.
+    let postSessionId: string | null = null
+    if (format === "social_post") {
+      const sessionResult = await createPostImageSession(user.id)
+      if ("sessionId" in sessionResult) {
+        postSessionId = sessionResult.sessionId
+      } else {
+        console.error("[ai/fullpost/generate] failed to create post image session:", sessionResult.error)
+      }
+    }
 
     const postCardHtml = generatePostCardHtml(brand, hook, format, platform, contentResult.data)
 
@@ -135,6 +151,7 @@ export async function POST(request: Request) {
         postCardHtml,
         platform,
         format,
+        postSessionId,
       },
     }, { status: 200 })
   } catch (err) {

@@ -23,6 +23,8 @@ export type GenerateContentOptions = {
   hookText?: string
   /** Brand's own past highly-rated content of this format, fed back in as few-shot examples. */
   pastExamples?: string[]
+  /** social_post only — asks the same Groq call to also produce an image_prompt grounded in this post's specific message, for the Create → Full Post AI image pipeline. */
+  includeImagePrompt?: boolean
 }
 
 type PromptConfig = { system: string; user: string; maxTokens: number }
@@ -35,7 +37,7 @@ function buildPrompts(
   switch (format) {
     case "social_post":
       return {
-        system: buildCaptionSystemPrompt(),
+        system: buildCaptionSystemPrompt(options.includeImagePrompt ?? false),
         user: buildCaptionUserPrompt(brand, {
           platform: options.platform ?? "instagram",
           contentType: "post",
@@ -43,8 +45,11 @@ function buildPrompts(
           additionalContext: options.additionalContext,
           product: options.product,
           pastExamples: options.pastExamples,
+          includeImagePrompt: options.includeImagePrompt,
         }),
-        maxTokens: 400,
+        // A bit more headroom when image_prompt is also being generated in
+        // the same JSON response, so it doesn't get truncated mid-field.
+        maxTokens: options.includeImagePrompt ? 550 : 400,
       }
     case "reel_script":
       return {

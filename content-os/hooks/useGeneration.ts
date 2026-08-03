@@ -19,7 +19,7 @@ import type {
   ContentFormat,
   Platform,
 } from "@/types/app"
-import type { GenerateHooksInput, GenerateCaptionsInput, GenerateImageInput, GenerateContentInput, GenerateFullPostInput } from "@/lib/validations/ai"
+import type { GenerateHooksInput, GenerateCaptionsInput, GenerateImageInput, GenerateContentInput, GenerateFullPostInput, GeneratePostImageInput } from "@/lib/validations/ai"
 
 // Discriminated union so components can narrow on result.format
 export type ContentResult =
@@ -36,11 +36,22 @@ export type FullPostResult = {
   postCardHtml: string | null
   platform: Platform
   format: ContentFormat
+  /** Only present for format "social_post" — ties subsequent post-image
+   * generate/regenerate calls to this post so charging can be decided
+   * server-side. See lib/usage/post-image-regenerate-session.ts. */
+  postSessionId: string | null
 }
 
 type GeneratedHookWithId = GeneratedHook & { id: string | null }
 type GeneratedCaptionWithId = GeneratedCaption & { id: string | null }
 type GeneratedImageWithId = GeneratedImage & { id: string | null }
+
+export type GeneratedPostImage = {
+  id: string | null
+  public_url: string
+  storage_path: string
+  image_prompt: string
+}
 
 function throwApiError(json: unknown, fallback: string): never {
   if (isApiError(json)) throw new ApiResponseError(json.error.code, json.error.message)
@@ -95,6 +106,25 @@ export function useGenerateCaption() {
 export function useGenerateImage() {
   return useMutation({
     mutationFn: fetchImage,
+  })
+}
+
+async function fetchPostImage(input: GeneratePostImageInput): Promise<GeneratedPostImage> {
+  const res = await fetch("/api/v1/ai/post-image/generate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  })
+  const json = await res.json()
+  if (!res.ok || isApiError(json)) throwApiError(json, "Image generation failed")
+  return json.data
+}
+
+/** Powers both the initial Create → Full Post AI image and the
+ * "Regenerate image" button — see app/api/v1/ai/post-image/generate/route.ts. */
+export function useGeneratePostImage() {
+  return useMutation({
+    mutationFn: fetchPostImage,
   })
 }
 

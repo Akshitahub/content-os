@@ -165,7 +165,15 @@ Respond with this exact JSON:
 }`
 }
 
-export function buildCaptionSystemPrompt(): string {
+// Opt-in extra output field for the Create → Full Post flow only — grounds
+// the post's AI-generated image in the same specific message as the
+// caption, rather than a generic brand-vibe photo generated independently.
+// Standalone caption generation (the Captions/Content tabs) never sets
+// this, so their JSON contract is unchanged.
+const IMAGE_PROMPT_INSTRUCTION = `
+IMAGE PROMPT: Also produce an "image_prompt" — a vivid visual scene description for an AI image generator that reflects THIS SPECIFIC post's message/topic, not a generic brand-vibe photo. Ground it in the same core message as the caption above — if there's a specific offer, event, or theme (e.g. "weekend flash sale," "new packaging launch"), the image prompt must visually reflect that, not just show the brand/product in the abstract. It must NOT describe any text, caption, or words appearing in the image itself (text is added separately) — as a soft compositional hint, leave the lower third of the frame visually simpler/less busy, since text will be overlaid there, but do not rely on this for actual text placement.`
+
+export function buildCaptionSystemPrompt(includeImagePrompt = false): string {
   return `You are an expert social media copywriter for Indian D2C brands. You write captions that convert — not just get likes.
 
 CAPTION STRUCTURE (follow this every time):
@@ -189,6 +197,7 @@ VIBE MATCHING:
 - Community: "Tag someone who...", "Drop a 🤍 if...", inclusive CTAs
 
 MANDATORY: The last 1-2 lines of caption_text MUST be the brand's CTA phrase followed by @handle on a new line.
+${includeImagePrompt ? IMAGE_PROMPT_INSTRUCTION : ""}
 ${QUALITY_BAR}
 
 Always respond with valid JSON only. No markdown, no explanation.`
@@ -203,6 +212,7 @@ export function buildCaptionUserPrompt(
     additionalContext?: string
     product?: ProductRow | null
     pastExamples?: string[]
+    includeImagePrompt?: boolean
   }
 ): string {
   const brandContext = buildBrandContext(brand, options.product)
@@ -229,6 +239,10 @@ export function buildCaptionUserPrompt(
     ? `"${ctaPhrase} 👇\\n${handle}"`
     : `"${ctaPhrase} 👇"`
 
+  const imagePromptField = options.includeImagePrompt
+    ? `,\n  "image_prompt": "vivid scene description grounded in this post's specific message/topic above, no text or words in the image, lower third kept visually simpler for text overlay"`
+    : ""
+
   return `${brandContext}${pastExamplesBlock}
 Platform: ${options.platform} — ${platformRules[options.platform]}
 Content type: ${options.contentType}
@@ -246,7 +260,7 @@ Respond with this exact JSON:
   "caption_text": "full caption ending with: ${ctaPhrase} 👇\\n${handle || "@handle"}",
   "hashtags": ["niche1", "niche2", "niche3", "niche4", "niche5", "brand1", "brand2", "brand3", "brand4", "brand5", "broad1", "broad2", "broad3", "broad4", "broad5"],
   "cta": "${ctaPhrase}",
-  "character_count": 123
+  "character_count": 123${imagePromptField}
 }`
 }
 
@@ -538,6 +552,12 @@ const IMAGE_STYLE_DESCRIPTIONS: Record<string, string> = {
   ugc_style: "authentic user-generated-content look, handheld phone photography feel, candid and unpolished but appealing",
 }
 
+// Shared across every AI image prompt built in this codebase (the
+// standalone Images tab here, and lib/ai/post-image-pipeline.ts for the
+// Create → Full Post flow) — anatomical/hand-rendering correctness and the
+// no-text/no-watermark rules matter regardless of which flow is asking.
+export const IMAGE_QUALITY_SAFETY_BOILERPLATE = "professional photography, no text, no watermarks, no logos, no illegible text or symbols, anatomically correct human features if any people are shown, correct number of fingers and limbs, natural hand positioning, 8K ultra HD, sharp focus"
+
 export function buildImagePrompt(
   brand: BrandRow,
   options: {
@@ -565,7 +585,7 @@ export function buildImagePrompt(
     if (colors.length) lines.push(`color palette ${colors.join(", ")}`)
   }
 
-  lines.push("professional photography, no text, no watermarks, no logos, no illegible text or symbols, anatomically correct human features if any people are shown, correct number of fingers and limbs, natural hand positioning, 8K ultra HD, sharp focus")
+  lines.push(IMAGE_QUALITY_SAFETY_BOILERPLATE)
   lines.push("prefer clear product framing or wide/environmental shots over close-up human hand or body detail when the scene allows it")
 
   return lines.join(", ")

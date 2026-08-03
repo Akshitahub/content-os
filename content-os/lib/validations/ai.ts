@@ -120,6 +120,38 @@ export const extractFromUrlSchema = z.object({
 
 export type ExtractFromUrlInput = z.infer<typeof extractFromUrlSchema>
 
+const postTemplateEnum = z.enum(["bold_statement", "product_focus", "quote_card", "minimal", "blank"])
+
+export const generatePostImageSchema = z.object({
+  brandId: z.string().uuid("Invalid brand ID"),
+  productId: z.string().uuid("Invalid product ID").optional(),
+  // Required — this route always renders a specific message-grounded scene,
+  // never falls back to a generic prompt (see lib/ai/post-image-pipeline.ts).
+  imagePrompt: z
+    .string()
+    .min(3, "Image prompt is too short")
+    .max(500, "Image prompt must be under 500 characters")
+    .transform((val) => val.replace(/<[^>]*>/g, "").trim()),
+  template: postTemplateEnum,
+  colorThemeId: z.string().min(1, "Color theme is required"),
+  headline: z
+    .string()
+    .max(120, "Headline must be under 120 characters")
+    .transform((val) => val.replace(/<[^>]*>/g, "").trim()),
+  ctaText: z
+    .string()
+    .max(60, "CTA text must be under 60 characters")
+    .optional()
+    .transform((val) => val?.replace(/<[^>]*>/g, "").trim()),
+  // Ties this call to the session created by /api/v1/ai/fullpost/generate,
+  // so the server (not any client-supplied flag) can determine whether this
+  // is the chargeable initial generation, the free first regenerate, or a
+  // chargeable later regenerate — see lib/usage/post-image-regenerate-session.ts.
+  postSessionId: z.string().uuid("Invalid session ID"),
+})
+
+export type GeneratePostImageInput = z.infer<typeof generatePostImageSchema>
+
 export const generateFullPostSchema = z.object({
   brandId: z.string().uuid("Invalid brand ID"),
   productId: z.string().uuid("Invalid product ID").optional(),

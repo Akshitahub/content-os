@@ -58,6 +58,8 @@ export type GeneratedCaption = {
   character_count: number
   /** Honest, non-predictive pattern-match note vs. the brand's own rating history. */
   pattern_note?: string | null
+  /** Only populated when requested via includeImagePrompt (Create → Full Post flow) — a visual scene description grounded in this same caption's specific message, for the AI post-image pipeline. */
+  image_prompt?: string | null
 }
 
 export type AspectRatio = "1:1" | "4:5" | "9:16" | "16:9"

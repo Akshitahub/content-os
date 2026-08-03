@@ -1065,6 +1065,23 @@ export type Database = {
           last_accessed_at?: string
         }
       }
+      post_image_generation_sessions: {
+        Row: {
+          id: string
+          user_id: string
+          image_generation_count: number
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          image_generation_count?: number
+          created_at?: string
+        }
+        Update: {
+          image_generation_count?: number
+        }
+      }
     }
     Views: Record<string, never>
     Functions: Record<string, never>
@@ -1095,6 +1112,7 @@ export type SocialConnectionRow = Database["public"]["Tables"]["social_connectio
 export type ReelVideoJobRow = Database["public"]["Tables"]["reel_video_jobs"]["Row"]
 export type StoryRow = Database["public"]["Tables"]["stories"]["Row"]
 export type MemeRow = Database["public"]["Tables"]["memes"]["Row"]
+export type PostImageGenerationSessionRow = Database["public"]["Tables"]["post_image_generation_sessions"]["Row"]
 
 // Insert types
 export type UserInsert = Database["public"]["Tables"]["users"]["Insert"]

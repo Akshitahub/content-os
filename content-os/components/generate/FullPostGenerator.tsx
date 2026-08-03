@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useCallback, useRef, useMemo } from "react"
-import { Sparkles, RefreshCw, Copy, Check, Download, ExternalLink, Archive, Loader2, AlertCircle, CalendarClock } from "lucide-react"
+import { Sparkles, RefreshCw, Copy, Check, Download, Archive, Loader2, AlertCircle, CalendarClock } from "lucide-react"
 import { ProductPicker, type PickedProduct } from "@/components/shared/ProductPicker"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
@@ -9,15 +9,15 @@ import { Input } from "@/components/ui/input"
 import { isApiError } from "@/types/api"
 import Link from "next/link"
 import { GeneratingState } from "@/components/shared/GeneratingState"
-import { PostPreviewCard, generatePreviewHtml } from "@/components/shared/PostPreviewCard"
-import type { PreviewTemplate } from "@/components/shared/PostPreviewCard"
-import { TEMPLATE_NAMES } from "@/lib/design/constants"
-import { useGenerateFullPost, useGenerateImage, ApiResponseError } from "@/hooks/useGeneration"
+import { POST_TEMPLATES, DEFAULT_POST_TEMPLATE_ID } from "@/lib/design/post-templates"
+import type { PostTemplateId } from "@/lib/design/post-templates"
+import { resolveColorThemes } from "@/lib/design/color-themes"
+import { useGenerateFullPost, useGeneratePostImage, ApiResponseError } from "@/hooks/useGeneration"
 import { useGenerationStore } from "@/stores/generationStore"
 import { useBrand } from "@/hooks/useBrand"
 import type { FullPostResult, ContentResult } from "@/hooks/useGeneration"
 import type { ProductRow } from "@/types/database"
-import type { GeneratedHook, GeneratedCaption, ReelScript, CarouselContent, BlogPost, AdCopy, ImageStyle, AspectRatio } from "@/types/app"
+import type { GeneratedHook, GeneratedCaption, ReelScript, CarouselContent, BlogPost, AdCopy } from "@/types/app"
 
 // ─── Canvas compositing helpers ──────────────────────────────────────────────
 
@@ -107,7 +107,7 @@ interface Props {
 
 export function FullPostGenerator({ brandId, products }: Props) {
   const { mutate: generate, isPending, error } = useGenerateFullPost()
-  const { mutate: generateImage, isPending: imageGenerating } = useGenerateImage()
+  const { mutate: generatePostImageMutate, isPending: imageGenerating } = useGeneratePostImage()
   const {
     fullPostResult,
     setFullPostResult,
@@ -125,24 +125,58 @@ export function FullPostGenerator({ brandId, products }: Props) {
   const secondaryColor = paletteColors[1] ?? "#818cf8"
   const brandName = brand?.name ?? "Brand"
 
+  const colorThemes = useMemo(() => resolveColorThemes(brand ?? null), [brand])
+
   const [additionalContext, setAdditionalContext] = useState("")
   const [copied, setCopied] = useState<string | null>(null)
   const [justSaved, setJustSaved] = useState(false)
-  const [selectedTemplate, setSelectedTemplate] = useState<PreviewTemplate>(1)
+  const [selectedLayout, setSelectedLayout] = useState<PostTemplateId>(DEFAULT_POST_TEMPLATE_ID)
+  const [selectedColorThemeId, setSelectedColorThemeId] = useState<string>("")
   const [postImageUrl, setPostImageUrl] = useState<string | null>(null)
+  const [imageSource, setImageSource] = useState<"ai" | "product_photo" | null>(null)
+  const [imageError, setImageError] = useState<string | null>(null)
+  const [postSessionId, setPostSessionId] = useState<string | null>(null)
   const [selectedProduct, setSelectedProduct] = useState<PickedProduct | null>(null)
   const abortControllerRef = useRef<AbortController | null>(null)
 
-  const previewHtml = useMemo(() => {
-    if (!fullPostResult) return undefined
-    return generatePreviewHtml(
-      fullPostResult.hook.hook_text,
-      brandName,
-      primaryColor,
-      secondaryColor,
-      selectedTemplate,
+  // colorThemes only resolves once the brand has loaded — falls back to the
+  // first available theme (always non-empty, curated presets included).
+  const effectiveColorThemeId = selectedColorThemeId || colorThemes[0]?.id || ""
+
+  const runImageGeneration = useCallback((data: FullPostResult, sessionId: string) => {
+    const caption = data.content.content as GeneratedCaption
+    const imagePrompt = (caption.image_prompt?.trim() || `${data.hook.hook_text}, ${brand?.niche ?? "brand"} product`).slice(0, 500)
+    const headline = data.hook.hook_text.slice(0, 120)
+    const ctaText = (brand?.cta_phrase ?? "").slice(0, 60) || undefined
+
+    setImageError(null)
+    generatePostImageMutate(
+      {
+        brandId,
+        productId: selectedProductId ?? undefined,
+        imagePrompt,
+        template: selectedLayout,
+        colorThemeId: effectiveColorThemeId,
+        headline,
+        ctaText,
+        postSessionId: sessionId,
+      },
+      {
+        onSuccess: (imgData) => {
+          setPostImageUrl(imgData.public_url)
+          setImageSource("ai")
+        },
+        onError: (err) => {
+          setImageError(err instanceof Error ? err.message : "Couldn't generate the post image. Please try again.")
+        },
+      }
     )
-  }, [fullPostResult, brandName, primaryColor, secondaryColor, selectedTemplate])
+  }, [brand, brandId, selectedProductId, selectedLayout, effectiveColorThemeId, generatePostImageMutate])
+
+  const handleRegenerateImage = useCallback(() => {
+    if (!fullPostResult || !postSessionId) return
+    runImageGeneration(fullPostResult, postSessionId)
+  }, [fullPostResult, postSessionId, runImageGeneration])
 
   useEffect(() => {
     if (occasionContext) setAdditionalContext(occasionContext.angle)
@@ -186,21 +220,14 @@ export function FullPostGenerator({ brandId, products }: Props) {
     setTimeout(() => setCopied(null), 2000)
   }, [])
 
-  function downloadCard(html: string) {
-    const blob = new Blob([html], { type: "text/html" })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement("a")
-    a.href = url
-    a.download = "post-card.html"
-    a.click()
-    URL.revokeObjectURL(url)
-  }
-
   function handleGenerate() {
     abortControllerRef.current?.abort()
     abortControllerRef.current = new AbortController()
     setJustSaved(false)
     setPostImageUrl(null)
+    setImageSource(null)
+    setImageError(null)
+    setPostSessionId(null)
 
     generate(
       {
@@ -213,6 +240,7 @@ export function FullPostGenerator({ brandId, products }: Props) {
       {
         onSuccess: (data) => {
           setFullPostResult(data)
+          setPostSessionId(data.postSessionId)
           setJustSaved(true)
           setTimeout(() => setJustSaved(false), 5000)
           if (selectedProduct?.imageUrl) {
@@ -223,20 +251,20 @@ export function FullPostGenerator({ brandId, products }: Props) {
               secondaryColor,
               brandName,
             )
-              .then((dataUrl) => setPostImageUrl(dataUrl))
-              .catch(() => {
-                if (selectedProduct.imageUrl) setPostImageUrl(selectedProduct.imageUrl)
+              .then((dataUrl) => {
+                setPostImageUrl(dataUrl)
+                setImageSource("product_photo")
               })
+              .catch(() => {
+                if (selectedProduct.imageUrl) {
+                  setPostImageUrl(selectedProduct.imageUrl)
+                  setImageSource("product_photo")
+                }
+              })
+          } else if (data.postSessionId) {
+            runImageGeneration(data, data.postSessionId)
           } else {
-            generateImage(
-              {
-                brandId,
-                prompt: data.hook.hook_text,
-                style: "product_photography" as ImageStyle,
-                aspectRatio: "1:1" as AspectRatio,
-              },
-              { onSuccess: (imgData) => setPostImageUrl(imgData.public_url) }
-            )
+            setImageError("Couldn't start image generation. Please try again.")
           }
         },
       }
@@ -277,35 +305,50 @@ export function FullPostGenerator({ brandId, products }: Props) {
           />
         </div>
 
-        {/* Template selector */}
+        {/* Layout + color theme — two independent choices, not preset combos.
+            Only affect the AI-generated image path below; the product-photo
+            path (compositeProductCard) keeps its own fixed look. */}
         <div className="space-y-1.5">
-          <Label className="text-xs">Post graphic template</Label>
-          <div className="grid grid-cols-4 gap-2">
-            {([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] as PreviewTemplate[]).map((t) => (
+          <Label className="text-xs">Post image layout</Label>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+            {POST_TEMPLATES.map((t) => (
               <button
-                key={t}
+                key={t.id}
                 type="button"
-                onClick={() => setSelectedTemplate(t)}
-                className={`relative overflow-hidden rounded-lg border-2 transition-all ${
-                  selectedTemplate === t ? "border-primary shadow-md" : "border-muted hover:border-primary/40"
+                onClick={() => setSelectedLayout(t.id)}
+                className={`relative rounded-lg border-2 p-2.5 text-left transition-all ${
+                  selectedLayout === t.id ? "border-primary bg-primary/5 shadow-sm" : "border-muted hover:border-primary/40"
                 }`}
               >
-                <PostPreviewCard
-                  hookText={brandName}
-                  brandName={brandName}
-                  primaryColor={primaryColor}
-                  secondaryColor={secondaryColor}
-                  template={t}
-                  px={90}
-                />
-                <div className="absolute inset-x-0 bottom-0 bg-black/60 py-1 px-1">
-                  <p className="truncate text-center text-[9px] font-medium text-white">{TEMPLATE_NAMES[t]}</p>
-                </div>
-                {selectedTemplate === t && (
-                  <div className="absolute right-1 top-1 flex h-4 w-4 items-center justify-center rounded-full bg-primary">
+                <p className="text-xs font-semibold">{t.label}</p>
+                <p className="mt-0.5 text-[10px] leading-snug text-muted-foreground">{t.description}</p>
+                {selectedLayout === t.id && (
+                  <div className="absolute right-1.5 top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-primary">
                     <Check className="h-2.5 w-2.5 text-white" />
                   </div>
                 )}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="space-y-1.5">
+          <Label className="text-xs">Color theme</Label>
+          <div className="flex flex-wrap gap-2">
+            {colorThemes.map((theme) => (
+              <button
+                key={theme.id}
+                type="button"
+                onClick={() => setSelectedColorThemeId(theme.id)}
+                className={`flex items-center gap-1.5 rounded-full border-2 px-2.5 py-1.5 text-xs font-medium transition-all ${
+                  effectiveColorThemeId === theme.id ? "border-primary shadow-sm" : "border-muted hover:border-primary/40"
+                }`}
+              >
+                <span
+                  className="h-4 w-4 shrink-0 rounded-full border border-black/10"
+                  style={{ background: `linear-gradient(135deg, ${theme.primary}, ${theme.secondary})` }}
+                />
+                {theme.label}
               </button>
             ))}
           </div>
@@ -372,13 +415,14 @@ export function FullPostGenerator({ brandId, products }: Props) {
       {fullPostResult && !isPending && (
         <FullPostResults
           result={fullPostResult}
-          previewHtml={previewHtml}
           copied={copied}
           onCopy={copy}
-          onDownload={downloadCard}
           brandId={brandId}
           postImageUrl={postImageUrl}
           imageGenerating={imageGenerating}
+          imageError={imageError}
+          imageSource={imageSource}
+          onRegenerateImage={handleRegenerateImage}
         />
       )}
     </div>
@@ -582,58 +626,6 @@ function ContentDisplay({ content, copied, onCopy }: { content: ContentResult; c
   }
 
   return null
-}
-
-function PostCardPreview({ html, onDownload }: { html: string; onDownload: (html: string) => void }) {
-  function openInBrowser() {
-    const blob = new Blob([html], { type: "text/html" })
-    const url = URL.createObjectURL(blob)
-    window.open(url, "_blank")
-  }
-
-  return (
-    <div className="rounded-lg border bg-card p-4 space-y-3">
-      <div className="flex items-center justify-between">
-        <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Post Graphic</span>
-        <div className="flex items-center gap-3">
-          <button
-            type="button"
-            onClick={openInBrowser}
-            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
-          >
-            <ExternalLink className="h-3.5 w-3.5" /> Open full size
-          </button>
-          <button
-            type="button"
-            onClick={() => onDownload(html)}
-            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
-          >
-            <Download className="h-3.5 w-3.5" /> Download HTML
-          </button>
-        </div>
-      </div>
-      <div
-        style={{ width: "100%", maxWidth: 360, height: 360, overflow: "hidden", borderRadius: 8, flexShrink: 0 }}
-        className="border"
-      >
-        <iframe
-          srcDoc={html}
-          sandbox="allow-same-origin"
-          title="Post graphic preview"
-          style={{
-            width: 1080,
-            height: 1080,
-            border: "none",
-            transform: "scale(0.333)",
-            transformOrigin: "top left",
-          }}
-        />
-      </div>
-      <p className="text-xs text-muted-foreground">
-        Click &quot;Open full size&quot; to view at 1080×1080px, or download the HTML file.
-      </p>
-    </div>
-  )
 }
 
 // ─── Schedule to Instagram/Facebook ──────────────────────────────────────────
@@ -865,24 +857,104 @@ function ScheduleAction({
   )
 }
 
+function PostImagePreview({
+  postImageUrl,
+  imageGenerating,
+  imageError,
+  showRegenerate,
+  onRegenerateImage,
+}: {
+  postImageUrl: string | null
+  imageGenerating: boolean
+  imageError: string | null
+  showRegenerate: boolean
+  onRegenerateImage: () => void
+}) {
+  if (imageGenerating) {
+    return (
+      <div className="rounded-lg border bg-card p-4 flex items-center gap-3">
+        <Loader2 className="h-4 w-4 animate-spin text-violet-500 shrink-0" />
+        <p className="text-sm text-muted-foreground">Generating post image…</p>
+      </div>
+    )
+  }
+
+  if (imageError) {
+    return (
+      <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 flex items-start gap-3">
+        <AlertCircle className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
+        <div className="flex-1 space-y-2">
+          <p className="text-sm text-amber-900 font-medium">{imageError}</p>
+          <button
+            type="button"
+            onClick={onRegenerateImage}
+            className="flex items-center gap-1.5 text-xs font-semibold text-amber-700 hover:text-amber-900"
+          >
+            🔄 Try again
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  if (!postImageUrl) return null
+
+  return (
+    <div className="rounded-lg border bg-card p-4 space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Post Image</span>
+        <div className="flex items-center gap-3">
+          {showRegenerate && (
+            <button
+              type="button"
+              onClick={onRegenerateImage}
+              className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <RefreshCw className="h-3.5 w-3.5" /> Regenerate image
+            </button>
+          )}
+          <a
+            href={postImageUrl}
+            download="post-image.png"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <Download className="h-3.5 w-3.5" /> Download
+          </a>
+        </div>
+      </div>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={postImageUrl}
+        alt="Generated post image"
+        className="w-full rounded-lg object-cover"
+        style={{ maxHeight: 360 }}
+      />
+    </div>
+  )
+}
+
 function FullPostResults({
   result,
-  previewHtml,
   copied,
   onCopy,
-  onDownload,
   brandId,
   postImageUrl,
   imageGenerating,
+  imageError,
+  imageSource,
+  onRegenerateImage,
 }: {
   result: FullPostResult
-  previewHtml?: string
   copied: string | null
   onCopy: (text: string, key: string) => void
-  onDownload: (html: string) => void
   brandId: string
-  postImageUrl?: string | null
-  imageGenerating?: boolean
+  postImageUrl: string | null
+  imageGenerating: boolean
+  imageError: string | null
+  imageSource: "ai" | "product_photo" | null
+  onRegenerateImage: () => void
 }) {
   const scheduleCaption = getScheduleCaption(result)
 
@@ -891,36 +963,15 @@ function FullPostResults({
       <HookSection hook={result.hook} copied={copied} onCopy={onCopy} />
       <ContentDisplay content={result.content} copied={copied} onCopy={onCopy} />
 
-      {/* Auto-generated post image */}
-      {imageGenerating && (
-        <div className="rounded-lg border bg-card p-4 flex items-center gap-3">
-          <Loader2 className="h-4 w-4 animate-spin text-violet-500 shrink-0" />
-          <p className="text-sm text-muted-foreground">Generating post image…</p>
-        </div>
-      )}
-      {postImageUrl && !imageGenerating && (
-        <div className="rounded-lg border bg-card p-4 space-y-3">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Post Image</span>
-            <a
-              href={postImageUrl}
-              download="post-image.jpg"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
-            >
-              <Download className="h-3.5 w-3.5" /> Download
-            </a>
-          </div>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={postImageUrl}
-            alt="Generated post image"
-            className="w-full rounded-lg object-cover"
-            style={{ maxHeight: 360 }}
-          />
-        </div>
-      )}
+      {/* This IS the final post image — exactly what downloads and what
+          gets scheduled, never a separate raw/unstyled preview. */}
+      <PostImagePreview
+        postImageUrl={postImageUrl}
+        imageGenerating={imageGenerating}
+        imageError={imageError}
+        showRegenerate={imageSource === "ai"}
+        onRegenerateImage={onRegenerateImage}
+      />
 
       {postImageUrl && !imageGenerating && scheduleCaption && (
         <ScheduleAction
@@ -931,9 +982,6 @@ function FullPostResults({
         />
       )}
 
-      {(previewHtml ?? result.postCardHtml) && (
-        <PostCardPreview html={(previewHtml ?? result.postCardHtml)!} onDownload={onDownload} />
-      )}
       <div className="flex justify-end">
         <Link
           href={`/brands/${brandId}/library`}
