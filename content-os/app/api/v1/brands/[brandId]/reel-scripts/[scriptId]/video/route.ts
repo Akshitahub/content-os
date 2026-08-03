@@ -4,7 +4,7 @@ import { buildError, ErrorCodes } from "@/types/api"
 import { generateSceneAssets } from "@/lib/video/reel-scene-assets"
 import { renderReelVideo } from "@/lib/video/render-trigger"
 import type { RenderReelVideoInput } from "@/lib/video/render-trigger"
-import { checkAndIncrementReelUsage } from "@/lib/usage/check-and-increment-reel-usage"
+import { checkAndIncrementReelUsage, refundReelUsage } from "@/lib/usage/check-and-increment-reel-usage"
 import { MUSIC_OPTIONS } from "@/lib/video/music-options"
 import { z } from "zod"
 import type { ReelScriptRow, ReelVideoJobRow, ReelVideoJobInsert, Json } from "@/types/database"
@@ -170,6 +170,10 @@ export async function POST(request: Request, { params }: RouteParams) {
             error_message: "Couldn't generate any usable scene assets for this video. Please try again.",
           })
           .eq("id", job.id)
+        // Total failure, nothing usable produced — don't let this burn a
+        // free user's one-time free reel or a pro/agency user's weekly
+        // allowance on a video that was never made.
+        await refundReelUsage(admin, user.id)
         return
       }
 
@@ -179,7 +183,7 @@ export async function POST(request: Request, { params }: RouteParams) {
           progress_message:
             failedScenes.length > 0
               ? `Video scenes ready — ${failedScenes.length} scene(s) had an issue and may need attention.`
-              : "All video scenes generated. Final render/composition isn't wired up yet (see project notes).",
+              : "All video scenes generated. Finalizing your video…",
           scene_assets: sceneAssets as unknown as Json,
         })
         .eq("id", job.id)

@@ -1,6 +1,8 @@
 import { createClient } from "@/lib/supabase/server"
 import { PLAN_LIMITS } from "@/types/app"
 import type { UserPlan } from "@/types/app"
+import type { SupabaseClient } from "@supabase/supabase-js"
+import type { Database } from "@/types/database"
 
 export type ReelUsageCheckResult =
   | { ok: true }
@@ -83,4 +85,48 @@ export async function checkAndIncrementReelUsage(userId: string): Promise<ReelUs
   }
 
   return { ok: true }
+}
+
+/**
+ * Undoes checkAndIncrementReelUsage's charge — called when a reel video job
+ * ends in total failure (no usable scene assets produced at all), so a
+ * free user's one-time free reel or a pro/agency user's weekly allowance
+ * isn't permanently spent on a video that was never produced. Never call
+ * this for a partial failure where a video still rendered — only for a
+ * complete failure with nothing usable.
+ *
+ * Takes the caller's own Supabase client rather than creating one via
+ * createClient() — this is meant to be called from background work (e.g.
+ * a Next.js `after()` callback) that already has its own client (usually
+ * the admin client, since a request-scoped cookie client isn't reliable
+ * once the response has already been sent).
+ */
+export async function refundReelUsage(supabase: SupabaseClient<Database>, userId: string): Promise<void> {
+  const { data: user, error } = await supabase
+    .from("users")
+    .select("plan, reel_count_this_week")
+    .eq("id", userId)
+    .single<{ plan: UserPlan; reel_count_this_week: number }>()
+
+  if (error || !user) {
+    console.error(`[check-and-increment-reel-usage] refund lookup failed for user ${userId}:`, error?.message)
+    return
+  }
+
+  if (user.plan === "free") {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await (supabase.from("users") as any)
+      .update({ free_reel_used_at: null })
+      .eq("id", userId)
+    return
+  }
+
+  if (user.plan === "pro" || user.plan === "agency") {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await (supabase.from("users") as any)
+      .update({ reel_count_this_week: Math.max(0, (user.reel_count_this_week ?? 0) - 1) })
+      .eq("id", userId)
+  }
+  // starter never reaches this — checkAndIncrementReelUsage already rejects
+  // it before incrementing anything, so there's nothing to refund.
 }
