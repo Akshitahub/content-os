@@ -178,11 +178,22 @@ export type ContentFormatOutputMap = {
 
 // ─── Plan limits ────────────────────────────────────────────────────────────
 
-export const PLAN_LIMITS: Record<UserPlan, { generations: number; brands: number; products: number; zernioSocialPlatforms: boolean; reelsPerWeek: number }> = {
-  free:    { generations: 15,   brands: 1, products: 5,    zernioSocialPlatforms: false, reelsPerWeek: 0 },
-  starter: { generations: 500,  brands: 2, products: 30,   zernioSocialPlatforms: false, reelsPerWeek: 0 },
-  pro:     { generations: 1200, brands: 3, products: 200,  zernioSocialPlatforms: true,  reelsPerWeek: 1 },
-  agency:  { generations: 2000, brands: 5, products: 1000, zernioSocialPlatforms: true,  reelsPerWeek: 4 },
+// Explicit, plan-aware Autopilot tiers — free gets a scaled preview (same
+// strategy engine, fewer days/posts, cheaper), paid plans get the full run.
+// Read by both the fastlane API route (server-side gating) and the
+// Autopilot page (client-side copy/cost display) so the two can never
+// drift out of sync with each other.
+export interface AutopilotTier {
+  days: number
+  slots: number
+  creditCost: number
+}
+
+export const PLAN_LIMITS: Record<UserPlan, { generations: number; brands: number; products: number; zernioSocialPlatforms: boolean; reelsPerWeek: number; autopilot: AutopilotTier }> = {
+  free:    { generations: 15,   brands: 1, products: 5,    zernioSocialPlatforms: false, reelsPerWeek: 0, autopilot: { days: 3,  slots: 5,  creditCost: 8 } },
+  starter: { generations: 500,  brands: 2, products: 30,   zernioSocialPlatforms: false, reelsPerWeek: 0, autopilot: { days: 30, slots: 30, creditCost: 30 } },
+  pro:     { generations: 1200, brands: 3, products: 200,  zernioSocialPlatforms: true,  reelsPerWeek: 1, autopilot: { days: 30, slots: 30, creditCost: 30 } },
+  agency:  { generations: 2000, brands: 5, products: 1000, zernioSocialPlatforms: true,  reelsPerWeek: 4, autopilot: { days: 30, slots: 30, creditCost: 30 } },
 }
 
 // ─── Trending context ────────────────────────────────────────────────────────

@@ -73,6 +73,10 @@ export interface AutopilotParams {
   platforms?: string[]
   vibe?: string
   focusAreas?: string[]
+  /** How many slots this run should plan for — defaults to 30 (the
+   * existing full Autopilot run). The free plan's scaled preview passes a
+   * smaller number (see PLAN_LIMITS[plan].autopilot in types/app.ts). */
+  totalSlots?: number
 }
 
 export interface StrategyOverview {
@@ -159,32 +163,66 @@ export async function generateStrategyOverview(brand: BrandRow, params?: Autopil
   return parsed
 }
 
-function buildContentMix(focusAreas?: string[]): typeof CONTENT_MIX {
-  if (!focusAreas?.length) return CONTENT_MIX
-  // Weight selected focus areas more heavily
-  const selected = CONTENT_MIX.filter(m => focusAreas.includes(m.pillar))
-  const others = CONTENT_MIX.filter(m => !focusAreas.includes(m.pillar))
-  if (!selected.length) return CONTENT_MIX
-  // Redistribute: selected pillars get ~70% of slots, others get ~30%
-  const total = 30
-  const selectedTotal = Math.round(total * 0.7)
-  const othersTotal = total - selectedTotal
-  const perSelected = Math.floor(selectedTotal / selected.length)
-  const perOthers = others.length ? Math.floor(othersTotal / others.length) : 0
-  return [
-    ...selected.map(m => ({ ...m, count: perSelected })),
-    ...others.map(m => ({ ...m, count: perOthers })),
-  ]
+/** Scales a content mix (whose counts sum to `sourceTotal`) down to sum to
+ * `targetTotal` instead — proportional per category, with the leftover
+ * from rounding handed to the categories with the largest fractional
+ * remainder first (so the result still sums exactly to targetTotal).
+ * Categories that round down to 0 are dropped entirely, since a "0 slots"
+ * line in the prompt's required-mix list only confuses the model. Used for
+ * the free plan's scaled Autopilot preview (e.g. 5 slots instead of 30) —
+ * a no-op when targetTotal already matches sourceTotal. */
+function scaleMix(mix: typeof CONTENT_MIX, targetTotal: number): typeof CONTENT_MIX {
+  const sourceTotal = mix.reduce((sum, m) => sum + m.count, 0)
+  if (sourceTotal === 0 || targetTotal === sourceTotal) return mix
+
+  const exact = mix.map(m => (m.count / sourceTotal) * targetTotal)
+  const floored = mix.map((m, i) => ({ ...m, count: Math.floor(exact[i]!) }))
+  let remainder = targetTotal - floored.reduce((sum, m) => sum + m.count, 0)
+
+  const byFraction = exact
+    .map((e, i) => ({ i, frac: e - Math.floor(e) }))
+    .sort((a, b) => b.frac - a.frac)
+  for (let k = 0; k < byFraction.length && remainder > 0; k++) {
+    floored[byFraction[k]!.i]!.count++
+    remainder--
+  }
+
+  return floored.filter(m => m.count > 0)
+}
+
+function buildContentMix(focusAreas?: string[], totalSlots = 30): typeof CONTENT_MIX {
+  const base = (() => {
+    if (!focusAreas?.length) return CONTENT_MIX
+    // Weight selected focus areas more heavily
+    const selected = CONTENT_MIX.filter(m => focusAreas.includes(m.pillar))
+    const others = CONTENT_MIX.filter(m => !focusAreas.includes(m.pillar))
+    if (!selected.length) return CONTENT_MIX
+    // Redistribute: selected pillars get ~70% of slots, others get ~30%
+    // (always computed against a base of 30, then scaled to totalSlots
+    // below — keeps this ratio identical regardless of plan tier).
+    const total = 30
+    const selectedTotal = Math.round(total * 0.7)
+    const othersTotal = total - selectedTotal
+    const perSelected = Math.floor(selectedTotal / selected.length)
+    const perOthers = others.length ? Math.floor(othersTotal / others.length) : 0
+    return [
+      ...selected.map(m => ({ ...m, count: perSelected })),
+      ...others.map(m => ({ ...m, count: perOthers })),
+    ]
+  })()
+
+  return totalSlots === 30 ? base : scaleMix(base, totalSlots)
 }
 
 function buildStrategyUserPrompt(brand: BrandRow, products: ProductRow[], params?: AutopilotParams): string {
+  const totalSlots = params?.totalSlots ?? 30
   const productNames = products.map(p => p.name).join(", ")
-  const upcomingOccasions = getUpcomingOccasions(new Date(), 30)
+  const upcomingOccasions = getUpcomingOccasions(new Date(), totalSlots)
   const occasionsNote = upcomingOccasions.length > 0
-    ? `\nUpcoming occasions in next 30 days (plan slots around these):\n${upcomingOccasions.map(o => `- ${o.name} ${o.emoji} (${o.date}): ${o.content_angle} — vibe: ${o.vibe}`).join("\n")}`
+    ? `\nUpcoming occasions in next ${totalSlots} days (plan slots around these):\n${upcomingOccasions.map(o => `- ${o.name} ${o.emoji} (${o.date}): ${o.content_angle} — vibe: ${o.vibe}`).join("\n")}`
     : ""
 
-  const mix = buildContentMix(params?.focusAreas)
+  const mix = buildContentMix(params?.focusAreas, totalSlots)
 
   const frequencyNote = params?.frequency
     ? `Posting frequency: ${params.frequency === "3x_week" ? "3 times/week (~13 posts/month)" : params.frequency === "5x_week" ? "5 times/week (~22 posts/month)" : "daily (30 posts/month)"}`
@@ -196,7 +234,7 @@ function buildStrategyUserPrompt(brand: BrandRow, products: ProductRow[], params
     ? `Preferred platforms: ${params.platforms.join(", ")} (weight these more heavily)`
     : "Vary platforms: 40% instagram, 20% tiktok, 15% linkedin, rest facebook/youtube/twitter"
 
-  return `Create a 30-day content strategy for this brand.
+  return `Create a ${totalSlots}-day content strategy for this brand.
 
 Brand: ${brand.name}
 Niche: ${brand.niche ?? "General"}
@@ -207,7 +245,7 @@ ${frequencyNote}
 ${vibeNote}
 ${occasionsNote}
 
-REQUIRED content mix — distribute these across 30 slots:
+REQUIRED content mix — distribute these across ${totalSlots} slots:
 ${mix.map(m => `- ${m.pillar} (${m.format}): ${m.count} slots`).join("\n")}
 
 Return ONLY this JSON (no markdown, no explanation):
@@ -219,7 +257,7 @@ Return ONLY this JSON (no markdown, no explanation):
 }
 
 Rules:
-- Exactly 30 slots, days 1-30
+- Exactly ${totalSlots} slots, days 1-${totalSlots}
 - content_type: "hooks" | "caption" | "reel_script" | "carousel" | "ad_copy"
 - platform: "instagram" | "tiktok" | "youtube" | "facebook" | "linkedin" | "twitter"
 - priority: "high" | "medium" | "low"
@@ -248,7 +286,7 @@ interface SlotContent {
   slides?: CarouselSlide[]
 }
 
-function buildSlotContentPrompt(brand: BrandRow, slot: ContentSlot, product: ProductRow | null): string {
+function buildSlotContentPrompt(brand: BrandRow, slot: ContentSlot, product: ProductRow | null, totalSlots: number): string {
   const productCtx = product
     ? `\nProduct: ${product.name}${product.description ? ` - ${product.description}` : ""}`
     : ""
@@ -272,9 +310,9 @@ function buildSlotContentPrompt(brand: BrandRow, slot: ContentSlot, product: Pro
 Brand niche: ${brand.niche ?? "D2C brand"}
 Brand tone: ${brand.tone_of_voice ?? "conversational"}
 Theme: ${slot.theme}${productCtx}${pillarCtx}
-Day: ${slot.day} of 30${pillarInstruction ? `\n${pillarInstruction}` : ""}
+Day: ${slot.day} of ${totalSlots}${pillarInstruction ? `\n${pillarInstruction}` : ""}
 
-IMPORTANT: This is slot ${slot.day}/30. Make it UNIQUE — different angle than typical posts for this brand.
+IMPORTANT: This is slot ${slot.day}/${totalSlots}. Make it UNIQUE — different angle than typical posts for this brand.
 
 Return this exact JSON:
 {"title":"post title","hook":"attention-grabbing opening line that stops the scroll","caption":"full post caption (2-4 sentences, brand voice, ends with CTA)","hashtags":["hashtag1","hashtag2","hashtag3","hashtag4","hashtag5"],"visual_direction":"describe the ideal image/video for this post","audio_suggestion":"suggested background music mood or sound","call_to_action":"specific action you want the audience to take"}`
@@ -330,6 +368,7 @@ async function generateSlotContent(
   brand: BrandRow,
   slot: ContentSlot,
   product: ProductRow | null,
+  totalSlots: number,
 ): Promise<SlotContent> {
   const groq = getGroqClient()
   const isCarousel = slot.content_type === "carousel"
@@ -348,7 +387,7 @@ async function generateSlotContent(
         role: "user",
         content: isCarousel
           ? buildCarouselSlotContentPrompt(brand, slot, product)
-          : buildSlotContentPrompt(brand, slot, product),
+          : buildSlotContentPrompt(brand, slot, product, totalSlots),
       },
     ],
   })
@@ -431,7 +470,8 @@ export async function executeFastlane(
     throw new Error("Failed to generate content strategy")
   }
 
-  const slots = strategy.slots.slice(0, 30)
+  const totalSlots = params?.totalSlots ?? 30
+  const slots = strategy.slots.slice(0, totalSlots)
   const slotsPlanned = slots.length
   let slotsGenerated = 0
   let calendarEntriesCreated = 0
@@ -455,7 +495,7 @@ export async function executeFastlane(
         slotDate.setDate(baseDate.getDate() + slot.day - 1)
         const scheduledDate = slotDate.toISOString().split("T")[0]
 
-        const generated = await generateSlotContent(brand, slot, product)
+        const generated = await generateSlotContent(brand, slot, product, totalSlots)
 
         // Persist hook (non-fatal)
         let hookId: string | null = null

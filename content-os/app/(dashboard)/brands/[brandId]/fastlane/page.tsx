@@ -9,7 +9,8 @@ import { CalendarEntryPanel } from "@/components/calendar/CalendarEntryPanel"
 import Link from "next/link"
 import posthog from "posthog-js"
 import { POSTHOG_KEY } from "@/lib/analytics/posthog"
-import type { FastlaneResult } from "@/types/app"
+import { PLAN_LIMITS } from "@/types/app"
+import type { FastlaneResult, UserPlan } from "@/types/app"
 import type { CalendarEntryRow } from "@/types/database"
 
 const STATUS_BADGE: Record<string, string> = {
@@ -84,7 +85,16 @@ export default function AutopilotPage() {
   const [warning, setWarning] = useState<WarningData | null>(null)
   const [upsellData, setUpsellData] = useState<UpsellData | null>(null)
   const [userCredits, setUserCredits] = useState<number | null>(null)
+  const [userPlan, setUserPlan] = useState<UserPlan | null>(null)
   const [progress, setProgress] = useState(0)
+
+  // Explicit, plan-aware Autopilot tier (PLAN_LIMITS[plan].autopilot) —
+  // defaults to the free tier's numbers while the plan is still loading,
+  // since that's the most conservative assumption (never shows a bigger
+  // promise than what might actually be available).
+  const tier = PLAN_LIMITS[userPlan ?? "free"].autopilot
+  const isFreeTier = (userPlan ?? "free") === "free"
+  const hasEnoughCredits = userCredits === null || userCredits >= tier.creditCost
 
   // Review/approve-then-schedule step — Autopilot itself only ever
   // produces content_ready entries; nothing flips to scheduled without
@@ -102,12 +112,14 @@ export default function AutopilotPage() {
   const [strategyLoading, setStrategyLoading] = useState(false)
   const [strategyError, setStrategyError] = useState<string | null>(null)
 
-  // Fetch remaining credits for the indicator
+  // Fetch remaining credits + plan (drives which Autopilot tier — full vs.
+  // free preview — this page shows and gates against).
   useEffect(() => {
     fetch("/api/v1/user/profile")
       .then(r => r.json())
-      .then((json: { data?: { remaining: number } }) => {
+      .then((json: { data?: { remaining: number; plan?: string } }) => {
         if (json.data?.remaining !== undefined) setUserCredits(json.data.remaining)
+        if (json.data?.plan && json.data.plan in PLAN_LIMITS) setUserPlan(json.data.plan as UserPlan)
       })
       .catch(() => {})
   }, [])
@@ -321,8 +333,15 @@ export default function AutopilotPage() {
               <Plane className="h-10 w-10 text-white" />
             </div>
             <h1 className="text-4xl font-bold tracking-tight">Autopilot</h1>
+            {isFreeTier ? (
+              <span className="mt-2 inline-block rounded-full bg-violet-100 px-3 py-1 text-xs font-semibold text-violet-700">
+                Free preview ({tier.days} days, ~{tier.slots} posts)
+              </span>
+            ) : null}
             <p className="mt-3 text-muted-foreground max-w-md mx-auto">
-              Generate a complete 30-day content calendar tailored to how you create. Set your preferences and let AI do the rest.
+              {isFreeTier
+                ? `Get a taste of Autopilot: the same strategy engine, scaled down to a ${tier.days}-day, ~${tier.slots}-post preview. Upgrade for the full 30-day calendar.`
+                : "Generate a complete 30-day content calendar tailored to how you create. Set your preferences and let AI do the rest."}
             </p>
           </div>
 
@@ -418,20 +437,22 @@ export default function AutopilotPage() {
             <div className="pt-2 space-y-3">
               {/* Credit indicator */}
               {userCredits !== null && (
-                <div className={`rounded-lg px-4 py-2.5 text-sm ${userCredits >= 30 ? "bg-green-50 text-green-700 border border-green-200" : "bg-amber-50 text-amber-700 border border-amber-200"}`}>
-                  ⚡ Autopilot uses 30 credits. You have <strong>{userCredits}</strong> remaining.
+                <div className={`rounded-lg px-4 py-2.5 text-sm ${hasEnoughCredits ? "bg-green-50 text-green-700 border border-green-200" : "bg-amber-50 text-amber-700 border border-amber-200"}`}>
+                  ⚡ Autopilot uses {tier.creditCost} credits. You have <strong>{userCredits}</strong> remaining.
+                  {!hasEnoughCredits && " You don't have enough credits to run it right now."}
                 </div>
               )}
               <Button
                 size="lg"
                 className="w-full gap-2 bg-gradient-to-r from-violet-600 to-indigo-600 text-white hover:from-violet-700 hover:to-indigo-700 shadow-md"
                 onClick={() => fetchStrategyPreview()}
+                disabled={!hasEnoughCredits}
               >
                 <Plane className="h-5 w-5" />
                 Launch Autopilot
               </Button>
               <p className="text-center text-xs text-muted-foreground">
-                Uses 30 generation credits · Adds 30 entries to your content calendar
+                Uses {tier.creditCost} generation credits · Adds {tier.slots} entries to your content calendar
               </p>
             </div>
           </div>
@@ -497,10 +518,16 @@ export default function AutopilotPage() {
               </Card>
 
               <div className="mt-6 space-y-3">
+                {!hasEnoughCredits && (
+                  <p className="text-center text-xs text-amber-700">
+                    You don&apos;t have enough credits to run this ({tier.creditCost} needed). Go back to check, or upgrade.
+                  </p>
+                )}
                 <Button
                   size="lg"
                   className="w-full gap-2 bg-gradient-to-r from-violet-600 to-indigo-600 text-white hover:from-violet-700 hover:to-indigo-700 shadow-md"
                   onClick={() => runAutopilot()}
+                  disabled={!hasEnoughCredits}
                 >
                   <Plane className="h-5 w-5" />
                   Looks good, generate my calendar
@@ -525,7 +552,7 @@ export default function AutopilotPage() {
           </div>
           <h2 className="text-center text-2xl font-bold">You already have content planned</h2>
           <p className="mt-2 text-center text-muted-foreground">
-            You have <strong>{warning.existing_count} posts</strong> scheduled for the next 30 days.
+            You have <strong>{warning.existing_count} posts</strong> scheduled for the next {tier.days} days.
             Running Autopilot again will add more entries on top.
           </p>
 
@@ -550,7 +577,7 @@ export default function AutopilotPage() {
           </div>
 
           <p className="mt-4 text-center text-xs text-muted-foreground">
-            "Clear and regenerate" deletes all upcoming calendar entries and creates a fresh 30-day plan.
+            &quot;Clear and regenerate&quot; deletes all upcoming calendar entries and creates a fresh {tier.days}-day plan.
           </p>
         </div>
       )}
@@ -561,9 +588,9 @@ export default function AutopilotPage() {
           <div className="mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-600 to-indigo-600 shadow-lg shadow-violet-200">
             <Loader2 className="h-10 w-10 text-white animate-spin" />
           </div>
-          <h2 className="text-2xl font-bold">Building your 30-day plan…</h2>
+          <h2 className="text-2xl font-bold">Building your {tier.days}-day plan…</h2>
           <p className="mt-2 text-muted-foreground">
-            AI is crafting your content strategy and generating all 30 slots. This takes 1–3 minutes.
+            AI is crafting your content strategy and generating all {tier.slots} slots. This takes 1–3 minutes.
           </p>
 
           {/* Animated gradient progress bar */}
@@ -575,7 +602,7 @@ export default function AutopilotPage() {
                   : progress < 20
                   ? "Building content strategy…"
                   : progress < 92
-                  ? `Generating slot ${Math.ceil(((progress - 20) / 72) * 30)} of 30…`
+                  ? `Generating slot ${Math.ceil(((progress - 20) / 72) * tier.slots)} of ${tier.slots}…`
                   : "Saving to calendar…"}
               </span>
               <span className="text-xs font-medium text-violet-600">{progress}%</span>
@@ -593,7 +620,7 @@ export default function AutopilotPage() {
             {[
               { text: "Analysing your brand and products", done: progress >= 10 },
               { text: "Generating personalised content strategy", done: progress >= 20 },
-              { text: `Creating 30 content slots (${Math.min(30, Math.ceil(((progress - 20) / 72) * 30))} / 30)`, done: progress >= 92 },
+              { text: `Creating ${tier.slots} content slots (${Math.min(tier.slots, Math.ceil(((progress - 20) / 72) * tier.slots))} / ${tier.slots})`, done: progress >= 92 },
               { text: "Saving to your calendar", done: progress >= 100 },
             ].map(({ text, done }, i) => (
               <div key={i} className="flex items-center gap-3 rounded-lg border bg-card px-4 py-3">
@@ -614,7 +641,11 @@ export default function AutopilotPage() {
             <CheckCircle2 className="h-10 w-10 text-white" />
           </div>
           <h2 className="text-3xl font-bold">You&apos;re on Autopilot!</h2>
-          <p className="mt-2 text-muted-foreground">Your 30-day content plan is ready and waiting in your calendar.</p>
+          <p className="mt-2 text-muted-foreground">
+            {isFreeTier
+              ? `Your ${tier.days}-day preview is ready and waiting in your calendar. Upgrade for the full 30-day plan.`
+              : `Your ${tier.days}-day content plan is ready and waiting in your calendar.`}
+          </p>
 
           <div className="mt-8 grid gap-4 sm:grid-cols-3">
             {[
@@ -717,31 +748,36 @@ export default function AutopilotPage() {
             </div>
           )}
 
-          {/* Content breakdown summary */}
-          <Card className="mt-4 text-left">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm">Your content mix</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="flex flex-wrap gap-2">
-                {[
-                  { label: "Product posts", count: 5, color: "bg-violet-100 text-violet-700" },
-                  { label: "Behind scenes", count: 4, color: "bg-indigo-100 text-indigo-700" },
-                  { label: "Education", count: 4, color: "bg-blue-100 text-blue-700" },
-                  { label: "Occasions", count: 4, color: "bg-orange-100 text-orange-700" },
-                  { label: "Testimonials", count: 3, color: "bg-green-100 text-green-700" },
-                  { label: "Humor", count: 3, color: "bg-yellow-100 text-yellow-700" },
-                  { label: "Announcements", count: 3, color: "bg-pink-100 text-pink-700" },
-                  { label: "Founder story", count: 2, color: "bg-purple-100 text-purple-700" },
-                  { label: "Inspiration", count: 2, color: "bg-teal-100 text-teal-700" },
-                ].map(({ label, count, color }) => (
-                  <span key={label} className={`rounded-full px-2.5 py-1 text-xs font-medium ${color}`}>
-                    {label} ×{count}
-                  </span>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
+          {/* Content breakdown summary — this specific breakdown is only
+              accurate for the full 30-slot mix, so it's skipped for the
+              free-tier preview rather than show numbers that don't match
+              what was actually generated. */}
+          {result.slots_planned === 30 && (
+            <Card className="mt-4 text-left">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm">Your content mix</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="flex flex-wrap gap-2">
+                  {[
+                    { label: "Product posts", count: 5, color: "bg-violet-100 text-violet-700" },
+                    { label: "Behind scenes", count: 4, color: "bg-indigo-100 text-indigo-700" },
+                    { label: "Education", count: 4, color: "bg-blue-100 text-blue-700" },
+                    { label: "Occasions", count: 4, color: "bg-orange-100 text-orange-700" },
+                    { label: "Testimonials", count: 3, color: "bg-green-100 text-green-700" },
+                    { label: "Humor", count: 3, color: "bg-yellow-100 text-yellow-700" },
+                    { label: "Announcements", count: 3, color: "bg-pink-100 text-pink-700" },
+                    { label: "Founder story", count: 2, color: "bg-purple-100 text-purple-700" },
+                    { label: "Inspiration", count: 2, color: "bg-teal-100 text-teal-700" },
+                  ].map(({ label, count, color }) => (
+                    <span key={label} className={`rounded-full px-2.5 py-1 text-xs font-medium ${color}`}>
+                      {label} ×{count}
+                    </span>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
           {result.strategy_summary && (
             <Card className="mt-4 text-left">
@@ -801,7 +837,9 @@ export default function AutopilotPage() {
           <div className="text-5xl">⚡</div>
           <h2 className="text-xl font-bold">Unlock Autopilot</h2>
           <p className="text-muted-foreground text-sm max-w-sm mx-auto">
-            Autopilot generates 30 days of content in one click.
+            {isFreeTier
+              ? `Autopilot's free preview needs ${upsellData.creditsNeeded} credits.`
+              : `Autopilot generates ${tier.days} days of content in one click.`}{" "}
             You have <strong>{upsellData.remainingCredits}</strong> credits left on your{" "}
             <strong>{upsellData.plan}</strong> plan.
           </p>
