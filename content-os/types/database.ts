@@ -401,6 +401,7 @@ export type Database = {
           is_ready: boolean
           platform_specific_data: Json
           publish_attempts: number
+          error_message: string | null
           created_at: string
           updated_at: string
         }
@@ -427,6 +428,7 @@ export type Database = {
           is_ready?: boolean
           platform_specific_data?: Json
           publish_attempts?: number
+          error_message?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -450,6 +452,7 @@ export type Database = {
           is_ready?: boolean
           platform_specific_data?: Json
           publish_attempts?: number
+          error_message?: string | null
           updated_at?: string
         }
       }

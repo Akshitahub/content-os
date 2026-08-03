@@ -235,7 +235,7 @@ export function CalendarEntryPanel({ entry, onClose, onUpdate, brandId }: Calend
                     </span>
                   )}
                   <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_STYLES[entry.status] ?? STATUS_STYLES.planned}`}>
-                    {entry.status.replace("_", " ")}
+                    {entry.status === "missed" ? "Missed" : entry.status.replace("_", " ")}
                   </span>
                   {entry.is_ready && (
                     <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700">
@@ -253,6 +253,18 @@ export function CalendarEntryPanel({ entry, onClose, onUpdate, brandId }: Calend
 
             {/* Scrollable content */}
             <div className="flex-1 overflow-y-auto p-5 space-y-5">
+              {/* Missed — surfaces why, if the cron job recorded a reason */}
+              {entry.status === "missed" && (
+                <div className="rounded-lg border border-red-200 bg-red-50 p-3">
+                  <p className="text-sm font-semibold text-red-800">This post wasn&apos;t published</p>
+                  <p className="mt-1 text-xs text-red-700">
+                    {entry.error_message
+                      ? entry.error_message
+                      : "Auto-publishing failed after multiple attempts. Copy the content below and post it manually."}
+                  </p>
+                </div>
+              )}
+
               {/* AI image or carousel preview */}
               {(() => {
                 const platformData = entry.platform_specific_data as Record<string, unknown> | null

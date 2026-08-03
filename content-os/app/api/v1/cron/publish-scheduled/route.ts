@@ -66,7 +66,7 @@ async function recordFailure(admin: AdminClient, entry: CalendarEntryRow, reason
   const nextStatus = attempts >= MAX_PUBLISH_ATTEMPTS ? "missed" : "scheduled"
 
   const { error } = await calendarEntriesTable(admin)
-    .update({ publish_attempts: attempts, status: nextStatus, updated_at: new Date().toISOString() })
+    .update({ publish_attempts: attempts, status: nextStatus, error_message: reason, updated_at: new Date().toISOString() })
     .eq("id", entry.id)
 
   if (error) {
@@ -279,6 +279,7 @@ async function processEntry(admin: AdminClient, entry: CalendarEntryRow): Promis
           hosted_image_urls: imageUrls,
           instagram_story_media_ids: storyResult.instagramMediaIds,
         },
+        error_message: null,
         updated_at: publishedAt,
       })
       .eq("id", entry.id)
@@ -372,6 +373,7 @@ async function processEntry(admin: AdminClient, entry: CalendarEntryRow): Promis
         ...(isCarousel ? { hosted_image_urls: imageUrls } : isVideo ? { video_url: videoUrl } : { hosted_image_url: imageUrl }),
         [mediaIdKey]: externalId,
       },
+      error_message: null,
       updated_at: publishedAt,
     })
     .eq("id", entry.id)

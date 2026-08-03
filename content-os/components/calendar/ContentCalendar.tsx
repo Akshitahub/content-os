@@ -223,9 +223,14 @@ export function ContentCalendar({ brandId }: ContentCalendarProps) {
                   {dayEntries.slice(0, 4).map((entry) => (
                     <div
                       key={entry.id}
-                      className="cursor-pointer"
+                      className="relative cursor-pointer"
                       onClick={() => setSelectedEntry(entry)}
                     >
+                      {entry.status === "missed" && (
+                        <span className="absolute right-1 top-1 z-10 rounded-full bg-red-600 px-1.5 py-0.5 text-[8px] font-bold uppercase leading-none text-white shadow">
+                          Missed
+                        </span>
+                      )}
                       <PostCard
                         type={entry.content_type === "carousel" ? "carousel" : entry.content_type === "story" ? "story" : "caption"}
                         content={entry.title}
@@ -278,19 +283,25 @@ export function ContentCalendar({ brandId }: ContentCalendarProps) {
                   {dayEntries.slice(0, 3).map(entry => {
                     const grad = PLATFORM_GRADIENTS[entry.platform ?? "instagram"] ?? "from-violet-500 to-indigo-500"
                     const dot = STATUS_DOT[entry.status] ?? "bg-gray-400"
+                    const isMissed = entry.status === "missed"
                     return (
                       <div
                         key={entry.id}
                         className="group relative rounded-md overflow-hidden cursor-pointer"
                         onClick={e => { e.stopPropagation(); setSelectedEntry(entry) }}
-                        title={entry.title}
+                        title={isMissed ? `${entry.title} — Missed` : entry.title}
                       >
                         {/* Mini gradient card */}
-                        <div className={`bg-gradient-to-r ${grad} px-1.5 py-1 flex items-center gap-1`}>
+                        <div className={`bg-gradient-to-r ${grad} px-1.5 py-1 flex items-center gap-1 ${isMissed ? "ring-1 ring-inset ring-red-500" : ""}`}>
                           <span className={`shrink-0 h-1.5 w-1.5 rounded-full ${dot} ring-1 ring-white/50`} />
                           <span className="truncate text-[10px] font-medium text-white leading-tight flex-1">
                             {entry.title}
                           </span>
+                          {isMissed && (
+                            <span className="shrink-0 rounded-full bg-red-600 px-1 py-px text-[8px] font-bold uppercase leading-none text-white">
+                              Missed
+                            </span>
+                          )}
                           <span className="shrink-0 text-[9px] text-white/70">{PLATFORM_EMOJIS[entry.platform ?? ""] ?? ""}</span>
                           <button
                             className="shrink-0 hidden group-hover:flex items-center justify-center h-3 w-3 rounded-full bg-black/20 hover:bg-black/40"

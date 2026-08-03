@@ -3,6 +3,7 @@
 import { useState, useCallback } from "react"
 import { Copy, Check, MoreHorizontal, Trash2, ExternalLink } from "lucide-react"
 import { scoreHook, scoreColor, scoreLabel } from "@/lib/utils/content-score"
+import { STATUS_COLORS } from "@/lib/design/constants"
 import type { Platform } from "@/types/app"
 
 // ─── Platform gradients & icons ───────────────────────────────────────────────
@@ -165,13 +166,8 @@ export function PostCard({
         <div className="flex items-center gap-1 shrink-0">
           {date && !isSmall && <span className="text-[10px] text-muted-foreground">{date}</span>}
           {status && !isSmall && (
-            <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
-              status === "published" ? "bg-green-100 text-green-700" :
-              status === "scheduled" ? "bg-blue-100 text-blue-700" :
-              status === "content_ready" ? "bg-violet-100 text-violet-700" :
-              "bg-gray-100 text-gray-600"
-            }`}>
-              {status}
+            <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${STATUS_COLORS[status] ?? "bg-gray-100 text-gray-600"}`}>
+              {status === "missed" ? "Missed" : status}
             </span>
           )}
         </div>
