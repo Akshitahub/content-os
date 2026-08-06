@@ -1,9 +1,17 @@
 import { MODELS, getGroqClient } from "./models"
 import { generateCarouselHtml } from "@/lib/design/post-card-generator"
 import { getUpcomingOccasions } from "@/lib/data/indian-occasions"
+import { generatePostImage } from "@/lib/ai/post-image-pipeline"
+import { DEFAULT_POST_TEMPLATE_ID } from "@/lib/design/post-templates"
+import { resolveColorThemes } from "@/lib/design/color-themes"
+import { createAdminClient } from "@/lib/supabase/server"
 import type { BrandRow, ProductRow, CalendarEntryRow } from "@/types/database"
 import type { ContentStrategy, ContentSlot, FastlaneResult, Platform } from "@/types/app"
 import type { SupabaseClient } from "@supabase/supabase-js"
+
+// Same bucket used by app/api/v1/ai/post-image/generate/route.ts — Autopilot
+// images go through the same pipeline and land in the same place.
+const IMAGE_BUCKET = "brand-images"
 
 const CONTENT_MIX = [
   { pillar: "product", format: "carousel" as const, count: 5, description: "Showcase products, features, and benefits" },
@@ -42,22 +50,6 @@ async function generateWithRetry(groq: ReturnType<typeof getGroqClient>, params:
       return generateWithRetry(groq, params, retries - 1)
     }
     throw err
-  }
-}
-
-async function generatePostImage(
-  visual_direction: string,
-  brand_name: string,
-  platform: string,
-): Promise<string | null> {
-  try {
-    const safeDirection = visual_direction.slice(0, 200)
-    const prompt = `${safeDirection}, professional quality, ${brand_name}, ${platform} social media post, high quality, no text, no watermarks, no logos, no illegible text or symbols, anatomically correct human features if any people are shown, correct number of fingers and limbs, natural hand positioning`
-    const encodedPrompt = encodeURIComponent(prompt)
-    const seed = Math.floor(Math.random() * 100000)
-    return `https://image.pollinations.ai/prompt/${encodedPrompt}?width=1080&height=1080&seed=${seed}&nologo=true&model=flux`
-  } catch {
-    return null
   }
 }
 
@@ -462,6 +454,22 @@ export async function executeFastlane(
   const productList: ProductRow[] = products ?? []
   const productByName = new Map(productList.map(p => [p.name.toLowerCase(), p]))
 
+  // The shared post-image pipeline's template/colorTheme are a manual
+  // picker choice in the Create flow — Autopilot has no per-slot (or
+  // brand-level) equivalent selection to read, so these fall back to the
+  // same defaults the Create UI itself starts with before a user touches
+  // the picker (DEFAULT_POST_TEMPLATE_ID, and the brand's own resolved
+  // color theme — brand colors if set, else the first curated preset).
+  // Resolved once so all of this run's images share one consistent look,
+  // rather than re-resolving (identically) per slot.
+  const imageTemplate = DEFAULT_POST_TEMPLATE_ID
+  const imageColorTheme = resolveColorThemes(brand)[0]!
+
+  // Storage RLS expects the path to start with the user's auth uid — admin
+  // bypasses RLS safely here since brand ownership is already verified
+  // above (same pattern as app/api/v1/ai/post-image/generate/route.ts).
+  const admin = await createAdminClient()
+
   let strategy: ContentStrategy
   try {
     strategy = await generateContentStrategy(brand, productList, params)
@@ -544,16 +552,43 @@ export async function executeFastlane(
           }
         }
 
-        // Generate AI image (non-blocking — just constructs a Pollinations URL)
+        // Generate the AI post image via the same shared pipeline (prompt
+        // grounding, quality-check/retry, template compositing) manually
+        // created posts use — non-blocking, a failure here still lets the
+        // slot's text content through. The shared pipeline returns
+        // composited image bytes, not a URL, so the buffer is uploaded to
+        // Storage here (same bucket/path convention as
+        // app/api/v1/ai/post-image/generate/route.ts).
         let imageUrl: string | null = null
         try {
-          imageUrl = await generatePostImage(
-            generated.visual_direction || "professional product photography",
-            brand.name,
-            slot.platform,
-          )
-        } catch {
-          // non-fatal
+          const imageResult = await generatePostImage({
+            imagePrompt: generated.visual_direction || "professional product photography",
+            brandNiche: brand.niche,
+            targetAudience: brand.target_audience,
+            template: imageTemplate,
+            colorTheme: imageColorTheme,
+            headline: generated.hook || slot.theme,
+            ctaText: generated.call_to_action || brand.cta_phrase || "Shop now",
+            logoUrl: brand.logo_url,
+          })
+
+          if (imageResult.success) {
+            const storagePath = `${userId}/${brandId}/${Date.now()}-${crypto.randomUUID()}.png`
+            const { error: uploadError } = await admin.storage
+              .from(IMAGE_BUCKET)
+              .upload(storagePath, imageResult.buffer, { contentType: imageResult.mimeType, upsert: false })
+
+            if (uploadError) {
+              console.error(`[fastlane] day ${slot.day}: image generated but storage upload failed:`, uploadError.message)
+            } else {
+              const { data: publicUrlData } = admin.storage.from(IMAGE_BUCKET).getPublicUrl(storagePath)
+              imageUrl = publicUrlData.publicUrl
+            }
+          } else {
+            console.error(`[fastlane] day ${slot.day}: image generation failed:`, imageResult.error)
+          }
+        } catch (err) {
+          console.error(`[fastlane] day ${slot.day}: image generation unexpected error:`, err instanceof Error ? err.message : err)
         }
 
         // Generate carousel HTML for carousel slots (non-blocking)
