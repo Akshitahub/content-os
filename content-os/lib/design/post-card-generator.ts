@@ -15,7 +15,7 @@ function getNicheColors(niche: string | null | undefined): [string, string] {
   return ["#6366f1", "#818cf8"]
 }
 
-function getPrimaryColor(brand: BrandRow): string {
+export function getPrimaryColor(brand: BrandRow): string {
   const palette = brand.color_palette as Record<string, unknown> | null
   if (palette) {
     const colors = Object.values(palette).filter((v): v is string => typeof v === "string")
@@ -24,7 +24,7 @@ function getPrimaryColor(brand: BrandRow): string {
   return getNicheColors(brand.niche)[0]
 }
 
-function getSecondaryColor(brand: BrandRow): string {
+export function getSecondaryColor(brand: BrandRow): string {
   const palette = brand.color_palette as Record<string, unknown> | null
   if (palette) {
     const colors = Object.values(palette).filter((v): v is string => typeof v === "string")

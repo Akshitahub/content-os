@@ -10,6 +10,8 @@ import { generateSceneAssets } from "@/lib/video/reel-scene-assets"
 import { renderReelVideo } from "@/lib/video/render-trigger"
 import type { RenderReelVideoInput } from "@/lib/video/render-trigger"
 import { MUSIC_OPTIONS, resolveMusicTrackId } from "@/lib/video/music-options"
+import { renderCarouselSlidesToPng } from "@/lib/image/carousel-compositor"
+import { uploadMediaToStorage } from "@/lib/storage/upload-media"
 import { createAdminClient } from "@/lib/supabase/server"
 import type { BrandRow, ProductRow, CalendarEntryRow, Json } from "@/types/database"
 import type { ContentStrategy, ContentSlot, FastlaneResult, Platform, ReelScene } from "@/types/app"
@@ -18,6 +20,11 @@ import type { SupabaseClient } from "@supabase/supabase-js"
 // Same bucket used by app/api/v1/ai/post-image/generate/route.ts — Autopilot
 // images go through the same pipeline and land in the same place.
 const IMAGE_BUCKET = "brand-images"
+
+// Matches schedulePostSchema's MIN_CAROUSEL_IMAGES in
+// app/api/v1/calendar/schedule-post/route.ts — Instagram's own minimum for
+// a carousel post.
+const MIN_CAROUSEL_SLIDES = 2
 
 const CONTENT_MIX = [
   { pillar: "product", format: "carousel" as const, count: 5, description: "Showcase products, features, and benefits" },
@@ -745,10 +752,11 @@ export async function executeFastlane(
         // composited image bytes, not a URL, so the buffer is uploaded to
         // Storage here (same bucket/path convention as
         // app/api/v1/ai/post-image/generate/route.ts). Skipped for reel
-        // slots — those get a real rendered video below instead of a static
-        // image standing in for one.
+        // slots (get a real rendered video below) and carousel slots (get
+        // real per-slide images below) — neither needs this generic single
+        // image standing in for the real thing.
         let imageUrl: string | null = null
-        if (!isReel) {
+        if (!isReel && !isCarousel) {
           try {
             const imageResult = await generatePostImage({
               imagePrompt: generated.visual_direction || "professional product photography",
@@ -781,20 +789,67 @@ export async function executeFastlane(
           }
         }
 
-        // Generate carousel HTML for carousel slots (non-blocking)
+        // Generate carousel HTML for carousel slots — kept purely for the
+        // on-screen iframe preview in CalendarEntryPanel.tsx (still the
+        // only thing that renders it); it was never rasterized into real
+        // images, which is the actual publishing gap fixed below.
         let carouselHtmlStr: string | null = null
-        if (isCarousel && Array.isArray(generated.slides) && generated.slides.length > 0) {
+        const carouselSlides = Array.isArray(generated.slides) ? generated.slides : []
+        if (isCarousel && carouselSlides.length > 0) {
           try {
-            carouselHtmlStr = generateCarouselHtml(brand, generated.hook, generated.slides)
+            carouselHtmlStr = generateCarouselHtml(brand, generated.hook, carouselSlides)
           } catch {
             // non-fatal
           }
         }
 
+        // Render each carousel slide to a real PNG (SVG built to match
+        // generateCarouselHtml's layout/colors, rasterized via resvg — see
+        // lib/image/carousel-compositor.ts) and host it, so the carousel
+        // has actual publishable images instead of only an HTML preview.
+        // Instagram carousels need at least 2 images; below that there's
+        // nothing worth publishing, so it's left unset and the entry falls
+        // back to review-only (same as any other failed generation step).
+        let carouselImageUrls: string[] = []
+        if (isCarousel && carouselSlides.length >= MIN_CAROUSEL_SLIDES) {
+          try {
+            const slidePngs = await renderCarouselSlidesToPng({ brand, coverHook: generated.hook || slot.theme, slides: carouselSlides })
+            const uploaded: string[] = []
+            for (let idx = 0; idx < slidePngs.length; idx++) {
+              const uploadResult = await uploadMediaToStorage(
+                { kind: "buffer", buffer: slidePngs[idx]!, mimeType: "image/png" },
+                `${brandId}/carousel/${Date.now()}-${idx}`
+              )
+              if ("publicUrl" in uploadResult) {
+                uploaded.push(uploadResult.publicUrl)
+              } else {
+                console.error(`[fastlane] day ${slot.day}: carousel slide ${idx} upload failed:`, uploadResult.error)
+              }
+            }
+            if (uploaded.length >= MIN_CAROUSEL_SLIDES) {
+              carouselImageUrls = uploaded
+            } else {
+              console.error(`[fastlane] day ${slot.day}: only ${uploaded.length}/${slidePngs.length} carousel slide(s) uploaded, need at least ${MIN_CAROUSEL_SLIDES} to publish`)
+            }
+          } catch (err) {
+            console.error(`[fastlane] day ${slot.day}: carousel image rendering failed:`, err instanceof Error ? err.message : err)
+          }
+        }
+
         // Build platform_specific_data JSONB
-        const platformData: Record<string, string> = {}
+        const platformData: Record<string, string | string[]> = {}
         if (imageUrl) platformData.image_url = imageUrl
         if (carouselHtmlStr) platformData.carousel_html = carouselHtmlStr
+        if (carouselImageUrls.length > 0) {
+          // Matches the exact shape schedule-post/route.ts produces for a
+          // manually-scheduled carousel — publish-scheduled/route.ts reads
+          // hosted_image_urls first and only re-hosts from image_urls if
+          // that's empty, so setting both to the same already-hosted URLs
+          // lets the cron skip re-hosting entirely.
+          platformData.content_format = "carousel"
+          platformData.image_urls = carouselImageUrls
+          platformData.hosted_image_urls = carouselImageUrls
+        }
 
         // Reel slots: save the script + queue a real render job (Kling
         // scenes + TTS + JSON2Video composition, same pipeline as manually
