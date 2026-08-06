@@ -7,6 +7,17 @@ import { PLAN_LIMITS } from "@/types/app"
 import type { UserPlan } from "@/types/app"
 import { isInternalUnlimited } from "@/lib/usage/is-internal-unlimited"
 
+// Reel-script slots defer real video rendering (Kling scenes + TTS +
+// JSON2Video composition) into after() callbacks that run once this
+// response is sent — see lib/ai/fastlane.ts's renderAutopilotReel and the
+// maxDuration comment on reel-scripts/[scriptId]/video/route.ts for why
+// this needs real headroom. 300s is Vercel Pro's function-duration
+// ceiling; a run with several reel slots can still legitimately exceed it,
+// since after() callbacks share this same function's time budget — if reel
+// jobs are getting stuck in "rendering" in production, that's the next
+// thing to revisit (e.g. capping concurrent reel renders per Autopilot run).
+export const maxDuration = 300
+
 function resolvePlan(rawPlan: string | undefined): UserPlan {
   return rawPlan && rawPlan in PLAN_LIMITS ? (rawPlan as UserPlan) : "free"
 }

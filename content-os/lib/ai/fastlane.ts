@@ -1,3 +1,4 @@
+import { after } from "next/server"
 import { MODELS, getGroqClient } from "./models"
 import { generateCarouselHtml } from "@/lib/design/post-card-generator"
 import { getUpcomingOccasions } from "@/lib/data/indian-occasions"
@@ -5,9 +6,13 @@ import { generatePostImage } from "@/lib/ai/post-image-pipeline"
 import { DEFAULT_POST_TEMPLATE_ID } from "@/lib/design/post-templates"
 import { resolveColorThemes } from "@/lib/design/color-themes"
 import { mergeCaptionWithHookAndCta } from "@/lib/utils/caption-merge"
+import { generateSceneAssets } from "@/lib/video/reel-scene-assets"
+import { renderReelVideo } from "@/lib/video/render-trigger"
+import type { RenderReelVideoInput } from "@/lib/video/render-trigger"
+import { MUSIC_OPTIONS, resolveMusicTrackId } from "@/lib/video/music-options"
 import { createAdminClient } from "@/lib/supabase/server"
-import type { BrandRow, ProductRow, CalendarEntryRow } from "@/types/database"
-import type { ContentStrategy, ContentSlot, FastlaneResult, Platform } from "@/types/app"
+import type { BrandRow, ProductRow, CalendarEntryRow, Json } from "@/types/database"
+import type { ContentStrategy, ContentSlot, FastlaneResult, Platform, ReelScene } from "@/types/app"
 import type { SupabaseClient } from "@supabase/supabase-js"
 
 // Same bucket used by app/api/v1/ai/post-image/generate/route.ts — Autopilot
@@ -277,6 +282,7 @@ interface SlotContent {
   audio_suggestion: string
   call_to_action: string
   slides?: CarouselSlide[]
+  scenes?: ReelScene[]
 }
 
 function buildSlotContentPrompt(brand: BrandRow, slot: ContentSlot, product: ProductRow | null, totalSlots: number): string {
@@ -309,6 +315,26 @@ IMPORTANT: This is slot ${slot.day}/${totalSlots}. Make it UNIQUE — different 
 
 Return this exact JSON:
 {"title":"post title","hook":"attention-grabbing opening line that stops the scroll","caption":"full post caption (2-4 sentences, brand voice, ends with CTA)","hashtags":["hashtag1","hashtag2","hashtag3","hashtag4","hashtag5"],"visual_direction":"describe the ideal image/video for this post","audio_suggestion":"suggested background music mood or sound","call_to_action":"specific action you want the audience to take"}`
+}
+
+function buildReelScriptSlotContentPrompt(brand: BrandRow, slot: ContentSlot, product: ProductRow | null, totalSlots: number): string {
+  const productCtx = product
+    ? `\nProduct: ${product.name}${product.description ? ` - ${product.description}` : ""}`
+    : ""
+  const pillarCtx = slot.content_pillar ? `\nContent Pillar: ${slot.content_pillar}` : ""
+
+  return `Create a complete short-form reel script for ${brand.name} on ${slot.platform}.
+Brand niche: ${brand.niche ?? "D2C brand"}
+Brand tone: ${brand.tone_of_voice ?? "conversational"}
+Theme: ${slot.theme}${productCtx}${pillarCtx}
+Day: ${slot.day} of ${totalSlots}
+
+IMPORTANT: This is slot ${slot.day}/${totalSlots}. Make it UNIQUE — different angle than typical posts for this brand.
+
+Break the reel into 3-5 scenes totaling 15-30 seconds (3-8 seconds each). Each scene needs exactly what the viewer sees (visual_direction) and exactly what's heard or read on screen (voiceover_or_text_overlay).
+
+Return this exact JSON:
+{"title":"post title","hook":"attention-grabbing opening line that stops the scroll","caption":"full post caption (2-4 sentences, brand voice, ends with CTA)","hashtags":["hashtag1","hashtag2","hashtag3","hashtag4","hashtag5"],"visual_direction":"one-line overall visual style/mood for the reel","audio_suggestion":"suggested background music mood or sound","call_to_action":"specific action you want the audience to take","scenes":[{"visual_direction":"what the viewer sees in this scene","voiceover_or_text_overlay":"spoken words or on-screen text for this scene","duration_seconds":5}]}`
 }
 
 function buildCarouselSlotContentPrompt(brand: BrandRow, slot: ContentSlot, product: ProductRow | null): string {
@@ -365,11 +391,12 @@ async function generateSlotContent(
 ): Promise<SlotContent> {
   const groq = getGroqClient()
   const isCarousel = slot.content_type === "carousel"
+  const isReel = slot.content_type === "reel_script"
 
   const res = await generateWithRetry(groq, {
     model: MODELS.generation,
     temperature: 0.8,
-    max_tokens: isCarousel ? 600 : 400,
+    max_tokens: isCarousel || isReel ? 700 : 400,
     response_format: { type: "json_object" },
     messages: [
       {
@@ -380,7 +407,9 @@ async function generateSlotContent(
         role: "user",
         content: isCarousel
           ? buildCarouselSlotContentPrompt(brand, slot, product)
-          : buildSlotContentPrompt(brand, slot, product, totalSlots),
+          : isReel
+            ? buildReelScriptSlotContentPrompt(brand, slot, product, totalSlots)
+            : buildSlotContentPrompt(brand, slot, product, totalSlots),
       },
     ],
   })
@@ -394,6 +423,9 @@ async function generateSlotContent(
     const parsed = JSON.parse(cleaned) as SlotContent
     if (isCarousel && parsed.slides !== undefined && !Array.isArray(parsed.slides)) {
       parsed.slides = []
+    }
+    if (isReel && parsed.scenes !== undefined && !Array.isArray(parsed.scenes)) {
+      parsed.scenes = []
     }
     return parsed
   } catch {
@@ -423,7 +455,148 @@ async function generateSlotContent(
       audio_suggestion: audioMatch?.[1] ?? "",
       call_to_action: ctaMatch?.[1] ?? "",
       slides: [],
+      scenes: [],
     }
+  }
+}
+
+// Same filtering as parseScenes() in
+// reel-scripts/[scriptId]/video/route.ts, applied to the AI's freshly
+// parsed JSON instead of a stored Json column — scenes missing a real
+// visual_direction are dropped rather than fed into Kling with nothing to
+// generate from.
+function normalizeReelScenes(raw: unknown): ReelScene[] {
+  if (!Array.isArray(raw)) return []
+  const scenes: ReelScene[] = []
+  for (const item of raw) {
+    if (typeof item !== "object" || item === null) continue
+    const s = item as Record<string, unknown>
+    const visual_direction = typeof s.visual_direction === "string" ? s.visual_direction.trim() : ""
+    if (!visual_direction) continue
+    scenes.push({
+      visual_direction,
+      voiceover_or_text_overlay: typeof s.voiceover_or_text_overlay === "string" ? s.voiceover_or_text_overlay : "",
+      duration_seconds: typeof s.duration_seconds === "number" && s.duration_seconds > 0 ? s.duration_seconds : 5,
+    })
+  }
+  return scenes
+}
+
+interface RenderAutopilotReelInput {
+  brandId: string
+  scriptId: string
+  jobId: string
+  calendarEntryId: string
+  scenes: ReelScene[]
+  musicUrl: string | null
+}
+
+/**
+ * Runs the same scene-generation → render pipeline as
+ * reel-scripts/[scriptId]/video/route.ts's own after() callback
+ * (generateSceneAssets + renderReelVideo, updating the same reel_video_jobs
+ * row shape) — but also writes the finished video into the Autopilot
+ * calendar entry's platform_specific_data once done, since that route has
+ * no calendar entry of its own to update (manually generated reels aren't
+ * scheduled until a separate later step). Deferred into the caller's
+ * after() so it runs post-response — never awaited inline, since a single
+ * reel's scene generation + JSON2Video render can take several minutes.
+ */
+async function renderAutopilotReel(input: RenderAutopilotReelInput): Promise<void> {
+  const admin = await createAdminClient()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const jobsTable = (admin as any).from("reel_video_jobs")
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const entriesTable = (admin as any).from("calendar_entries")
+
+  const failEntry = async (message: string) => {
+    const { data: current } = await entriesTable
+      .select("platform_specific_data")
+      .eq("id", input.calendarEntryId)
+      .single()
+    const existing = (current?.platform_specific_data ?? {}) as Record<string, unknown>
+    await entriesTable
+      .update({ platform_specific_data: { ...existing, content_format: "video", video_status: "failed", video_error: message } })
+      .eq("id", input.calendarEntryId)
+  }
+
+  try {
+    await jobsTable
+      .update({ status: "generating_images", progress_message: "Generating AI video scenes and voiceover — this can take a few minutes…" })
+      .eq("id", input.jobId)
+
+    const sceneAssets = await generateSceneAssets(input.brandId, input.scriptId, input.scenes)
+    const failedScenes = sceneAssets.filter((s) => s.error)
+    const hasUsableAssets = sceneAssets.some((s) => s.videoUrl && s.audioUrl)
+
+    if (!hasUsableAssets) {
+      if (failedScenes.length > 0) {
+        console.error(`[fastlane] reel job ${input.jobId} scene failures:`, failedScenes.map((s) => s.error))
+      }
+      await jobsTable
+        .update({
+          status: "failed",
+          progress_message: null,
+          scene_assets: sceneAssets as unknown as Json,
+          error_message: "Couldn't generate any usable scene assets for this video.",
+        })
+        .eq("id", input.jobId)
+      await failEntry("Couldn't generate any usable scene assets for this video.")
+      return
+    }
+
+    await jobsTable
+      .update({
+        status: "assets_ready",
+        progress_message:
+          failedScenes.length > 0
+            ? `Video scenes ready — ${failedScenes.length} scene(s) had an issue and may need attention.`
+            : "All video scenes generated. Finalizing your video…",
+        scene_assets: sceneAssets as unknown as Json,
+      })
+      .eq("id", input.jobId)
+
+    await jobsTable
+      .update({ status: "rendering", progress_message: "Combining your scenes into the final video…" })
+      .eq("id", input.jobId)
+
+    const renderInput: RenderReelVideoInput = {
+      jobId: input.jobId,
+      scenes: sceneAssets
+        .filter((s) => s.videoUrl !== null)
+        .map((s) => ({ imageUrl: s.videoUrl!, audioUrl: s.audioUrl, text: s.voiceoverText, durationSeconds: s.durationSeconds })),
+      musicUrl: input.musicUrl,
+    }
+
+    const renderResult = await renderReelVideo(renderInput)
+
+    if (renderResult.success) {
+      await jobsTable
+        .update({ status: "completed", progress_message: null, video_url: renderResult.videoUrl })
+        .eq("id", input.jobId)
+
+      const { data: current } = await entriesTable
+        .select("platform_specific_data")
+        .eq("id", input.calendarEntryId)
+        .single()
+      const existing = (current?.platform_specific_data ?? {}) as Record<string, unknown>
+      await entriesTable
+        .update({
+          platform_specific_data: { ...existing, content_format: "video", video_status: "ready", video_url: renderResult.videoUrl },
+        })
+        .eq("id", input.calendarEntryId)
+    } else {
+      await jobsTable
+        .update({ status: "failed", progress_message: null, error_message: renderResult.error })
+        .eq("id", input.jobId)
+      await failEntry(renderResult.error)
+    }
+  } catch (err) {
+    console.error(`[fastlane] reel job ${input.jobId} failed:`, err instanceof Error ? err.message : err)
+    await jobsTable
+      .update({ status: "failed", progress_message: null, error_message: "Video generation failed." })
+      .eq("id", input.jobId)
+    await failEntry("Video generation failed.")
   }
 }
 
@@ -562,48 +735,54 @@ export async function executeFastlane(
           }
         }
 
+        const isCarousel = slot.content_type === "carousel"
+        const isReel = slot.content_type === "reel_script"
+
         // Generate the AI post image via the same shared pipeline (prompt
         // grounding, quality-check/retry, template compositing) manually
         // created posts use — non-blocking, a failure here still lets the
         // slot's text content through. The shared pipeline returns
         // composited image bytes, not a URL, so the buffer is uploaded to
         // Storage here (same bucket/path convention as
-        // app/api/v1/ai/post-image/generate/route.ts).
+        // app/api/v1/ai/post-image/generate/route.ts). Skipped for reel
+        // slots — those get a real rendered video below instead of a static
+        // image standing in for one.
         let imageUrl: string | null = null
-        try {
-          const imageResult = await generatePostImage({
-            imagePrompt: generated.visual_direction || "professional product photography",
-            brandNiche: brand.niche,
-            targetAudience: brand.target_audience,
-            template: imageTemplate,
-            colorTheme: imageColorTheme,
-            headline: generated.hook || slot.theme,
-            ctaText: generated.call_to_action || brand.cta_phrase || "Shop now",
-            logoUrl: brand.logo_url,
-          })
+        if (!isReel) {
+          try {
+            const imageResult = await generatePostImage({
+              imagePrompt: generated.visual_direction || "professional product photography",
+              brandNiche: brand.niche,
+              targetAudience: brand.target_audience,
+              template: imageTemplate,
+              colorTheme: imageColorTheme,
+              headline: generated.hook || slot.theme,
+              ctaText: generated.call_to_action || brand.cta_phrase || "Shop now",
+              logoUrl: brand.logo_url,
+            })
 
-          if (imageResult.success) {
-            const storagePath = `${userId}/${brandId}/${Date.now()}-${crypto.randomUUID()}.png`
-            const { error: uploadError } = await admin.storage
-              .from(IMAGE_BUCKET)
-              .upload(storagePath, imageResult.buffer, { contentType: imageResult.mimeType, upsert: false })
+            if (imageResult.success) {
+              const storagePath = `${userId}/${brandId}/${Date.now()}-${crypto.randomUUID()}.png`
+              const { error: uploadError } = await admin.storage
+                .from(IMAGE_BUCKET)
+                .upload(storagePath, imageResult.buffer, { contentType: imageResult.mimeType, upsert: false })
 
-            if (uploadError) {
-              console.error(`[fastlane] day ${slot.day}: image generated but storage upload failed:`, uploadError.message)
+              if (uploadError) {
+                console.error(`[fastlane] day ${slot.day}: image generated but storage upload failed:`, uploadError.message)
+              } else {
+                const { data: publicUrlData } = admin.storage.from(IMAGE_BUCKET).getPublicUrl(storagePath)
+                imageUrl = publicUrlData.publicUrl
+              }
             } else {
-              const { data: publicUrlData } = admin.storage.from(IMAGE_BUCKET).getPublicUrl(storagePath)
-              imageUrl = publicUrlData.publicUrl
+              console.error(`[fastlane] day ${slot.day}: image generation failed:`, imageResult.error)
             }
-          } else {
-            console.error(`[fastlane] day ${slot.day}: image generation failed:`, imageResult.error)
+          } catch (err) {
+            console.error(`[fastlane] day ${slot.day}: image generation unexpected error:`, err instanceof Error ? err.message : err)
           }
-        } catch (err) {
-          console.error(`[fastlane] day ${slot.day}: image generation unexpected error:`, err instanceof Error ? err.message : err)
         }
 
         // Generate carousel HTML for carousel slots (non-blocking)
         let carouselHtmlStr: string | null = null
-        const isCarousel = slot.content_type === "carousel"
         if (isCarousel && Array.isArray(generated.slides) && generated.slides.length > 0) {
           try {
             carouselHtmlStr = generateCarouselHtml(brand, generated.hook, generated.slides)
@@ -617,10 +796,88 @@ export async function executeFastlane(
         if (imageUrl) platformData.image_url = imageUrl
         if (carouselHtmlStr) platformData.carousel_html = carouselHtmlStr
 
+        // Reel slots: save the script + queue a real render job (Kling
+        // scenes + TTS + JSON2Video composition, same pipeline as manually
+        // generated reels) instead of a static image. The render itself is
+        // genuinely slow (several minutes) — it's kicked off via after()
+        // below, once the calendar entry exists to update, rather than
+        // awaited here inline.
+        let reelScriptId: string | null = null
+        let reelVideoJobId: string | null = null
+        let reelScenes: ReelScene[] = []
+        let reelMusicUrl: string | null = null
+
+        if (isReel) {
+          reelScenes = normalizeReelScenes(generated.scenes)
+          platformData.content_format = "video"
+
+          if (reelScenes.length === 0) {
+            platformData.video_status = "failed"
+            platformData.video_error = "Couldn't plan out scenes for this reel."
+            console.error(`[fastlane] day ${slot.day}: reel script has no usable scenes, skipping video render`)
+          } else {
+            try {
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              const { data: scriptRow } = await (supabase.from("reel_scripts") as any)
+                .insert({
+                  brand_id: brandId,
+                  product_id: product?.id ?? null,
+                  platform: slot.platform,
+                  hook: generated.hook || slot.theme,
+                  scenes: reelScenes as unknown as Json,
+                  caption: mergedCaption || null,
+                  hashtags: generated.hashtags ?? [],
+                  is_saved: true,
+                })
+                .select("id")
+                .single() as { data: { id: string } | null }
+              reelScriptId = scriptRow?.id ?? null
+            } catch (err) {
+              console.error(`[fastlane] day ${slot.day}: failed to save reel script:`, err instanceof Error ? err.message : err)
+            }
+
+            if (!reelScriptId) {
+              platformData.video_status = "failed"
+              platformData.video_error = "Couldn't save the reel script for rendering."
+            } else {
+              const musicOption =
+                MUSIC_OPTIONS.find(m => m.id === resolveMusicTrackId(generated.audio_suggestion)) ?? MUSIC_OPTIONS.find(m => m.id === "upbeat")!
+              reelMusicUrl = musicOption.url
+
+              try {
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                const { data: jobRow } = await (supabase.from("reel_video_jobs") as any)
+                  .insert({
+                    brand_id: brandId,
+                    reel_script_id: reelScriptId,
+                    status: "pending",
+                    progress_message: "Queued by Autopilot…",
+                    music_url: reelMusicUrl,
+                  })
+                  .select("id")
+                  .single() as { data: { id: string } | null }
+                reelVideoJobId = jobRow?.id ?? null
+              } catch (err) {
+                console.error(`[fastlane] day ${slot.day}: failed to create reel video job:`, err instanceof Error ? err.message : err)
+              }
+
+              if (reelVideoJobId) {
+                platformData.video_status = "rendering"
+              } else {
+                platformData.video_status = "failed"
+                platformData.video_error = "Couldn't start video rendering."
+              }
+            }
+          }
+        }
+
         // Insert calendar entry with full generated content. Selecting the
         // inserted row back lets the caller show a review/approval list
         // (Autopilot never auto-schedules — status stays content_ready
         // until the user explicitly bulk-schedules from that review step).
+        // For reel slots this is still "content_ready" even while the video
+        // is rendering — there's no dedicated calendar_entries status for
+        // that, so platform_specific_data.video_status carries it instead.
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const { data: insertedEntry, error: insertErr } = await (supabase.from("calendar_entries") as any).insert({
           brand_id: brandId,
@@ -628,7 +885,7 @@ export async function executeFastlane(
           scheduled_date: scheduledDate,
           platform: slot.platform as Platform,
           content_type: isCarousel ? "carousel"
-            : slot.content_type === "reel_script" ? "reel"
+            : isReel ? "reel"
             : "post",
           status: "content_ready",
           hook_text: generated.hook || null,
@@ -647,6 +904,18 @@ export async function executeFastlane(
         }).select().single() as { data: CalendarEntryRow | null; error: { message: string } | null }
 
         if (insertErr) throw new Error(`Calendar insert failed for day ${slot.day}: ${insertErr.message}`)
+
+        if (isReel && reelScriptId && reelVideoJobId && insertedEntry) {
+          const calendarEntryId = insertedEntry.id
+          const jobId = reelVideoJobId
+          const scriptId = reelScriptId
+          const scenesForRender = reelScenes
+          const musicUrl = reelMusicUrl
+          after(async () => {
+            await renderAutopilotReel({ brandId, scriptId, jobId, calendarEntryId, scenes: scenesForRender, musicUrl })
+          })
+        }
+
         return insertedEntry
       }),
     )
