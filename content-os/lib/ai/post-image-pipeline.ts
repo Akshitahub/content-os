@@ -72,17 +72,97 @@ async function fetchAndCheckImage(prompt: string, seed: number): Promise<{ buffe
   return { buffer }
 }
 
+// Deterministic reinforcement layered on top of the LLM-generated
+// image_prompt (see lib/ai/prompts.ts's IMAGE_PROMPT_INSTRUCTION) — a
+// code-level guarantee of industry-appropriate specificity, since the LLM
+// step can't be relied on alone to avoid generic stock-photo results.
+// Keyword-matched against the brand's niche; falls back to a neutral
+// editorial-product-photography default when the niche doesn't match a
+// known category or isn't set at all.
+interface NicheStyleProfile {
+  keywords: string[]
+  setting: string
+}
+
+const NICHE_STYLE_PROFILES: NicheStyleProfile[] = [
+  {
+    keywords: ["skincare", "beauty", "cosmetic", "makeup", "haircare", "wellness", "spa"],
+    setting: "clean minimalist beauty studio setting, soft diffused lighting, marble or neutral textured surface, editorial beauty product photography",
+  },
+  {
+    keywords: ["food", "beverage", "snack", "drink", "coffee", "tea", "restaurant", "bakery", "culinary", "kitchen"],
+    setting: "appetizing food photography styling, natural warm lighting, styled kitchen or table surface, 45-degree angle food styling",
+  },
+  {
+    keywords: ["apparel", "fashion", "clothing", "wear", "garment", "footwear", "shoe", "accessor"],
+    setting: "editorial fashion photography, natural outdoor or minimalist studio backdrop, fabric and texture detail visible",
+  },
+  {
+    keywords: ["tech", "software", "saas", "app", "digital product", "startup"],
+    setting: "modern minimalist tech aesthetic, clean device-focused composition, soft natural light",
+  },
+  {
+    keywords: ["home", "decor", "furniture", "interior", "candle", "fragrance"],
+    setting: "warm inviting home interior styling, natural window light, styled wood, linen, or ceramic surface",
+  },
+  {
+    keywords: ["jewelry", "jewellery", "watch"],
+    setting: "macro editorial jewelry photography, soft directional lighting, elegant neutral backdrop emphasizing texture and shine",
+  },
+  {
+    keywords: ["fitness", "gym", "sport", "activewear", "supplement", "nutrition"],
+    setting: "energetic athletic photography, natural or gym-appropriate setting, dynamic but tasteful composition",
+  },
+]
+
+const DEFAULT_NICHE_SETTING = "clean editorial product photography setting appropriate to the brand's own industry"
+
+const TECH_NICHE_KEYWORDS = ["tech", "software", "saas", "app", "digital product", "startup"]
+
+const PHOTOGRAPHY_STYLE = "professional product photography, natural editorial lighting, premium D2C brand aesthetic, high-detail commercial quality"
+
+// Word-boundary match, not a raw substring — a plain .includes() would
+// false-positive on e.g. "apparel" containing the tech keyword "app", or
+// "instead" containing the food keyword "tea".
+function matchesKeyword(text: string, keyword: string): boolean {
+  const escaped = keyword.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+  return new RegExp(`\\b${escaped}\\b`, "i").test(text)
+}
+
+function resolveNicheSetting(niche: string | null): string {
+  if (!niche) return DEFAULT_NICHE_SETTING
+  const match = NICHE_STYLE_PROFILES.find((profile) => profile.keywords.some((k) => matchesKeyword(niche, k)))
+  return match?.setting ?? DEFAULT_NICHE_SETTING
+}
+
+function isTechLikeNiche(niche: string | null): boolean {
+  if (!niche) return false
+  return TECH_NICHE_KEYWORDS.some((k) => matchesKeyword(niche, k))
+}
+
+// Only applied for non-tech niches — a laptop/office scene is often
+// actually correct for a genuine SaaS/tech brand, so the guard would be
+// counterproductive there.
+function buildNegativeGuard(niche: string | null): string {
+  if (isTechLikeNiche(niche)) return ""
+  return "avoid generic corporate stock-photo clichés — no laptops on a desk, no empty office interiors, no generic handshake or boardroom meeting scenes"
+}
+
 function simplifyPrompt(prompt: string, brandNiche: string | null): string {
   const core = prompt.split(",")[0]?.trim() || prompt.slice(0, 150)
-  const parts = [core]
-  if (brandNiche) parts.push(`${brandNiche} brand aesthetic`)
-  parts.push(IMAGE_QUALITY_SAFETY_BOILERPLATE)
-  return parts.join(", ")
+  return [
+    core,
+    brandNiche ? `${brandNiche} brand` : "",
+    resolveNicheSetting(brandNiche),
+    PHOTOGRAPHY_STYLE,
+    IMAGE_QUALITY_SAFETY_BOILERPLATE,
+  ].filter(Boolean).join(", ")
 }
 
 export interface GeneratePostImageOptions {
   imagePrompt: string
   brandNiche: string | null
+  targetAudience: string | null
   template: PostTemplateId
   colorTheme: ColorTheme
   headline: string
@@ -99,11 +179,21 @@ export interface GeneratePostImageOptions {
  * inline error instead of a silent blank preview.
  */
 export async function generatePostImage(options: GeneratePostImageOptions): Promise<PostImagePipelineResult> {
+  // Deterministic grounding, independent of how well the LLM-generated
+  // imagePrompt followed instructions — every image gets an
+  // industry-appropriate setting, a consistent premium photography style,
+  // and (for non-tech niches) a guard against generic corporate stock-photo
+  // compositions, regardless of what the model itself produced.
   const fullPrompt = [
     options.imagePrompt,
+    options.brandNiche ? `${options.brandNiche} brand` : "",
+    resolveNicheSetting(options.brandNiche),
+    options.targetAudience ? `styled to appeal to ${options.targetAudience}` : "",
+    PHOTOGRAPHY_STYLE,
+    buildNegativeGuard(options.brandNiche),
     "leave the lower third of the frame visually simpler and less busy for a text overlay",
     IMAGE_QUALITY_SAFETY_BOILERPLATE,
-  ].join(", ")
+  ].filter(Boolean).join(", ")
 
   const seed = Math.floor(Math.random() * 1_000_000)
   let attempt = await fetchAndCheckImage(fullPrompt, seed)

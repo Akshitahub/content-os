@@ -16,6 +16,7 @@ export function buildBrandContext(brand: BrandRow, product?: ProductRow | null):
   const lines: string[] = [
     `Brand: ${brand.name}`,
   ]
+  if (brand.description) lines.push(`Brand Description: ${brand.description}`)
   if (brand.niche) lines.push(`Niche: ${brand.niche}`)
   if (brand.target_audience) lines.push(`Target Audience: ${brand.target_audience}`)
   if (brand.tone_of_voice) lines.push(`Tone of Voice: ${brand.tone_of_voice}`)
@@ -171,7 +172,12 @@ Respond with this exact JSON:
 // Standalone caption generation (the Captions/Content tabs) never sets
 // this, so their JSON contract is unchanged.
 const IMAGE_PROMPT_INSTRUCTION = `
-IMAGE PROMPT: Also produce an "image_prompt" — a vivid visual scene description for an AI image generator that reflects THIS SPECIFIC post's message/topic, not a generic brand-vibe photo. Ground it in the same core message as the caption above — if there's a specific offer, event, or theme (e.g. "weekend flash sale," "new packaging launch"), the image prompt must visually reflect that, not just show the brand/product in the abstract. It must NOT describe any text, caption, or words appearing in the image itself (text is added separately) — as a soft compositional hint, leave the lower third of the frame visually simpler/less busy, since text will be overlaid there, but do not rely on this for actual text placement.`
+IMAGE PROMPT: Also produce an "image_prompt" — a vivid, CONCRETE visual scene description for an AI image generator. It must be grounded in THIS brand's actual niche/industry and product category from the brand context above, and in this specific post's message/topic — never a generic, brand-agnostic scene that could belong to any company.
+- Name the actual kind of product or scene the niche implies, not an abstraction: a skincare brand → the actual skincare product/routine/texture, not "a product"; a food or beverage brand → the actual dish, drink, or ingredient, not generic packaging on a white background; an apparel brand → the actual garment being worn or styled, not a mannequin in a void.
+- If there's a specific offer, event, or theme in this post (e.g. "weekend flash sale," "new packaging launch"), the scene must visually reflect that, not just show the brand/product in the abstract.
+- Avoid vague filler words ("amazing," "great quality," "high quality," "beautiful") — describe what's actually visible instead.
+- Avoid generic corporate stock-photo compositions (laptops on a desk, empty office interiors, generic handshake or boardroom meeting scenes) UNLESS this brand's niche is genuinely tech/software/SaaS.
+- It must NOT describe any text, caption, or words appearing in the image itself (text is added separately) — as a soft compositional hint, leave the lower third of the frame visually simpler/less busy, since text will be overlaid there, but do not rely on this for actual text placement.`
 
 export function buildCaptionSystemPrompt(includeImagePrompt = false): string {
   return `You are an expert social media copywriter for Indian D2C brands. You write captions that convert — not just get likes.

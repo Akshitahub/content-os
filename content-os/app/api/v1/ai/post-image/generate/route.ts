@@ -61,6 +61,7 @@ export async function POST(request: Request) {
   const result = await generatePostImage({
     imagePrompt,
     brandNiche: brand.niche,
+    targetAudience: brand.target_audience,
     template,
     colorTheme,
     headline,
