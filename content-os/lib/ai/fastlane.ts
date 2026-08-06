@@ -4,6 +4,7 @@ import { getUpcomingOccasions } from "@/lib/data/indian-occasions"
 import { generatePostImage } from "@/lib/ai/post-image-pipeline"
 import { DEFAULT_POST_TEMPLATE_ID } from "@/lib/design/post-templates"
 import { resolveColorThemes } from "@/lib/design/color-themes"
+import { mergeCaptionWithHookAndCta } from "@/lib/utils/caption-merge"
 import { createAdminClient } from "@/lib/supabase/server"
 import type { BrandRow, ProductRow, CalendarEntryRow } from "@/types/database"
 import type { ContentStrategy, ContentSlot, FastlaneResult, Platform } from "@/types/app"
@@ -505,6 +506,15 @@ export async function executeFastlane(
 
         const generated = await generateSlotContent(brand, slot, product, totalSlots)
 
+        // The per-slot prompt (buildSlotContentPrompt) has no structural
+        // guarantee that `caption` already opens with the hook or closes
+        // with the CTA — unlike the Create → Full Post caption prompt, this
+        // one is generic. Merge them in now so caption_text (the only field
+        // publish-scheduled/route.ts actually sends) is the true final text.
+        const mergedCaption = generated.caption
+          ? mergeCaptionWithHookAndCta(generated.caption, generated.hook, generated.call_to_action)
+          : generated.caption
+
         // Persist hook (non-fatal)
         let hookId: string | null = null
         if (generated.hook) {
@@ -536,10 +546,10 @@ export async function executeFastlane(
               .insert({
                 brand_id: brandId,
                 hook_id: hookId,
-                caption_text: generated.caption,
+                caption_text: mergedCaption,
                 hashtags: generated.hashtags ?? [],
                 cta: generated.call_to_action || null,
-                character_count: generated.caption.length,
+                character_count: mergedCaption.length,
                 platform: slot.platform,
                 model_used: MODELS.generation,
                 is_saved: true,
@@ -622,7 +632,7 @@ export async function executeFastlane(
             : "post",
           status: "content_ready",
           hook_text: generated.hook || null,
-          caption_text: generated.caption || null,
+          caption_text: mergedCaption || null,
           hashtags: generated.hashtags ?? [],
           visual_direction: generated.visual_direction || null,
           audio_suggestion: generated.audio_suggestion || null,

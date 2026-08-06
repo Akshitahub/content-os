@@ -4,6 +4,7 @@ import { generateFullPostSchema } from "@/lib/validations/ai"
 import { generateHooks } from "@/lib/ai/hooks-generator"
 import { generateContent } from "@/lib/ai/content-generator"
 import { generatePostCardHtml } from "@/lib/design/post-card-generator"
+import { mergeCaptionWithHookAndCta } from "@/lib/utils/caption-merge"
 import { buildError, ErrorCodes } from "@/types/api"
 import { checkAndIncrementUsage } from "@/lib/usage/check-and-increment-usage"
 import { createPostImageSession } from "@/lib/usage/post-image-regenerate-session"
@@ -62,6 +63,25 @@ export async function POST(request: Request) {
       additionalContext,
       includeImagePrompt: format === "social_post",
     })
+
+    // buildCaptionSystemPrompt (lib/ai/prompts.ts) already instructs the
+    // model to restate the hook and close with the CTA inside caption_text
+    // — but that's a prompt-level convention the model can still miss, and
+    // the reel-script prompt has no such mandate for its caption at all.
+    // Merge here too (redundancy-checked, so a compliant caption is a
+    // no-op) so caption_text/caption — the field publish-scheduled/route.ts
+    // and schedule-post/route.ts actually persist and send — is guaranteed
+    // to carry the hook and CTA, not just usually.
+    if (format === "social_post") {
+      const caption = contentResult.data as GeneratedCaption
+      caption.caption_text = mergeCaptionWithHookAndCta(caption.caption_text, hook.hook_text, caption.cta)
+      caption.character_count = caption.caption_text.length
+    } else if (format === "reel_script") {
+      const script = contentResult.data as ReelScript
+      if (script.caption) {
+        script.caption = mergeCaptionWithHookAndCta(script.caption, script.hook, null)
+      }
+    }
 
     // Only social_post has an AI-generated post image to regenerate — the
     // session lets /api/v1/ai/post-image/generate know whether a given
