@@ -5,6 +5,7 @@ import { buildError, ErrorCodes } from "@/types/api"
 import type { BrandRow } from "@/types/database"
 import { PLAN_LIMITS } from "@/types/app"
 import type { UserPlan } from "@/types/app"
+import { isInternalUnlimited } from "@/lib/usage/is-internal-unlimited"
 
 export async function GET() {
   console.log("[brands] GET called")
@@ -69,39 +70,41 @@ export async function POST(request: Request) {
     return NextResponse.json(buildError(ErrorCodes.VALIDATION_ERROR, "Validation failed.", parsed.error.message), { status: 400 })
   }
 
-  try {
-    const { data: userRow, error: userError } = await supabase
-      .from("users")
-      .select("plan")
-      .eq("id", user.id)
-      .single<{ plan: UserPlan }>()
+  if (!isInternalUnlimited(user.id)) {
+    try {
+      const { data: userRow, error: userError } = await supabase
+        .from("users")
+        .select("plan")
+        .eq("id", user.id)
+        .single<{ plan: UserPlan }>()
 
-    if (userError || !userRow) {
-      console.error("[brands] POST plan lookup error:", userError)
-      return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Failed to verify plan."), { status: 500 })
+      if (userError || !userRow) {
+        console.error("[brands] POST plan lookup error:", userError)
+        return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Failed to verify plan."), { status: 500 })
+      }
+
+      const { count: brandCount, error: countError } = await supabase
+        .from("brands")
+        .select("*", { count: "exact", head: true })
+        .eq("user_id", user.id)
+        .eq("is_active", true)
+
+      if (countError) {
+        console.error("[brands] POST brand count error:", countError)
+        return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Failed to verify brand count."), { status: 500 })
+      }
+
+      const brandLimit = PLAN_LIMITS[userRow.plan].brands
+      if ((brandCount ?? 0) >= brandLimit) {
+        return NextResponse.json(
+          buildError(ErrorCodes.USAGE_LIMIT_EXCEEDED, `You've reached the maximum of ${brandLimit} brands on your plan. Upgrade to add more.`),
+          { status: 403 }
+        )
+      }
+    } catch (err) {
+      console.error("[brands] POST plan/limit check unexpected error:", err)
+      return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Failed to verify plan limits."), { status: 500 })
     }
-
-    const { count: brandCount, error: countError } = await supabase
-      .from("brands")
-      .select("*", { count: "exact", head: true })
-      .eq("user_id", user.id)
-      .eq("is_active", true)
-
-    if (countError) {
-      console.error("[brands] POST brand count error:", countError)
-      return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Failed to verify brand count."), { status: 500 })
-    }
-
-    const brandLimit = PLAN_LIMITS[userRow.plan].brands
-    if ((brandCount ?? 0) >= brandLimit) {
-      return NextResponse.json(
-        buildError(ErrorCodes.USAGE_LIMIT_EXCEEDED, `You've reached the maximum of ${brandLimit} brands on your plan. Upgrade to add more.`),
-        { status: 403 }
-      )
-    }
-  } catch (err) {
-    console.error("[brands] POST plan/limit check unexpected error:", err)
-    return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Failed to verify plan limits."), { status: 500 })
   }
 
   try {

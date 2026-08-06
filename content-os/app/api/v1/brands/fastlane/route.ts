@@ -5,6 +5,7 @@ import { fastlaneSchema } from "@/lib/validations/fastlane"
 import { executeFastlane } from "@/lib/ai/fastlane"
 import { PLAN_LIMITS } from "@/types/app"
 import type { UserPlan } from "@/types/app"
+import { isInternalUnlimited } from "@/lib/usage/is-internal-unlimited"
 
 function resolvePlan(rawPlan: string | undefined): UserPlan {
   return rawPlan && rawPlan in PLAN_LIMITS ? (rawPlan as UserPlan) : "free"
@@ -61,8 +62,13 @@ export async function POST(request: Request) {
       .eq("id", user.id)
       .single<{ plan: string; generation_count: number; generation_count_reset_at: string | null }>()
 
+    const isUnlimited = isInternalUnlimited(user.id)
     const plan = resolvePlan(userData?.plan)
-    const tier = PLAN_LIMITS[plan].autopilot
+    // Internal-unlimited accounts get the full run regardless of their
+    // actual plan column — starter/pro/agency all share the same (30-day,
+    // 30-slot) autopilot tier, so "agency" here is just a stand-in for
+    // "the full tier," not a plan change.
+    const tier = isUnlimited ? PLAN_LIMITS.agency.autopilot : PLAN_LIMITS[plan].autopilot
 
     const today = new Date().toISOString().split("T")[0]!
     const windowEnd = new Date(Date.now() + tier.days * 24 * 60 * 60 * 1000).toISOString().split("T")[0]!
@@ -96,7 +102,7 @@ export async function POST(request: Request) {
 
     // Check usage limits — canonical PLAN_LIMITS[plan].generations (not a
     // separate hand-rolled table), against this tier's actual credit cost.
-    if (userData) {
+    if (userData && !isUnlimited) {
       const limit = PLAN_LIMITS[plan].generations
 
       // Reset monthly if needed
@@ -129,7 +135,7 @@ export async function POST(request: Request) {
       .eq("id", user.id)
       .single<{ generation_count: number; generation_count_reset_at: string | null }>()
 
-    if (currentUser) {
+    if (currentUser && !isUnlimited) {
       const now = new Date()
       const resetAt = currentUser.generation_count_reset_at ? new Date(currentUser.generation_count_reset_at) : null
       const shouldReset = !resetAt || (now.getMonth() !== resetAt.getMonth() || now.getFullYear() !== resetAt.getFullYear())

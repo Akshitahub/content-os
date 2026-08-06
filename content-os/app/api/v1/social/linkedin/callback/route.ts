@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import { PLAN_LIMITS, type UserPlan } from "@/types/app"
+import { isInternalUnlimited } from "@/lib/usage/is-internal-unlimited"
 import type { SupabaseClient } from "@supabase/supabase-js"
 import type { Database, SocialConnectionInsert } from "@/types/database"
 
@@ -67,7 +68,7 @@ export async function GET(request: Request) {
     .single<{ plan: UserPlan }>()
 
   const plan: UserPlan = userData?.plan ?? "free"
-  if (!PLAN_LIMITS[plan].zernioSocialPlatforms) {
+  if (!PLAN_LIMITS[plan].zernioSocialPlatforms && !isInternalUnlimited(user.id)) {
     console.error(`[social/linkedin/callback] brand ${brandId}'s plan (${plan}) does not include Zernio social platforms`)
     return redirectToBrand(appUrl, brandId, { linkedin_error: "plan_restricted" })
   }

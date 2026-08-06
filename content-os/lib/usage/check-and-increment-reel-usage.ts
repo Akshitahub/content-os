@@ -3,6 +3,7 @@ import { PLAN_LIMITS } from "@/types/app"
 import type { UserPlan } from "@/types/app"
 import type { SupabaseClient } from "@supabase/supabase-js"
 import type { Database } from "@/types/database"
+import { isInternalUnlimited } from "./is-internal-unlimited"
 
 export type ReelUsageCheckResult =
   | { ok: true }
@@ -11,6 +12,11 @@ export type ReelUsageCheckResult =
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000
 
 export async function checkAndIncrementReelUsage(userId: string): Promise<ReelUsageCheckResult> {
+  if (isInternalUnlimited(userId)) {
+    console.log(`[check-and-increment-reel-usage] internal unlimited bypass for ${userId}`)
+    return { ok: true }
+  }
+
   const supabase = await createClient()
 
   const { data: user, error } = await supabase

@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server"
 import { buildError, ErrorCodes } from "@/types/api"
 import { createZernioProfile, getZernioConnectUrl } from "@/lib/social/zernio-client"
 import { PLAN_LIMITS, type UserPlan } from "@/types/app"
+import { isInternalUnlimited } from "@/lib/usage/is-internal-unlimited"
 import type { SupabaseClient } from "@supabase/supabase-js"
 import type { Database } from "@/types/database"
 
@@ -52,7 +53,7 @@ export async function GET(request: Request) {
     .single<{ plan: UserPlan }>()
 
   const plan: UserPlan = userData?.plan ?? "free"
-  if (!PLAN_LIMITS[plan].zernioSocialPlatforms) {
+  if (!PLAN_LIMITS[plan].zernioSocialPlatforms && !isInternalUnlimited(user.id)) {
     return NextResponse.json(
       buildError(ErrorCodes.USAGE_LIMIT_EXCEEDED, "LinkedIn and YouTube publishing are available on Pro and Agency plans. Upgrade to connect this platform."),
       { status: 403 }

@@ -1,12 +1,18 @@
 import { createClient } from "@/lib/supabase/server"
 import { PLAN_LIMITS } from "@/types/app"
 import type { UserPlan } from "@/types/app"
+import { isInternalUnlimited } from "./is-internal-unlimited"
 
 export type UsageCheckResult =
   | { ok: true }
   | { ok: false; status: 429 | 500; message: string }
 
 export async function checkAndIncrementUsage(userId: string): Promise<UsageCheckResult> {
+  if (isInternalUnlimited(userId)) {
+    console.log(`[check-and-increment-usage] internal unlimited bypass for ${userId} — quota check skipped, generation_count not incremented`)
+    return { ok: true }
+  }
+
   const supabase = await createClient()
 
   const { data: user, error } = await supabase
