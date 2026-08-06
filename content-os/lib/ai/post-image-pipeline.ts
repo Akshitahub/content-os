@@ -20,21 +20,39 @@ function buildPollinationsUrl(prompt: string, seed: number): string {
   return `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=${CANVAS_SIZE}&height=${CANVAS_SIZE}&seed=${seed}&nologo=true&model=flux`
 }
 
-async function fetchAndCheckImage(prompt: string, seed: number): Promise<{ buffer: Buffer } | { error: string }> {
+async function fetchAndCheckImage(prompt: string, seed: number): Promise<{ buffer: Buffer } | { error: string } > {
+  const url = buildPollinationsUrl(prompt, seed)
+  console.log(`[post-image-pipeline] calling Pollinations: seed=${seed} promptLen=${prompt.length} url=${url.slice(0, 200)}${url.length > 200 ? "…" : ""}`)
+
   let res: Response
   try {
-    res = await fetch(buildPollinationsUrl(prompt, seed))
+    res = await fetch(url)
   } catch (err) {
+    const detail = err instanceof Error ? `${err.name}: ${err.message}` : String(err)
+    console.error(`[post-image-pipeline] Pollinations fetch threw before any response (network/DNS/timeout-level failure):`, detail)
     return { error: err instanceof Error ? err.message : "Image generation request failed." }
   }
 
+  console.log(`[post-image-pipeline] Pollinations responded: status=${res.status} content-type=${res.headers.get("content-type")}`)
+
   if (!res.ok) {
-    return { error: `Pollinations API error (${res.status})` }
+    // Read the body even on failure — Pollinations returns a JSON or plain
+    // text error body (rate limit, invalid model, prompt rejected, etc.)
+    // that the status code alone doesn't explain.
+    let bodyText = ""
+    try {
+      bodyText = (await res.text()).slice(0, 500)
+    } catch (readErr) {
+      bodyText = `<failed to read response body: ${readErr instanceof Error ? readErr.message : String(readErr)}>`
+    }
+    console.error(`[post-image-pipeline] Pollinations returned non-200: status=${res.status} statusText=${res.statusText} body=${JSON.stringify(bodyText)}`)
+    return { error: `Pollinations API error (${res.status}): ${bodyText || res.statusText}` }
   }
 
   const buffer = Buffer.from(await res.arrayBuffer())
+  console.log(`[post-image-pipeline] Pollinations image buffer: ${buffer.length} bytes`)
   if (buffer.length < MIN_BUFFER_BYTES) {
-    return { error: "Image response was too small to be a real photo." }
+    return { error: `Image response was too small to be a real photo (${buffer.length} bytes).` }
   }
 
   try {
@@ -43,9 +61,11 @@ async function fetchAndCheckImage(prompt: string, seed: number): Promise<{ buffe
     const isNearBlack = means.every((m) => m <= NEAR_BLACK_MEAN)
     const isNearBlank = means.every((m) => m >= NEAR_BLANK_MEAN)
     if (isNearBlack || isNearBlank) {
+      console.error(`[post-image-pipeline] image failed quality check: channel means=${JSON.stringify(means)}`)
       return { error: "Generated image was mostly blank or black." }
     }
-  } catch {
+  } catch (err) {
+    console.error(`[post-image-pipeline] sharp couldn't read the response as an image:`, err instanceof Error ? err.message : err)
     return { error: "Generated image could not be read." }
   }
 
@@ -96,9 +116,16 @@ export async function generatePostImage(options: GeneratePostImageOptions): Prom
 
     if ("error" in attempt) {
       console.error("[post-image-pipeline] retry also failed:", attempt.error)
-      return { success: false, error: "Couldn't generate a usable image after two attempts. Please try again." }
+      // Keep the real reason in the message (not just the logs) — a fully
+      // generic string here was hiding the actual cause from the API
+      // response too, not just from the user-facing copy.
+      return { success: false, error: `Couldn't generate a usable image after two attempts. Last error: ${attempt.error}` }
     }
   }
+
+  console.log(
+    `[post-image-pipeline] compositing: template=${options.template} colorTheme=${options.colorTheme.id} logoUrl=${options.logoUrl ? "present" : "none"} headlineLen=${options.headline.length}`
+  )
 
   try {
     const composited = await compositePostImage(attempt.buffer, {
@@ -108,9 +135,10 @@ export async function generatePostImage(options: GeneratePostImageOptions): Prom
       ctaText: options.ctaText,
       logoUrl: options.logoUrl,
     })
+    console.log(`[post-image-pipeline] composited successfully: ${composited.length} bytes`)
     return { success: true, buffer: composited, mimeType: "image/png", fullPrompt }
   } catch (err) {
-    console.error("[post-image-pipeline] compositing failed:", err instanceof Error ? err.message : err)
+    console.error("[post-image-pipeline] compositing failed:", err instanceof Error ? `${err.name}: ${err.message}\n${err.stack}` : err)
     return { success: false, error: "Couldn't finish styling the generated image. Please try again." }
   }
 }

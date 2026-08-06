@@ -16,6 +16,11 @@ export async function checkAndIncrementUsage(userId: string): Promise<UsageCheck
     .single<{ plan: UserPlan; generation_count: number; generation_count_reset_at: string | null }>()
 
   if (error || !user) {
+    console.error(
+      `[check-and-increment-usage] users lookup failed for ${userId}:`,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      JSON.stringify({ message: (error as any)?.message, details: (error as any)?.details, hint: (error as any)?.hint, code: (error as any)?.code })
+    )
     return { ok: false, status: 500, message: "Could not verify usage limits." }
   }
 
@@ -28,6 +33,9 @@ export async function checkAndIncrementUsage(userId: string): Promise<UsageCheck
   if (needsReset) count = 0
 
   if (count >= limit) {
+    console.error(
+      `[check-and-increment-usage] REJECTED user ${userId}: plan=${user.plan} count=${count} limit=${limit} needsReset=${needsReset}`
+    )
     const noun = user.plan === "free" ? `${limit} free` : String(limit)
     return {
       ok: false,
@@ -35,6 +43,10 @@ export async function checkAndIncrementUsage(userId: string): Promise<UsageCheck
       message: `You've used all ${noun} generations this month. Upgrade to continue.`,
     }
   }
+
+  console.log(
+    `[check-and-increment-usage] OK user ${userId}: plan=${user.plan} count=${count} limit=${limit} needsReset=${needsReset} — incrementing to ${count + 1}`
+  )
 
   const nextResetDate = new Date()
   nextResetDate.setMonth(nextResetDate.getMonth() + 1)

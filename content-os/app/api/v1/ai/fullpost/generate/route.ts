@@ -73,7 +73,14 @@ export async function POST(request: Request) {
       if ("sessionId" in sessionResult) {
         postSessionId = sessionResult.sessionId
       } else {
-        console.error("[ai/fullpost/generate] failed to create post image session:", sessionResult.error)
+        // This is swallowed on purpose today (the caption/hook response
+        // still returns 200) — but it means postSessionId comes back null,
+        // which the client reads as "couldn't start image generation" and
+        // never even calls POST /api/v1/ai/post-image/generate. If you're
+        // seeing that generic client-side error, this is almost certainly
+        // where it actually originates — check createPostImageSession's own
+        // log line just above for the underlying Postgres/PostgREST error.
+        console.error(`[ai/fullpost/generate] ROOT CAUSE of client "couldn't start image generation": session creation failed for user ${user.id}:`, sessionResult.error)
       }
     }
 

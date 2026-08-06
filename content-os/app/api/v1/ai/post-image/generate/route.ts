@@ -36,6 +36,9 @@ export async function POST(request: Request) {
 
   const sessionCheck = await checkAndIncrementPostImageSession(user.id, postSessionId)
   const shouldCharge = sessionCheck.ok ? sessionCheck.shouldCharge : true
+  console.log(
+    `[ai/post-image/generate] session check for ${postSessionId}: sessionFound=${sessionCheck.ok} shouldCharge=${shouldCharge}`
+  )
 
   if (shouldCharge) {
     const usageCheck = await checkAndIncrementUsage(user.id)
@@ -50,6 +53,10 @@ export async function POST(request: Request) {
 
   const colorTheme = findColorTheme(resolveColorThemes(brand), colorThemeId)
 
+  console.log(
+    `[ai/post-image/generate] starting generation for brand ${brandId}: template=${template} colorTheme=${colorTheme.id} promptLen=${imagePrompt.length} promptPreview=${JSON.stringify(imagePrompt.slice(0, 120))}`
+  )
+
   const startTime = Date.now()
   const result = await generatePostImage({
     imagePrompt,
@@ -62,7 +69,7 @@ export async function POST(request: Request) {
   })
 
   if (!result.success) {
-    console.error("[ai/post-image/generate] generation failed:", result.error)
+    console.error(`[ai/post-image/generate] generation failed after ${Date.now() - startTime}ms:`, result.error)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await (supabase.from("ai_generation_logs") as any).insert({
       user_id: user.id, brand_id: brandId, feature: "post_image", model: MODEL_LABEL,

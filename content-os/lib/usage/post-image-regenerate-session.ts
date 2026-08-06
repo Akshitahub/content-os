@@ -19,9 +19,17 @@ export async function createPostImageSession(userId: string): Promise<{ sessionI
   const { data, error } = await (supabase.from("post_image_generation_sessions") as any)
     .insert({ user_id: userId })
     .select("id")
-    .single() as { data: { id: string } | null; error: { message: string } | null }
+    .single() as { data: { id: string } | null; error: { message: string; details?: string; hint?: string; code?: string } | null }
 
   if (error || !data) {
+    // Log the full Postgres/PostgREST error shape, not just .message — the
+    // code (e.g. 42P01 "relation does not exist") and hint are what
+    // actually distinguish "migration never ran" from an RLS/permission
+    // issue or a transient connection failure.
+    console.error(
+      `[post-image-regenerate-session] createPostImageSession failed for user ${userId}:`,
+      JSON.stringify({ message: error?.message, details: error?.details, hint: error?.hint, code: error?.code })
+    )
     return { error: error?.message ?? "Failed to start image generation session." }
   }
 
@@ -50,7 +58,11 @@ export async function checkAndIncrementPostImageSession(userId: string, sessionI
     .single<{ image_generation_count: number }>()
 
   if (error || !session) {
-    console.error(`[post-image-regenerate-session] session ${sessionId} not found for user ${userId} — failing closed (charging)`)
+    console.error(
+      `[post-image-regenerate-session] session ${sessionId} not found for user ${userId} — failing closed (charging):`,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      JSON.stringify({ message: (error as any)?.message, details: (error as any)?.details, hint: (error as any)?.hint, code: (error as any)?.code })
+    )
     return { ok: false }
   }
 
