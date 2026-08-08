@@ -12,12 +12,12 @@ export default function PrivacyPage() {
         Privacy Policy
       </h1>
       <p style={{ color: "#6b7280", fontSize: "0.9rem", marginBottom: "2.5rem" }}>
-        Last updated: June 2026 &nbsp;·&nbsp; Contact: privacy@contentos.in
+        Last updated: August 2026 &nbsp;·&nbsp; Contact: privacy@socioposts.com
       </p>
 
       <Section title="1. Who We Are">
         <p>SocioPosts is operated by Akshita Singh. This Privacy Policy explains how we collect, use, and protect your personal data when you use our Service. &ldquo;We,&rdquo; &ldquo;us,&rdquo; and &ldquo;our&rdquo; refer to SocioPosts/Akshita Singh. &ldquo;You&rdquo; refers to you, the user of our Service.</p>
-        <p>For privacy-related queries, contact us at <a href="mailto:privacy@contentos.in" style={{ color: "#6366f1" }}>privacy@contentos.in</a>.</p>
+        <p>For privacy-related queries, contact us at <a href="mailto:privacy@socioposts.com" style={{ color: "#6366f1" }}>privacy@socioposts.com</a>.</p>
       </Section>
 
       <Section title="2. Information We Collect">
@@ -26,7 +26,7 @@ export default function PrivacyPage() {
           <li><strong>Account information:</strong> Your name, email address, and password (stored securely via Supabase Auth)</li>
           <li><strong>Brand data:</strong> Website URLs, brand names, niches, and product information you provide</li>
           <li><strong>Usage data:</strong> Content generated, features used, and generation counts</li>
-          <li><strong>Billing information:</strong> Subscription plan and payment method details (handled by Stripe — we do not store raw card numbers)</li>
+          <li><strong>Billing information:</strong> Subscription plan and payment method details (handled by Razorpay — we do not store raw card numbers)</li>
           <li><strong>Technical data:</strong> IP address, browser type, and device information collected automatically</li>
           <li><strong>Analytics data:</strong> Anonymised product usage events (via PostHog)</li>
         </ul>
@@ -49,13 +49,20 @@ export default function PrivacyPage() {
       <Section title="4. Third-Party Services">
         <p>SocioPosts uses the following third-party services that may process your data:</p>
         <ul>
-          <li><strong>Supabase</strong> — Database and authentication (data stored in EU region)</li>
-          <li><strong>Stripe</strong> — Payment processing (PCI-DSS compliant)</li>
-          <li><strong>NVIDIA NIM / AI services</strong> — AI model inference for content generation</li>
-          <li><strong>Pollinations.ai</strong> — AI image generation</li>
+          <li><strong>Groq</strong> — AI text generation (hooks, captions, hashtags, reel scripts, content strategy) and AI voice generation (reel voiceovers) — our primary content-generation engine</li>
+          <li><strong>Razorpay</strong> — Payment processing (PCI-DSS compliant)</li>
+          <li><strong>Replicate</strong> — AI image generation (Flux 2 Pro, used for paid-tier post images)</li>
+          <li><strong>Pollinations.ai</strong> — AI image generation (used for free-tier post images)</li>
           <li><strong>Remove.bg</strong> — Background removal for product images</li>
+          <li><strong>PiAPI (Kling)</strong> — AI video generation for reel scenes</li>
+          <li><strong>JSON2Video</strong> — Video rendering for reels</li>
+          <li><strong>Zernio</strong> — LinkedIn, YouTube, and Twitter/X publishing</li>
+          <li><strong>Meta Graph API</strong> — Instagram and Facebook publishing</li>
+          <li><strong>Threads API (Meta)</strong> — Threads publishing</li>
+          <li><strong>Pinterest API</strong> — Pinterest publishing</li>
           <li><strong>PostHog</strong> — Product analytics (anonymised usage events)</li>
           <li><strong>Resend</strong> — Transactional email delivery</li>
+          <li><strong>Supabase</strong> — Database and authentication</li>
           <li><strong>Vercel</strong> — Hosting and edge infrastructure</li>
         </ul>
         <p>Each of these services has its own privacy policy. We encourage you to review them for the services relevant to your use.</p>
@@ -74,7 +81,7 @@ export default function PrivacyPage() {
           <li><strong>Portability:</strong> Request an export of your data in a machine-readable format</li>
           <li><strong>Objection:</strong> Object to certain processing activities</li>
         </ul>
-        <p>To exercise any of these rights, email us at <a href="mailto:privacy@contentos.in" style={{ color: "#6366f1" }}>privacy@contentos.in</a>. We will respond within 30 days.</p>
+        <p>To exercise any of these rights, email us at <a href="mailto:privacy@socioposts.com" style={{ color: "#6366f1" }}>privacy@socioposts.com</a>. We will respond within 30 days.</p>
       </Section>
 
       <Section title="7. Cookies and Tracking">
@@ -93,7 +100,7 @@ export default function PrivacyPage() {
 
       <Section title="9. Changes to This Policy">
         <p>We may update this Privacy Policy from time to time. We will notify you of material changes by email or by posting a notice on the Service at least 14 days before the changes take effect. Your continued use of the Service after the effective date constitutes your acceptance of the updated policy.</p>
-        <p>For questions about this Privacy Policy, contact us at <a href="mailto:privacy@contentos.in" style={{ color: "#6366f1" }}>privacy@contentos.in</a>.</p>
+        <p>For questions about this Privacy Policy, contact us at <a href="mailto:privacy@socioposts.com" style={{ color: "#6366f1" }}>privacy@socioposts.com</a>.</p>
       </Section>
     </article>
   )

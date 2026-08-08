@@ -12,7 +12,7 @@ export default function TermsPage() {
         Terms of Service
       </h1>
       <p style={{ color: "#6b7280", fontSize: "0.9rem", marginBottom: "2.5rem" }}>
-        Last updated: June 2026 &nbsp;·&nbsp; Company: SocioPosts (Akshita Singh)
+        Last updated: August 2026 &nbsp;·&nbsp; Company: SocioPosts (Akshita Singh)
       </p>
 
       <Section title="1. Acceptance of Terms">
@@ -67,17 +67,17 @@ export default function TermsPage() {
       </Section>
 
       <Section title="8. Subscription and Billing">
-        <p>SocioPosts offers free and paid subscription plans. Paid plans are billed monthly or annually via Stripe. By subscribing, you agree to:</p>
+        <p>SocioPosts offers free and paid subscription plans. Paid plans are billed monthly or annually via Razorpay. By subscribing, you agree to:</p>
         <ul>
           <li>Pay all fees associated with your chosen plan</li>
           <li>Provide accurate billing information</li>
           <li>Automatic renewal of your subscription until cancelled</li>
         </ul>
-        <p>Refunds are considered on a case-by-case basis. To request a refund, contact us at support@contentos.in within 7 days of a charge. We reserve the right to change pricing with 30 days&rsquo; notice.</p>
+        <p>Refunds are considered on a case-by-case basis. To request a refund, contact us at support@socioposts.com within 7 days of a charge. We reserve the right to change pricing with 30 days&rsquo; notice.</p>
       </Section>
 
       <Section title="9. Cancellation">
-        <p>You may cancel your subscription at any time through the Settings page or by contacting support@contentos.in. Cancellation takes effect at the end of the current billing period. You will retain access to paid features until that date.</p>
+        <p>You may cancel your subscription at any time through the Settings page or by contacting support@socioposts.com. Cancellation takes effect at the end of the current billing period. You will retain access to paid features until that date.</p>
       </Section>
 
       <Section title="10. Disclaimers">
@@ -90,7 +90,7 @@ export default function TermsPage() {
 
       <Section title="12. Governing Law and Disputes">
         <p>These Terms are governed by and construed in accordance with the laws of India. Any disputes arising from these Terms or your use of the Service shall be subject to the exclusive jurisdiction of the courts of Delhi, India.</p>
-        <p>For any questions or disputes, please contact us first at support@contentos.in — we&rsquo;ll do our best to resolve things informally before any formal proceedings.</p>
+        <p>For any questions or disputes, please contact us first at support@socioposts.com — we&rsquo;ll do our best to resolve things informally before any formal proceedings.</p>
       </Section>
     </article>
   )

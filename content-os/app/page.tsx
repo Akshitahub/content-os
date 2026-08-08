@@ -106,9 +106,6 @@ export default async function RootPage() {
                     Watch demo
                   </a>
                 </div>
-                <div className="mt-8 flex items-center gap-3">
-                  <span className="text-sm text-gray-400">Now in private beta</span>
-                </div>
               </div>
 
               <div className="relative mx-auto h-72 w-full max-w-md rounded-2xl border border-white/10 lg:h-80" style={{ backgroundColor: "#1a1a1a" }}>
@@ -374,9 +371,9 @@ export default async function RootPage() {
             </div>
             <div className="grid gap-6 sm:grid-cols-3">
               {[
-                { quote: "I used to spend 2 hours on a Sunday planning content. Now I run Fastlane on Monday morning and I'm done in 4 minutes.", name: "Priya M.", role: "Founder, handmade jewellery brand", initials: "PM", color: "bg-violet-600" },
-                { quote: "The hooks it generates actually sound like me. Not some American SaaS voice — my voice. That was the thing I was most afraid of with AI tools.", name: "Rajan S.", role: "D2C wellness brand", initials: "RS", color: "bg-blue-600" },
-                { quote: "Switched from a freelancer to SocioPosts. Same output quality, a fraction of the cost, and I can generate on-demand instead of waiting a week.", name: "Anika T.", role: "Home décor brand, Meesho", initials: "AT", color: "bg-emerald-600" },
+                { quote: "The UI is so smooth, genuinely pretty to use. And the calendar section — really well built, exactly how I'd want to plan content.", name: "Gaurav", role: "Software Engineer", initials: "G", color: "bg-violet-600" },
+                { quote: "It's fast. Like, actually fast. Fastlane is hands-down the best feature — I don't think I could go back to planning content manually.", name: "Ananya", role: "", initials: "A", color: "bg-blue-600" },
+                { quote: "As a business owner, time is the one thing I don't have enough of. This gives it back to me.", name: "Sambhav", role: "Business Owner", initials: "S", color: "bg-emerald-600" },
               ].map(({ quote, name, role, initials, color }) => (
                 <div key={name} className="rounded-2xl border border-white/5 bg-white/5 p-6">
                   <div className="mb-4 flex items-center gap-1">
@@ -389,7 +386,7 @@ export default async function RootPage() {
                     <div className={`${color} flex h-9 w-9 items-center justify-center rounded-full text-xs font-bold text-white`}>{initials}</div>
                     <div>
                       <p className="text-sm font-semibold text-white">{name}</p>
-                      <p className="text-xs text-gray-400">{role}</p>
+                      {role && <p className="text-xs text-gray-400">{role}</p>}
                     </div>
                   </div>
                 </div>
@@ -463,11 +460,6 @@ export default async function RootPage() {
             </div>
             <div className="mt-10 border-t pt-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between" style={{ borderColor: "#1f1f1f" }}>
               <p className="text-xs text-gray-600">&copy; {new Date().getFullYear()} SocioPosts. Made with ❤️ in India 🇮🇳. All rights reserved.</p>
-              <div className="flex items-center gap-4">
-                <a href="https://instagram.com" target="_blank" rel="noopener noreferrer" className="text-xs text-gray-500 hover:text-white transition-colors">Instagram</a>
-                <a href="https://twitter.com" target="_blank" rel="noopener noreferrer" className="text-xs text-gray-500 hover:text-white transition-colors">Twitter</a>
-                <a href="https://linkedin.com" target="_blank" rel="noopener noreferrer" className="text-xs text-gray-500 hover:text-white transition-colors">LinkedIn</a>
-              </div>
             </div>
           </div>
         </footer>
