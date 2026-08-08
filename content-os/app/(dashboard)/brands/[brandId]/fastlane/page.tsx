@@ -846,7 +846,7 @@ export default function AutopilotPage() {
           <div className="rounded-xl border border-violet-200 bg-violet-50 p-4 text-left space-y-2">
             <p className="font-semibold text-violet-900">Starter Plan — ₹999/month</p>
             <ul className="text-sm text-violet-700 space-y-1">
-              <li>✓ 200 generations/month</li>
+              <li>✓ {PLAN_LIMITS.starter.generations} generations/month</li>
               <li>✓ Autopilot (30-day calendar)</li>
               <li>✓ All content types</li>
               <li>✓ Ad Maker</li>

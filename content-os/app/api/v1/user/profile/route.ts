@@ -2,9 +2,8 @@ import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import { buildError, ErrorCodes } from "@/types/api"
 import type { UserRow } from "@/types/database"
+import { PLAN_LIMITS, type UserPlan } from "@/types/app"
 import { z } from "zod"
-
-const PLAN_LIMITS: Record<string, number> = { free: 15, starter: 500, pro: 500, agency: 2000 }
 
 export async function GET() {
   let supabase
@@ -25,8 +24,9 @@ export async function GET() {
     .eq("id", user.id)
     .single<{ plan: string; generation_count: number; generation_count_reset_at: string | null }>()
 
-  const plan = userData?.plan ?? "free"
-  const limit = PLAN_LIMITS[plan] ?? 15
+  const rawPlan = userData?.plan
+  const plan: UserPlan = rawPlan && rawPlan in PLAN_LIMITS ? (rawPlan as UserPlan) : "free"
+  const limit = PLAN_LIMITS[plan].generations
   const now = new Date()
   const resetAt = userData?.generation_count_reset_at ? new Date(userData.generation_count_reset_at) : null
   const shouldReset = !resetAt || (now.getMonth() !== resetAt.getMonth() || now.getFullYear() !== resetAt.getFullYear())

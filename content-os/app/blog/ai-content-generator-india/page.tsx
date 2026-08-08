@@ -109,7 +109,7 @@ export default function AiContentGeneratorIndiaArticle() {
           <p>SocioPosts offers four plans:</p>
           <ul className="list-disc space-y-2 pl-5">
             <li><strong>Free</strong> — 15 generations/month, 1 brand</li>
-            <li><strong>Starter (&#8377;999/month)</strong> — 500 generations/month, 2 brands, 30 products</li>
+            <li><strong>Starter (&#8377;999/month)</strong> — 350 generations/month, 2 brands, 30 products</li>
             <li><strong>Pro (&#8377;2,499/month)</strong> — 1,200 generations/month, 3 brands, 200 products</li>
             <li><strong>Agency (&#8377;6,999/month)</strong> — 2,000 generations/month, 5 brands, 1,000 products</li>
           </ul>

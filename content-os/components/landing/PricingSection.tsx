@@ -41,7 +41,7 @@ const TIERS: PricingTier[] = [
     annualBilledLabel: "Billed ₹9,999/year",
     features: [
       "2 brands",
-      "500 AI generations / month",
+      "350 AI generations / month",
       "Auto-post & schedule to Instagram, Facebook, Threads, Pinterest",
       "Autopilot: generate a month of content in one click",
       "Influencer outreach tools",

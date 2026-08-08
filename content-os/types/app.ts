@@ -191,7 +191,7 @@ export interface AutopilotTier {
 
 export const PLAN_LIMITS: Record<UserPlan, { generations: number; brands: number; products: number; zernioSocialPlatforms: boolean; reelsPerWeek: number; autopilot: AutopilotTier }> = {
   free:    { generations: 15,   brands: 1, products: 5,    zernioSocialPlatforms: false, reelsPerWeek: 0, autopilot: { days: 3,  slots: 5,  creditCost: 8 } },
-  starter: { generations: 500,  brands: 2, products: 30,   zernioSocialPlatforms: false, reelsPerWeek: 0, autopilot: { days: 30, slots: 30, creditCost: 30 } },
+  starter: { generations: 350,  brands: 2, products: 30,   zernioSocialPlatforms: false, reelsPerWeek: 0, autopilot: { days: 30, slots: 30, creditCost: 30 } },
   pro:     { generations: 1200, brands: 3, products: 200,  zernioSocialPlatforms: true,  reelsPerWeek: 1, autopilot: { days: 30, slots: 30, creditCost: 30 } },
   agency:  { generations: 2000, brands: 5, products: 1000, zernioSocialPlatforms: true,  reelsPerWeek: 4, autopilot: { days: 30, slots: 30, creditCost: 30 } },
 }
