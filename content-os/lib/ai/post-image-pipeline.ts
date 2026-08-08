@@ -322,10 +322,28 @@ export async function generatePostImage(options: GeneratePostImageOptions): Prom
 
     if ("error" in attempt) {
       console.error(`[post-image-pipeline] retry also failed (${provider}):`, attempt.error)
-      // Keep the real reason in the message (not just the logs) — a fully
-      // generic string here was hiding the actual cause from the API
-      // response too, not just from the user-facing copy.
-      return { success: false, error: `Couldn't generate a usable image after two attempts. Last error: ${attempt.error}` }
+
+      // Flux failing twice (Replicate outage, out of credit, etc.) shouldn't
+      // leave a paying user with nothing — fall back to the always-available
+      // free provider rather than a hard failure. This is a last-resort
+      // safety net, not a routine path, so it's logged loudly: if this shows
+      // up often in Vercel logs, that's a sign Replicate itself needs
+      // attention, not that this fallback needs tuning.
+      if (provider === "flux") {
+        console.log(`[post-image-pipeline] Flux failed twice, falling back to Pollinations for plan=${options.plan}`)
+        const fallbackSeed = Math.floor(Math.random() * 1_000_000)
+        attempt = await fetchAndCheckPollinationsImage(fullPrompt, fallbackSeed)
+
+        if ("error" in attempt) {
+          console.error(`[post-image-pipeline] Pollinations fallback also failed:`, attempt.error)
+          return { success: false, error: `Couldn't generate a usable image after three attempts. Last error: ${attempt.error}` }
+        }
+      } else {
+        // Keep the real reason in the message (not just the logs) — a fully
+        // generic string here was hiding the actual cause from the API
+        // response too, not just from the user-facing copy.
+        return { success: false, error: `Couldn't generate a usable image after two attempts. Last error: ${attempt.error}` }
+      }
     }
   }
 
