@@ -62,7 +62,7 @@ const TIERS: PricingTier[] = [
       "+ LinkedIn, YouTube, Twitter/X",
       "1 real AI video reel every week",
       "Competitor tracking (5 competitors)",
-      "Full analytics — demographics, best-time-to-post",
+      "Full analytics: demographics, best-time-to-post",
       "Monthly PDF reports",
     ],
   },

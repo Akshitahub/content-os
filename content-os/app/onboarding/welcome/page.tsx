@@ -18,7 +18,7 @@ export default function WelcomePage() {
       <div className="mt-10 grid gap-4 text-left sm:grid-cols-3">
         {[
           { icon: Sparkles, title: "AI learns your brand", desc: "We read your site and extract your voice, tone, and audience." },
-          { icon: Zap, title: "Content in seconds", desc: "Hooks, captions, reels — generated in your exact brand style." },
+          { icon: Zap, title: "Content in seconds", desc: "Hooks, captions, and reels, generated in your exact brand style." },
           { icon: CalendarDays, title: "30 days planned", desc: "Autopilot builds a full month of ready-to-post content." },
         ].map(({ icon: Icon, title, desc }) => (
           <div key={title} className="rounded-xl border border-white/10 bg-white/5 p-4">

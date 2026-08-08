@@ -29,7 +29,7 @@ export default function DonePage() {
 
       <h1 className="text-3xl font-bold text-white sm:text-4xl">You&apos;re all set!</h1>
       <p className="mt-3 text-gray-400 text-base max-w-md mx-auto">
-        Your brand is ready. Start generating hooks, captions, reels, and 30-day content plans — all in your exact brand voice.
+        Your brand is ready. Start generating hooks, captions, reels, and 30-day content plans, all in your exact brand voice.
       </p>
 
       <div className="mt-10 grid gap-3 sm:grid-cols-3 text-left">

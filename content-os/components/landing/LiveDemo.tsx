@@ -112,7 +112,7 @@ export function LiveDemo() {
           >
             <p className="text-center text-xs font-semibold text-muted-foreground">Your content is ready 🎉</p>
             {[
-              { emoji: "🎬", type: "Reel Script", text: "Your skin is not a problem to solve — it’s a story to tell. 💄", delay: "0s" },
+              { emoji: "🎬", type: "Reel Script", text: "Your skin is not a problem to solve. It’s a story to tell. 💄", delay: "0s" },
               { emoji: "📸", type: "Instagram Post", text: "Bold lips, bolder you. Shop the new collection before it sells out!", delay: "0.15s" },
               { emoji: "🎠", type: "Carousel", text: "5 skincare mistakes you didn’t know were aging you faster", delay: "0.3s" },
             ].map((card) => (
@@ -139,7 +139,7 @@ export function LiveDemo() {
             style={{ animation: "phase-cycle 8s infinite 6s" }}
           >
             <div className="flex items-center justify-between">
-              <p className="text-xs font-semibold">Content Calendar — July 2025</p>
+              <p className="text-xs font-semibold">Content Calendar, July 2025</p>
               <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-semibold text-violet-700">30 posts planned</span>
             </div>
             <div className="grid grid-cols-7 gap-1">

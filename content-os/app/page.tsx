@@ -96,7 +96,7 @@ export default async function RootPage() {
                   <span className="text-violet-400">30 days</span> of content
                 </h1>
                 <p className="mt-6 max-w-lg text-lg leading-relaxed text-gray-400">
-                  SocioPosts learns your brand voice from your website and generates hooks, captions, reels, carousels, ad copy, and email sequences — tailored to you, not templates.
+                  SocioPosts learns your brand voice from your website and generates hooks, captions, reels, carousels, ad copy, and email sequences, all tailored to you, not templates.
                 </p>
                 <div className="mt-8 flex flex-wrap items-center gap-4">
                   <Link href={primaryHref} className="inline-flex items-center gap-2 rounded-full bg-violet-600 px-6 py-3 text-sm font-semibold text-white transition-all hover:bg-violet-700 hover:scale-[1.02]">
@@ -110,7 +110,7 @@ export default async function RootPage() {
 
               <div className="relative mx-auto h-72 w-full max-w-md rounded-2xl border border-white/10 lg:h-80" style={{ backgroundColor: "#1a1a1a" }}>
                 <div className="hero-frame-1 absolute inset-0 flex flex-col items-start justify-center rounded-2xl p-8" style={{ opacity: 0 }}>
-                  <p className="mb-3 text-xs font-medium uppercase tracking-widest text-gray-500">Step 1 — Paste your brand URL</p>
+                  <p className="mb-3 text-xs font-medium uppercase tracking-widest text-gray-500">Step 1: Paste your brand URL</p>
                   <div className="flex w-full items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-4 py-3">
                     <Globe className="h-4 w-4 shrink-0 text-violet-400" />
                     <span className="text-sm text-white">yourbrand.com<span className="cursor ml-0.5 text-violet-400">|</span></span>
@@ -121,7 +121,7 @@ export default async function RootPage() {
                 </div>
 
                 <div className="hero-frame-2 absolute inset-0 flex flex-col items-start justify-center rounded-2xl p-8" style={{ opacity: 0 }}>
-                  <p className="mb-3 text-xs font-medium uppercase tracking-widest text-gray-500">Step 2 — AI analysis</p>
+                  <p className="mb-3 text-xs font-medium uppercase tracking-widest text-gray-500">Step 2: AI analysis</p>
                   <p className="mb-4 text-sm text-white">Analysing your brand voice…</p>
                   <div className="h-2 w-full overflow-hidden rounded-full bg-white/10">
                     <div className="fill-bar h-full rounded-full bg-violet-500" />
@@ -137,7 +137,7 @@ export default async function RootPage() {
                 </div>
 
                 <div className="hero-frame-3 absolute inset-0 flex flex-col items-start justify-center rounded-2xl p-8" style={{ opacity: 0 }}>
-                  <p className="mb-3 text-xs font-medium uppercase tracking-widest text-gray-500">Step 3 — 30 days ready</p>
+                  <p className="mb-3 text-xs font-medium uppercase tracking-widest text-gray-500">Step 3: 30 days ready</p>
                   <div className="grid w-full grid-cols-6 gap-2">
                     {["bg-violet-500", "bg-blue-500", "bg-emerald-500", "bg-yellow-500", "bg-pink-500", "bg-orange-500"].map((color, i) => (
                       <div key={i} className={`${color} flex h-14 items-center justify-center rounded-lg text-xs font-bold text-white opacity-90`}>
@@ -193,8 +193,8 @@ export default async function RootPage() {
             <div className="grid gap-8 sm:grid-cols-3">
               {[
                 { Icon: Globe, step: "01", title: "Paste your URL", desc: "Drop in your website or store URL. SocioPosts reads your pages, products, and copy to understand your brand." },
-                { Icon: Sparkles, step: "02", title: "AI learns your brand", desc: "Our AI extracts your tone, audience, and positioning — building a brand profile unique to you." },
-                { Icon: Zap, step: "03", title: "Generate everything", desc: "Hooks, captions, reels, carousels, email sequences — 30 days of on-brand content in one click." },
+                { Icon: Sparkles, step: "02", title: "AI learns your brand", desc: "Our AI extracts your tone, audience, and positioning to build a brand profile unique to you." },
+                { Icon: Zap, step: "03", title: "Generate everything", desc: "Hooks, captions, reels, carousels, email sequences: 30 days of on-brand content in one click." },
               ].map(({ Icon, step, title, desc }) => (
                 <div key={step} className="rounded-2xl border border-gray-100 p-8 transition-shadow hover:shadow-md">
                   <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-xl bg-violet-50">
@@ -219,10 +219,10 @@ export default async function RootPage() {
             <div className="grid grid-cols-2 gap-4 lg:grid-cols-3">
               {[
                 { title: "Hook Generator", desc: "Scroll-stopping first lines tuned to your brand voice, with the reasoning behind each one.", icon: "⚡" },
-                { title: "Reel Scripts", desc: "Full voiceover scripts with hooks, body, and CTAs — ready to record in 60 seconds.", icon: "🎬" },
+                { title: "Reel Scripts", desc: "Full voiceover scripts with hooks, body, and CTAs, ready to record in 60 seconds.", icon: "🎬" },
                 { title: "Carousels", desc: "Slide-by-slide content plans for educational and product carousels that actually get saved.", icon: "🎠" },
                 { title: "Email Sequences", desc: "Welcome, nurture, and launch sequences written in your brand's tone, not a generic template.", icon: "📧" },
-                { title: "Influencer Outreach", desc: "Personalized DM and email pitches for collaborations — tailored to each creator's niche.", icon: "🤝" },
+                { title: "Influencer Outreach", desc: "Personalized DM and email pitches for collaborations, tailored to each creator's niche.", icon: "🤝" },
                 { title: "Autopilot ✈️", desc: "Our flagship: paste your URL, get 30 days of planned, ready-to-post content instantly.", icon: "🚀", highlight: true },
               ].map(({ title, desc, icon, highlight }) => (
                 <div key={title} className={`rounded-2xl p-6 transition-all hover:scale-[1.01] ${highlight ? "border border-violet-500/30 bg-violet-950/40" : "border border-white/5 bg-white/5"}`}>
@@ -242,14 +242,14 @@ export default async function RootPage() {
             <div className="mb-12 text-center">
               <span className="mb-3 inline-block rounded-full bg-violet-50 px-3 py-1 text-xs font-semibold uppercase tracking-widest text-violet-600">Who is it for</span>
               <h2 className="text-3xl font-bold tracking-tight text-gray-900 sm:text-4xl">Built for Indian D2C brands</h2>
-              <p className="mt-3 text-gray-500">If you sell online and need content that actually sounds like you — this is it.</p>
+              <p className="mt-3 text-gray-500">If you sell online and need content that actually sounds like you, this is it.</p>
             </div>
             <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
               {[
-                { emoji: "💍", title: "Jewellery & Accessories", desc: "Handmade, silver, gold, fashion — generate hooks and reels that make people stop and save." },
-                { emoji: "🌿", title: "Skincare & Wellness", desc: "Natural, ayurvedic, D2C — content that builds trust, not just hype." },
-                { emoji: "👗", title: "Fashion & Apparel", desc: "Ethnic, western, sustainable — captions that match your vibe exactly." },
-                { emoji: "🏠", title: "Home & Lifestyle", desc: "Decor, gifting, organics — content plans that keep you consistent on Instagram." },
+                { emoji: "💍", title: "Jewellery & Accessories", desc: "Handmade, silver, gold, fashion: generate hooks and reels that make people stop and save." },
+                { emoji: "🌿", title: "Skincare & Wellness", desc: "Natural, ayurvedic, D2C: content that builds trust, not just hype." },
+                { emoji: "👗", title: "Fashion & Apparel", desc: "Ethnic, western, sustainable: captions that match your vibe exactly." },
+                { emoji: "🏠", title: "Home & Lifestyle", desc: "Decor, gifting, organics: content plans that keep you consistent on Instagram." },
               ].map(({ emoji, title, desc }) => (
                 <div key={title} className="rounded-2xl border border-gray-100 p-6 hover:shadow-md transition-shadow">
                   <div className="mb-3 text-3xl">{emoji}</div>
@@ -274,7 +274,7 @@ export default async function RootPage() {
                   30 days of content.{" "}<span className="text-violet-400">One click.</span>
                 </h2>
                 <p className="mt-4 text-lg leading-relaxed text-gray-400">
-                  Autopilot reads your entire brand, builds a content strategy, and generates a full month of posts — hooks, captions, format types, and posting schedule included. No prompting. No editing templates. Just done.
+                  Autopilot reads your entire brand, builds a content strategy, and generates a full month of posts, including hooks, captions, format types, and posting schedule. No prompting. No editing templates. Just done.
                 </p>
                 <Link href={primaryHref} className="mt-8 inline-flex items-center gap-2 rounded-full bg-violet-600 px-6 py-3 text-sm font-semibold text-white transition-all hover:bg-violet-700">
                   Try Autopilot free <ArrowRight className="h-4 w-4" />
@@ -312,9 +312,9 @@ export default async function RootPage() {
                   </div>
                 </div>
                 <div className="mt-8 rounded-xl border border-white/5 bg-white/5 p-4">
-                  <p className="text-xs text-gray-500">Preview — Post #1</p>
+                  <p className="text-xs text-gray-500">Preview: Post #1</p>
                   <p className="mt-2 text-sm leading-relaxed text-gray-200">
-                    &ldquo;The feeling of putting something handmade on and just knowing — this was made for you. Shop our new collection → link in bio&rdquo;
+                    &ldquo;The feeling of putting something handmade on and just knowing: this was made for you. Shop our new collection → link in bio&rdquo;
                   </p>
                   <div className="mt-2 flex gap-2">
                     <span className="rounded bg-violet-900/40 px-2 py-0.5 text-xs text-violet-300">Hook</span>
@@ -371,8 +371,8 @@ export default async function RootPage() {
             </div>
             <div className="grid gap-6 sm:grid-cols-3">
               {[
-                { quote: "The UI is so smooth, genuinely pretty to use. And the calendar section — really well built, exactly how I'd want to plan content.", name: "Gaurav", role: "Software Engineer", initials: "G", color: "bg-violet-600" },
-                { quote: "It's fast. Like, actually fast. Fastlane is hands-down the best feature — I don't think I could go back to planning content manually.", name: "Anannya", role: "Engineering Student", initials: "A", color: "bg-blue-600" },
+                { quote: "The UI is so smooth, genuinely pretty to use. And the calendar section is really well built, exactly how I'd want to plan content.", name: "Gaurav", role: "Software Engineer", initials: "G", color: "bg-violet-600" },
+                { quote: "It's fast. Like, actually fast. Fastlane is hands-down the best feature. I don't think I could go back to planning content manually.", name: "Anannya", role: "Engineering Student", initials: "A", color: "bg-blue-600" },
                 { quote: "As a business owner, time is the one thing I don't have enough of. This gives it back to me.", name: "Sambhav", role: "Business Owner", initials: "S", color: "bg-emerald-600" },
               ].map(({ quote, name, role, initials, color }) => (
                 <div key={name} className="rounded-2xl border border-white/5 bg-white/5 p-6">

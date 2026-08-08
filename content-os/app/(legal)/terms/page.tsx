@@ -1,7 +1,7 @@
 import type { Metadata } from "next"
 
 export const metadata: Metadata = {
-  title: "Terms of Service — SocioPosts",
+  title: "SocioPosts Terms of Service",
   description: "Terms of Service for SocioPosts, the AI content operating system for ecommerce brands.",
 }
 
@@ -90,7 +90,7 @@ export default function TermsPage() {
 
       <Section title="12. Governing Law and Disputes">
         <p>These Terms are governed by and construed in accordance with the laws of India. Any disputes arising from these Terms or your use of the Service shall be subject to the exclusive jurisdiction of the courts of Delhi, India.</p>
-        <p>For any questions or disputes, please contact us first at support@socioposts.com — we&rsquo;ll do our best to resolve things informally before any formal proceedings.</p>
+        <p>For any questions or disputes, please contact us first at support@socioposts.com. We&rsquo;ll do our best to resolve things informally before any formal proceedings.</p>
       </Section>
     </article>
   )

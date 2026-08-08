@@ -1,7 +1,7 @@
 import type { Metadata } from "next"
 
 export const metadata: Metadata = {
-  title: "Privacy Policy — SocioPosts",
+  title: "SocioPosts Privacy Policy",
   description: "Privacy Policy for SocioPosts, the AI content operating system for ecommerce brands.",
 }
 
@@ -26,7 +26,7 @@ export default function PrivacyPage() {
           <li><strong>Account information:</strong> Your name, email address, and password (stored securely via Supabase Auth)</li>
           <li><strong>Brand data:</strong> Website URLs, brand names, niches, and product information you provide</li>
           <li><strong>Usage data:</strong> Content generated, features used, and generation counts</li>
-          <li><strong>Billing information:</strong> Subscription plan and payment method details (handled by Razorpay — we do not store raw card numbers)</li>
+          <li><strong>Billing information:</strong> Subscription plan and payment method details (handled by Razorpay, and we do not store raw card numbers)</li>
           <li><strong>Technical data:</strong> IP address, browser type, and device information collected automatically</li>
           <li><strong>Analytics data:</strong> Anonymised product usage events (via PostHog)</li>
         </ul>
@@ -49,21 +49,21 @@ export default function PrivacyPage() {
       <Section title="4. Third-Party Services">
         <p>SocioPosts uses the following third-party services that may process your data:</p>
         <ul>
-          <li><strong>Groq</strong> — AI text generation (hooks, captions, hashtags, reel scripts, content strategy) and AI voice generation (reel voiceovers) — our primary content-generation engine</li>
-          <li><strong>Razorpay</strong> — Payment processing (PCI-DSS compliant)</li>
-          <li><strong>Replicate</strong> — AI image generation (Flux 2 Pro, used for paid-tier post images)</li>
-          <li><strong>Pollinations.ai</strong> — AI image generation (used for free-tier post images)</li>
-          <li><strong>Remove.bg</strong> — Background removal for product images</li>
-          <li><strong>PiAPI (Kling)</strong> — AI video generation for reel scenes</li>
-          <li><strong>JSON2Video</strong> — Video rendering for reels</li>
-          <li><strong>Zernio</strong> — LinkedIn, YouTube, and Twitter/X publishing</li>
-          <li><strong>Meta Graph API</strong> — Instagram and Facebook publishing</li>
-          <li><strong>Threads API (Meta)</strong> — Threads publishing</li>
-          <li><strong>Pinterest API</strong> — Pinterest publishing</li>
-          <li><strong>PostHog</strong> — Product analytics (anonymised usage events)</li>
-          <li><strong>Resend</strong> — Transactional email delivery</li>
-          <li><strong>Supabase</strong> — Database and authentication</li>
-          <li><strong>Vercel</strong> — Hosting and edge infrastructure</li>
+          <li><strong>Groq</strong>: AI text generation (hooks, captions, hashtags, reel scripts, content strategy) and AI voice generation (reel voiceovers). This is our primary content-generation engine.</li>
+          <li><strong>Razorpay</strong>: Payment processing (PCI-DSS compliant)</li>
+          <li><strong>Replicate</strong>: AI image generation (Flux 2 Pro, used for paid-tier post images)</li>
+          <li><strong>Pollinations.ai</strong>: AI image generation (used for free-tier post images)</li>
+          <li><strong>Remove.bg</strong>: Background removal for product images</li>
+          <li><strong>PiAPI (Kling)</strong>: AI video generation for reel scenes</li>
+          <li><strong>JSON2Video</strong>: Video rendering for reels</li>
+          <li><strong>Zernio</strong>: LinkedIn, YouTube, and Twitter/X publishing</li>
+          <li><strong>Meta Graph API</strong>: Instagram and Facebook publishing</li>
+          <li><strong>Threads API (Meta)</strong>: Threads publishing</li>
+          <li><strong>Pinterest API</strong>: Pinterest publishing</li>
+          <li><strong>PostHog</strong>: Product analytics (anonymised usage events)</li>
+          <li><strong>Resend</strong>: Transactional email delivery</li>
+          <li><strong>Supabase</strong>: Database and authentication</li>
+          <li><strong>Vercel</strong>: Hosting and edge infrastructure</li>
         </ul>
         <p>Each of these services has its own privacy policy. We encourage you to review them for the services relevant to your use.</p>
       </Section>
