@@ -137,7 +137,10 @@ export async function POST(request: Request) {
     }
 
     // Execute autopilot with user preferences, scaled to this plan's tier
-    const result = await executeFastlane(supabase, user.id, brandId, { frequency, platforms, vibe, focusAreas, totalSlots: tier.slots })
+    const result = await executeFastlane(supabase, user.id, brandId, {
+      frequency, platforms, vibe, focusAreas, totalSlots: tier.slots,
+      plan, isInternalUnlimitedUser: isUnlimited,
+    })
 
     // Increment generation count
     const { data: currentUser } = await supabase

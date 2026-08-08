@@ -1,26 +1,63 @@
 import sharp from "sharp"
+import Replicate from "replicate"
 import { IMAGE_QUALITY_SAFETY_BOILERPLATE } from "./prompts"
 import { compositePostImage } from "@/lib/image/post-compositor"
 import type { PostTemplateId } from "@/lib/design/post-templates"
 import type { ColorTheme } from "@/lib/design/color-themes"
+import type { UserPlan } from "@/types/app"
 
 const CANVAS_SIZE = 1080
 const MIN_BUFFER_BYTES = 5000
 // Near-black or near-blank/white images are treated as a failed attempt
-// even on a 200 response — Pollinations occasionally returns a placeholder
-// image rather than a real error for a rejected/malformed prompt.
+// even on a 200 response — both providers occasionally return a
+// placeholder image rather than a real error for a rejected/malformed
+// prompt (Pollinations) or a moderation refusal (Replicate/Flux).
 const NEAR_BLACK_MEAN = 8
 const NEAR_BLANK_MEAN = 247
+
+// Pinned to a specific version string (not just "black-forest-labs/flux-2-pro"'s
+// unversioned alias) isn't required here — Replicate's `owner/model` form
+// without a `:version` always resolves to that model's current default
+// version, which is what every other Flux example in this codebase's
+// research showed. Kept as one named constant so bumping to a newer Flux
+// release later is a one-line change, not a call-site hunt.
+const FLUX_MODEL = "black-forest-labs/flux-2-pro"
 
 export type PostImagePipelineResult =
   | { success: true; buffer: Buffer; mimeType: string; fullPrompt: string }
   | { success: false; error: string }
 
+// Shared by both providers — a failed generation can come back as a 200
+// with a placeholder/refusal image just as easily as a network error, so
+// every fetched buffer goes through the same size + blank/black check
+// before being treated as usable.
+async function checkImageQuality(buffer: Buffer): Promise<{ ok: true } | { error: string }> {
+  if (buffer.length < MIN_BUFFER_BYTES) {
+    return { error: `Image response was too small to be a real photo (${buffer.length} bytes).` }
+  }
+
+  try {
+    const stats = await sharp(buffer).stats()
+    const means = stats.channels.slice(0, 3).map((c) => c.mean)
+    const isNearBlack = means.every((m) => m <= NEAR_BLACK_MEAN)
+    const isNearBlank = means.every((m) => m >= NEAR_BLANK_MEAN)
+    if (isNearBlack || isNearBlank) {
+      console.error(`[post-image-pipeline] image failed quality check: channel means=${JSON.stringify(means)}`)
+      return { error: "Generated image was mostly blank or black." }
+    }
+  } catch (err) {
+    console.error(`[post-image-pipeline] sharp couldn't read the response as an image:`, err instanceof Error ? err.message : err)
+    return { error: "Generated image could not be read." }
+  }
+
+  return { ok: true }
+}
+
 function buildPollinationsUrl(prompt: string, seed: number): string {
   return `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=${CANVAS_SIZE}&height=${CANVAS_SIZE}&seed=${seed}&nologo=true&model=flux`
 }
 
-async function fetchAndCheckImage(prompt: string, seed: number): Promise<{ buffer: Buffer } | { error: string } > {
+async function fetchAndCheckPollinationsImage(prompt: string, seed: number): Promise<{ buffer: Buffer } | { error: string } > {
   const url = buildPollinationsUrl(prompt, seed)
   console.log(`[post-image-pipeline] calling Pollinations: seed=${seed} promptLen=${prompt.length} url=${url.slice(0, 200)}${url.length > 200 ? "…" : ""}`)
 
@@ -51,25 +88,93 @@ async function fetchAndCheckImage(prompt: string, seed: number): Promise<{ buffe
 
   const buffer = Buffer.from(await res.arrayBuffer())
   console.log(`[post-image-pipeline] Pollinations image buffer: ${buffer.length} bytes`)
-  if (buffer.length < MIN_BUFFER_BYTES) {
-    return { error: `Image response was too small to be a real photo (${buffer.length} bytes).` }
-  }
 
-  try {
-    const stats = await sharp(buffer).stats()
-    const means = stats.channels.slice(0, 3).map((c) => c.mean)
-    const isNearBlack = means.every((m) => m <= NEAR_BLACK_MEAN)
-    const isNearBlank = means.every((m) => m >= NEAR_BLANK_MEAN)
-    if (isNearBlack || isNearBlank) {
-      console.error(`[post-image-pipeline] image failed quality check: channel means=${JSON.stringify(means)}`)
-      return { error: "Generated image was mostly blank or black." }
-    }
-  } catch (err) {
-    console.error(`[post-image-pipeline] sharp couldn't read the response as an image:`, err instanceof Error ? err.message : err)
-    return { error: "Generated image could not be read." }
-  }
-
+  const quality = await checkImageQuality(buffer)
+  if ("error" in quality) return quality
   return { buffer }
+}
+
+function getReplicateApiToken(): string {
+  const token = process.env.REPLICATE_API_TOKEN
+  if (!token) throw new Error("REPLICATE_API_TOKEN is not set")
+  return token
+}
+
+function getReplicateClient(): Replicate {
+  return new Replicate({ auth: getReplicateApiToken() })
+}
+
+// The Node client's `.run()` return type is deliberately loose (`Promise<object>`)
+// since its actual shape depends on both the model (single output vs. an
+// array of outputs) and the client's `useFileOutput` setting (defaults to
+// true, wrapping each URL in a `FileOutput` — a ReadableStream with a
+// `.blob()`/`.url()` — rather than a plain string). Handled defensively
+// here instead of assuming one specific shape.
+async function bufferFromReplicateOutput(output: unknown): Promise<{ buffer: Buffer } | { error: string }> {
+  const first = Array.isArray(output) ? output[0] : output
+  if (first === undefined || first === null) {
+    return { error: "Replicate returned no image output." }
+  }
+
+  if (typeof first === "object" && "blob" in first && typeof (first as { blob: unknown }).blob === "function") {
+    const blob = await (first as { blob(): Promise<Blob> }).blob()
+    return { buffer: Buffer.from(await blob.arrayBuffer()) }
+  }
+
+  const url = typeof first === "string" ? first : String(first)
+  try {
+    const res = await fetch(url)
+    if (!res.ok) return { error: `Failed to fetch Flux image from Replicate (${res.status}).` }
+    return { buffer: Buffer.from(await res.arrayBuffer()) }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "Failed to fetch Flux image from Replicate." }
+  }
+}
+
+async function fetchAndCheckFluxImage(prompt: string, seed: number): Promise<{ buffer: Buffer } | { error: string }> {
+  console.log(`[post-image-pipeline] calling Replicate (${FLUX_MODEL}): attemptSeed=${seed} promptLen=${prompt.length}`)
+
+  let output: unknown
+  try {
+    const replicate = getReplicateClient()
+    output = await replicate.run(FLUX_MODEL, {
+      input: {
+        prompt,
+        aspect_ratio: "1:1",
+        output_format: "png",
+      },
+    })
+  } catch (err) {
+    // Full error object logged server-side — Replicate's client throws
+    // errors whose .message often only has a generic summary, with the
+    // actual API-reported reason (moderation, invalid input, etc.) on the
+    // error's own `.response`/`.detail` — never swallowed here.
+    console.error(`[post-image-pipeline] Replicate call failed:`, err)
+    const detail = err instanceof Error ? err.message : String(err)
+    return { error: `Flux generation failed: ${detail}` }
+  }
+
+  const result = await bufferFromReplicateOutput(output)
+  if ("error" in result) {
+    console.error(`[post-image-pipeline] Replicate output could not be read:`, result.error)
+    return result
+  }
+
+  console.log(`[post-image-pipeline] Flux image buffer: ${result.buffer.length} bytes`)
+
+  const quality = await checkImageQuality(result.buffer)
+  if ("error" in quality) return quality
+  return { buffer: result.buffer }
+}
+
+/** Free plan stays on Pollinations (already benefits from the
+ * brand-grounded prompt this pipeline builds); every paid tier — and the
+ * internal owner-bypass, regardless of its nominal plan — gets Flux. The
+ * comparison lives here, once, rather than being re-implemented at each
+ * call site. */
+function resolveImageProvider(plan: UserPlan, isInternalUnlimitedUser: boolean): "pollinations" | "flux" {
+  if (isInternalUnlimitedUser) return "flux"
+  return plan === "free" ? "pollinations" : "flux"
 }
 
 // Deterministic reinforcement layered on top of the LLM-generated
@@ -168,15 +273,22 @@ export interface GeneratePostImageOptions {
   headline: string
   ctaText: string
   logoUrl: string | null
+  /** Determines the image provider (resolveImageProvider) — Free stays on
+   * Pollinations, every paid tier gets Flux. */
+  plan: UserPlan
+  /** Internal owner-bypass — always resolves to Flux regardless of `plan`. */
+  isInternalUnlimitedUser: boolean
 }
 
 /**
- * Generates the base image via Pollinations (retrying once with a
- * simplified prompt and a new seed if the first attempt fails outright or
- * comes back low-quality — capped at 1 auto-retry, 2 attempts total), then
- * composites the chosen template's overlay onto it. Never throws — every
- * failure mode returns { success: false } so the route can surface a clean
- * inline error instead of a silent blank preview.
+ * Generates the base image via Pollinations (Free plan) or Replicate's
+ * Flux 2 Pro (every paid tier, and the internal owner-bypass — see
+ * resolveImageProvider), retrying once with a simplified prompt and a new
+ * seed if the first attempt fails outright or comes back low-quality —
+ * capped at 1 auto-retry, 2 attempts total — then composites the chosen
+ * template's overlay onto it. Never throws — every failure mode returns
+ * { success: false } so the route can surface a clean inline error instead
+ * of a silent blank preview.
  */
 export async function generatePostImage(options: GeneratePostImageOptions): Promise<PostImagePipelineResult> {
   // Deterministic grounding, independent of how well the LLM-generated
@@ -195,17 +307,21 @@ export async function generatePostImage(options: GeneratePostImageOptions): Prom
     IMAGE_QUALITY_SAFETY_BOILERPLATE,
   ].filter(Boolean).join(", ")
 
+  const provider = resolveImageProvider(options.plan, options.isInternalUnlimitedUser)
+  const fetchImage = provider === "flux" ? fetchAndCheckFluxImage : fetchAndCheckPollinationsImage
+  console.log(`[post-image-pipeline] provider=${provider} plan=${options.plan} internalUnlimited=${options.isInternalUnlimitedUser}`)
+
   const seed = Math.floor(Math.random() * 1_000_000)
-  let attempt = await fetchAndCheckImage(fullPrompt, seed)
+  let attempt = await fetchImage(fullPrompt, seed)
 
   if ("error" in attempt) {
-    console.error("[post-image-pipeline] first attempt failed:", attempt.error)
+    console.error(`[post-image-pipeline] first attempt failed (${provider}):`, attempt.error)
     const retryPrompt = simplifyPrompt(fullPrompt, options.brandNiche)
     const retrySeed = Math.floor(Math.random() * 1_000_000)
-    attempt = await fetchAndCheckImage(retryPrompt, retrySeed)
+    attempt = await fetchImage(retryPrompt, retrySeed)
 
     if ("error" in attempt) {
-      console.error("[post-image-pipeline] retry also failed:", attempt.error)
+      console.error(`[post-image-pipeline] retry also failed (${provider}):`, attempt.error)
       // Keep the real reason in the message (not just the logs) — a fully
       // generic string here was hiding the actual cause from the API
       // response too, not just from the user-facing copy.

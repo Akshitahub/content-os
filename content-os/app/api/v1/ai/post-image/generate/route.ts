@@ -6,7 +6,9 @@ import { resolveColorThemes, findColorTheme } from "@/lib/design/color-themes"
 import { buildError, ErrorCodes } from "@/types/api"
 import { checkAndIncrementUsage } from "@/lib/usage/check-and-increment-usage"
 import { checkAndIncrementPostImageSession } from "@/lib/usage/post-image-regenerate-session"
+import { isInternalUnlimited } from "@/lib/usage/is-internal-unlimited"
 import type { BrandRow } from "@/types/database"
+import type { UserPlan } from "@/types/app"
 
 const BUCKET = "brand-images"
 const MODEL_LABEL = "flux+resvg-composite"
@@ -51,6 +53,11 @@ export async function POST(request: Request) {
   const { data: brand } = await supabase.from("brands").select("*").eq("id", brandId).eq("user_id", user.id).single<BrandRow>()
   if (!brand) return NextResponse.json(buildError(ErrorCodes.BRAND_NOT_FOUND, "Brand not found."), { status: 404 })
 
+  // Determines the image provider (Free -> Pollinations, paid -> Flux) —
+  // see lib/ai/post-image-pipeline.ts's resolveImageProvider.
+  const { data: userData } = await supabase.from("users").select("plan").eq("id", user.id).single<{ plan: UserPlan }>()
+  const plan: UserPlan = userData?.plan ?? "free"
+
   const colorTheme = findColorTheme(resolveColorThemes(brand), colorThemeId)
 
   console.log(
@@ -67,6 +74,8 @@ export async function POST(request: Request) {
     headline,
     ctaText: ctaText || brand.cta_phrase || "Shop now",
     logoUrl: brand.logo_url,
+    plan,
+    isInternalUnlimitedUser: isInternalUnlimited(user.id),
   })
 
   if (!result.success) {

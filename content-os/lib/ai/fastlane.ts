@@ -14,7 +14,7 @@ import { renderCarouselSlidesToPng } from "@/lib/image/carousel-compositor"
 import { uploadMediaToStorage } from "@/lib/storage/upload-media"
 import { createAdminClient } from "@/lib/supabase/server"
 import type { BrandRow, ProductRow, CalendarEntryRow, Json } from "@/types/database"
-import type { ContentStrategy, ContentSlot, FastlaneResult, Platform, ReelScene } from "@/types/app"
+import type { ContentStrategy, ContentSlot, FastlaneResult, Platform, ReelScene, UserPlan } from "@/types/app"
 import type { SupabaseClient } from "@supabase/supabase-js"
 
 // Same bucket used by app/api/v1/ai/post-image/generate/route.ts — Autopilot
@@ -82,6 +82,13 @@ export interface AutopilotParams {
    * existing full Autopilot run). The free plan's scaled preview passes a
    * smaller number (see PLAN_LIMITS[plan].autopilot in types/app.ts). */
   totalSlots?: number
+  /** User's resolved plan — determines the image provider for every
+   * slot's post image (see lib/ai/post-image-pipeline.ts's
+   * resolveImageProvider). Defaults to "free" if omitted. */
+  plan?: UserPlan
+  /** Internal owner-bypass — always gets Flux regardless of `plan` (see
+   * isInternalUnlimited). Defaults to false if omitted. */
+  isInternalUnlimitedUser?: boolean
 }
 
 export interface StrategyOverview {
@@ -625,6 +632,15 @@ export async function executeFastlane(
 
   if (brandErr || !brand) throw new Error("Brand not found")
 
+  // Determines the image provider for every slot's post image (Free ->
+  // Pollinations, paid -> Flux) — see
+  // lib/ai/post-image-pipeline.ts's resolveImageProvider. Resolved once
+  // from the caller-supplied plan/bypass flag rather than re-fetched per
+  // slot; app/api/v1/brands/fastlane/route.ts already looked these up for
+  // its own usage/credit gating before calling executeFastlane.
+  const plan: UserPlan = params?.plan ?? "free"
+  const isInternalUnlimitedUser = params?.isInternalUnlimitedUser ?? false
+
   const { data: products } = await supabase
     .from("products")
     .select("*")
@@ -767,6 +783,8 @@ export async function executeFastlane(
               headline: generated.hook || slot.theme,
               ctaText: generated.call_to_action || brand.cta_phrase || "Shop now",
               logoUrl: brand.logo_url,
+              plan,
+              isInternalUnlimitedUser,
             })
 
             if (imageResult.success) {
