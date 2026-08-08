@@ -372,7 +372,7 @@ export default async function RootPage() {
             <div className="grid gap-6 sm:grid-cols-3">
               {[
                 { quote: "The UI is so smooth, genuinely pretty to use. And the calendar section — really well built, exactly how I'd want to plan content.", name: "Gaurav", role: "Software Engineer", initials: "G", color: "bg-violet-600" },
-                { quote: "It's fast. Like, actually fast. Fastlane is hands-down the best feature — I don't think I could go back to planning content manually.", name: "Ananya", role: "", initials: "A", color: "bg-blue-600" },
+                { quote: "It's fast. Like, actually fast. Fastlane is hands-down the best feature — I don't think I could go back to planning content manually.", name: "Anannya", role: "Engineering Student", initials: "A", color: "bg-blue-600" },
                 { quote: "As a business owner, time is the one thing I don't have enough of. This gives it back to me.", name: "Sambhav", role: "Business Owner", initials: "S", color: "bg-emerald-600" },
               ].map(({ quote, name, role, initials, color }) => (
                 <div key={name} className="rounded-2xl border border-white/5 bg-white/5 p-6">
