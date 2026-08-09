@@ -1,4 +1,5 @@
 import Link from "next/link"
+import { LogoIcon } from "@/components/shared/LogoIcon"
 
 export default function NotFound() {
   return (
@@ -6,8 +7,9 @@ export default function NotFound() {
       style={{ background: "#0f0f0f" }}
       className="flex min-h-screen flex-col items-center justify-center px-4 text-center"
     >
-      <div className="mb-8">
-        <p className="text-sm font-semibold uppercase tracking-widest text-violet-400">⚡ SocioPosts</p>
+      <div className="mb-8 flex items-center justify-center gap-1.5">
+        <LogoIcon size={16} />
+        <span className="text-sm font-semibold uppercase tracking-widest text-violet-400">SocioPosts</span>
       </div>
 
       <p className="mb-2 text-8xl font-black text-violet-500">404</p>

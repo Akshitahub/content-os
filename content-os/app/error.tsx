@@ -2,6 +2,7 @@
 
 import { useEffect } from "react"
 import Link from "next/link"
+import { LogoIcon } from "@/components/shared/LogoIcon"
 
 interface ErrorPageProps {
   error: Error & { digest?: string }
@@ -15,7 +16,10 @@ export default function GlobalError({ error, reset }: ErrorPageProps) {
 
   return (
     <div className="flex min-h-screen flex-col items-center justify-center px-4 text-center bg-background">
-      <p className="mb-2 text-sm font-semibold uppercase tracking-widest text-muted-foreground">⚡ SocioPosts</p>
+      <div className="mb-2 flex items-center justify-center gap-1.5">
+        <LogoIcon size={16} />
+        <span className="text-sm font-semibold uppercase tracking-widest text-muted-foreground">SocioPosts</span>
+      </div>
       <h1 className="mb-3 text-3xl font-bold tracking-tight">Something went wrong</h1>
       <p className="mb-4 text-muted-foreground max-w-sm">
         An unexpected error occurred. You can try again or go back to the dashboard.
