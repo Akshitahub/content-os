@@ -15,6 +15,7 @@ import { isApiError } from "@/types/api"
 import posthog from "posthog-js"
 import { POSTHOG_KEY } from "@/lib/analytics/posthog"
 import { PLAN_LIMITS } from "@/types/app"
+import { useBrands, useDeleteBrand } from "@/hooks/useBrand"
 
 // ---------------------------------------------------------------------------
 // Types
@@ -313,7 +314,7 @@ function PlanSection({ user }: { user: UserProps }) {
   }, [])
 
   return (
-    <Card>
+    <Card id="plan-usage">
       <CardHeader>
         <CardTitle>Plan &amp; usage</CardTitle>
       </CardHeader>
@@ -449,33 +450,22 @@ function PlanSection({ user }: { user: UserProps }) {
 // ---------------------------------------------------------------------------
 
 function BrandsSection({ initialBrands }: { initialBrands: BrandProps[] }) {
-  const router = useRouter()
-  const [brands, setBrands] = useState<BrandProps[]>(initialBrands)
+  // Seeded with the server-rendered list so there's no loading flash on
+  // mount; once the query resolves (or is invalidated by useDeleteBrand
+  // below) it takes over — same shared brandKeys.lists() cache
+  // BrandSelector reads from, so a delete here is reflected there too.
+  const { data: brands = initialBrands } = useBrands()
+  const deleteBrand = useDeleteBrand()
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
-  const [deletingId, setDeletingId] = useState<string | null>(null)
   const [deleteError, setDeleteError] = useState<string | null>(null)
 
-  const handleDeleteConfirm = useCallback(async (id: string) => {
-    setDeletingId(id)
+  const handleDeleteConfirm = useCallback((id: string) => {
     setDeleteError(null)
-    try {
-      const res = await fetch(`/api/v1/brands/${id}`, { method: "DELETE" })
-      const json: unknown = await res.json()
-      if (!res.ok || isApiError(json)) {
-        const msg = isApiError(json) ? json.error.message : "Failed to delete brand."
-        setDeleteError(msg)
-        setDeletingId(null)
-        return
-      }
-      setBrands((prev) => prev.filter((b) => b.id !== id))
-      setConfirmDeleteId(null)
-      router.refresh()
-    } catch {
-      setDeleteError("Network error. Please try again.")
-    } finally {
-      setDeletingId(null)
-    }
-  }, [router])
+    deleteBrand.mutate(id, {
+      onSuccess: () => setConfirmDeleteId(null),
+      onError: (err) => setDeleteError(err instanceof Error ? err.message : "Failed to delete brand."),
+    })
+  }, [deleteBrand])
 
   return (
     <Card>
@@ -532,10 +522,10 @@ function BrandsSection({ initialBrands }: { initialBrands: BrandProps[] }) {
                     <Button
                       variant="destructive"
                       size="sm"
-                      disabled={deletingId === brand.id}
+                      disabled={deleteBrand.isPending}
                       onClick={() => handleDeleteConfirm(brand.id)}
                     >
-                      {deletingId === brand.id ? "Deleting…" : "Yes, delete"}
+                      {deleteBrand.isPending ? "Deleting…" : "Yes, delete"}
                     </Button>
                     <Button
                       variant="ghost"

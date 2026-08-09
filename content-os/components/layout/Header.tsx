@@ -29,6 +29,14 @@ export function Header({ userEmail, userName, onMenuClick, generationCount = 0, 
   const usagePct = Math.min(100, Math.round((generationCount / limit) * 100))
   const creditColor = remaining === 0 ? "text-red-500" : remaining < 5 ? "text-amber-500" : "text-muted-foreground"
   const barColor = remaining === 0 ? "bg-red-500" : remaining < 5 ? "bg-amber-500" : "bg-primary"
+  const planLabel = userPlan.charAt(0).toUpperCase() + userPlan.slice(1)
+
+  // Proactive nudge for Free-plan users approaching their monthly cap —
+  // the reactive "you're out of credits" prompt on the Create page only
+  // fires at exactly 0, which is too late to be useful. Free-plan only:
+  // paid tiers already pay, so a generic "upgrade" nudge doesn't apply the
+  // same way there.
+  const showUpgradeNudge = userPlan === "free" && limit > 0 && remaining / limit <= 0.2
 
   const displayName = userName ?? userEmail ?? "Account"
   const initials = userName
@@ -73,7 +81,7 @@ export function Header({ userEmail, userName, onMenuClick, generationCount = 0, 
         <div className="hidden sm:flex items-center gap-2">
           <div className="flex flex-col items-end gap-0.5">
             <span className={`text-[10px] font-medium leading-none ${creditColor}`}>
-              {remaining} credits remaining
+              {planLabel} &middot; {remaining} credits remaining
             </span>
             <div className="h-1 w-20 rounded-full bg-muted overflow-hidden">
               <div
@@ -81,6 +89,14 @@ export function Header({ userEmail, userName, onMenuClick, generationCount = 0, 
                 style={{ width: `${usagePct}%` }}
               />
             </div>
+            {showUpgradeNudge && (
+              <Link
+                href="/settings#plan-usage"
+                className="text-[10px] font-medium leading-none text-violet-600 hover:text-violet-700 hover:underline"
+              >
+                Low on credits &middot; Upgrade &rarr;
+              </Link>
+            )}
           </div>
         </div>
 
@@ -116,9 +132,18 @@ export function Header({ userEmail, userName, onMenuClick, generationCount = 0, 
                 {userEmail && displayName !== userEmail && (
                   <p className="text-[10px] text-muted-foreground truncate">{userEmail}</p>
                 )}
-                <span className="mt-1 inline-block rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary capitalize">
-                  {plan} plan
-                </span>
+                <div className="mt-1 flex items-center gap-2">
+                  <span className="inline-block rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary capitalize">
+                    {plan} plan
+                  </span>
+                  <Link
+                    href="/settings#plan-usage"
+                    onClick={() => setDropdownOpen(false)}
+                    className="text-[10px] font-medium text-violet-600 hover:underline"
+                  >
+                    {userPlan === "agency" ? "Manage plan" : "Upgrade"}
+                  </Link>
+                </div>
               </div>
               <div className="py-1">
                 <Link
