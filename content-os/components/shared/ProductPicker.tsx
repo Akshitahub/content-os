@@ -3,6 +3,7 @@
 import { useState, useRef } from "react"
 import { Image, Upload, X, Loader2, ExternalLink } from "lucide-react"
 import { useProducts } from "@/hooks/useProducts"
+import { useExtractProductFromUrl } from "@/hooks/useExtraction"
 import Link from "next/link"
 
 export interface PickedProduct {
@@ -22,41 +23,29 @@ export function ProductPicker({ brandId, selected, onSelect, label = "Product im
   const { data: products, isLoading } = useProducts(brandId)
   const [open, setOpen] = useState(false)
   const [urlInput, setUrlInput] = useState("")
-  const [urlLoading, setUrlLoading] = useState(false)
   const [urlError, setUrlError] = useState("")
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const extractProduct = useExtractProductFromUrl()
 
-  async function handleUrlSubmit(e: React.FormEvent) {
+  function handleUrlSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!urlInput.trim()) return
-    setUrlLoading(true)
     setUrlError("")
-    try {
-      const res = await fetch("/api/v1/ai/extract/product", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: urlInput.trim() }),
-      })
-      const json = await res.json() as {
-        data?: { name: string; description?: string; image_urls?: string[] }
-        scrape_failed?: boolean
-      }
-      if (json.scrape_failed || !json.data) {
-        setUrlError("Couldn't load that page. Try uploading the image directly.")
-        return
-      }
-      onSelect({
-        name: json.data.name || urlInput,
-        description: json.data.description,
-        imageUrl: json.data.image_urls?.[0],
-      })
-      setOpen(false)
-      setUrlInput("")
-    } catch {
-      setUrlError("Something went wrong. Try uploading the image directly.")
-    } finally {
-      setUrlLoading(false)
-    }
+    const trimmedUrl = urlInput.trim()
+    extractProduct.mutate(trimmedUrl, {
+      onSuccess: (data) => {
+        onSelect({
+          name: data.name || trimmedUrl,
+          description: data.description,
+          imageUrl: data.image_urls?.[0],
+        })
+        setOpen(false)
+        setUrlInput("")
+      },
+      onError: (err) => {
+        setUrlError(err.message || "Couldn't load that page. Try uploading the image directly.")
+      },
+    })
   }
 
   function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
@@ -217,10 +206,10 @@ export function ProductPicker({ brandId, selected, onSelect, label = "Product im
           />
           <button
             type="submit"
-            disabled={urlLoading || !urlInput.trim()}
+            disabled={extractProduct.isPending || !urlInput.trim()}
             className="rounded-md bg-violet-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-violet-700 disabled:opacity-50"
           >
-            {urlLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Get"}
+            {extractProduct.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Get"}
           </button>
         </div>
         {urlError && <p className="text-[11px] text-destructive">{urlError}</p>}
