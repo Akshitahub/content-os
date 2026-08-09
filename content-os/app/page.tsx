@@ -5,6 +5,7 @@ import { ScrollNavHandler } from "@/components/landing/ScrollNavHandler"
 import { LiveDemo } from "@/components/landing/LiveDemo"
 import { FaqAccordion } from "@/components/landing/FaqAccordion"
 import { PricingSection } from "@/components/landing/PricingSection"
+import { LogoIcon } from "@/components/shared/LogoIcon"
 
 export default async function RootPage() {
   let primaryHref = "/signup"
@@ -59,15 +60,11 @@ export default async function RootPage() {
         >
           <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4 sm:px-8">
             <span className="nav-logo-dark flex items-center gap-2" style={{ display: "flex" }}>
-              <svg width="22" height="22" viewBox="0 0 22 22" fill="none" aria-hidden="true">
-                <path d="M13 2L4 13h7l-2 7 9-11h-7l2-7z" fill="white" stroke="white" strokeWidth="1" strokeLinejoin="round" />
-              </svg>
+              <LogoIcon size={22} />
               <span className="font-semibold tracking-tight text-white" style={{ fontSize: "0.95rem" }}>SocioPosts</span>
             </span>
             <span className="nav-logo-light items-center gap-2" style={{ display: "none" }}>
-              <svg width="22" height="22" viewBox="0 0 22 22" fill="none" aria-hidden="true">
-                <path d="M13 2L4 13h7l-2 7 9-11h-7l2-7z" fill="#7c3aed" stroke="#7c3aed" strokeWidth="1" strokeLinejoin="round" />
-              </svg>
+              <LogoIcon size={22} />
               <span className="font-semibold tracking-tight text-gray-900" style={{ fontSize: "0.95rem" }}>SocioPosts</span>
             </span>
             <div className="flex items-center gap-4 sm:gap-6">
@@ -426,9 +423,7 @@ export default async function RootPage() {
             <div className="grid gap-10 sm:grid-cols-4">
               <div className="sm:col-span-1">
                 <div className="flex items-center gap-2">
-                  <svg width="20" height="20" viewBox="0 0 22 22" fill="none" aria-hidden="true">
-                    <path d="M13 2L4 13h7l-2 7 9-11h-7l2-7z" fill="#7c3aed" stroke="#7c3aed" strokeWidth="1" strokeLinejoin="round" />
-                  </svg>
+                  <LogoIcon size={20} />
                   <span className="font-semibold text-white">SocioPosts</span>
                 </div>
                 <p className="mt-3 text-sm leading-relaxed text-gray-400">The AI content operating system for ecommerce brands.</p>

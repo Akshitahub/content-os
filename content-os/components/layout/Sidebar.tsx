@@ -10,6 +10,7 @@ import {
 import { cn } from "@/lib/utils"
 import { useBrandStore } from "@/stores/brandStore"
 import { HelpDrawer } from "@/components/shared/HelpDrawer"
+import { LogoIcon } from "@/components/shared/LogoIcon"
 
 interface SidebarProps {
   isOpen?: boolean
@@ -116,21 +117,7 @@ export function Sidebar({ isOpen = false, onClose }: SidebarProps) {
       {/* Logo */}
       <div className="flex h-14 items-center justify-between border-b border-sidebar-border px-4">
         <div className="flex items-center gap-2.5">
-          <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary">
-            <svg
-              className="h-4 w-4 text-primary-foreground"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              strokeWidth={2.5}
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M13 10V3L4 14h7v7l9-11h-7z"
-              />
-            </svg>
-          </div>
+          <LogoIcon size={28} />
           <div className="flex flex-col leading-none">
             <span className="text-sm font-semibold text-sidebar-foreground">
               SocioPosts

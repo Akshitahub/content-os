@@ -1,4 +1,5 @@
 import { ImageResponse } from "next/og"
+import { LogoIcon } from "@/components/shared/LogoIcon"
 
 export const runtime = "edge"
 
@@ -35,9 +36,7 @@ export async function GET() {
 
         {/* Logo row */}
         <div style={{ display: "flex", alignItems: "center", gap: "14px", marginBottom: "40px" }}>
-          <svg width="40" height="40" viewBox="0 0 22 22" fill="none">
-            <path d="M13 2L4 13h7l-2 7 9-11h-7l2-7z" fill="#6366f1" />
-          </svg>
+          <LogoIcon size={40} />
           <span style={{ color: "#ffffff", fontSize: "28px", fontWeight: 700, letterSpacing: "-0.5px" }}>
             SocioPosts
           </span>

@@ -1,5 +1,6 @@
 import type { ReactNode } from "react"
 import Link from "next/link"
+import { LogoIcon } from "@/components/shared/LogoIcon"
 
 export default function LegalLayout({ children }: { children: ReactNode }) {
   return (
@@ -8,9 +9,7 @@ export default function LegalLayout({ children }: { children: ReactNode }) {
       <header className="border-b border-gray-100 px-6 py-4">
         <div className="mx-auto max-w-3xl">
           <Link href="/" className="inline-flex items-center gap-2 text-sm font-semibold text-gray-900 hover:text-violet-600 transition-colors">
-            <svg width="20" height="20" viewBox="0 0 22 22" fill="none" aria-hidden="true">
-              <path d="M13 2L4 13h7l-2 7 9-11h-7l2-7z" fill="#6366f1" strokeLinejoin="round" />
-            </svg>
+            <LogoIcon size={20} />
             SocioPosts
           </Link>
         </div>
