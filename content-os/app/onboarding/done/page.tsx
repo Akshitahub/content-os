@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { ArrowRight, Loader2, CheckCircle2 } from "lucide-react"
+import { REELS_ENABLED } from "@/lib/constants"
+import { ComingSoonBadge } from "@/components/shared/ComingSoonBadge"
 
 export default function DonePage() {
   const searchParams = useSearchParams()
@@ -36,11 +38,14 @@ export default function DonePage() {
         {[
           { emoji: "⚡", label: "Generate hooks", desc: "Scroll-stopping openers for any post" },
           { emoji: "✈️", label: "Run Autopilot", desc: "Get 30 days of content in one click" },
-          { emoji: "🎬", label: "Write reel scripts", desc: "Full voiceover scripts, ready to record" },
-        ].map(({ emoji, label, desc }) => (
+          { emoji: "🎬", label: "Write reel scripts", desc: "Full voiceover scripts, ready to record", comingSoon: !REELS_ENABLED },
+        ].map(({ emoji, label, desc, comingSoon }) => (
           <div key={label} className="rounded-xl border border-white/10 bg-white/5 p-4">
             <div className="mb-2 text-2xl">{emoji}</div>
-            <p className="text-sm font-semibold text-white">{label}</p>
+            <div className="flex items-center gap-1.5">
+              <p className="text-sm font-semibold text-white">{label}</p>
+              {comingSoon && <ComingSoonBadge />}
+            </div>
             <p className="mt-0.5 text-xs text-gray-500">{desc}</p>
           </div>
         ))}

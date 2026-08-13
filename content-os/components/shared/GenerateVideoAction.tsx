@@ -8,6 +8,8 @@ import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
 import { isApiError } from "@/types/api"
 import { MUSIC_OPTIONS } from "@/lib/video/music-options"
+import { REELS_ENABLED } from "@/lib/constants"
+import { ComingSoonBadge } from "@/components/shared/ComingSoonBadge"
 
 type VideoJobStatus = "pending" | "generating_images" | "generating_voiceover" | "assets_ready" | "rendering" | "completed" | "failed"
 
@@ -479,9 +481,10 @@ export function GenerateVideoAction({
       {!jobId && (
         <div className="space-y-1.5">
           <select
-            className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
+            className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
             value={musicTrackId}
             onChange={(e) => setMusicTrackId(e.target.value)}
+            disabled={!REELS_ENABLED}
           >
             {MUSIC_OPTIONS.map((option) => (
               <option key={option.id} value={option.id}>
@@ -494,11 +497,16 @@ export function GenerateVideoAction({
             variant="outline"
             className="w-full"
             onClick={() => startMutation.mutate()}
-            disabled={startMutation.isPending}
+            disabled={!REELS_ENABLED || startMutation.isPending}
           >
             <Film className="mr-1.5 h-3.5 w-3.5" />
             {startMutation.isPending ? "Starting…" : "Generate video"}
           </Button>
+          {!REELS_ENABLED && (
+            <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <ComingSoonBadge /> AI video generation is temporarily unavailable. Check back soon.
+            </p>
+          )}
         </div>
       )}
 

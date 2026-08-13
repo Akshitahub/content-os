@@ -16,6 +16,8 @@ import posthog from "posthog-js"
 import { POSTHOG_KEY } from "@/lib/analytics/posthog"
 import { PLAN_LIMITS } from "@/types/app"
 import { useBrands, useDeleteBrand } from "@/hooks/useBrand"
+import { REELS_ENABLED } from "@/lib/constants"
+import { ComingSoonBadge } from "@/components/shared/ComingSoonBadge"
 
 // ---------------------------------------------------------------------------
 // Types
@@ -326,13 +328,15 @@ function PlanSection({ user }: { user: UserProps }) {
             {user.plan}
           </span>
           {user.plan === "free" && (
-            <span className="text-xs text-muted-foreground">
+            <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
               {user.free_reel_used_at ? "Free reel used" : "1 free AI video reel available"}
+              {!REELS_ENABLED && <ComingSoonBadge />}
             </span>
           )}
           {(user.plan === "pro" || user.plan === "agency") && (
-            <span className="text-xs text-muted-foreground">
+            <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
               {reelCountThisWeek} of {reelsPerWeek} AI video reels used this week
+              {!REELS_ENABLED && <ComingSoonBadge />}
             </span>
           )}
         </div>

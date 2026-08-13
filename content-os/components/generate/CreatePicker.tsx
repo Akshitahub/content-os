@@ -4,6 +4,9 @@ import { useState } from "react"
 import { Film, TrendingUp, ChevronLeft } from "lucide-react"
 import { TABS, type Tab } from "./tabsConfig"
 import { TrendingNow } from "./TrendingNow"
+import { REELS_ENABLED } from "@/lib/constants"
+import { ComingSoonBadge } from "@/components/shared/ComingSoonBadge"
+import { cn } from "@/lib/utils"
 
 interface CreatePickerProps {
   brandId: string
@@ -23,10 +26,11 @@ interface CardMeta {
   /** Platforms this format can actually be scheduled/published to today — omit if no schedule/publish path exists yet. */
   platforms?: string
   isTrendingNow?: boolean
+  comingSoon?: boolean
 }
 
 const PRIMARY_CARDS: CardMeta[] = [
-  { tab: "content",   title: "Reel",      description: "Script plus AI voiceover video",       icon: Film,               presetReelScript: true },
+  { tab: "content",   title: "Reel",      description: "Script plus AI voiceover video",       icon: Film,               presetReelScript: true, comingSoon: !REELS_ENABLED },
   { tab: "full_post", title: "Post",      description: "Hook, caption and visual in one click", icon: iconFor("full_post"), platforms: "Instagram · Facebook" },
   { tab: "carousel",  title: "Carousel",  description: "Multi-slide story with AI copy per slide", icon: iconFor("carousel"), platforms: "Instagram" },
   { tab: "ad_maker",  title: "Ad",        description: "Product photo placed in an AI scene",   icon: iconFor("ad_maker") },
@@ -68,6 +72,7 @@ export function CreatePicker({ brandId, onSelect }: CreatePickerProps) {
             <button
               key={card.tab ?? card.title}
               type="button"
+              disabled={card.comingSoon}
               onClick={() => {
                 if (card.isTrendingNow) {
                   setExpandedTrending(true)
@@ -75,13 +80,19 @@ export function CreatePicker({ brandId, onSelect }: CreatePickerProps) {
                 }
                 onSelect(card.tab!, card.presetReelScript ? { presetReelScript: true } : undefined)
               }}
-              className="flex flex-col items-start gap-2 rounded-xl border p-5 text-left transition-colors hover:border-violet-400 hover:bg-violet-50/50"
+              className={cn(
+                "flex flex-col items-start gap-2 rounded-xl border p-5 text-left transition-colors",
+                card.comingSoon ? "cursor-not-allowed opacity-60" : "hover:border-violet-400 hover:bg-violet-50/50"
+              )}
             >
               <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-50">
                 <Icon className="h-5 w-5 text-violet-600" />
               </div>
               <div>
-                <p className="text-sm font-semibold text-foreground">{card.title}</p>
+                <div className="flex items-center gap-1.5">
+                  <p className="text-sm font-semibold text-foreground">{card.title}</p>
+                  {card.comingSoon && <ComingSoonBadge />}
+                </div>
                 <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">{card.description}</p>
               </div>
               {card.platforms && <p className="text-[11px] text-muted-foreground">{card.platforms}</p>}
