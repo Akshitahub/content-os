@@ -10,6 +10,7 @@ type RouteParams = { params: Promise<{ brandId: string }> }
 const autoDiscoverSchema = z.object({
   platform: z.enum(["instagram", "tiktok", "youtube", "linkedin"]),
   count: z.number().int().min(1).max(100).default(25),
+  discoveryType: z.enum(["influencer_partner", "prospect_customer"]).default("influencer_partner"),
 })
 
 export async function POST(request: Request, { params }: RouteParams) {
@@ -55,10 +56,10 @@ export async function POST(request: Request, { params }: RouteParams) {
     )
   }
 
-  const { platform, count } = parsed.data
+  const { platform, count, discoveryType } = parsed.data
 
   try {
-    const influencers = await autoDiscoverAndScoreInfluencers(supabase, brand, brandId, platform, count)
+    const influencers = await autoDiscoverAndScoreInfluencers(supabase, brand, brandId, platform, count, discoveryType)
     return NextResponse.json({ data: influencers, count: influencers.length }, { status: 201 })
   } catch (err) {
     console.error("[influencers/auto-discover] failed:", err)

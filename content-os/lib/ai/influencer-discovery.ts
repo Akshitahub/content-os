@@ -3,9 +3,13 @@ import { scrapeInfluencerProfile } from "./scraper"
 import {
   buildInfluencerFitScoringSystemPrompt,
   buildInfluencerFitScoringUserPrompt,
+  buildProspectFitScoringSystemPrompt,
+  buildProspectFitScoringUserPrompt,
 } from "./prompts"
 import type { BrandRow, InfluencerRow } from "@/types/database"
 import type { SupabaseClient } from "@supabase/supabase-js"
+
+export type DiscoveryType = "influencer_partner" | "prospect_customer"
 
 function sanitizeJsonString(raw: string): string {
   return raw
@@ -19,13 +23,39 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
+// Parallel to buildDiscoveryPrompt below, but asks for actual small D2C
+// brand/business accounts (SocioPosts customer prospects) instead of
+// content creators — a founder posting for their own brand from a business
+// handle, not someone with an influencer persona.
+function buildProspectDiscoveryPrompt(niche: string, platform: "instagram" | "tiktok" | "youtube" | "linkedin", count: number): string {
+  return `For the niche "${niche}" on ${platform}, suggest ${count} real handles of SMALL D2C BRAND ACCOUNTS — not influencers or content creators — who are:
+- Based in India
+- Founder-run or small-team-run brand/business accounts selling products in the ${niche} space
+- Actual brand accounts (shop, studio, label, or brand name), NOT a personal/lifestyle influencer or content-creator account built around one person's persona
+- A small, early-stage business — roughly 2,000 to 20,000 followers
+- Likely posting fairly manually and inconsistently, not backed by a large marketing team or agency
+- Handles that are realistic and likely to actually exist
+
+Return ONLY a JSON array of handle strings (without @): ["handle1", "handle2", ...]
+Make the handles realistic and specific, not generic.`
+}
+
 // LinkedIn creators don't fit the same "10K-200K follower micro-influencer"
 // framing as Instagram/TikTok/YouTube — a LinkedIn creator with even a few
 // thousand followers can be a legitimate, high-intent thought leader for a
 // B2B-adjacent D2C brand, and the celebrity-exclusion rules for the other
 // platforms don't really apply either. This gets its own prompt rather than
 // being forced through the generic one.
-function buildDiscoveryPrompt(niche: string, platform: "instagram" | "tiktok" | "youtube" | "linkedin", count: number): string {
+function buildDiscoveryPrompt(
+  niche: string,
+  platform: "instagram" | "tiktok" | "youtube" | "linkedin",
+  count: number,
+  discoveryType: DiscoveryType = "influencer_partner",
+): string {
+  if (discoveryType === "prospect_customer") {
+    return buildProspectDiscoveryPrompt(niche, platform, count)
+  }
+
   if (platform === "linkedin") {
     return `For the niche "${niche}", suggest ${count} LinkedIn handles of professional creators/thought leaders who are:
 - Based in India
@@ -55,6 +85,7 @@ export async function discoverInfluencersByNiche(
   niche: string,
   platform: "instagram" | "tiktok" | "youtube" | "linkedin",
   count: number = 25,
+  discoveryType: DiscoveryType = "influencer_partner",
 ): Promise<string[]> {
   const groq = getGroqClient()
   const res = await groq.chat.completions.create({
@@ -67,11 +98,13 @@ export async function discoverInfluencersByNiche(
     messages: [
       {
         role: "system",
-        content: "You are an influencer marketing expert specializing in Indian D2C brands. Respond with valid JSON only. No markdown.",
+        content: discoveryType === "prospect_customer"
+          ? "You are an expert at identifying small D2C brand accounts on social media. Respond with valid JSON only. No markdown."
+          : "You are an influencer marketing expert specializing in Indian D2C brands. Respond with valid JSON only. No markdown.",
       },
       {
         role: "user",
-        content: buildDiscoveryPrompt(niche, platform, count),
+        content: buildDiscoveryPrompt(niche, platform, count, discoveryType),
       },
     ],
   })
@@ -98,25 +131,29 @@ export async function autoDiscoverAndScoreInfluencers(
   brandId: string,
   platform: "instagram" | "tiktok" | "youtube" | "linkedin",
   count: number = 25,
+  discoveryType: DiscoveryType = "influencer_partner",
 ): Promise<InfluencerRow[]> {
   const groq = getGroqClient()
 
   let discovered: string[]
   try {
-    discovered = await discoverInfluencersByNiche(brand.niche ?? "general", platform, count)
+    discovered = await discoverInfluencersByNiche(brand.niche ?? "general", platform, count, discoveryType)
   } catch (err) {
     console.error("[influencer-discovery] handle generation failed:", err)
     throw err
   }
   if (discovered.length === 0) return []
 
-  // Skip handles already discovered for this brand+platform — no point
-  // re-scraping and re-scoring someone already in the influencers table.
+  // Skip handles already discovered for this brand+platform+discoveryType —
+  // no point re-scraping and re-scoring someone already in the influencers
+  // table, and influencer-partner vs. prospect-customer runs shouldn't
+  // suppress each other since they're scoring completely different things.
   const { data: existingRows } = await supabase
     .from("influencers")
     .select("handle")
     .eq("brand_id", brandId)
     .eq("platform", platform)
+    .eq("discovery_type", discoveryType)
     .returns<{ handle: string }[]>()
   const existingHandles = new Set((existingRows ?? []).map((r: { handle: string }) => r.handle.toLowerCase()))
 
@@ -168,10 +205,15 @@ export async function autoDiscoverAndScoreInfluencers(
             reasoning_effort: "medium",
             response_format: { type: "json_object" },
             messages: [
-              { role: "system", content: buildInfluencerFitScoringSystemPrompt() },
+              {
+                role: "system",
+                content: discoveryType === "prospect_customer"
+                  ? buildProspectFitScoringSystemPrompt()
+                  : buildInfluencerFitScoringSystemPrompt(),
+              },
               {
                 role: "user",
-                content: buildInfluencerFitScoringUserPrompt(brand, {
+                content: (discoveryType === "prospect_customer" ? buildProspectFitScoringUserPrompt : buildInfluencerFitScoringUserPrompt)(brand, {
                   handle: scraped.handle,
                   platform: scraped.platform,
                   full_name: scraped.full_name,
@@ -241,6 +283,7 @@ export async function autoDiscoverAndScoreInfluencers(
             fit_reasoning,
             niche,
             raw_scraped_data,
+            discovery_type: discoveryType,
             status: "discovered",
           })
           .select()

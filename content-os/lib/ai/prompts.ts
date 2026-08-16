@@ -738,6 +738,72 @@ Respond with this exact JSON:
 recommendation must be one of: "strong_fit" | "potential_fit" | "weak_fit"`
 }
 
+// ─── Prospect customer fit scoring ─────────────────────────────────────────
+// Same discovery/scoring pipeline as influencer fit scoring above, but scores
+// whether an account looks like a good SocioPosts customer prospect (a small
+// D2C brand founder/team) rather than a good influencer partner for the
+// calling brand. Kept as a fully separate prompt pair rather than branching
+// the influencer one, since the two are evaluating completely different
+// things about the same kind of scraped profile.
+
+export function buildProspectFitScoringSystemPrompt(): string {
+  return `You are an expert at identifying small D2C brand founders and teams who would benefit from AI-powered social media automation.
+You evaluate whether an Instagram/LinkedIn account looks like a good SocioPosts customer prospect — not a good influencer partner.
+You give honest, nuanced assessments — not everything is a good fit.
+Always respond with valid JSON only. No markdown, no explanation.`
+}
+
+export function buildProspectFitScoringUserPrompt(
+  brand: BrandRow,
+  influencer: {
+    handle: string
+    platform: string
+    full_name: string | null
+    bio: string | null
+    follower_count: number | null
+    post_count: number | null
+    niche?: string | null
+  },
+): string {
+  const followerDisplay =
+    influencer.follower_count !== null ? influencer.follower_count.toLocaleString() : "unknown"
+
+  const accountContext = [
+    `Handle: @${influencer.handle}`,
+    `Platform: ${influencer.platform}`,
+    influencer.full_name ? `Full Name: ${influencer.full_name}` : null,
+    influencer.bio ? `Bio: ${influencer.bio}` : null,
+    `Follower Count: ${followerDisplay}`,
+    influencer.post_count !== null ? `Post/Video Count: ${influencer.post_count}` : null,
+    influencer.niche ? `Niche: ${influencer.niche}` : null,
+  ]
+    .filter(Boolean)
+    .join("\n")
+
+  return `Account Profile:
+${accountContext}
+
+Score how well this account fits the profile of a small D2C brand founder or team who would benefit from SocioPosts (AI-powered social media content generation and scheduling) on a scale of 1–10.
+
+Look for these ICP signals:
+- This is a founder-run D2C brand account, not a personal/lifestyle influencer or content-creator account
+- Follower count roughly 2,000–20,000 — a small, growing brand, not a micro-influencer's audience and not an established large brand
+- Bio or content signals suggesting they post fairly manually and inconsistently — irregular gaps in posting relative to account age if inferable from post_count, no visible scheduling-tool watermark or agency/marketing-team mention
+- Bio language like "founder," "D2C," "small business," "handmade," "our brand," or similar small-business/owner-operator framing
+
+Respond with this exact JSON:
+{
+  "score": 7,
+  "reasoning": "one paragraph explaining the score",
+  "why_it_works": "one specific sentence about why this account looks like a good SocioPosts prospect — reference specific signals from their bio or profile",
+  "strengths": ["strength one", "strength two"],
+  "concerns": ["concern one", "concern two"],
+  "recommendation": "strong_fit"
+}
+
+recommendation must be one of: "strong_fit" | "potential_fit" | "weak_fit"`
+}
+
 // ─── Outreach message ─────────────────────────────────────────────────────
 
 export function buildOutreachSystemPrompt(): string {
