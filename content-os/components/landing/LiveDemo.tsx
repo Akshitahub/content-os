@@ -57,7 +57,7 @@ export function LiveDemo() {
           {/* ── Phase 1: URL input typing (0–2s of each 8s cycle) ──────── */}
           <div
             className="absolute inset-0 flex flex-col items-center justify-center gap-6 p-8"
-            style={{ animation: "phase-cycle 8s infinite 0s" }}
+            style={{ opacity: 0, animation: "phase-cycle 8s infinite 0s" }}
           >
             <p className="text-sm font-medium text-muted-foreground">Paste your brand&apos;s website URL</p>
             <div className="w-full max-w-md overflow-hidden rounded-xl border border-violet-300 bg-violet-50/60 px-4 py-3 text-sm font-mono shadow-inner">
@@ -79,7 +79,7 @@ export function LiveDemo() {
           {/* ── Phase 2: Analyzing + brand card (2–4s) ──────────────────── */}
           <div
             className="absolute inset-0 flex flex-col items-center justify-center gap-5 p-8"
-            style={{ animation: "phase-cycle 8s infinite 2s" }}
+            style={{ opacity: 0, animation: "phase-cycle 8s infinite 2s" }}
           >
             <p className="text-sm font-semibold text-muted-foreground">Analyzing your brand…</p>
             <div className="w-full max-w-sm overflow-hidden rounded-xl border bg-muted/30">
@@ -108,7 +108,7 @@ export function LiveDemo() {
           {/* ── Phase 3: 3 content cards sliding in (4–6s) ──────────────── */}
           <div
             className="absolute inset-0 flex flex-col gap-2.5 overflow-hidden p-5"
-            style={{ animation: "phase-cycle 8s infinite 4s" }}
+            style={{ opacity: 0, animation: "phase-cycle 8s infinite 4s" }}
           >
             <p className="text-center text-xs font-semibold text-muted-foreground">Your content is ready 🎉</p>
             {[
@@ -136,7 +136,7 @@ export function LiveDemo() {
           {/* ── Phase 4: Calendar with green dots filling (6–8s) ─────────── */}
           <div
             className="absolute inset-0 flex flex-col gap-3 p-5"
-            style={{ animation: "phase-cycle 8s infinite 6s" }}
+            style={{ opacity: 0, animation: "phase-cycle 8s infinite 6s" }}
           >
             <div className="flex items-center justify-between">
               <p className="text-xs font-semibold">Content Calendar, July 2025</p>
