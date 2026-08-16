@@ -21,6 +21,9 @@ async function getAuthorizedBrand(brandId: string) {
   return { error: null, supabase, user, brand }
 }
 
+// Currently unused by the UI — the Outreach tab uses mailto:/Gmail-compose
+// links instead (see OutreachMessageCard in the influencer detail page).
+// Left in place for a possible future bulk-send feature; not dead code.
 export async function POST(request: Request, { params }: RouteParams) {
   const { brandId, influencerId } = await params
   console.log("[influencers/outreach/send-email] POST called")

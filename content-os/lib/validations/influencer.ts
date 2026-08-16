@@ -25,6 +25,7 @@ export const updateInfluencerSchema = z.object({
   niche: z.string().max(100).optional().nullable(),
   fit_score: z.number().int().min(0).max(100).optional().nullable(),
   fit_reasoning: z.string().max(2000).optional().nullable(),
+  email: z.string().email().max(320).optional().nullable(),
 })
 
 export const generateOutreachSchema = z.object({

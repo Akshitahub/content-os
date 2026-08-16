@@ -119,7 +119,7 @@ export function useCreateInfluencer(brandId: string) {
 export function useUpdateInfluencer(brandId: string, influencerId: string) {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: async (input: { status?: InfluencerStatus; notes?: string | null; niche?: string | null }): Promise<InfluencerRow> => {
+    mutationFn: async (input: { status?: InfluencerStatus; notes?: string | null; niche?: string | null; email?: string | null }): Promise<InfluencerRow> => {
       const res = await fetch(`/api/v1/brands/${brandId}/influencers/${influencerId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },

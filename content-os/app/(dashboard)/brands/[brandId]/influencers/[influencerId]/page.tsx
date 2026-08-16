@@ -11,7 +11,6 @@ import {
   useOutreachMessages,
   useGenerateOutreach,
   useUpdateOutreachMessage,
-  useSendOutreachEmail,
   usePartnerships,
   useGenerateBrief,
 } from "@/hooks/useInfluencers"
@@ -167,6 +166,16 @@ function CopyButton({ getText, label }: { getText: () => string; label?: string 
   )
 }
 
+// mailto: and Gmail-compose URLs have unofficial length caps that vary by
+// browser/OS — trim the body before building either link so long messages
+// don't silently fail to open.
+const EMAIL_LINK_BODY_LIMIT = 1800
+
+function truncateForEmailLink(text: string): { body: string; truncated: boolean } {
+  if (text.length <= EMAIL_LINK_BODY_LIMIT) return { body: text, truncated: false }
+  return { body: `${text.slice(0, EMAIL_LINK_BODY_LIMIT)}…`, truncated: true }
+}
+
 function OutreachMessageCard({
   msg,
   brandId,
@@ -179,7 +188,7 @@ function OutreachMessageCard({
   influencerEmail: string | null
 }) {
   const update = useUpdateOutreachMessage(brandId, influencerId)
-  const sendEmail = useSendOutreachEmail(brandId, influencerId)
+  const updateInfluencerEmail = useUpdateInfluencer(brandId, influencerId)
 
   const [isEditing, setIsEditing] = useState(false)
   const [draftText, setDraftText] = useState(msg.message_text)
@@ -189,7 +198,9 @@ function OutreachMessageCard({
 
   const [showEmailPrompt, setShowEmailPrompt] = useState(false)
   const [emailInput, setEmailInput] = useState("")
+  const [pendingEmailAction, setPendingEmailAction] = useState<"mailto" | "gmail" | null>(null)
   const [sendError, setSendError] = useState<string | null>(null)
+  const [openedVia, setOpenedVia] = useState<"mailto" | "gmail" | null>(null)
 
   function startEdit() {
     setDraftText(msg.message_text)
@@ -210,15 +221,43 @@ function OutreachMessageCard({
     }
   }
 
-  async function handleSend(email?: string) {
+  function openEmailClient(email: string, action: "mailto" | "gmail") {
+    const { body } = truncateForEmailLink(msg.message_text)
+    const subject = msg.subject ?? ""
+    if (action === "mailto") {
+      window.location.href = `mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
+    } else {
+      window.open(
+        `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(email)}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`,
+        "_blank",
+      )
+    }
+    setOpenedVia(action)
+  }
+
+  function handleEmailAction(action: "mailto" | "gmail") {
+    if (influencerEmail) {
+      openEmailClient(influencerEmail, action)
+      return
+    }
+    setPendingEmailAction(action)
+    setShowEmailPrompt(true)
+  }
+
+  async function handleConfirmEmail() {
+    const email = emailInput.trim()
+    if (!email) return
     setSendError(null)
     try {
-      await sendEmail.mutateAsync({ messageId: msg.id, email })
+      await updateInfluencerEmail.mutateAsync({ email })
       setShowEmailPrompt(false)
+      openEmailClient(email, pendingEmailAction ?? "mailto")
     } catch (err) {
-      setSendError(err instanceof Error ? err.message : "Failed to send.")
+      setSendError(err instanceof Error ? err.message : "Failed to save email.")
     }
   }
+
+  const { truncated: isBodyTruncated } = truncateForEmailLink(msg.message_text)
 
   return (
     <Card>
@@ -269,23 +308,33 @@ function OutreachMessageCard({
 
               <CopyButton getText={() => msg.message_text} label="Copy" />
 
-              {/* Only email gets a real send button — DM/WhatsApp stay copy-paste,
-                  since automating those risks platform-policy or approval issues. */}
+              {/* Only email gets real send actions — DM/WhatsApp stay copy-paste,
+                  since automating those risks platform-policy or approval issues.
+                  These open the user's own mail client / Gmail compose rather than
+                  sending server-side, so there's no delivery confirmation. */}
               {msg.channel === "email" && (
-                msg.sent_at ? (
-                  <span className="text-xs font-medium text-green-700">Sent {new Date(msg.sent_at).toLocaleDateString()}</span>
-                ) : (
-                  <Button
-                    size="sm"
-                    disabled={sendEmail.isPending}
-                    onClick={() => (influencerEmail ? handleSend() : setShowEmailPrompt((v) => !v))}
-                  >
-                    {sendEmail.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : <Mail className="h-3.5 w-3.5 mr-1.5" />}
+                <>
+                  <Button size="sm" disabled={updateInfluencerEmail.isPending} onClick={() => handleEmailAction("mailto")}>
+                    {updateInfluencerEmail.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : <Mail className="h-3.5 w-3.5 mr-1.5" />}
                     Send Email
                   </Button>
-                )
+                  <Button size="sm" variant="outline" disabled={updateInfluencerEmail.isPending} onClick={() => handleEmailAction("gmail")}>
+                    Open in Gmail
+                  </Button>
+                  {openedVia && (
+                    <span className="text-xs font-medium text-muted-foreground">
+                      Opened in {openedVia === "mailto" ? "mail app" : "Gmail"} — not confirmed sent
+                    </span>
+                  )}
+                </>
               )}
             </div>
+
+            {msg.channel === "email" && isBodyTruncated && (
+              <p className="text-[10px] text-muted-foreground">
+                Message truncated for the email link — mail apps/browsers cap link length. The full text above is unaffected.
+              </p>
+            )}
 
             {savedFlash && <p className="text-xs font-medium text-green-700">Saved.</p>}
 
@@ -297,11 +346,11 @@ function OutreachMessageCard({
                   onChange={(e) => setEmailInput(e.target.value)}
                   className="h-8 max-w-[220px] text-xs"
                 />
-                <Button size="sm" disabled={!emailInput.trim() || sendEmail.isPending} onClick={() => handleSend(emailInput.trim())}>
-                  {sendEmail.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : null}
-                  Confirm &amp; send
+                <Button size="sm" disabled={!emailInput.trim() || updateInfluencerEmail.isPending} onClick={handleConfirmEmail}>
+                  {updateInfluencerEmail.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : null}
+                  Confirm &amp; open
                 </Button>
-                <Button size="sm" variant="ghost" onClick={() => setShowEmailPrompt(false)}>Cancel</Button>
+                <Button size="sm" variant="ghost" onClick={() => { setShowEmailPrompt(false); setPendingEmailAction(null) }}>Cancel</Button>
               </div>
             )}
 
