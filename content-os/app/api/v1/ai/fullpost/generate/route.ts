@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server"
+import { NextResponse, after } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import { generateFullPostSchema } from "@/lib/validations/ai"
 import { generateHooks } from "@/lib/ai/hooks-generator"
@@ -44,25 +44,63 @@ export async function POST(request: Request) {
   const startTime = Date.now()
 
   try {
-    // Generate hook first (count=1), then use it to anchor the content
-    const hookResult = await generateHooks(brand, {
-      hookTypes: ["bold_statement", "question", "story"],
-      count: 1,
-      platform,
-      additionalContext,
-      product,
-    })
+    let hookResult: Awaited<ReturnType<typeof generateHooks>>
+    let contentResult: Awaited<ReturnType<typeof generateContent>>
+    let sessionResult: { sessionId: string } | { error: string } | null = null
+
+    if (format === "social_post") {
+      // social_post's caption prompt is built from the hook's own text, so
+      // content generation genuinely can't start until the hook exists —
+      // this stays sequential.
+      hookResult = await generateHooks(brand, {
+        hookTypes: ["bold_statement", "question", "story"],
+        count: 1,
+        platform,
+        additionalContext,
+        product,
+      })
+      const firstHook = hookResult.hooks[0]
+      if (!firstHook) throw new Error("Hook generation returned no results")
+
+      // createPostImageSession only depends on user.id, not on
+      // contentResult — run it alongside content generation instead of
+      // after it.
+      const [contentRes, sessRes] = await Promise.all([
+        generateContent(brand, format, {
+          product,
+          platform,
+          hookText: firstHook.hook_text,
+          additionalContext,
+          includeImagePrompt: true,
+        }),
+        createPostImageSession(user.id),
+      ])
+      contentResult = contentRes
+      sessionResult = sessRes
+    } else {
+      // Every other format ignores hookText entirely, so hook generation
+      // and content generation have no real dependency on each other — run
+      // them concurrently instead of paying for both latencies back to back.
+      ;[hookResult, contentResult] = await Promise.all([
+        generateHooks(brand, {
+          hookTypes: ["bold_statement", "question", "story"],
+          count: 1,
+          platform,
+          additionalContext,
+          product,
+        }),
+        generateContent(brand, format, {
+          product,
+          platform,
+          hookText: undefined,
+          additionalContext,
+          includeImagePrompt: false,
+        }),
+      ])
+    }
 
     const hook = hookResult.hooks[0]
     if (!hook) throw new Error("Hook generation returned no results")
-
-    const contentResult = await generateContent(brand, format, {
-      product,
-      platform,
-      hookText: format === "social_post" ? hook.hook_text : undefined,
-      additionalContext,
-      includeImagePrompt: format === "social_post",
-    })
 
     // buildCaptionSystemPrompt (lib/ai/prompts.ts) already instructs the
     // model to restate the hook and close with the CTA inside caption_text
@@ -88,8 +126,7 @@ export async function POST(request: Request) {
     // call is the chargeable initial generation, the free first
     // regenerate, or a chargeable later one, without trusting the client.
     let postSessionId: string | null = null
-    if (format === "social_post") {
-      const sessionResult = await createPostImageSession(user.id)
+    if (format === "social_post" && sessionResult) {
       if ("sessionId" in sessionResult) {
         postSessionId = sessionResult.sessionId
       } else {
@@ -161,14 +198,21 @@ export async function POST(request: Request) {
       console.error("[ai/fullpost/generate] persist failed (non-fatal):", persistErr)
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await (supabase.from("ai_generation_logs") as any).insert({
-      user_id: user.id,
-      brand_id: brandId,
-      feature: `fullpost_${format}`,
-      model: hookResult.model,
-      latency_ms: Date.now() - startTime,
-      success: true,
+    // Pure logging — deferred via after() so it runs once the response has
+    // been sent instead of adding its own latency to it. Plain
+    // fire-and-forget isn't safe here (Vercel can freeze/kill the function
+    // right after the response is written), so this still needs after()
+    // rather than just dropping the await.
+    after(async () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await (supabase.from("ai_generation_logs") as any).insert({
+        user_id: user.id,
+        brand_id: brandId,
+        feature: `fullpost_${format}`,
+        model: hookResult.model,
+        latency_ms: Date.now() - startTime,
+        success: true,
+      })
     })
 
     return NextResponse.json({
@@ -182,15 +226,17 @@ export async function POST(request: Request) {
       },
     }, { status: 200 })
   } catch (err) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await (supabase.from("ai_generation_logs") as any).insert({
-      user_id: user.id,
-      brand_id: brandId,
-      feature: `fullpost_${format}`,
-      model: "meta/llama-3.1-70b-instruct",
-      latency_ms: Date.now() - startTime,
-      success: false,
-      error_message: err instanceof Error ? err.message : "Unknown error",
+    after(async () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await (supabase.from("ai_generation_logs") as any).insert({
+        user_id: user.id,
+        brand_id: brandId,
+        feature: `fullpost_${format}`,
+        model: "meta/llama-3.1-70b-instruct",
+        latency_ms: Date.now() - startTime,
+        success: false,
+        error_message: err instanceof Error ? err.message : "Unknown error",
+      })
     })
     return NextResponse.json(
       buildError(ErrorCodes.AI_GENERATION_FAILED, "Full post generation failed. Please try again."),

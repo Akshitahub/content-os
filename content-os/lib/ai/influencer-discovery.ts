@@ -191,75 +191,83 @@ export async function autoDiscoverAndScoreInfluencers(
           }
         }
 
-        let fit_score: number | null = null
-        let fit_reasoning: string | null = null
-        let niche: string | null = null
-
-        try {
-          const scoreRes = await groq.chat.completions.create({
-            model: MODELS.scoring,
-            temperature: 0.3,
-            max_tokens: 400,
-            // Fit-scoring is a judgment call that benefits from more
-            // reasoning than the handle-brainstorming step above.
-            reasoning_effort: "medium",
-            response_format: { type: "json_object" },
-            messages: [
-              {
-                role: "system",
-                content: discoveryType === "prospect_customer"
-                  ? buildProspectFitScoringSystemPrompt()
-                  : buildInfluencerFitScoringSystemPrompt(),
-              },
-              {
-                role: "user",
-                content: (discoveryType === "prospect_customer" ? buildProspectFitScoringUserPrompt : buildInfluencerFitScoringUserPrompt)(brand, {
-                  handle: scraped.handle,
-                  platform: scraped.platform,
-                  full_name: scraped.full_name,
-                  bio: scraped.bio,
-                  follower_count: scraped.follower_count,
-                  post_count: scraped.post_count,
-                  niche: null,
-                }),
-              },
-            ],
-          })
-          let scoreCleaned = sanitizeJsonString(scoreRes.choices[0]?.message?.content ?? "{}")
-          const scoreJsonMatch = scoreCleaned.match(/\{[\s\S]*\}/)
-          if (scoreJsonMatch) scoreCleaned = scoreJsonMatch[0]
-          const scoreParsed = JSON.parse(scoreCleaned) as {
-            score?: number
-            fit_score?: number
-            reasoning?: string
-            fit_reasoning?: string
-            why_it_works?: string
-          }
-          fit_score = scoreParsed.score ?? scoreParsed.fit_score ?? null
-          fit_reasoning = scoreParsed.why_it_works ?? scoreParsed.reasoning ?? scoreParsed.fit_reasoning ?? null
-        } catch {
-          // non-fatal: insert without score
-        }
-
-        if (scraped.bio) {
-          try {
-            const nicheRes = await groq.chat.completions.create({
-              model: MODELS.extraction,
-              temperature: 0.1,
-              max_tokens: 10,
-              messages: [
-                {
-                  role: "user",
-                  content: `Based on this bio: "${scraped.bio.slice(0, 200)}", what single niche word best describes this creator? Return only one lowercase word.`,
-                },
-              ],
-            })
-            const word = nicheRes.choices[0]?.message?.content?.trim().split(/\s+/)[0]?.toLowerCase()
-            niche = word ?? null
-          } catch {
-            // non-fatal
-          }
-        }
+        // Scoring and niche extraction are fully independent Groq calls —
+        // run them concurrently instead of back to back. Each keeps its own
+        // non-fatal try/catch exactly as before, just wrapped so Promise.all
+        // can run them side by side.
+        const [{ fit_score, fit_reasoning }, niche] = await Promise.all([
+          (async (): Promise<{ fit_score: number | null; fit_reasoning: string | null }> => {
+            try {
+              const scoreRes = await groq.chat.completions.create({
+                model: MODELS.scoring,
+                temperature: 0.3,
+                max_tokens: 400,
+                // Fit-scoring is a judgment call that benefits from more
+                // reasoning than the handle-brainstorming step above.
+                reasoning_effort: "medium",
+                response_format: { type: "json_object" },
+                messages: [
+                  {
+                    role: "system",
+                    content: discoveryType === "prospect_customer"
+                      ? buildProspectFitScoringSystemPrompt()
+                      : buildInfluencerFitScoringSystemPrompt(),
+                  },
+                  {
+                    role: "user",
+                    content: (discoveryType === "prospect_customer" ? buildProspectFitScoringUserPrompt : buildInfluencerFitScoringUserPrompt)(brand, {
+                      handle: scraped.handle,
+                      platform: scraped.platform,
+                      full_name: scraped.full_name,
+                      bio: scraped.bio,
+                      follower_count: scraped.follower_count,
+                      post_count: scraped.post_count,
+                      niche: null,
+                    }),
+                  },
+                ],
+              })
+              let scoreCleaned = sanitizeJsonString(scoreRes.choices[0]?.message?.content ?? "{}")
+              const scoreJsonMatch = scoreCleaned.match(/\{[\s\S]*\}/)
+              if (scoreJsonMatch) scoreCleaned = scoreJsonMatch[0]
+              const scoreParsed = JSON.parse(scoreCleaned) as {
+                score?: number
+                fit_score?: number
+                reasoning?: string
+                fit_reasoning?: string
+                why_it_works?: string
+              }
+              return {
+                fit_score: scoreParsed.score ?? scoreParsed.fit_score ?? null,
+                fit_reasoning: scoreParsed.why_it_works ?? scoreParsed.reasoning ?? scoreParsed.fit_reasoning ?? null,
+              }
+            } catch {
+              // non-fatal: insert without score
+              return { fit_score: null, fit_reasoning: null }
+            }
+          })(),
+          (async (): Promise<string | null> => {
+            if (!scraped.bio) return null
+            try {
+              const nicheRes = await groq.chat.completions.create({
+                model: MODELS.extraction,
+                temperature: 0.1,
+                max_tokens: 10,
+                messages: [
+                  {
+                    role: "user",
+                    content: `Based on this bio: "${scraped.bio.slice(0, 200)}", what single niche word best describes this creator? Return only one lowercase word.`,
+                  },
+                ],
+              })
+              const word = nicheRes.choices[0]?.message?.content?.trim().split(/\s+/)[0]?.toLowerCase()
+              return word ?? null
+            } catch {
+              // non-fatal
+              return null
+            }
+          })(),
+        ])
 
         const raw_scraped_data: Record<string, unknown> = {
           ...scraped.raw,
