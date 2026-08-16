@@ -201,7 +201,11 @@ export async function autoDiscoverAndScoreInfluencers(
               const scoreRes = await groq.chat.completions.create({
                 model: MODELS.scoring,
                 temperature: 0.3,
-                max_tokens: 400,
+                // GPT-OSS reasoning tokens count against max_tokens — 400
+                // was tight enough that the model could burn the whole
+                // budget on hidden reasoning and return empty/truncated
+                // content, silently failing JSON parsing below.
+                max_tokens: 1200,
                 // Fit-scoring is a judgment call that benefits from more
                 // reasoning than the handle-brainstorming step above.
                 reasoning_effort: "medium",
@@ -252,7 +256,13 @@ export async function autoDiscoverAndScoreInfluencers(
               const nicheRes = await groq.chat.completions.create({
                 model: MODELS.extraction,
                 temperature: 0.1,
-                max_tokens: 10,
+                // A trivial one-word classification — no chain-of-thought
+                // needed, so skip reasoning entirely rather than leaving it
+                // unset (which silently defaults to "medium" on GPT-OSS and
+                // was burning the whole 10-token budget on hidden reasoning
+                // before ever writing the actual word).
+                reasoning_effort: "none",
+                max_tokens: 30,
                 messages: [
                   {
                     role: "user",
