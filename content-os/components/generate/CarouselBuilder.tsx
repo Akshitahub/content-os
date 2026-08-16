@@ -45,13 +45,28 @@ interface GeneratedCarousel {
   hashtags: string[]
 }
 
+// The API returns `slides` (cover + content only, i.e. slideCount - 1 items)
+// and a separate `cta_slide` object — the CTA was never part of `slides`,
+// so the UI always showed one fewer slide than the user picked. Append it
+// as a real slide so slide count/navigation/thumbnails all include it.
+function withCtaSlideMerged(data: GeneratedCarousel): GeneratedCarousel {
+  if (!data.cta_slide || data.slides.some((s) => s.type === "cta")) return data
+  const ctaSlide: CarouselSlideRich = {
+    slide_number: data.slides.length + 1,
+    type: "cta",
+    background_style: "gradient_dark",
+    headline: data.cta_slide.headline,
+  }
+  return { ...data, slides: [...data.slides, ctaSlide] }
+}
+
 // ─── Slide background styles ───────────────────────────────────────────────────
 
-const BG_STYLES: Record<BackgroundStyle, { bg: string; text: string; subtext: string; num: string }> = {
-  gradient_dark:  { bg: "bg-gradient-to-br from-violet-900 via-purple-900 to-indigo-950", text: "text-white", subtext: "text-white/70", num: "text-white/30" },
-  gradient_light: { bg: "bg-gradient-to-br from-violet-50 via-indigo-50 to-white", text: "text-gray-900", subtext: "text-gray-500", num: "text-gray-200" },
-  white_violet:   { bg: "bg-white border border-violet-100", text: "text-gray-900", subtext: "text-gray-500", num: "text-violet-100" },
-  dark_navy:      { bg: "bg-gradient-to-br from-gray-900 via-slate-900 to-black", text: "text-white", subtext: "text-white/60", num: "text-white/20" },
+const BG_STYLES: Record<BackgroundStyle, { bg: string; text: string; subtext: string }> = {
+  gradient_dark:  { bg: "bg-gradient-to-br from-violet-900 via-purple-900 to-indigo-950", text: "text-white", subtext: "text-white/70" },
+  gradient_light: { bg: "bg-gradient-to-br from-violet-50 via-indigo-50 to-white", text: "text-gray-900", subtext: "text-gray-500" },
+  white_violet:   { bg: "bg-white border border-violet-100", text: "text-gray-900", subtext: "text-gray-500" },
+  dark_navy:      { bg: "bg-gradient-to-br from-gray-900 via-slate-900 to-black", text: "text-white", subtext: "text-white/60" },
 }
 
 // ─── Slide renderer ────────────────────────────────────────────────────────────
@@ -84,11 +99,6 @@ function SlidePreview({
         isThumb ? "h-20 w-14 shrink-0" : "aspect-square w-full max-w-md"
       }`}
     >
-      {/* Slide number */}
-      <span className={`absolute left-2 top-2 font-black ${s.num} ${isThumb ? "text-[10px]" : "text-5xl"} leading-none select-none`}>
-        {String(slide.slide_number).padStart(2, "0")}
-      </span>
-
       {/* Product image — cover: right side; content: top-right badge; cta: centered top */}
       {productImage && !isThumb && (
         <>
@@ -486,7 +496,7 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
       try {
         const parsed = JSON.parse(saved) as { slides?: CarouselSlideRich[]; topic?: string; title?: string; cover_hook?: string; cta_slide?: CtaSlide; hashtags?: string[] }
         if (parsed.slides && parsed.slides.length > 0) {
-          setCarousel({ title: parsed.title ?? "", cover_hook: parsed.cover_hook ?? "", slides: parsed.slides, cta_slide: parsed.cta_slide, hashtags: parsed.hashtags ?? [] })
+          setCarousel(withCtaSlideMerged({ title: parsed.title ?? "", cover_hook: parsed.cover_hook ?? "", slides: parsed.slides, cta_slide: parsed.cta_slide, hashtags: parsed.hashtags ?? [] }))
           if (parsed.topic) setTopic(parsed.topic)
         }
       } catch {}
@@ -528,7 +538,7 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
       })
       const json = await res.json() as { data?: GeneratedCarousel; error?: { message?: string } }
       if (!res.ok || !json.data) throw new Error(json.error?.message ?? "Generation failed")
-      setCarousel(json.data)
+      setCarousel(withCtaSlideMerged(json.data))
       setActiveSlide(0)
       setShowSuccess(true)
       setTimeout(() => setShowSuccess(false), 4000)
@@ -565,7 +575,10 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
   function downloadAllText() {
     if (!carousel) return
     const lines: string[] = [`${carousel.title}\n${"─".repeat(40)}\n`]
-    carousel.slides.forEach((slide) => {
+    // The cta-type slide (if merged via withCtaSlideMerged) is skipped here
+    // since its full headline/cta/handle is already printed from cta_slide
+    // below — including it in this loop too would duplicate the headline.
+    carousel.slides.filter((slide) => slide.type !== "cta").forEach((slide) => {
       lines.push(`Slide ${slide.slide_number}: ${slide.headline}`)
       if (slide.subtext) lines.push(`  ${slide.subtext}`)
       if (slide.points) slide.points.forEach((p) => lines.push(`  • ${p}`))
