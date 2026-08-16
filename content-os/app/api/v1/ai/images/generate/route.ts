@@ -3,7 +3,7 @@ import { createClient, createAdminClient } from "@/lib/supabase/server"
 import { generateImageSchema } from "@/lib/validations/ai"
 import { generateImage } from "@/lib/ai/image-generator"
 import { buildError, ErrorCodes } from "@/types/api"
-import { checkAndIncrementUsage } from "@/lib/usage/check-and-increment-usage"
+import { checkAndIncrementUsage, refundGenerationUsage } from "@/lib/usage/check-and-increment-usage"
 import type { BrandRow, ProductRow } from "@/types/database"
 
 const BUCKET = "brand-images"
@@ -53,6 +53,7 @@ export async function POST(request: Request) {
       latency_ms: Date.now() - startTime, success: false,
       error_message: err instanceof Error ? err.message : "Unknown error",
     })
+    await refundGenerationUsage(supabase, user.id)
     return NextResponse.json(buildError(ErrorCodes.AI_GENERATION_FAILED, "Image generation failed. Please try again."), { status: 500 })
   }
 
@@ -68,6 +69,9 @@ export async function POST(request: Request) {
     .upload(storagePath, result.buffer, { contentType: result.mimeType, upsert: false })
 
   if (uploadError) {
+    // Image was generated but never actually delivered to the user — no
+    // usable output, same as a generation failure.
+    await refundGenerationUsage(supabase, user.id)
     return NextResponse.json(
       buildError(ErrorCodes.INTERNAL_ERROR, "Image generated but upload to storage failed.", uploadError.message),
       { status: 500 }

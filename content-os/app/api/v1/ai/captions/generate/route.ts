@@ -3,7 +3,7 @@ import { createClient } from "@/lib/supabase/server"
 import { generateCaptionsSchema } from "@/lib/validations/ai"
 import { generateCaption } from "@/lib/ai/captions-generator"
 import { buildError, ErrorCodes } from "@/types/api"
-import { checkAndIncrementUsage } from "@/lib/usage/check-and-increment-usage"
+import { checkAndIncrementUsage, refundGenerationUsage } from "@/lib/usage/check-and-increment-usage"
 import { buildPatternNote } from "@/lib/ai/pattern-match"
 import type { BrandRow, ProductRow } from "@/types/database"
 
@@ -91,6 +91,7 @@ export async function POST(request: Request) {
       latency_ms: Date.now() - startTime, success: false,
       error_message: err instanceof Error ? err.message : "Unknown error",
     })
+    await refundGenerationUsage(supabase, user.id)
     return NextResponse.json(buildError(ErrorCodes.AI_GENERATION_FAILED, "AI generation failed. Please try again."), { status: 500 })
   }
 

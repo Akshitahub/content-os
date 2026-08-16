@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import { buildError, ErrorCodes } from "@/types/api"
-import { checkAndIncrementUsage } from "@/lib/usage/check-and-increment-usage"
+import { checkAndIncrementUsage, refundGenerationUsage } from "@/lib/usage/check-and-increment-usage"
 
 export async function POST(request: Request) {
   let supabase
@@ -68,6 +68,7 @@ export async function POST(request: Request) {
       const errorMsg = response.status === 402
         ? "Remove.bg free tier limit reached. Get a free API key at remove.bg"
         : `Background removal failed (${response.status})`
+      await refundGenerationUsage(supabase, user.id)
       return NextResponse.json(buildError(ErrorCodes.AI_GENERATION_FAILED, errorMsg), { status: 500 })
     }
 
@@ -77,6 +78,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ data: { base64 } }, { status: 200 })
   } catch (err) {
     console.error("[remove-background] error:", err)
+    await refundGenerationUsage(supabase, user.id)
     return NextResponse.json(
       buildError(ErrorCodes.INTERNAL_ERROR, "Background removal failed. Please try again."),
       { status: 500 }

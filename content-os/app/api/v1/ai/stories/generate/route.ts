@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import { buildError, ErrorCodes } from "@/types/api"
 import { MODELS, getGroqClient } from "@/lib/ai/models"
-import { checkAndIncrementUsage } from "@/lib/usage/check-and-increment-usage"
+import { checkAndIncrementUsage, refundGenerationUsage } from "@/lib/usage/check-and-increment-usage"
 import { buildPastExamplesBlock } from "@/lib/ai/prompts"
 import { z } from "zod"
 import type { BrandRow } from "@/types/database"
@@ -189,11 +189,13 @@ export async function POST(request: Request) {
     try {
       data = JSON.parse(cleaned)
     } catch {
+      await refundGenerationUsage(supabase, user.id)
       return NextResponse.json(buildError(ErrorCodes.AI_GENERATION_FAILED, "AI returned invalid JSON. Please try again."), { status: 500 })
     }
 
     const d = data as Record<string, unknown>
     if (!Array.isArray(d.stories) || d.stories.length === 0) {
+      await refundGenerationUsage(supabase, user.id)
       return NextResponse.json(buildError(ErrorCodes.AI_GENERATION_FAILED, "Story generation failed. Please try again."), { status: 500 })
     }
 
@@ -214,6 +216,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ data }, { status: 200 })
   } catch (err) {
+    await refundGenerationUsage(supabase, user.id)
     const msg = err instanceof Error ? err.message : "Generation failed"
     return NextResponse.json(buildError(ErrorCodes.AI_GENERATION_FAILED, msg), { status: 500 })
   }

@@ -3,7 +3,7 @@ import { createClient } from "@/lib/supabase/server"
 import { generateHooksSchema } from "@/lib/validations/ai"
 import { generateHooks } from "@/lib/ai/hooks-generator"
 import { buildError, ErrorCodes } from "@/types/api"
-import { checkAndIncrementUsage } from "@/lib/usage/check-and-increment-usage"
+import { checkAndIncrementUsage, refundGenerationUsage } from "@/lib/usage/check-and-increment-usage"
 import type { BrandRow, ProductRow } from "@/types/database"
 
 export async function POST(request: Request) {
@@ -61,6 +61,7 @@ export async function POST(request: Request) {
       latency_ms: Date.now() - startTime, success: false,
       error_message: err instanceof Error ? err.message : "Unknown error",
     })
+    await refundGenerationUsage(supabase, user.id)
     return NextResponse.json(buildError(ErrorCodes.AI_GENERATION_FAILED, "AI generation failed. Please try again."), { status: 500 })
   }
 

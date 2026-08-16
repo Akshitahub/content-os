@@ -6,7 +6,7 @@ import { generateContent } from "@/lib/ai/content-generator"
 import { generatePostCardHtml } from "@/lib/design/post-card-generator"
 import { mergeCaptionWithHookAndCta } from "@/lib/utils/caption-merge"
 import { buildError, ErrorCodes } from "@/types/api"
-import { checkAndIncrementUsage } from "@/lib/usage/check-and-increment-usage"
+import { checkAndIncrementUsage, refundGenerationUsage } from "@/lib/usage/check-and-increment-usage"
 import { createPostImageSession } from "@/lib/usage/post-image-regenerate-session"
 import type { BrandRow, ProductRow } from "@/types/database"
 import type { GeneratedCaption, ReelScript, CarouselContent, AdCopy } from "@/types/app"
@@ -238,6 +238,7 @@ export async function POST(request: Request) {
         error_message: err instanceof Error ? err.message : "Unknown error",
       })
     })
+    await refundGenerationUsage(supabase, user.id)
     return NextResponse.json(
       buildError(ErrorCodes.AI_GENERATION_FAILED, "Full post generation failed. Please try again."),
       { status: 500 }

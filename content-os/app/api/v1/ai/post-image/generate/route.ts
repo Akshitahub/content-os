@@ -4,7 +4,7 @@ import { generatePostImageSchema } from "@/lib/validations/ai"
 import { generatePostImage } from "@/lib/ai/post-image-pipeline"
 import { resolveColorThemes, findColorTheme } from "@/lib/design/color-themes"
 import { buildError, ErrorCodes } from "@/types/api"
-import { checkAndIncrementUsage } from "@/lib/usage/check-and-increment-usage"
+import { checkAndIncrementUsage, refundGenerationUsage } from "@/lib/usage/check-and-increment-usage"
 import { checkAndIncrementPostImageSession } from "@/lib/usage/post-image-regenerate-session"
 import { isInternalUnlimited } from "@/lib/usage/is-internal-unlimited"
 import type { BrandRow } from "@/types/database"
@@ -85,6 +85,9 @@ export async function POST(request: Request) {
       user_id: user.id, brand_id: brandId, feature: "post_image", model: MODEL_LABEL,
       latency_ms: Date.now() - startTime, success: false, error_message: result.error,
     })
+    // Only refund if this call actually charged a credit — the free
+    // regenerate (2nd call in a session) never did.
+    if (shouldCharge) await refundGenerationUsage(supabase, user.id)
     return NextResponse.json(buildError(ErrorCodes.AI_GENERATION_FAILED, result.error), { status: 500 })
   }
 
@@ -99,6 +102,9 @@ export async function POST(request: Request) {
     .upload(storagePath, result.buffer, { contentType: result.mimeType, upsert: false })
 
   if (uploadError) {
+    // Image was generated but never actually delivered to the user — no
+    // usable output, same as a generation failure.
+    if (shouldCharge) await refundGenerationUsage(supabase, user.id)
     return NextResponse.json(
       buildError(ErrorCodes.INTERNAL_ERROR, "Image generated but upload to storage failed.", uploadError.message),
       { status: 500 }

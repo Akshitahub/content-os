@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import { buildError, ErrorCodes } from "@/types/api"
 import { MODELS, getGroqClient } from "@/lib/ai/models"
-import { checkAndIncrementUsage } from "@/lib/usage/check-and-increment-usage"
+import { checkAndIncrementUsage, refundGenerationUsage } from "@/lib/usage/check-and-increment-usage"
 import { QUALITY_BAR, buildBrandContext } from "@/lib/ai/prompts"
 import { uploadMediaToStorage } from "@/lib/storage/upload-media"
 import { compositeMemeText } from "@/lib/image/meme-compositor"
@@ -119,10 +119,12 @@ export async function POST(request: Request) {
     concept = JSON.parse(cleaned) as MemeConcept
   } catch (err) {
     console.error("[meme/generate] concept generation failed:", err instanceof Error ? err.message : err)
+    await refundGenerationUsage(supabase, user.id)
     return NextResponse.json(buildError(ErrorCodes.AI_GENERATION_FAILED, "Couldn't come up with a meme concept. Please try again."), { status: 500 })
   }
 
   if (!concept.image_prompt) {
+    await refundGenerationUsage(supabase, user.id)
     return NextResponse.json(buildError(ErrorCodes.AI_GENERATION_FAILED, "Meme generation failed. Please try again."), { status: 500 })
   }
 
@@ -142,6 +144,7 @@ export async function POST(request: Request) {
     imageBuffer = Buffer.from(await res.arrayBuffer())
   } catch (err) {
     console.error("[meme/generate] base image fetch failed:", err instanceof Error ? err.message : err)
+    await refundGenerationUsage(supabase, user.id)
     return NextResponse.json(buildError(ErrorCodes.AI_GENERATION_FAILED, "Couldn't generate the meme image. Please try again."), { status: 500 })
   }
 
@@ -153,6 +156,7 @@ export async function POST(request: Request) {
     finalBuffer = await compositeMemeText(imageBuffer, sanitizedTopText, sanitizedBottomText)
   } catch (err) {
     console.error("[meme/generate] text compositing failed:", err instanceof Error ? err.message : err)
+    await refundGenerationUsage(supabase, user.id)
     return NextResponse.json(buildError(ErrorCodes.AI_GENERATION_FAILED, "Couldn't add text to the meme image. Please try again."), { status: 500 })
   }
 
@@ -162,6 +166,7 @@ export async function POST(request: Request) {
   )
   if ("error" in uploadResult) {
     console.error("[meme/generate] upload failed:", uploadResult.error)
+    await refundGenerationUsage(supabase, user.id)
     return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Couldn't save the meme image. Please try again."), { status: 500 })
   }
 

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import { buildError, ErrorCodes } from "@/types/api"
 import { MODELS, getGroqClient } from "@/lib/ai/models"
-import { checkAndIncrementUsage } from "@/lib/usage/check-and-increment-usage"
+import { checkAndIncrementUsage, refundGenerationUsage } from "@/lib/usage/check-and-increment-usage"
 import { z } from "zod"
 import type { BrandRow } from "@/types/database"
 
@@ -150,21 +150,25 @@ export async function POST(request: Request) {
       } catch {
         if (attempt === 1) {
           console.error("[ai/repurpose] JSON parse failed after retry. Raw:", lastRaw.slice(0, 500))
+          await refundGenerationUsage(supabase, user.id)
           return NextResponse.json(buildError(ErrorCodes.AI_GENERATION_FAILED, "AI returned invalid JSON. Please try again."), { status: 500 })
         }
       }
     }
     if (!result) {
+      await refundGenerationUsage(supabase, user.id)
       return NextResponse.json(buildError(ErrorCodes.AI_GENERATION_FAILED, "AI returned invalid JSON. Please try again."), { status: 500 })
     }
 
     if (!Array.isArray(result.hooks)) {
+      await refundGenerationUsage(supabase, user.id)
       return NextResponse.json(buildError(ErrorCodes.AI_GENERATION_FAILED, "AI response malformed. Please try again."), { status: 500 })
     }
 
     return NextResponse.json({ data: result }, { status: 200 })
   } catch (err) {
     console.error("[ai/repurpose] error:", err)
+    await refundGenerationUsage(supabase, user.id)
     const msg = err instanceof Error ? err.message : "Repurpose failed."
     return NextResponse.json(buildError(ErrorCodes.AI_GENERATION_FAILED, msg), { status: 500 })
   }
