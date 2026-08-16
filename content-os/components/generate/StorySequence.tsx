@@ -3,7 +3,6 @@
 import { useState, useCallback, useEffect, useRef } from "react"
 import { Loader2, Download, Copy, Check, RefreshCw, AlertCircle, Image, Upload, X, CalendarClock, Plus, Minus } from "lucide-react"
 import { ProductPicker, type PickedProduct } from "@/components/shared/ProductPicker"
-import { useBrand } from "@/hooks/useBrand"
 import type { StorySlide } from "@/app/api/v1/ai/stories/generate/route"
 import { downloadElementAsImage, downloadMultipleAsImages, captureElementAsDataUrl } from "@/lib/utils/download-as-image"
 import { GenerationWarning } from "@/components/shared/GenerationWarning"
@@ -43,13 +42,11 @@ function PhoneStory({
   story,
   index,
   total,
-  brandHandle,
   uploadedImage,
 }: {
   story: StorySlide
   index: number
   total: number
-  brandHandle: string
   uploadedImage?: string
 }) {
   const [copied, setCopied] = useState(false)
@@ -58,7 +55,7 @@ function PhoneStory({
   const elementId = `story-card-${index}`
 
   const posClass =
-    story.text_position === "top" ? "justify-start pt-16" :
+    story.text_position === "top" ? "justify-start pt-10" :
     story.text_position === "bottom" ? "justify-end pb-16" :
     "justify-center"
 
@@ -88,20 +85,13 @@ function PhoneStory({
             // eslint-disable-next-line @next/next/no-img-element
             <img src={uploadedImage} alt="" crossOrigin="anonymous" className="absolute inset-0 h-full w-full object-contain" style={{ background: "rgba(0,0,0,0.35)" }} />
           )}
-          {/* Story progress bars */}
-          <div className="flex gap-0.5 px-3 pt-3">
-            {Array.from({ length: total }, (_, i) => (
-              <div key={i} className={`h-0.5 flex-1 rounded-full ${i <= index ? "bg-white" : "bg-white/30"}`} />
-            ))}
-          </div>
-
-          {/* Handle at top */}
-          <div className="flex items-center gap-1.5 px-3 py-2">
-            <div className="h-5 w-5 rounded-full bg-white/20" />
-            <span className={`text-[10px] font-semibold ${s.text}`}>
-              {brandHandle || "yourbrand"}
-            </span>
-          </div>
+          {/* No progress bars or handle row here on purpose — if this
+              design gets scheduled and posted as a real Instagram Story,
+              Instagram's own interface already renders the account's real
+              handle and its own real progress bar natively. Baking fake
+              versions into the image would double them up once actually
+              live. Not a style preference — avoids a real duplicate-UI bug
+              at publish time. */}
 
           {/* Main content */}
           <div className={`flex flex-1 flex-col items-center px-4 ${posClass}`}>
@@ -362,7 +352,6 @@ function ScheduleAction({
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export function StorySequence({ brandId }: { brandId: string }) {
-  const { data: brand } = useBrand(brandId)
   const STORAGE_KEY = `stories_${brandId}`
 
   const [topic, setTopic] = useState("")
@@ -379,8 +368,6 @@ export function StorySequence({ brandId }: { brandId: string }) {
   const [selectedProduct, setSelectedProduct] = useState<PickedProduct | null>(null)
   const [uploadedImages, setUploadedImages] = useState<{ preview: string; base64: string }[]>([])
   const fileInputRef = useRef<HTMLInputElement>(null)
-
-  const handle = brand?.instagram_handle ?? brand?.name ?? "yourbrand"
 
   // Restore from sessionStorage
   useEffect(() => {
@@ -664,7 +651,6 @@ export function StorySequence({ brandId }: { brandId: string }) {
                 story={story}
                 index={i}
                 total={stories.length}
-                brandHandle={handle}
                 uploadedImage={selectedProduct?.imageUrl ?? uploadedImages[i]?.preview}
               />
             ))}
