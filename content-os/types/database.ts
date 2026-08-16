@@ -476,6 +476,7 @@ export type Database = {
           fit_score: number | null
           fit_reasoning: string | null
           raw_scraped_data: Record<string, unknown>
+          discovery_type: "influencer_partner" | "prospect_customer"
           status: "discovered" | "contacted" | "replied" | "negotiating" | "partnered" | "rejected" | "completed"
           notes: string | null
           created_at: string
@@ -500,6 +501,7 @@ export type Database = {
           fit_score?: number | null
           fit_reasoning?: string | null
           raw_scraped_data?: Record<string, unknown>
+          discovery_type?: "influencer_partner" | "prospect_customer"
           status?: "discovered" | "contacted" | "replied" | "negotiating" | "partnered" | "rejected" | "completed"
           notes?: string | null
           created_at?: string
@@ -521,6 +523,7 @@ export type Database = {
           fit_score?: number | null
           fit_reasoning?: string | null
           raw_scraped_data?: Record<string, unknown>
+          discovery_type?: "influencer_partner" | "prospect_customer"
           status?: "discovered" | "contacted" | "replied" | "negotiating" | "partnered" | "rejected" | "completed"
           notes?: string | null
           updated_at?: string
