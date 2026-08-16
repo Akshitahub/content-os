@@ -67,7 +67,13 @@ export async function POST(request: Request) {
         { role: "user", content: buildTopicSuggestionUserPrompt(brand, { contentType, product, currentInput }) },
       ],
       temperature: 0.9,
-      max_tokens: 512,
+      // GPT-OSS reasoning tokens count against max_tokens — short-list
+      // brainstorming doesn't need deep reasoning (same pattern as
+      // discoverInfluencersByNiche), and 512 was tight enough that the
+      // model could burn the whole budget on hidden reasoning and return
+      // empty content.
+      reasoning_effort: "low",
+      max_tokens: 800,
     })
 
     const raw = completion.choices[0]?.message?.content ?? ""

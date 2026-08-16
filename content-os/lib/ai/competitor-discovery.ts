@@ -68,7 +68,13 @@ export async function suggestCompetitorNamesWithAI(brand: BrandRow, count: numbe
     const res = await groq.chat.completions.create({
       model: MODELS.extraction,
       temperature: 0.7,
-      max_tokens: 400,
+      // GPT-OSS reasoning tokens count against max_tokens — short-list
+      // brainstorming doesn't need deep reasoning (same pattern as
+      // discoverInfluencersByNiche), and 400 was tight enough that the
+      // model could burn the whole budget on hidden reasoning and return
+      // empty content.
+      reasoning_effort: "low",
+      max_tokens: 800,
       messages: [
         {
           role: "system",

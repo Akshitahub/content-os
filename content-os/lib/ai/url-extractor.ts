@@ -101,6 +101,12 @@ export async function extractBrandFromPage(page: FetchedPage): Promise<Extracted
   const response = await groq.chat.completions.create({
     model: MODELS.extraction,
     temperature: 0.3,
+    // GPT-OSS reasoning tokens count against max_tokens — this was
+    // previously unbounded, letting the model burn unlimited hidden
+    // reasoning tokens with no output guarantee. Bounded JSON extraction
+    // doesn't need deep reasoning.
+    reasoning_effort: "low",
+    max_tokens: 1000,
     response_format: { type: "json_object" },
     messages: [
       {
@@ -186,6 +192,12 @@ export async function extractProductFromPage(page: FetchedPage): Promise<Extract
   const response = await groq.chat.completions.create({
     model: MODELS.extraction,
     temperature: 0.3,
+    // GPT-OSS reasoning tokens count against max_tokens — this was
+    // previously unbounded, letting the model burn unlimited hidden
+    // reasoning tokens with no output guarantee. Bounded JSON extraction
+    // doesn't need deep reasoning.
+    reasoning_effort: "low",
+    max_tokens: 1000,
     response_format: { type: "json_object" },
     messages: [
       {

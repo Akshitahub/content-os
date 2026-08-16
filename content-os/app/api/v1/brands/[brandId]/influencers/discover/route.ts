@@ -75,7 +75,11 @@ export async function POST(request: Request, { params }: RouteParams) {
       // GPT-OSS reasoning tokens count against max_tokens — 800 was tight
       // enough that the model could burn the whole budget on hidden
       // reasoning and return empty/truncated content, silently failing
-      // JSON parsing below.
+      // JSON parsing below. Fit-scoring is a judgment call that benefits
+      // from more reasoning than list-brainstorming — matches the identical
+      // scoring call in lib/ai/influencer-discovery.ts rather than relying
+      // on Groq's undocumented default.
+      reasoning_effort: "medium",
       max_tokens: 1200,
       messages: [
         { role: "system", content: systemPrompt },
