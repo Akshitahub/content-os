@@ -3,9 +3,9 @@ import Groq from "groq-sdk"
 export const GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 
 export const MODELS = {
-  extraction: "llama-3.1-8b-instant",
+  extraction: "openai/gpt-oss-20b",
   generation: "llama-3.3-70b-versatile",
-  scoring: "llama-3.1-8b-instant",
+  scoring: "openai/gpt-oss-20b",
 } as const
 
 export type ModelKey = keyof typeof MODELS
