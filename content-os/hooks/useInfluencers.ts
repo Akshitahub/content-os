@@ -52,6 +52,7 @@ export function useAutoDiscoverInfluencers(brandId: string) {
     mutationFn: async (input: {
       platform: "instagram" | "tiktok" | "youtube" | "linkedin"
       count?: number
+      discoveryType?: "influencer_partner" | "prospect_customer"
     }): Promise<{ data: InfluencerRow[]; count: number }> => {
       const res = await fetch(`/api/v1/brands/${brandId}/influencers/auto-discover`, {
         method: "POST",
@@ -73,7 +74,11 @@ export function useAutoDiscoverInfluencers(brandId: string) {
 export function useDiscoverInfluencer(brandId: string) {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: async (input: { handle: string; platform: "instagram" | "tiktok" | "youtube" | "linkedin" }): Promise<InfluencerRow> => {
+    mutationFn: async (input: {
+      handle: string
+      platform: "instagram" | "tiktok" | "youtube" | "linkedin"
+      discoveryType?: "influencer_partner" | "prospect_customer"
+    }): Promise<InfluencerRow> => {
       const res = await fetch(`/api/v1/brands/${brandId}/influencers/discover`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },

@@ -4,6 +4,8 @@ import { scrapeInfluencerProfile } from "@/lib/ai/scraper"
 import {
   buildInfluencerFitScoringSystemPrompt,
   buildInfluencerFitScoringUserPrompt,
+  buildProspectFitScoringSystemPrompt,
+  buildProspectFitScoringUserPrompt,
 } from "@/lib/ai/prompts"
 import { MODELS, getGroqClient } from "@/lib/ai/models"
 import { discoverInfluencerSchema } from "@/lib/validations/influencer"
@@ -42,7 +44,7 @@ export async function POST(request: Request, { params }: RouteParams) {
   const parsed = discoverInfluencerSchema.safeParse(body)
   if (!parsed.success) return NextResponse.json(buildError(ErrorCodes.VALIDATION_ERROR, "Validation failed.", parsed.error.message), { status: 400 })
 
-  const { handle, platform } = parsed.data
+  const { handle, platform, discoveryType } = parsed.data
   const brand = result.brand!
 
   // Step 1: Scrape influencer profile
@@ -54,8 +56,10 @@ export async function POST(request: Request, { params }: RouteParams) {
 
   try {
     const groq = getGroqClient()
-    const systemPrompt = buildInfluencerFitScoringSystemPrompt()
-    const userPrompt = buildInfluencerFitScoringUserPrompt(brand, {
+    const systemPrompt = discoveryType === "prospect_customer"
+      ? buildProspectFitScoringSystemPrompt()
+      : buildInfluencerFitScoringSystemPrompt()
+    const userPrompt = (discoveryType === "prospect_customer" ? buildProspectFitScoringUserPrompt : buildInfluencerFitScoringUserPrompt)(brand, {
       handle: scraped.handle,
       platform: scraped.platform,
       full_name: scraped.full_name,
@@ -142,6 +146,7 @@ export async function POST(request: Request, { params }: RouteParams) {
         fit_reasoning,
         niche,
         raw_scraped_data,
+        discovery_type: discoveryType,
         status: "discovered",
       })
       .select()

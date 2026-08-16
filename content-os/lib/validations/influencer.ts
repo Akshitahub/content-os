@@ -3,6 +3,7 @@ import { z } from "zod"
 export const discoverInfluencerSchema = z.object({
   handle: z.string().min(1).max(100).transform((h) => h.replace(/^@/, "")),
   platform: z.enum(["instagram", "tiktok", "youtube", "linkedin"]),
+  discoveryType: z.enum(["influencer_partner", "prospect_customer"]).default("influencer_partner"),
 })
 
 export const createInfluencerSchema = z.object({

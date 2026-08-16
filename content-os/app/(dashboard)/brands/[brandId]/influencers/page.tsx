@@ -73,7 +73,42 @@ function formatFollowers(count: number | null): string {
 
 // ─── Auto-discover form ───────────────────────────────────────────────────────
 
-function AutoDiscoverForm({ brandId }: { brandId: string }) {
+type DiscoveryMode = "influencer_partner" | "prospect_customer"
+
+function DiscoveryTypeToggle({ value, onChange }: { value: DiscoveryMode; onChange: (v: DiscoveryMode) => void }) {
+  return (
+    <div className="mb-3 inline-flex rounded-md border bg-background p-0.5">
+      <button
+        type="button"
+        onClick={() => onChange("influencer_partner")}
+        className={`rounded px-3 py-1.5 text-xs font-medium transition-colors ${
+          value === "influencer_partner" ? "bg-violet-600 text-white" : "text-muted-foreground hover:text-foreground"
+        }`}
+      >
+        Find Influencers
+      </button>
+      <button
+        type="button"
+        onClick={() => onChange("prospect_customer")}
+        className={`rounded px-3 py-1.5 text-xs font-medium transition-colors ${
+          value === "prospect_customer" ? "bg-violet-600 text-white" : "text-muted-foreground hover:text-foreground"
+        }`}
+      >
+        Find Customers
+      </button>
+    </div>
+  )
+}
+
+function AutoDiscoverForm({
+  brandId,
+  discoveryType,
+  onDiscoveryTypeChange,
+}: {
+  brandId: string
+  discoveryType: DiscoveryMode
+  onDiscoveryTypeChange: (v: DiscoveryMode) => void
+}) {
   const [platform, setPlatform] = useState<"instagram" | "tiktok" | "youtube" | "linkedin">("instagram")
   const [count, setCount] = useState(25)
   const [successMsg, setSuccessMsg] = useState<string | null>(null)
@@ -81,7 +116,7 @@ function AutoDiscoverForm({ brandId }: { brandId: string }) {
 
   async function handleAutoDiscover() {
     setSuccessMsg(null)
-    const result = await autoDiscover.mutateAsync({ platform, count })
+    const result = await autoDiscover.mutateAsync({ platform, count, discoveryType })
     setSuccessMsg(
       `Found ${result.count} influencer${result.count !== 1 ? "s" : ""} and added them to your list.`,
     )
@@ -99,6 +134,7 @@ function AutoDiscoverForm({ brandId }: { brandId: string }) {
         </p>
       </CardHeader>
       <CardContent className="space-y-3">
+        <DiscoveryTypeToggle value={discoveryType} onChange={onDiscoveryTypeChange} />
         <div className="flex flex-wrap gap-2">
           <select
             value={platform}
@@ -160,7 +196,7 @@ function AutoDiscoverForm({ brandId }: { brandId: string }) {
 
 // ─── Manual discover form ─────────────────────────────────────────────────────
 
-function DiscoverForm({ brandId }: { brandId: string }) {
+function DiscoverForm({ brandId, discoveryType }: { brandId: string; discoveryType: DiscoveryMode }) {
   const [handle, setHandle] = useState("")
   const [platform, setPlatform] = useState<"instagram" | "tiktok" | "youtube" | "linkedin">("instagram")
   const discover = useDiscoverInfluencer(brandId)
@@ -168,7 +204,7 @@ function DiscoverForm({ brandId }: { brandId: string }) {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!handle.trim()) return
-    await discover.mutateAsync({ handle: handle.trim(), platform })
+    await discover.mutateAsync({ handle: handle.trim(), platform, discoveryType })
     setHandle("")
   }
 
@@ -321,6 +357,7 @@ export default function InfluencersPage() {
   const { data: influencers, isLoading, error } = useInfluencers(brandId)
   const [filter, setFilter] = useState<FilterTab>("all")
   const [sort, setSort] = useState<SortKey>("fit_score")
+  const [discoveryType, setDiscoveryType] = useState<DiscoveryMode>("influencer_partner")
   const autoDiscover = useAutoDiscoverInfluencers(brandId)
   const hasAutoTriggered = useRef(false)
   const [autoDiscoverMsg, setAutoDiscoverMsg] = useState<string | null>(null)
@@ -335,7 +372,7 @@ export default function InfluencersPage() {
     ) {
       hasAutoTriggered.current = true
       autoDiscover
-        .mutateAsync({ platform: "instagram", count: 25 })
+        .mutateAsync({ platform: "instagram", count: 25, discoveryType: "influencer_partner" })
         .then((result) => {
           setAutoDiscoverMsg(
             `Found ${result.count} influencer${result.count !== 1 ? "s" : ""} who could be a great fit for your brand.`,
@@ -381,7 +418,21 @@ export default function InfluencersPage() {
     )
   }
 
-  const filtered = filterInfluencers(influencers ?? [], filter)
+  // Scope the list to whichever mode is active before the existing
+  // filter/sort pipeline runs — influencer_partner behaves exactly as
+  // before (every row already defaults to that discovery_type), while
+  // prospect_customer additionally only ever surfaces fit_score >= 9.
+  const scoped = (influencers ?? []).filter((i) => {
+    const rowType = i.discovery_type ?? "influencer_partner"
+    if (rowType !== discoveryType) return false
+    if (discoveryType === "prospect_customer") {
+      const s = normalizeScore(i.fit_score)
+      return s !== null && s >= 9
+    }
+    return true
+  })
+
+  const filtered = filterInfluencers(scoped, filter)
   const sorted = sortInfluencers(filtered, sort)
 
   return (
@@ -420,14 +471,14 @@ export default function InfluencersPage() {
         </div>
       )}
 
-      <AutoDiscoverForm brandId={brandId} />
+      <AutoDiscoverForm brandId={brandId} discoveryType={discoveryType} onDiscoveryTypeChange={setDiscoveryType} />
 
       <Card className="mb-6">
         <CardHeader>
           <CardTitle className="text-sm text-muted-foreground">Or discover manually</CardTitle>
         </CardHeader>
         <CardContent>
-          <DiscoverForm brandId={brandId} />
+          <DiscoverForm brandId={brandId} discoveryType={discoveryType} />
         </CardContent>
       </Card>
 
