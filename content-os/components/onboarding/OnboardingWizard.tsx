@@ -87,10 +87,14 @@ function Step2Import({ onNext }: Step2Props) {
         body: JSON.stringify({ url: importUrl }),
       })
 
-      const json = await res.json() as { data?: BrandRow; error?: { message?: string } }
+      const json = await res.json() as { data?: BrandRow; error?: { message?: string }; scrape_failed?: boolean; message?: string }
 
       if (!res.ok) {
         throw new Error(json.error?.message ?? "Failed to import brand")
+      }
+
+      if (json.scrape_failed) {
+        throw new Error(json.message ?? "Couldn't import that brand. Please try again or set up manually.")
       }
 
       setBrand(json.data ?? null)
