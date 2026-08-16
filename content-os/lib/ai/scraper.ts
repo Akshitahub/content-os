@@ -132,6 +132,21 @@ async function scrapeInstagram(handle: string): Promise<ScrapedInfluencerProfile
       const ogImage = extractMetaContent(html, "og:image")
       const follower_count = ogDesc ? parseFollowerCount(ogDesc) : null
 
+      // A 200 response alone doesn't mean this is the real profile —
+      // Instagram commonly serves a generic/blocked/login-wall page (still
+      // HTTP 200) to a self-identified bot User-Agent, which yields no og
+      // tags at all. Only count this as a real success if at least one of
+      // the two most load-bearing fields actually came through.
+      if (!ogTitle && !ogImage) {
+        return makePartial(
+          "instagram",
+          handle,
+          profileUrl,
+          { ...partial, raw: { og_title: ogTitle, og_description: ogDesc, og_image: ogImage } },
+          "HTML fetch succeeded but no profile data found (likely blocked or non-existent account)",
+        )
+      }
+
       const result: ScrapedInfluencerProfile = {
         handle,
         platform: "instagram",
