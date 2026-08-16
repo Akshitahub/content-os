@@ -104,9 +104,7 @@ const FAQ_CATEGORIES: FaqCategory[] = [
   },
 ]
 
-// TODO: confirm a dedicated support inbox if support@contentos.in (used
-// today on the Terms/Privacy pages) shouldn't be the one surfaced here.
-const SUPPORT_EMAIL = "support@contentos.in"
+const SUPPORT_EMAIL = "support@socioposts.com"
 
 function FaqItem({ entry }: { entry: FaqEntry }) {
   const [open, setOpen] = useState(false)
