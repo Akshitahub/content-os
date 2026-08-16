@@ -61,6 +61,9 @@ export async function discoverInfluencersByNiche(
     model: MODELS.extraction,
     temperature: 0.7,
     max_tokens: 1500,
+    // Handle brainstorming doesn't need deep reasoning — low effort is
+    // faster/cheaper on GPT-OSS models.
+    reasoning_effort: "low",
     messages: [
       {
         role: "system",
@@ -97,7 +100,27 @@ export async function autoDiscoverAndScoreInfluencers(
   count: number = 25,
 ): Promise<InfluencerRow[]> {
   const groq = getGroqClient()
-  const handles = await discoverInfluencersByNiche(brand.niche ?? "general", platform, count)
+
+  let discovered: string[]
+  try {
+    discovered = await discoverInfluencersByNiche(brand.niche ?? "general", platform, count)
+  } catch (err) {
+    console.error("[influencer-discovery] handle generation failed:", err)
+    throw err
+  }
+  if (discovered.length === 0) return []
+
+  // Skip handles already discovered for this brand+platform — no point
+  // re-scraping and re-scoring someone already in the influencers table.
+  const { data: existingRows } = await supabase
+    .from("influencers")
+    .select("handle")
+    .eq("brand_id", brandId)
+    .eq("platform", platform)
+    .returns<{ handle: string }[]>()
+  const existingHandles = new Set((existingRows ?? []).map((r: { handle: string }) => r.handle.toLowerCase()))
+
+  const handles = discovered.filter((h) => !existingHandles.has(h.toLowerCase()))
   if (handles.length === 0) return []
 
   const batchSize = 3
@@ -110,6 +133,14 @@ export async function autoDiscoverAndScoreInfluencers(
     const results = await Promise.allSettled(
       batch.map(async (handle): Promise<InfluencerRow | null> => {
         const scraped = await scrapeInfluencerProfile(platform, handle)
+
+        // Skip handles that don't actually exist / couldn't be scraped —
+        // no point spending a scoring call on a profile we have no real
+        // data for.
+        if (!scraped.scrape_success) {
+          console.log(`[influencer-discovery] Skipping @${handle}: scrape failed (${scraped.scrape_error ?? "unknown error"})`)
+          return null
+        }
 
         // Skip accounts that are too big (celebrity) or too small (spam/unused)
         if (scraped.follower_count !== null) {
@@ -132,6 +163,9 @@ export async function autoDiscoverAndScoreInfluencers(
             model: MODELS.scoring,
             temperature: 0.3,
             max_tokens: 400,
+            // Fit-scoring is a judgment call that benefits from more
+            // reasoning than the handle-brainstorming step above.
+            reasoning_effort: "medium",
             response_format: { type: "json_object" },
             messages: [
               { role: "system", content: buildInfluencerFitScoringSystemPrompt() },
