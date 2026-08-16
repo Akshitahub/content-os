@@ -23,14 +23,21 @@ import type { OutreachMessageRow, InfluencerPartnershipRow } from "@/types/datab
 
 type Tab = "overview" | "outreach" | "brief" | "performance"
 
-function FitScoreBadge({ score }: { score: number | null }) {
+// Normalize: old scores stored as 0-100, new scores as 1-10
+function normalizeScore(score: number | null): number | null {
   if (score === null) return null
-  const color = score >= 70
+  return score > 10 ? Math.round(score / 10) : score
+}
+
+function FitScoreBadge({ score }: { score: number | null }) {
+  const normalized = normalizeScore(score)
+  if (normalized === null) return null
+  const color = normalized >= 8
     ? "bg-green-100 text-green-700"
-    : score >= 40
+    : normalized >= 5
     ? "bg-yellow-100 text-yellow-700"
-    : "bg-red-100 text-red-700"
-  return <span className={`inline-flex items-center rounded-full px-3 py-1 text-sm font-semibold ${color}`}>{score}/100 fit score</span>
+    : "bg-gray-100 text-gray-500"
+  return <span className={`inline-flex items-center rounded-full px-3 py-1 text-sm font-semibold ${color}`}>{normalized}/10 fit score</span>
 }
 
 function PlatformIcon({ platform }: { platform: string }) {
