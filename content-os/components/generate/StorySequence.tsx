@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
 import { isApiError } from "@/types/api"
+import { ApiResponseError } from "@/hooks/useGeneration"
 import Link from "next/link"
 
 // ─── Story background gradients ────────────────────────────────────────────────
@@ -390,7 +391,7 @@ export function StorySequence({ brandId }: { brandId: string }) {
   const [storyCount, setStoryCount] = useState(3)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
-  const [apiError, setApiError] = useState("")
+  const [apiError, setApiError] = useState<unknown>(null)
   const [stories, setStories] = useState<StorySlide[]>([])
   const [allCopied, setAllCopied] = useState(false)
   const [showSuccess, setShowSuccess] = useState(false)
@@ -448,7 +449,7 @@ export function StorySequence({ brandId }: { brandId: string }) {
     const genId = ++generationIdRef.current
     setLoading(true)
     setError("")
-    setApiError("")
+    setApiError(null)
     setShowStaleCue(false)
     setStories([])
     try {
@@ -463,8 +464,11 @@ export function StorySequence({ brandId }: { brandId: string }) {
           imageDescriptions: uploadedImages.map((_, i) => `User provided image ${i + 1}`),
         }),
       })
-      const json = await res.json() as { data?: { stories: StorySlide[] }; error?: { message?: string } }
-      if (!res.ok || !json.data?.stories) throw new Error(json.error?.message ?? "Generation failed")
+      const json = await res.json() as { data?: { stories: StorySlide[] }; error?: { code?: string; message?: string } }
+      if (!res.ok || !json.data?.stories) {
+        if (isApiError(json)) throw new ApiResponseError(json.error.code, json.error.message)
+        throw new Error(json.error?.message ?? "Generation failed")
+      }
       const savedStories = json.data.stories
       setStories(savedStories)
       setShowSuccess(true)
@@ -490,7 +494,7 @@ export function StorySequence({ brandId }: { brandId: string }) {
         })
       })
     } catch (e) {
-      setApiError(getFriendlyError(e))
+      setApiError(e)
       if (hadPrevStories && prevStoriesRef.current.length > 0) {
         setStories(prevStoriesRef.current)
         setShowStaleCue(true)
@@ -629,16 +633,23 @@ export function StorySequence({ brandId }: { brandId: string }) {
           {loading ? <><Loader2 className="h-4 w-4 animate-spin" /> Generating stories…</> : "✨ Generate stories"}
         </button>
 
-        {apiError && (
-          <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 flex items-start gap-3">
-            <AlertCircle className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
-            <div className="flex-1">
-              <p className="text-sm text-amber-900 font-medium">{apiError}</p>
-              <button onClick={generate} className="mt-2 flex items-center gap-1.5 text-xs font-semibold text-amber-700 hover:text-amber-900">
-                🔄 Try again
-              </button>
+        {!!apiError && (
+          apiError instanceof ApiResponseError && apiError.code === "USAGE_LIMIT_EXCEEDED" ? (
+            <div className="rounded-lg border border-amber-500/30 bg-amber-50 p-3 text-center space-y-0.5">
+              <p className="text-sm font-semibold text-amber-900">{apiError.message}</p>
+              <p className="text-xs text-amber-700">Upgrade your plan to keep creating.</p>
             </div>
-          </div>
+          ) : (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 flex items-start gap-3">
+              <AlertCircle className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <p className="text-sm text-amber-900 font-medium">{getFriendlyError(apiError)}</p>
+                <button onClick={generate} className="mt-2 flex items-center gap-1.5 text-xs font-semibold text-amber-700 hover:text-amber-900">
+                  🔄 Try again
+                </button>
+              </div>
+            </div>
+          )
         )}
         {showStaleCue && stories.length > 0 && (
           <p className="text-xs text-amber-600">Showing your last successful result below.</p>
