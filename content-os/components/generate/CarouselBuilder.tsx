@@ -60,6 +60,26 @@ function withCtaSlideMerged(data: GeneratedCarousel): GeneratedCarousel {
   return { ...data, slides: [...data.slides, ctaSlide] }
 }
 
+// Best-effort AI background fetch for a single slide — never throws, and
+// resolves to null (falls back to the existing flat vibe-color background)
+// on any HTTP error, network failure, or plan restriction (e.g. Free tier
+// requesting the CTA slide's background gets a 403, handled the same as
+// any other failure here rather than as a special case).
+async function fetchSlideBackground(brandId: string, headline: string, vibe: Vibe | undefined, role: "hook" | "cta"): Promise<string | null> {
+  try {
+    const res = await fetch("/api/v1/ai/carousel/slide-image/generate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ brandId, headline, vibe, role }),
+    })
+    if (!res.ok) return null
+    const json = await res.json() as { data?: { public_url?: string } }
+    return json.data?.public_url ?? null
+  } catch {
+    return null
+  }
+}
+
 // ─── Slide background styles ───────────────────────────────────────────────────
 
 const BG_STYLES: Record<BackgroundStyle, { bg: string; text: string; subtext: string }> = {
@@ -79,6 +99,7 @@ function SlidePreview({
   isLastSlide,
   elementId,
   productImage,
+  backgroundImageUrl,
 }: {
   slide: CarouselSlideRich
   ctaSlide?: CtaSlide
@@ -87,18 +108,35 @@ function SlidePreview({
   isLastSlide?: boolean
   elementId?: string
   productImage?: string
+  /** AI-generated background for the hook/CTA slides only — see
+   * generateSlideBackgrounds in the main component. Falls back to the flat
+   * BG_STYLES gradient below when absent (still-loading, failed, or a
+   * middle slide that never gets one). */
+  backgroundImageUrl?: string | null
 }) {
   const s = BG_STYLES[slide.background_style] ?? BG_STYLES.gradient_dark
   const isThumb = size === "thumb"
   const isCta = slide.type === "cta" && isLastSlide && ctaSlide
+  const hasBg = !!backgroundImageUrl
+  // A photo background's own contrast can't be predicted the way the flat
+  // BG_STYLES swatches can, so text always goes white-on-scrim instead of
+  // following the slide's normal light/dark text pairing.
+  const textColor = hasBg ? "text-white" : s.text
+  const subtextColor = hasBg ? "text-white/70" : s.subtext
 
   return (
     <div
       id={elementId}
-      className={`relative flex flex-col overflow-hidden rounded-xl ${s.bg} ${
+      className={`relative flex flex-col overflow-hidden rounded-xl bg-cover bg-center ${hasBg ? "" : s.bg} ${
         isThumb ? "h-20 w-14 shrink-0" : "aspect-square w-full max-w-md"
       }`}
+      style={hasBg ? { backgroundImage: `url(${backgroundImageUrl})` } : undefined}
     >
+      {/* Dark scrim so text stays readable over an AI-generated background */}
+      {hasBg && (
+        <div className="absolute inset-0 z-0 bg-gradient-to-t from-black/75 via-black/25 to-black/45" />
+      )}
+
       {/* Product image — cover: right side; content: top-right badge; cta: centered top */}
       {productImage && !isThumb && (
         <>
@@ -107,7 +145,7 @@ function SlidePreview({
             <img
               src={productImage}
               alt=""
-              className="absolute right-4 bottom-10 object-contain drop-shadow-2xl"
+              className="absolute right-4 bottom-10 z-10 object-contain drop-shadow-2xl"
               style={{ width: "42%", maxHeight: "58%" }}
             />
           )}
@@ -116,7 +154,7 @@ function SlidePreview({
             <img
               src={productImage}
               alt=""
-              className="absolute top-3 right-3 object-contain rounded-lg"
+              className="absolute top-3 right-3 z-10 object-contain rounded-lg"
               style={{ width: "22%", maxHeight: "22%", background: "rgba(255,255,255,0.12)", padding: 4 }}
             />
           )}
@@ -125,7 +163,7 @@ function SlidePreview({
             <img
               src={productImage}
               alt=""
-              className="absolute top-6 left-1/2 -translate-x-1/2 object-contain drop-shadow-xl"
+              className="absolute top-6 left-1/2 z-10 -translate-x-1/2 object-contain drop-shadow-xl"
               style={{ width: "36%", maxHeight: "36%" }}
             />
           )}
@@ -133,27 +171,27 @@ function SlidePreview({
       )}
 
       {/* Content */}
-      <div className={`flex h-full flex-col justify-center ${isThumb ? "p-1.5" : "p-8"}`}>
+      <div className={`relative z-10 flex h-full flex-col justify-center ${isThumb ? "p-1.5" : "p-8"}`}>
         {slide.type === "cover" && (
           <>
-            <h2 className={`font-extrabold leading-tight ${s.text} ${isThumb ? "text-[8px] line-clamp-2" : "text-3xl"} ${productImage && !isThumb ? "max-w-[55%]" : ""}`}>
+            <h2 className={`font-extrabold leading-tight ${textColor} ${isThumb ? "text-[8px] line-clamp-2" : "text-3xl"} ${productImage && !isThumb ? "max-w-[55%]" : ""}`}>
               {slide.headline}
             </h2>
             {!isThumb && slide.subtext && (
-              <p className={`mt-3 text-base font-medium ${s.subtext} ${productImage ? "max-w-[55%]" : ""}`}>{slide.subtext}</p>
+              <p className={`mt-3 text-base font-medium ${subtextColor} ${productImage ? "max-w-[55%]" : ""}`}>{slide.subtext}</p>
             )}
           </>
         )}
 
         {slide.type === "content" && !isCta && (
           <>
-            <h3 className={`font-bold leading-snug ${s.text} ${isThumb ? "text-[7px] line-clamp-2" : "text-xl mb-4"}`}>
+            <h3 className={`font-bold leading-snug ${textColor} ${isThumb ? "text-[7px] line-clamp-2" : "text-xl mb-4"}`}>
               {slide.headline}
             </h3>
             {!isThumb && slide.points?.map((point, i) => (
               <div key={i} className="mb-2 flex items-start gap-2">
                 <span className="mt-0.5 h-1.5 w-1.5 shrink-0 rounded-full bg-violet-400" />
-                <p className={`text-sm leading-relaxed ${s.subtext}`}>{point}</p>
+                <p className={`text-sm leading-relaxed ${subtextColor}`}>{point}</p>
               </div>
             ))}
           </>
@@ -161,13 +199,13 @@ function SlidePreview({
 
         {isCta && (
           <>
-            <h2 className={`font-extrabold leading-tight ${s.text} ${isThumb ? "text-[8px] line-clamp-2" : "text-2xl mb-3"} ${productImage && !isThumb ? "mt-[40%]" : ""}`}>
+            <h2 className={`font-extrabold leading-tight ${textColor} ${isThumb ? "text-[8px] line-clamp-2" : "text-2xl mb-3"} ${productImage && !isThumb ? "mt-[40%]" : ""}`}>
               {ctaSlide.headline}
             </h2>
             {!isThumb && (
               <>
-                <p className={`text-base font-medium ${s.subtext} mb-2`}>{ctaSlide.cta}</p>
-                <p className={`text-sm font-bold ${s.text}`}>{ctaSlide.handle}</p>
+                <p className={`text-base font-medium ${subtextColor} mb-2`}>{ctaSlide.cta}</p>
+                <p className={`text-sm font-bold ${textColor}`}>{ctaSlide.handle}</p>
               </>
             )}
           </>
@@ -176,7 +214,7 @@ function SlidePreview({
 
       {/* Brand name bottom right */}
       {!isThumb && (
-        <div className={`absolute bottom-3 right-4 text-xs font-medium ${s.subtext}`}>
+        <div className={`absolute bottom-3 right-4 z-10 text-xs font-medium ${subtextColor}`}>
           {brandName}
         </div>
       )}
@@ -485,6 +523,13 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
   // Copy state
   const [copied, setCopied] = useState(false)
 
+  // AI-generated backgrounds for the hook (all plans) and CTA (Starter+)
+  // slides — filled in by generate() as a best-effort follow-up after text
+  // generation succeeds. null (still loading, failed, or plan-restricted)
+  // means SlidePreview falls back to the flat vibe-color background.
+  const [hookBackgroundUrl, setHookBackgroundUrl] = useState<string | null>(null)
+  const [ctaBackgroundUrl, setCtaBackgroundUrl] = useState<string | null>(null)
+
   const allSlides = carousel?.slides ?? []
   const currentSlide = allSlides[activeSlide]
   const isLastSlide = activeSlide === allSlides.length - 1
@@ -538,10 +583,28 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
       })
       const json = await res.json() as { data?: GeneratedCarousel; error?: { message?: string } }
       if (!res.ok || !json.data) throw new Error(json.error?.message ?? "Generation failed")
-      setCarousel(withCtaSlideMerged(json.data))
+      const merged = withCtaSlideMerged(json.data)
+      setCarousel(merged)
       setActiveSlide(0)
       setShowSuccess(true)
       setTimeout(() => setShowSuccess(false), 4000)
+
+      // Best-effort AI backgrounds for the hook and CTA slides, fired after
+      // text succeeds so a slow/failed image call never blocks or breaks
+      // carousel generation itself — each independently falls back to the
+      // flat vibe-color slide (fetchSlideBackground resolves to null, never
+      // throws). Cleared first so a regenerate doesn't show the previous
+      // carousel's images while the new ones are still in flight.
+      setHookBackgroundUrl(null)
+      setCtaBackgroundUrl(null)
+      const hookSlide = merged.slides[0]
+      if (hookSlide) {
+        fetchSlideBackground(brandId, hookSlide.headline, vibe, "hook").then(setHookBackgroundUrl)
+      }
+      const ctaSlideEntry = merged.slides[merged.slides.length - 1]
+      if (ctaSlideEntry && merged.slides.length > 1) {
+        fetchSlideBackground(brandId, ctaSlideEntry.headline, vibe, "cta").then(setCtaBackgroundUrl)
+      }
     } catch (e) {
       setApiError(getFriendlyError(e))
       if (hadPrevCarousel && prevCarouselRef.current) {
@@ -570,6 +633,14 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
     navigator.clipboard.writeText(parts.join("\n"))
     setCopied(true)
     setTimeout(() => setCopied(false), 1800)
+  }
+
+  // Only the first (hook) and last (CTA) slides ever get an AI background —
+  // everything in between keeps the flat vibe-color treatment.
+  function backgroundUrlForSlide(index: number): string | null {
+    if (index === 0) return hookBackgroundUrl
+    if (index === allSlides.length - 1 && allSlides.length > 1) return ctaBackgroundUrl
+    return null
   }
 
   function downloadAllText() {
@@ -726,6 +797,7 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
                     isLastSlide={i === allSlides.length - 1}
                     elementId={`carousel-slide-${i}`}
                     productImage={productImage ?? undefined}
+                    backgroundImageUrl={backgroundUrlForSlide(i)}
                   />
                 ) : null
               ))}
@@ -770,6 +842,7 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
                   isLastSlide={isLastSlide}
                   elementId={`carousel-slide-${activeSlide}`}
                   productImage={productImage ?? undefined}
+                  backgroundImageUrl={backgroundUrlForSlide(activeSlide)}
                 />
               </div>
 
@@ -787,6 +860,7 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
                       brandName={brand?.name ?? ""}
                       size="thumb"
                       isLastSlide={i === allSlides.length - 1}
+                      backgroundImageUrl={backgroundUrlForSlide(i)}
                     />
                   </button>
                 ))}

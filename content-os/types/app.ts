@@ -192,12 +192,15 @@ export interface AutopilotTier {
 // `price` is in whole rupees (₹/mo) — the single source Razorpay checkout
 // and every UI price display should read from, rather than hand-copying
 // the number. `influencerOutreach` gates the influencer discovery/outreach
-// feature (Pro and Agency only).
-export const PLAN_LIMITS: Record<UserPlan, { price: number; generations: number; brands: number; products: number; zernioSocialPlatforms: boolean; reelsPerWeek: number; autopilot: AutopilotTier; influencerOutreach: boolean }> = {
-  free:    { price: 0,    generations: 15,   brands: 1, products: 5,    zernioSocialPlatforms: false, reelsPerWeek: 0, autopilot: { days: 3,  slots: 5,  creditCost: 8 },  influencerOutreach: false },
-  starter: { price: 1199, generations: 350,  brands: 2, products: 30,   zernioSocialPlatforms: false, reelsPerWeek: 0, autopilot: { days: 30, slots: 30, creditCost: 30 }, influencerOutreach: false },
-  pro:     { price: 2999, generations: 1200, brands: 3, products: 200,  zernioSocialPlatforms: true,  reelsPerWeek: 1, autopilot: { days: 30, slots: 30, creditCost: 30 }, influencerOutreach: true },
-  agency:  { price: 8000, generations: 2000, brands: 5, products: 1000, zernioSocialPlatforms: true,  reelsPerWeek: 4, autopilot: { days: 30, slots: 30, creditCost: 30 }, influencerOutreach: true },
+// feature (Pro and Agency only). `carouselCtaAiBackground` gates the
+// AI-generated background image on a carousel's closing (CTA) slide —
+// Starter and above; the opening (hook) slide gets one on every plan
+// including Free unconditionally, so it has no flag of its own here.
+export const PLAN_LIMITS: Record<UserPlan, { price: number; generations: number; brands: number; products: number; zernioSocialPlatforms: boolean; reelsPerWeek: number; autopilot: AutopilotTier; influencerOutreach: boolean; carouselCtaAiBackground: boolean }> = {
+  free:    { price: 0,    generations: 15,   brands: 1, products: 5,    zernioSocialPlatforms: false, reelsPerWeek: 0, autopilot: { days: 3,  slots: 5,  creditCost: 8 },  influencerOutreach: false, carouselCtaAiBackground: false },
+  starter: { price: 1199, generations: 350,  brands: 2, products: 30,   zernioSocialPlatforms: false, reelsPerWeek: 0, autopilot: { days: 30, slots: 30, creditCost: 30 }, influencerOutreach: false, carouselCtaAiBackground: true },
+  pro:     { price: 2999, generations: 1200, brands: 3, products: 200,  zernioSocialPlatforms: true,  reelsPerWeek: 1, autopilot: { days: 30, slots: 30, creditCost: 30 }, influencerOutreach: true,  carouselCtaAiBackground: true },
+  agency:  { price: 8000, generations: 2000, brands: 5, products: 1000, zernioSocialPlatforms: true,  reelsPerWeek: 4, autopilot: { days: 30, slots: 30, creditCost: 30 }, influencerOutreach: true,  carouselCtaAiBackground: true },
 }
 
 // ─── Trending context ────────────────────────────────────────────────────────

@@ -264,6 +264,71 @@ function simplifyPrompt(prompt: string, brandNiche: string | null): string {
   ].filter(Boolean).join(", ")
 }
 
+export type BackgroundImageResult =
+  | { success: true; buffer: Buffer; mimeType: string; provider: "pollinations" | "flux" }
+  | { success: false; error: string }
+
+/**
+ * Fetches a single background image buffer via Pollinations (free plan) or
+ * Replicate's Flux 2 Pro (paid plans + internal bypass) — retrying once
+ * with `fallbackPrompt`/a new seed on failure, and falling back to
+ * Pollinations (with the original `prompt`) if Flux fails twice. Never
+ * throws. This is the shared "get me a good image buffer" half of
+ * generatePostImage below, minus its niche-specific prompt-building and
+ * template compositing — reused as-is by any caller that just wants a
+ * plain, uncomposited background image (e.g. carousel slide backgrounds
+ * in lib/ai/carousel-slide-background.ts).
+ */
+export async function fetchBackgroundImage(
+  prompt: string,
+  fallbackPrompt: string,
+  plan: UserPlan,
+  isInternalUnlimitedUser: boolean
+): Promise<BackgroundImageResult> {
+  const provider = resolveImageProvider(plan, isInternalUnlimitedUser)
+  const fetchImage = provider === "flux" ? fetchAndCheckFluxImage : fetchAndCheckPollinationsImage
+  console.log(`[post-image-pipeline] fetchBackgroundImage provider=${provider} plan=${plan} internalUnlimited=${isInternalUnlimitedUser}`)
+
+  // Tracks which provider actually produced the returned buffer — distinct
+  // from `provider` above once the Flux-fails-twice fallback kicks in, and
+  // worth surfacing to callers since Flux is a paid-per-call cost and
+  // Pollinations isn't (see ai_generation_logs inserts that read this).
+  let actualProvider: "pollinations" | "flux" = provider
+
+  const seed = Math.floor(Math.random() * 1_000_000)
+  let attempt = await fetchImage(prompt, seed)
+
+  if ("error" in attempt) {
+    console.error(`[post-image-pipeline] first attempt failed (${provider}):`, attempt.error)
+    const retrySeed = Math.floor(Math.random() * 1_000_000)
+    attempt = await fetchImage(fallbackPrompt, retrySeed)
+
+    if ("error" in attempt) {
+      console.error(`[post-image-pipeline] retry also failed (${provider}):`, attempt.error)
+
+      // Flux failing twice (Replicate outage, out of credit, etc.) shouldn't
+      // leave a paying user with nothing — fall back to the always-available
+      // free provider rather than a hard failure. Logged loudly since this
+      // is a last-resort safety net, not a routine path.
+      if (provider === "flux") {
+        console.log(`[post-image-pipeline] Flux failed twice, falling back to Pollinations for plan=${plan}`)
+        const fallbackSeed = Math.floor(Math.random() * 1_000_000)
+        attempt = await fetchAndCheckPollinationsImage(prompt, fallbackSeed)
+        actualProvider = "pollinations"
+
+        if ("error" in attempt) {
+          console.error(`[post-image-pipeline] Pollinations fallback also failed:`, attempt.error)
+          return { success: false, error: `Couldn't generate a usable image after three attempts. Last error: ${attempt.error}` }
+        }
+      } else {
+        return { success: false, error: `Couldn't generate a usable image after two attempts. Last error: ${attempt.error}` }
+      }
+    }
+  }
+
+  return { success: true, buffer: attempt.buffer, mimeType: "image/png", provider: actualProvider }
+}
+
 export interface GeneratePostImageOptions {
   imagePrompt: string
   brandNiche: string | null
@@ -307,52 +372,16 @@ export async function generatePostImage(options: GeneratePostImageOptions): Prom
     IMAGE_QUALITY_SAFETY_BOILERPLATE,
   ].filter(Boolean).join(", ")
 
-  const provider = resolveImageProvider(options.plan, options.isInternalUnlimitedUser)
-  const fetchImage = provider === "flux" ? fetchAndCheckFluxImage : fetchAndCheckPollinationsImage
-  console.log(`[post-image-pipeline] provider=${provider} plan=${options.plan} internalUnlimited=${options.isInternalUnlimitedUser}`)
-
-  const seed = Math.floor(Math.random() * 1_000_000)
-  let attempt = await fetchImage(fullPrompt, seed)
-
-  if ("error" in attempt) {
-    console.error(`[post-image-pipeline] first attempt failed (${provider}):`, attempt.error)
-    const retryPrompt = simplifyPrompt(fullPrompt, options.brandNiche)
-    const retrySeed = Math.floor(Math.random() * 1_000_000)
-    attempt = await fetchImage(retryPrompt, retrySeed)
-
-    if ("error" in attempt) {
-      console.error(`[post-image-pipeline] retry also failed (${provider}):`, attempt.error)
-
-      // Flux failing twice (Replicate outage, out of credit, etc.) shouldn't
-      // leave a paying user with nothing — fall back to the always-available
-      // free provider rather than a hard failure. This is a last-resort
-      // safety net, not a routine path, so it's logged loudly: if this shows
-      // up often in Vercel logs, that's a sign Replicate itself needs
-      // attention, not that this fallback needs tuning.
-      if (provider === "flux") {
-        console.log(`[post-image-pipeline] Flux failed twice, falling back to Pollinations for plan=${options.plan}`)
-        const fallbackSeed = Math.floor(Math.random() * 1_000_000)
-        attempt = await fetchAndCheckPollinationsImage(fullPrompt, fallbackSeed)
-
-        if ("error" in attempt) {
-          console.error(`[post-image-pipeline] Pollinations fallback also failed:`, attempt.error)
-          return { success: false, error: `Couldn't generate a usable image after three attempts. Last error: ${attempt.error}` }
-        }
-      } else {
-        // Keep the real reason in the message (not just the logs) — a fully
-        // generic string here was hiding the actual cause from the API
-        // response too, not just from the user-facing copy.
-        return { success: false, error: `Couldn't generate a usable image after two attempts. Last error: ${attempt.error}` }
-      }
-    }
-  }
+  const retryPrompt = simplifyPrompt(fullPrompt, options.brandNiche)
+  const result = await fetchBackgroundImage(fullPrompt, retryPrompt, options.plan, options.isInternalUnlimitedUser)
+  if (!result.success) return result
 
   console.log(
     `[post-image-pipeline] compositing: template=${options.template} colorTheme=${options.colorTheme.id} logoUrl=${options.logoUrl ? "present" : "none"} headlineLen=${options.headline.length}`
   )
 
   try {
-    const composited = await compositePostImage(attempt.buffer, {
+    const composited = await compositePostImage(result.buffer, {
       template: options.template,
       colorTheme: options.colorTheme,
       headline: options.headline,
