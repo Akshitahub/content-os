@@ -99,6 +99,50 @@ async function cleanupTextOnlyTable(admin: AdminClient, tableName: string, cutof
   return ids.length
 }
 
+/**
+ * Ad Maker variation uploads (app/api/v1/brands/[brandId]/ai/ad-maker/
+ * upload-variation, ${brandId}/ads/... in this same bucket) never get a DB
+ * row at all — unlike every other table this cron cleans, there's no
+ * last_accessed_at (or any column) to query. A scheduled variation is
+ * re-hosted under a separate ${brandId}/scheduled-... path rather than
+ * this one being reused, so the original upload here is orphaned whether
+ * or not it was ever scheduled — safe to sweep purely by age, no
+ * calendar_entries linkage check needed (contrast excludeLinkedCaptions
+ * above). Age comes from Supabase Storage's own file metadata
+ * (FileObject.created_at) since there's no DB row to read it from.
+ */
+async function cleanupAdMakerVariations(admin: AdminClient, cutoff: string): Promise<number> {
+  const { data: brands, error: brandsError } = await table(admin, "brands").select("id") as { data: { id: string }[] | null; error: { message: string } | null }
+  if (brandsError) {
+    console.error("[cron/cleanup-abandoned-drafts] ad-maker variations: failed to fetch brands:", brandsError.message)
+    return 0
+  }
+
+  const stalePaths: string[] = []
+  for (const brand of brands ?? []) {
+    const dir = `${brand.id}/ads`
+    const { data: files, error: listError } = await admin.storage.from(STORAGE_BUCKET).list(dir, { limit: 1000 })
+    if (listError) {
+      console.error(`[cron/cleanup-abandoned-drafts] ad-maker variations: failed to list ${dir}:`, listError.message)
+      continue
+    }
+    for (const file of files ?? []) {
+      if (file.name && file.created_at && file.created_at < cutoff) {
+        stalePaths.push(`${dir}/${file.name}`)
+      }
+    }
+  }
+
+  if (stalePaths.length === 0) return 0
+
+  const { error: removeError, data: removed } = await admin.storage.from(STORAGE_BUCKET).remove(stalePaths)
+  if (removeError) {
+    console.error("[cron/cleanup-abandoned-drafts] ad-maker variations removal error:", removeError.message)
+    return 0
+  }
+  return removed?.length ?? stalePaths.length
+}
+
 async function cleanupMemes(admin: AdminClient, cutoff: string): Promise<{ deleted: number; storageFilesRemoved: number }> {
   const { data: candidates, error: fetchError } = await table(admin, "memes")
     .select("id, image_url")
@@ -169,6 +213,13 @@ export async function GET(request: Request) {
     storageFilesRemoved += memeResult.storageFilesRemoved
   } catch (err) {
     console.error("[cron/cleanup-abandoned-drafts] memes unexpected error:", err instanceof Error ? err.message : err)
+  }
+
+  try {
+    const adMakerRemoved = await cleanupAdMakerVariations(admin, cutoff)
+    storageFilesRemoved += adMakerRemoved
+  } catch (err) {
+    console.error("[cron/cleanup-abandoned-drafts] ad-maker variations unexpected error:", err instanceof Error ? err.message : err)
   }
 
   console.log("[cron/cleanup-abandoned-drafts] done:", { deleted, storageFilesRemoved, perTable })
