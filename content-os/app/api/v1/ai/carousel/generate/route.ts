@@ -117,7 +117,13 @@ async function generateCarouselWithRetry(
     const response = await groq.chat.completions.create({
       model: MODELS.generation,
       temperature: 0.85,
-      max_tokens: Math.max(3000, slideCount * 400),
+      // GPT-OSS reasoning tokens count against max_tokens. Measured live: a
+      // 7-slide carousel at reasoning_effort "medium" consumed 828 of 1499
+      // completion tokens (55%) on hidden reasoning — structured multi-slide
+      // JSON genuinely benefits from real reasoning quality here. Budget
+      // raised well past the old Llama-era per-slide formula for headroom.
+      reasoning_effort: "medium",
+      max_tokens: Math.max(4000, slideCount * 500),
       messages: [
         {
           role: "system",

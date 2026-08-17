@@ -95,7 +95,13 @@ export async function POST(request: Request, { params }: RouteParams) {
     const res = await groq.chat.completions.create({
       model: MODELS.generation,
       temperature: 0.3,
-      max_tokens: 800,
+      // GPT-OSS reasoning tokens count against max_tokens. This is a
+      // persuasive, context-heavy single message that benefits from real
+      // reasoning (matching tone/campaign goal to the influencer's specific
+      // profile), so "medium" over "low". Budget raised well past the old
+      // Llama-era 800.
+      reasoning_effort: "medium",
+      max_tokens: 2000,
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt },

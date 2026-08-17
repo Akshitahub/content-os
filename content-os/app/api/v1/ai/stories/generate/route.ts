@@ -206,7 +206,13 @@ export async function POST(request: Request) {
     const response = await groq.chat.completions.create({
       model: MODELS.generation,
       temperature: 0.85,
-      max_tokens: 1200,
+      // GPT-OSS reasoning tokens count against max_tokens. Structured
+      // multi-slide JSON (like the carousel case, measured at 55% reasoning
+      // overhead for a comparable 7-item structure) needs real reasoning to
+      // keep the narrative arc coherent across slides. Budget scales with
+      // storyCount (up to 10) since more slides = more visible output too.
+      reasoning_effort: "medium",
+      max_tokens: Math.max(3000, storyCount * 350),
       messages: [
         {
           role: "system",

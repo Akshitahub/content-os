@@ -143,10 +143,15 @@ Respond with this exact JSON:
  */
 export async function generateStrategyOverview(brand: BrandRow, params?: AutopilotParams): Promise<StrategyOverview> {
   const groq = getGroqClient()
+  // GPT-OSS reasoning tokens count against max_tokens. Short structured
+  // preview (goal + frequency + 4 week themes) that still benefits from
+  // real reasoning about the brand's specific strategy -- "medium". Budget
+  // raised well past the old Llama-era 500.
   const res = await groq.chat.completions.create({
     model: MODELS.generation,
     temperature: 0.7,
-    max_tokens: 500,
+    reasoning_effort: "medium",
+    max_tokens: 1500,
     response_format: { type: "json_object" },
     messages: [
       { role: "system", content: buildStrategyOverviewSystemPrompt() },
@@ -366,10 +371,15 @@ Return this exact JSON (exactly 5 slides):
 
 export async function generateContentStrategy(brand: BrandRow, products: ProductRow[], params?: AutopilotParams): Promise<ContentStrategy> {
   const groq = getGroqClient()
+  // GPT-OSS reasoning tokens count against max_tokens. The big 30-day/
+  // 30-slot planner -- measured live with a comparable 30-slot test JSON
+  // consuming 4685/12000 total tokens (3128 of them reasoning), comfortably
+  // within this budget -- "medium" for real cross-slot planning coherence.
   const res = await generateWithRetry(groq, {
     model: MODELS.generation,
     temperature: 0.7,
-    max_tokens: 8000,
+    reasoning_effort: "medium",
+    max_tokens: 12000,
     response_format: { type: "json_object" },
     messages: [
       { role: "system", content: buildStrategySystemPrompt() },
@@ -407,10 +417,15 @@ async function generateSlotContent(
   const isCarousel = slot.content_type === "carousel"
   const isReel = slot.content_type === "reel_script"
 
+  // GPT-OSS reasoning tokens count against max_tokens. Final single-post
+  // content generation, similar scale/purpose to the tested captions/
+  // social_post call sites -- "low". Budget raised well past the old
+  // Llama-era 700/400.
   const res = await generateWithRetry(groq, {
     model: MODELS.generation,
     temperature: 0.8,
-    max_tokens: isCarousel || isReel ? 700 : 400,
+    reasoning_effort: "low",
+    max_tokens: isCarousel || isReel ? 1800 : 1200,
     response_format: { type: "json_object" },
     messages: [
       {

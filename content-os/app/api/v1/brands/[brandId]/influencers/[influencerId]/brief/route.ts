@@ -105,7 +105,13 @@ export async function POST(request: Request, { params }: RouteParams) {
     const res = await groq.chat.completions.create({
       model: MODELS.generation,
       temperature: 0.3,
-      max_tokens: 800,
+      // GPT-OSS reasoning tokens count against max_tokens. Rich multi-field
+      // structured output (brief + deliverables + talking_points + dos +
+      // donts + hashtags) needing real judgment about the specific
+      // influencer/campaign -- "medium". Budget raised well past the old
+      // Llama-era 800.
+      reasoning_effort: "medium",
+      max_tokens: 2200,
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt },

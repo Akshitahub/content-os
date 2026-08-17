@@ -34,7 +34,13 @@ export async function suggestBlogPromptImprovements(
     const res = await groq.chat.completions.create({
       model: MODELS.generation,
       temperature: 0.6,
-      max_tokens: 500,
+      // GPT-OSS reasoning tokens count against max_tokens. Short advisory
+      // output (2-3 suggestions + one rewritten prompt) -- same class as
+      // the tested hooks/captions call sites -- so "low" is right here.
+      // Already has a graceful try/catch fallback, but still needs a real
+      // budget so it succeeds rather than silently falling back every time.
+      reasoning_effort: "low",
+      max_tokens: 1200,
       response_format: { type: "json_object" },
       messages: [
         {

@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server"
 import { buildError, ErrorCodes } from "@/types/api"
 import { checkAndIncrementUsage, refundGenerationUsage } from "@/lib/usage/check-and-increment-usage"
 import { generateBlogPost } from "@/lib/ai/blog-generator"
+import { MODELS } from "@/lib/ai/models"
 import { z } from "zod"
 import type { BrandRow, ProductRow } from "@/types/database"
 
@@ -82,7 +83,7 @@ export async function POST(request: Request) {
   } catch (err) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await (supabase.from("ai_generation_logs") as any).insert({
-      user_id: user.id, brand_id: brandId, feature: "blog_post", model: "meta/llama-3.1-70b-instruct",
+      user_id: user.id, brand_id: brandId, feature: "blog_post", model: MODELS.generation,
       latency_ms: Date.now() - startTime, success: false,
       error_message: err instanceof Error ? err.message : "Unknown error",
     })

@@ -27,8 +27,17 @@ export type GenerateContentOptions = {
   includeImagePrompt?: boolean
 }
 
-type PromptConfig = { system: string; user: string; maxTokens: number }
+type ReasoningEffort = "none" | "low" | "medium" | "high"
+type PromptConfig = { system: string; user: string; maxTokens: number; reasoningEffort: ReasoningEffort }
 
+// GPT-OSS reasoning tokens count against max_tokens — every value below was
+// recalibrated against live-measured reasoning consumption on
+// openai/gpt-oss-120b, not just bumped arbitrarily. "low" for short, single-
+// shot creative output (measured ~230-370 total completion tokens for a
+// comparable caption task); "medium" for structurally complex, multi-part
+// JSON (measured ~1500 total completion tokens for a comparable 7-slide
+// carousel) — the old Llama-era max_tokens values 400s outright
+// ("json_validate_failed") once reasoning tokens are in play at all.
 function buildPrompts(
   format: ContentFormat,
   brand: BrandRow,
@@ -47,39 +56,45 @@ function buildPrompts(
           pastExamples: options.pastExamples,
           includeImagePrompt: options.includeImagePrompt,
         }),
+        reasoningEffort: "low",
         // A bit more headroom when image_prompt is also being generated in
         // the same JSON response, so it doesn't get truncated mid-field.
-        maxTokens: options.includeImagePrompt ? 550 : 400,
+        maxTokens: options.includeImagePrompt ? 1600 : 1200,
       }
     case "reel_script":
       return {
         system: buildReelScriptSystemPrompt(),
         user: buildReelScriptUserPrompt(brand, options),
-        maxTokens: 800,
+        reasoningEffort: "medium",
+        maxTokens: 2500,
       }
     case "story":
       return {
         system: buildStorySystemPrompt(),
         user: buildStoryUserPrompt(brand, options),
-        maxTokens: 200,
+        reasoningEffort: "low",
+        maxTokens: 800,
       }
     case "carousel":
       return {
         system: buildCarouselSystemPrompt(),
         user: buildCarouselUserPrompt(brand, options),
-        maxTokens: 800,
+        reasoningEffort: "medium",
+        maxTokens: 3000,
       }
     case "blog_post":
       return {
         system: buildBlogPostSystemPrompt(),
         user: buildBlogPostUserPrompt(brand, options),
-        maxTokens: 800,
+        reasoningEffort: "medium",
+        maxTokens: 2500,
       }
     case "ad_copy":
       return {
         system: buildAdCopySystemPrompt(),
         user: buildAdCopyUserPrompt(brand, options),
-        maxTokens: 400,
+        reasoningEffort: "low",
+        maxTokens: 1200,
       }
   }
 }
@@ -126,11 +141,12 @@ export async function generateContent(
 }> {
   const groq = getGroqClient()
   const model = MODELS.generation
-  const { system, user, maxTokens } = buildPrompts(format, brand, options)
+  const { system, user, maxTokens, reasoningEffort } = buildPrompts(format, brand, options)
 
   const response = await groq.chat.completions.create({
     model,
     temperature: 0.8,
+    reasoning_effort: reasoningEffort,
     max_tokens: maxTokens,
     response_format: { type: "json_object" },
     messages: [

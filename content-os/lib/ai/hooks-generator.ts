@@ -25,7 +25,13 @@ export async function generateHooks(
   const response = await groq.chat.completions.create({
     model,
     temperature: 0.85,
-    max_tokens: 600,
+    // GPT-OSS reasoning tokens count against max_tokens. Measured live: a
+    // short hook-list task at reasoning_effort "low" used only ~6 reasoning
+    // tokens (vs. hundreds+ at "medium" for comparable short tasks) — this
+    // is exactly the short-list-brainstorming case "low" is for. Budget
+    // raised well past the old Llama-era 600 for headroom.
+    reasoning_effort: "low",
+    max_tokens: 1000,
     response_format: { type: "json_object" },
     messages: [
       { role: "system", content: buildHookSystemPrompt() },

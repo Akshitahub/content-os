@@ -2,9 +2,17 @@ import Groq from "groq-sdk"
 
 export const GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 
+// `generation` was "llama-3.3-70b-versatile" until Groq removed the entire
+// Llama 3.x family from their catalog (~2026-08-17 11:37 UTC — confirmed via
+// ai_generation_logs and a live /v1/models check). Every call site using
+// this model is a reasoning model now (same class as `extraction`/
+// `scoring`'s gpt-oss-20b) and MUST set reasoning_effort explicitly and
+// size max_tokens with real headroom for hidden reasoning tokens — see the
+// per-call-site fixes shipped alongside this change. Never leave
+// reasoning_effort unset on a call using this model.
 export const MODELS = {
   extraction: "openai/gpt-oss-20b",
-  generation: "llama-3.3-70b-versatile",
+  generation: "openai/gpt-oss-120b",
   scoring: "openai/gpt-oss-20b",
 } as const
 

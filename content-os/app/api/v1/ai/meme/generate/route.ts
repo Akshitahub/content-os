@@ -105,7 +105,14 @@ export async function POST(request: Request) {
     const response = await groq.chat.completions.create({
       model: MODELS.generation,
       temperature: 0.9,
-      max_tokens: 500,
+      // GPT-OSS reasoning tokens count against max_tokens. Short structured
+      // output (image_prompt + top/bottom text + caption + hashtags),
+      // similar scale to the tested hooks/captions call sites -- "low" is
+      // right here. Budget raised well past the old Llama-era 500, which
+      // would 400 outright ("json_validate_failed") once reasoning tokens
+      // are involved at all.
+      reasoning_effort: "low",
+      max_tokens: 1200,
       response_format: { type: "json_object" },
       messages: [
         { role: "system", content: buildMemeConceptSystemPrompt() },

@@ -33,7 +33,13 @@ export async function suggestPromptImprovements(
     const res = await groq.chat.completions.create({
       model: MODELS.generation,
       temperature: 0.6,
-      max_tokens: 500,
+      // GPT-OSS reasoning tokens count against max_tokens. Short advisory
+      // output, identical shape to blog-prompt-optimizer.ts -- "low" is
+      // right here. Already has a graceful try/catch fallback, but still
+      // needs a real budget so it succeeds rather than silently falling
+      // back every time.
+      reasoning_effort: "low",
+      max_tokens: 1200,
       response_format: { type: "json_object" },
       messages: [
         {

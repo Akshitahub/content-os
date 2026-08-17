@@ -78,7 +78,12 @@ export async function POST(request: Request, { params }: RouteParams) {
     const res = await groq.chat.completions.create({
       model: MODELS.generation,
       temperature: 0.7,
-      max_tokens: 600,
+      // GPT-OSS reasoning tokens count against max_tokens. Short structured
+      // output (hook + caption + hashtags + visual_direction), same scale
+      // as the tested hooks/captions call sites -- "low" is right here.
+      // Budget raised well past the old Llama-era 600.
+      reasoning_effort: "low",
+      max_tokens: 1200,
       messages: [
         {
           role: "system",

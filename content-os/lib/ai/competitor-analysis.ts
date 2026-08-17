@@ -158,7 +158,11 @@ Write the competitive content/gap analysis now, following the strict honesty rul
   const response = await groq.chat.completions.create({
     model,
     temperature: 0.4,
-    max_tokens: 700,
+    // GPT-OSS reasoning tokens count against max_tokens. Same strict-
+    // honesty analytical discipline as account-analytics.ts -- "medium".
+    // Budget raised well past the old Llama-era 700.
+    reasoning_effort: "medium",
+    max_tokens: 2000,
     messages: [
       { role: "system", content: systemPrompt },
       { role: "user", content: userPrompt },

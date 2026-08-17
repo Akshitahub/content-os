@@ -95,7 +95,12 @@ Write the INSIGHTS and SUGGESTIONS now, following the strict honesty rule above.
   const response = await groq.chat.completions.create({
     model,
     temperature: 0.4,
-    max_tokens: 700,
+    // GPT-OSS reasoning tokens count against max_tokens. This is a strict-
+    // honesty analytical task (only claim what the data supports, explicitly
+    // flag gaps) that genuinely benefits from real reasoning -- "medium".
+    // Budget raised well past the old Llama-era 700.
+    reasoning_effort: "medium",
+    max_tokens: 2000,
     messages: [
       { role: "system", content: systemPrompt },
       { role: "user", content: userPrompt },

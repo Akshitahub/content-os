@@ -113,10 +113,21 @@ export async function POST(request: Request) {
 
   try {
     const groq = getGroqClient()
+    // GPT-OSS reasoning tokens count against max_tokens. This call site
+    // produces the widest single output of any generation surface -- 5
+    // hooks, 3 carousel outlines, 2 reel scripts, 5 tweets, and a 200-400
+    // word LinkedIn post, all in one JSON blob -- so "medium" is used here
+    // (matching the structured-JSON precedent from carousel/stories), but
+    // this is the one call site most likely to actually need "high" if
+    // testing shows quality degrading under real load; flagged for
+    // follow-up rather than asserted without a dedicated test. Budget
+    // raised well past the old Llama-era 2000 for headroom across both
+    // attempts.
     const response = await groq.chat.completions.create({
       model: MODELS.generation,
       temperature: 0.85,
-      max_tokens: 2000,
+      reasoning_effort: "medium",
+      max_tokens: 4500,
       messages: [
         {
           role: "system",
@@ -135,7 +146,8 @@ export async function POST(request: Request) {
       const resp = attempt === 0 ? response : await groq.chat.completions.create({
         model: MODELS.generation,
         temperature: 0.85,
-        max_tokens: 2000,
+        reasoning_effort: "medium",
+        max_tokens: 4500,
         messages: [
           { role: "system", content: "You are an expert content repurposer for Indian D2C brands. CRITICAL: Respond with ONLY valid JSON. No markdown code fences, no explanation text before or after. The response must be parseable by JSON.parse() directly." },
           { role: "user", content: buildRepurposePrompt(content, brand) },

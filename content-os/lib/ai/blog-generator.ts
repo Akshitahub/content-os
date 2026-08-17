@@ -26,16 +26,20 @@ export async function generateBlogPost(
   const groq = getGroqClient()
   const model = MODELS.generation
 
-  // ~2.5 tokens/word gives headroom for the JSON wrapper (title,
+  // ~3 tokens/word gives headroom for the JSON wrapper (title,
   // meta_description, tags) plus the tokenizer's real word:token ratio for
-  // English prose, without needing a separate per-field budget. Floored at
-  // 1200 so a short target still has room to finish the JSON structure
-  // cleanly rather than getting cut off mid-object.
-  const maxTokens = Math.max(1200, Math.round(options.wordLimit * 2.5))
+  // English prose, PLUS hidden GPT-OSS reasoning tokens that count against
+  // this same budget. Measured live: an 800-word blog target at
+  // reasoning_effort "medium" consumed 1320 total tokens (273 of them
+  // reasoning, ~21% overhead) — moderate and worth paying for real long-form
+  // reasoning quality. Floored at 1800 so a short target still has room to
+  // finish the JSON structure cleanly rather than getting cut off mid-object.
+  const maxTokens = Math.max(1800, Math.round(options.wordLimit * 3))
 
   const response = await groq.chat.completions.create({
     model,
     temperature: 0.75,
+    reasoning_effort: "medium",
     max_tokens: maxTokens,
     response_format: { type: "json_object" },
     messages: [

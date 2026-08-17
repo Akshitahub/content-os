@@ -20,7 +20,16 @@ export async function generateCaption(
   const response = await groq.chat.completions.create({
     model,
     temperature: 0.8,
-    max_tokens: 400,
+    // GPT-OSS reasoning tokens count against max_tokens. Measured live:
+    // this exact caption task at reasoning_effort "medium" burned 1079 of
+    // 1239 completion tokens (87%) on hidden reasoning — wildly wasteful
+    // for short, punchy copywriting. "low" dropped that to 232/364 (64%,
+    // but a much smaller absolute budget) with equally valid output, so
+    // that's what's used here. max_tokens raised well past the old
+    // Llama-era 400, which now 400s outright ("json_validate_failed") once
+    // reasoning tokens are in play at all.
+    reasoning_effort: "low",
+    max_tokens: 1200,
     response_format: { type: "json_object" },
     messages: [
       { role: "system", content: buildCaptionSystemPrompt() },
