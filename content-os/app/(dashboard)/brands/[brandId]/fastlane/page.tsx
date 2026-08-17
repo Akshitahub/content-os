@@ -844,7 +844,7 @@ export default function AutopilotPage() {
             <strong>{upsellData.plan}</strong> plan.
           </p>
           <div className="rounded-xl border border-violet-200 bg-violet-50 p-4 text-left space-y-2">
-            <p className="font-semibold text-violet-900">Starter Plan — ₹999/month</p>
+            <p className="font-semibold text-violet-900">Starter Plan — ₹{PLAN_LIMITS.starter.price.toLocaleString("en-IN")}/month</p>
             <ul className="text-sm text-violet-700 space-y-1">
               <li>✓ {PLAN_LIMITS.starter.generations} generations/month</li>
               <li>✓ Autopilot (30-day calendar)</li>

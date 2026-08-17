@@ -1,5 +1,6 @@
 import type { Metadata } from "next"
 import Link from "next/link"
+import { PLAN_LIMITS } from "@/types/app"
 
 export const metadata: Metadata = {
   title: "Best AI Content Generator for Indian D2C Brands & Creators (2026)",
@@ -99,10 +100,10 @@ export default function AiContentGeneratorIndiaArticle() {
           <h2 className="pt-2 text-xl font-bold text-gray-900">Pricing</h2>
           <p>SocioPosts offers four plans:</p>
           <ul className="list-disc space-y-2 pl-5">
-            <li><strong>Free</strong>: 15 generations/month, 1 brand</li>
-            <li><strong>Starter (&#8377;999/month)</strong>: 350 generations/month, 2 brands, 30 products</li>
-            <li><strong>Pro (&#8377;2,499/month)</strong>: 1,200 generations/month, 3 brands, 200 products</li>
-            <li><strong>Agency (&#8377;6,999/month)</strong>: 2,000 generations/month, 5 brands, 1,000 products</li>
+            <li><strong>Free</strong>: {PLAN_LIMITS.free.generations} generations/month, {PLAN_LIMITS.free.brands} brand</li>
+            <li><strong>Starter (&#8377;{PLAN_LIMITS.starter.price.toLocaleString("en-IN")}/month)</strong>: {PLAN_LIMITS.starter.generations} generations/month, {PLAN_LIMITS.starter.brands} brands, {PLAN_LIMITS.starter.products} products</li>
+            <li><strong>Pro (&#8377;{PLAN_LIMITS.pro.price.toLocaleString("en-IN")}/month)</strong>: {PLAN_LIMITS.pro.generations.toLocaleString("en-IN")} generations/month, {PLAN_LIMITS.pro.brands} brands, {PLAN_LIMITS.pro.products} products</li>
+            <li><strong>Agency (&#8377;{PLAN_LIMITS.agency.price.toLocaleString("en-IN")}/month)</strong>: {PLAN_LIMITS.agency.generations.toLocaleString("en-IN")} generations/month, {PLAN_LIMITS.agency.brands} brands, {PLAN_LIMITS.agency.products.toLocaleString("en-IN")} products</li>
           </ul>
           <p>Start free. No credit card required. Upgrade when you need more.</p>
         </div>

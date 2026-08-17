@@ -3,18 +3,31 @@
 import { useState } from "react"
 import Link from "next/link"
 import { Check } from "lucide-react"
+import { PLAN_LIMITS } from "@/types/app"
 
 type BillingCycle = "monthly" | "annual"
 
 interface PricingTier {
-  id: string
+  id: "free" | "starter" | "pro" | "agency"
   name: string
   tagline: string
-  monthlyPrice: string
-  annualMonthlyPrice: string
-  annualBilledLabel: string | null
   features: string[]
   highlighted?: boolean
+}
+
+function formatRupees(amount: number): string {
+  return `₹${amount.toLocaleString("en-IN")}`
+}
+
+// Annual billing is display-only (not wired to Razorpay yet — see the
+// toggle below): ~2 months free, i.e. 10 months' price billed upfront,
+// charm-priced to the nearest ₹999 so the total doesn't look arbitrary.
+// Derived from PLAN_LIMITS[id].price rather than hand-copied so it can
+// never drift from the real monthly price.
+function annualPricing(monthlyPrice: number): { monthlyEquivalent: string; billedLabel: string } {
+  const rawAnnual = monthlyPrice * 10
+  const charmed = Math.ceil((rawAnnual + 1) / 1000) * 1000 - 1
+  return { monthlyEquivalent: formatRupees(Math.floor(charmed / 12)), billedLabel: `Billed ${formatRupees(charmed)}/year` }
 }
 
 const TIERS: PricingTier[] = [
@@ -22,9 +35,6 @@ const TIERS: PricingTier[] = [
     id: "free",
     name: "Free",
     tagline: "Try it out",
-    monthlyPrice: "₹0",
-    annualMonthlyPrice: "₹0",
-    annualBilledLabel: null,
     features: [
       "1 brand",
       "15 AI generations / month",
@@ -36,15 +46,11 @@ const TIERS: PricingTier[] = [
     id: "starter",
     name: "Starter",
     tagline: "For getting serious",
-    monthlyPrice: "₹999",
-    annualMonthlyPrice: "₹833",
-    annualBilledLabel: "Billed ₹9,999/year",
     features: [
       "2 brands",
       "350 AI generations / month",
       "Auto-post & schedule to Instagram, Facebook, Threads, Pinterest",
       "Autopilot: generate a month of content in one click",
-      "Influencer outreach tools",
       "Basic analytics & ROI tracking",
     ],
   },
@@ -52,15 +58,14 @@ const TIERS: PricingTier[] = [
     id: "pro",
     name: "Pro",
     tagline: "For brands ready to grow",
-    monthlyPrice: "₹2,499",
-    annualMonthlyPrice: "₹2,083",
-    annualBilledLabel: "Billed ₹24,999/year",
     highlighted: true,
     features: [
       "3 brands",
       "1,200 AI generations / month",
       "+ LinkedIn, YouTube, Twitter/X",
+      "Autopilot: generate a month of content in one click",
       "1 real AI video reel every week",
+      "Influencer outreach tools",
       "Competitor tracking (5 competitors)",
       "Full analytics: demographics, best-time-to-post",
       "Monthly PDF reports",
@@ -70,9 +75,6 @@ const TIERS: PricingTier[] = [
     id: "agency",
     name: "Agency",
     tagline: "For managing multiple brands",
-    monthlyPrice: "₹6,999",
-    annualMonthlyPrice: "₹5,833",
-    annualBilledLabel: "Billed ₹69,999/year",
     features: [
       "5 brands",
       "2,000 AI generations / month",
@@ -122,8 +124,10 @@ export function PricingSection() {
 
       <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
         {TIERS.map((tier) => {
-          const price = cycle === "annual" ? tier.annualMonthlyPrice : tier.monthlyPrice
-          const subtitle = cycle === "annual" && tier.annualBilledLabel ? tier.annualBilledLabel : tier.tagline
+          const monthlyPrice = PLAN_LIMITS[tier.id].price
+          const annual = tier.id !== "free" ? annualPricing(monthlyPrice) : null
+          const price = cycle === "annual" && annual ? annual.monthlyEquivalent : formatRupees(monthlyPrice)
+          const subtitle = cycle === "annual" && annual ? annual.billedLabel : tier.tagline
 
           return (
             <div

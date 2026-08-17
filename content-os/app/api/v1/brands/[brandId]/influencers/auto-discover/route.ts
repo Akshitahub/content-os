@@ -3,6 +3,8 @@ import { z } from "zod"
 import { createClient } from "@/lib/supabase/server"
 import { autoDiscoverAndScoreInfluencers } from "@/lib/ai/influencer-discovery"
 import { buildError, ErrorCodes } from "@/types/api"
+import { PLAN_LIMITS, type UserPlan } from "@/types/app"
+import { isInternalUnlimited } from "@/lib/usage/is-internal-unlimited"
 import type { BrandRow } from "@/types/database"
 
 type RouteParams = { params: Promise<{ brandId: string }> }
@@ -39,6 +41,15 @@ export async function POST(request: Request, { params }: RouteParams) {
 
   if (!brand) {
     return NextResponse.json(buildError(ErrorCodes.BRAND_NOT_FOUND, "Brand not found."), { status: 404 })
+  }
+
+  const { data: userData } = await supabase.from("users").select("plan").eq("id", user.id).single<{ plan: UserPlan }>()
+  const plan: UserPlan = userData?.plan ?? "free"
+  if (!PLAN_LIMITS[plan].influencerOutreach && !isInternalUnlimited(user.id)) {
+    return NextResponse.json(
+      buildError(ErrorCodes.USAGE_LIMIT_EXCEEDED, "Influencer outreach tools are available on Pro and Agency plans. Upgrade to use this feature."),
+      { status: 403 }
+    )
   }
 
   let body: unknown

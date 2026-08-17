@@ -2,6 +2,8 @@ import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import { createInfluencerSchema } from "@/lib/validations/influencer"
 import { buildError, ErrorCodes } from "@/types/api"
+import { PLAN_LIMITS, type UserPlan } from "@/types/app"
+import { isInternalUnlimited } from "@/lib/usage/is-internal-unlimited"
 import type { BrandRow, InfluencerRow } from "@/types/database"
 
 type RouteParams = { params: Promise<{ brandId: string }> }
@@ -55,6 +57,15 @@ export async function POST(request: Request, { params }: RouteParams) {
   if (result.error === "server_error") return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Server error."), { status: 500 })
   if (result.error === "unauthenticated") return NextResponse.json(buildError(ErrorCodes.UNAUTHENTICATED, "You must be logged in."), { status: 401 })
   if (result.error === "not_found") return NextResponse.json(buildError(ErrorCodes.BRAND_NOT_FOUND, "Brand not found."), { status: 404 })
+
+  const { data: userData } = await result.supabase!.from("users").select("plan").eq("id", result.user!.id).single<{ plan: UserPlan }>()
+  const plan: UserPlan = userData?.plan ?? "free"
+  if (!PLAN_LIMITS[plan].influencerOutreach && !isInternalUnlimited(result.user!.id)) {
+    return NextResponse.json(
+      buildError(ErrorCodes.USAGE_LIMIT_EXCEEDED, "Influencer outreach tools are available on Pro and Agency plans. Upgrade to use this feature."),
+      { status: 403 }
+    )
+  }
 
   let body: unknown
   try { body = await request.json() } catch {

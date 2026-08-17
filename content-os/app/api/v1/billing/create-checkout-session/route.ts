@@ -2,18 +2,12 @@ import Razorpay from "razorpay"
 import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import { buildError, ErrorCodes } from "@/types/api"
+import { PLAN_LIMITS } from "@/types/app"
 import { z } from "zod"
 
 const schema = z.object({
   plan: z.enum(["starter", "pro", "agency"]),
 })
-
-// Prices in paise — match values displayed in the UI
-const PLAN_PRICES: Record<string, number> = {
-  starter: 99900,   // ₹999
-  pro: 249900,      // ₹2,499
-  agency: 699900,   // ₹6,999
-}
 
 export async function POST(request: Request) {
   const supabase = await createClient()
@@ -33,7 +27,8 @@ export async function POST(request: Request) {
   }
 
   const { plan } = parsed.data
-  const amount = PLAN_PRICES[plan]
+  // Razorpay wants paise; PLAN_LIMITS.price is whole rupees.
+  const amount = PLAN_LIMITS[plan].price * 100
 
   const razorpay = new Razorpay({
     key_id: process.env.RAZORPAY_KEY_ID!,

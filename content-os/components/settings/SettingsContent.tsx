@@ -57,6 +57,10 @@ interface SettingsContentProps {
 // previously hand-maintained its own stale copy (Pro showed a 500/mo cap
 // here when the real limit had already moved to 1200).
 
+function formatPlanPrice(plan: "starter" | "pro" | "agency"): string {
+  return `₹${PLAN_LIMITS[plan].price.toLocaleString("en-IN")}/mo`
+}
+
 const PLAN_COLORS: Record<Plan, string> = {
   free: "bg-gray-100 text-gray-700",
   starter: "bg-violet-100 text-violet-700",
@@ -69,7 +73,7 @@ const PLAN_FEATURES: { label: string; plans: Plan[] }[] = [
   { label: "Brand management", plans: ["free", "starter", "pro", "agency"] },
   { label: "Auto-post & schedule (Instagram, Facebook, Threads, Pinterest)", plans: ["starter", "pro", "agency"] },
   { label: "Autopilot (30-day content planner)", plans: ["starter", "pro", "agency"] },
-  { label: "Influencer outreach tools", plans: ["starter", "pro", "agency"] },
+  { label: "Influencer outreach tools", plans: ["pro", "agency"] },
   { label: "LinkedIn, YouTube, Twitter/X publishing", plans: ["pro", "agency"] },
   { label: "AI video reels", plans: ["free", "pro", "agency"] },
   { label: "Competitor tracking", plans: ["starter", "pro", "agency"] },
@@ -391,21 +395,21 @@ function PlanSection({ user }: { user: UserProps }) {
               disabled={upgradeState === "loading"}
               className="bg-violet-600 hover:bg-violet-700 text-white"
             >
-              {upgradeState === "loading" ? "Loading…" : "Upgrade to Starter — ₹999/mo"}
+              {upgradeState === "loading" ? "Loading…" : `Upgrade to Starter — ${formatPlanPrice("starter")}`}
             </Button>
             <Button
               variant="outline"
               onClick={() => handleUpgrade("pro")}
               disabled={upgradeState === "loading"}
             >
-              Upgrade to Pro — ₹2,499/mo
+              {`Upgrade to Pro — ${formatPlanPrice("pro")}`}
             </Button>
             <Button
               variant="outline"
               onClick={() => handleUpgrade("agency")}
               disabled={upgradeState === "loading"}
             >
-              Upgrade to Agency — ₹6,999/mo
+              {`Upgrade to Agency — ${formatPlanPrice("agency")}`}
             </Button>
           </div>
         )}
@@ -417,14 +421,14 @@ function PlanSection({ user }: { user: UserProps }) {
               disabled={upgradeState === "loading"}
               className="bg-violet-600 hover:bg-violet-700 text-white"
             >
-              {upgradeState === "loading" ? "Loading…" : "Upgrade to Pro — ₹2,499/mo"}
+              {upgradeState === "loading" ? "Loading…" : `Upgrade to Pro — ${formatPlanPrice("pro")}`}
             </Button>
             <Button
               variant="outline"
               onClick={() => handleUpgrade("agency")}
               disabled={upgradeState === "loading"}
             >
-              Upgrade to Agency — ₹6,999/mo
+              {`Upgrade to Agency — ${formatPlanPrice("agency")}`}
             </Button>
           </div>
         )}
@@ -436,7 +440,7 @@ function PlanSection({ user }: { user: UserProps }) {
               disabled={upgradeState === "loading"}
               className="bg-violet-600 hover:bg-violet-700 text-white"
             >
-              {upgradeState === "loading" ? "Loading…" : "Upgrade to Agency — ₹6,999/mo"}
+              {upgradeState === "loading" ? "Loading…" : `Upgrade to Agency — ${formatPlanPrice("agency")}`}
             </Button>
           </div>
         )}
