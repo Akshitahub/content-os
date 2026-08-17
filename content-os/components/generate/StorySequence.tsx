@@ -36,6 +36,24 @@ const QUICK_TOPICS = [
   "Limited offer",
 ]
 
+// Best-effort AI background fetch for a single hook/cta story slide — never
+// throws, resolves to null (falls back to the existing flat gradient) on
+// any HTTP error or network failure. Available to every plan, no tiering.
+async function fetchSlideBackground(brandId: string, text: string, role: "hook" | "cta"): Promise<string | null> {
+  try {
+    const res = await fetch("/api/v1/ai/stories/slide-image/generate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ brandId, text, role }),
+    })
+    if (!res.ok) return null
+    const json = await res.json() as { data?: { public_url?: string } }
+    return json.data?.public_url ?? null
+  } catch {
+    return null
+  }
+}
+
 // ─── Phone frame story card ────────────────────────────────────────────────────
 
 function PhoneStory({
@@ -53,6 +71,12 @@ function PhoneStory({
   const [dlErr, setDlErr] = useState(false)
   const s = STORY_BG[story.background] ?? STORY_BG.gradient_violet
   const elementId = `story-card-${index}`
+  const hasBg = !!story.background_image_url
+  // A photo background's own contrast can't be predicted the way the flat
+  // STORY_BG swatches can, so text always goes white-on-scrim instead of
+  // following the slide's normal light/dark text pairing.
+  const textColor = hasBg ? "text-white" : s.text
+  const subColor = hasBg ? "text-white/70" : s.sub
 
   const posClass =
     story.text_position === "top" ? "justify-start pt-10" :
@@ -80,10 +104,18 @@ function PhoneStory({
         className="relative overflow-hidden rounded-[28px] border-[5px] border-gray-900 shadow-2xl"
         style={{ width: 220, height: 390 }}
       >
-        <div className={`flex h-full flex-col relative ${s.bg}`}>
+        <div
+          className={`flex h-full flex-col relative bg-cover bg-center ${hasBg ? "" : s.bg}`}
+          style={hasBg ? { backgroundImage: `url(${story.background_image_url})` } : undefined}
+        >
+          {/* Dark scrim so text stays readable over an AI-generated background */}
+          {hasBg && (
+            <div className="absolute inset-0 z-0 bg-gradient-to-t from-black/75 via-black/25 to-black/45" />
+          )}
+
           {story.type === "reveal" && uploadedImage && (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={uploadedImage} alt="" crossOrigin="anonymous" className="absolute inset-0 h-full w-full object-contain" style={{ background: "rgba(0,0,0,0.35)" }} />
+            <img src={uploadedImage} alt="" crossOrigin="anonymous" className="absolute inset-0 z-10 h-full w-full object-contain" style={{ background: "rgba(0,0,0,0.35)" }} />
           )}
           {/* No progress bars or handle row here on purpose — if this
               design gets scheduled and posted as a real Instagram Story,
@@ -94,12 +126,12 @@ function PhoneStory({
               at publish time. */}
 
           {/* Main content */}
-          <div className={`flex flex-1 flex-col items-center px-4 ${posClass}`}>
-            <p className={`text-center text-lg font-black leading-tight ${s.text}`}>
+          <div className={`relative z-10 flex flex-1 flex-col items-center px-4 ${posClass}`}>
+            <p className={`text-center text-lg font-black leading-tight ${textColor}`}>
               {story.text}
             </p>
             {story.subtext && (
-              <p className={`mt-2 text-center text-xs font-medium ${s.sub}`}>
+              <p className={`mt-2 text-center text-xs font-medium ${subColor}`}>
                 {story.subtext}
               </p>
             )}
@@ -118,7 +150,7 @@ function PhoneStory({
 
           {/* Tap to continue hint */}
           {index < total - 1 && (
-            <p className={`pb-3 text-center text-[9px] ${s.sub}`}>Tap to continue →</p>
+            <p className={`relative z-10 pb-3 text-center text-[9px] ${subColor}`}>Tap to continue →</p>
           )}
         </div>
 
@@ -368,6 +400,10 @@ export function StorySequence({ brandId }: { brandId: string }) {
   const [selectedProduct, setSelectedProduct] = useState<PickedProduct | null>(null)
   const [uploadedImages, setUploadedImages] = useState<{ preview: string; base64: string }[]>([])
   const fileInputRef = useRef<HTMLInputElement>(null)
+  // Bumped on every generate() call — lets an in-flight background-image
+  // fetch from a superseded generation detect it's stale and no-op instead
+  // of writing its result onto a newer, unrelated set of stories.
+  const generationIdRef = useRef(0)
 
   // Restore from sessionStorage
   useEffect(() => {
@@ -409,6 +445,7 @@ export function StorySequence({ brandId }: { brandId: string }) {
     if (!topic.trim()) { setError("Please enter a topic for your story sequence."); return }
     const hadPrevStories = stories.length > 0
     prevStoriesRef.current = stories
+    const genId = ++generationIdRef.current
     setLoading(true)
     setError("")
     setApiError("")
@@ -432,6 +469,26 @@ export function StorySequence({ brandId }: { brandId: string }) {
       setStories(savedStories)
       setShowSuccess(true)
       setTimeout(() => setShowSuccess(false), 4000)
+
+      // Best-effort AI backgrounds for hook/cta slides only (available to
+      // every plan, no tiering) — fired after text succeeds so a slow/
+      // failed image call never blocks or breaks story generation itself.
+      // Each independently falls back to the flat gradient slide
+      // (fetchSlideBackground resolves to null, never throws). Guarded by
+      // genId so a stale response from a superseded generate() call can't
+      // write onto a newer set of stories.
+      savedStories.forEach((slide, i) => {
+        if (slide.type !== "hook" && slide.type !== "cta") return
+        fetchSlideBackground(brandId, slide.text, slide.type).then((url) => {
+          if (!url || generationIdRef.current !== genId) return
+          setStories((prev) => {
+            if (!prev[i]) return prev
+            const next = [...prev]
+            next[i] = { ...next[i]!, background_image_url: url }
+            return next
+          })
+        })
+      })
     } catch (e) {
       setApiError(getFriendlyError(e))
       if (hadPrevStories && prevStoriesRef.current.length > 0) {

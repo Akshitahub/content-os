@@ -23,6 +23,13 @@ export type StorySlide = {
   text_position: "top" | "center" | "bottom"
   has_poll: boolean
   poll_options?: [string, string]
+  /** Client-only enrichment — never set by this route. Filled in by
+   * StorySequence.tsx as a best-effort follow-up (hook/cta slides only)
+   * after generation succeeds; falls back to the flat `background` gradient
+   * above when absent. Part of StorySlide (not separate component state)
+   * so it round-trips through the existing whole-array sessionStorage
+   * persistence for free. */
+  background_image_url?: string
 }
 
 export type GeneratedStorySequence = {

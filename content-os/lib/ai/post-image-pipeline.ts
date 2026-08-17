@@ -23,6 +23,19 @@ const NEAR_BLANK_MEAN = 247
 // release later is a one-line change, not a call-site hunt.
 const FLUX_MODEL = "black-forest-labs/flux-2-pro"
 
+export interface ImageDimensions {
+  width: number
+  height: number
+  /** Replicate/Flux's own aspect-ratio param format, e.g. "1:1", "9:16". */
+  aspectRatio: string
+}
+
+// Square, matching the post/carousel compositing target — the default for
+// every existing caller so this stays behavior-preserving for them.
+// Callers with a different canvas shape (e.g. lib/ai/story-slide-background.ts's
+// portrait Stories slides) pass their own ImageDimensions explicitly.
+const SQUARE_DIMENSIONS: ImageDimensions = { width: CANVAS_SIZE, height: CANVAS_SIZE, aspectRatio: "1:1" }
+
 export type PostImagePipelineResult =
   | { success: true; buffer: Buffer; mimeType: string; fullPrompt: string }
   | { success: false; error: string }
@@ -53,12 +66,12 @@ async function checkImageQuality(buffer: Buffer): Promise<{ ok: true } | { error
   return { ok: true }
 }
 
-function buildPollinationsUrl(prompt: string, seed: number): string {
-  return `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=${CANVAS_SIZE}&height=${CANVAS_SIZE}&seed=${seed}&nologo=true&model=flux`
+function buildPollinationsUrl(prompt: string, seed: number, dimensions: ImageDimensions): string {
+  return `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=${dimensions.width}&height=${dimensions.height}&seed=${seed}&nologo=true&model=flux`
 }
 
-async function fetchAndCheckPollinationsImage(prompt: string, seed: number): Promise<{ buffer: Buffer } | { error: string } > {
-  const url = buildPollinationsUrl(prompt, seed)
+async function fetchAndCheckPollinationsImage(prompt: string, seed: number, dimensions: ImageDimensions): Promise<{ buffer: Buffer } | { error: string } > {
+  const url = buildPollinationsUrl(prompt, seed, dimensions)
   console.log(`[post-image-pipeline] calling Pollinations: seed=${seed} promptLen=${prompt.length} url=${url.slice(0, 200)}${url.length > 200 ? "…" : ""}`)
 
   let res: Response
@@ -131,8 +144,8 @@ async function bufferFromReplicateOutput(output: unknown): Promise<{ buffer: Buf
   }
 }
 
-async function fetchAndCheckFluxImage(prompt: string, seed: number): Promise<{ buffer: Buffer } | { error: string }> {
-  console.log(`[post-image-pipeline] calling Replicate (${FLUX_MODEL}): attemptSeed=${seed} promptLen=${prompt.length}`)
+async function fetchAndCheckFluxImage(prompt: string, seed: number, dimensions: ImageDimensions): Promise<{ buffer: Buffer } | { error: string }> {
+  console.log(`[post-image-pipeline] calling Replicate (${FLUX_MODEL}): attemptSeed=${seed} promptLen=${prompt.length} aspectRatio=${dimensions.aspectRatio}`)
 
   let output: unknown
   try {
@@ -140,7 +153,7 @@ async function fetchAndCheckFluxImage(prompt: string, seed: number): Promise<{ b
     output = await replicate.run(FLUX_MODEL, {
       input: {
         prompt,
-        aspect_ratio: "1:1",
+        aspect_ratio: dimensions.aspectRatio,
         output_format: "png",
       },
     })
@@ -283,11 +296,12 @@ export async function fetchBackgroundImage(
   prompt: string,
   fallbackPrompt: string,
   plan: UserPlan,
-  isInternalUnlimitedUser: boolean
+  isInternalUnlimitedUser: boolean,
+  dimensions: ImageDimensions = SQUARE_DIMENSIONS
 ): Promise<BackgroundImageResult> {
   const provider = resolveImageProvider(plan, isInternalUnlimitedUser)
   const fetchImage = provider === "flux" ? fetchAndCheckFluxImage : fetchAndCheckPollinationsImage
-  console.log(`[post-image-pipeline] fetchBackgroundImage provider=${provider} plan=${plan} internalUnlimited=${isInternalUnlimitedUser}`)
+  console.log(`[post-image-pipeline] fetchBackgroundImage provider=${provider} plan=${plan} internalUnlimited=${isInternalUnlimitedUser} dimensions=${dimensions.width}x${dimensions.height}`)
 
   // Tracks which provider actually produced the returned buffer — distinct
   // from `provider` above once the Flux-fails-twice fallback kicks in, and
@@ -296,12 +310,12 @@ export async function fetchBackgroundImage(
   let actualProvider: "pollinations" | "flux" = provider
 
   const seed = Math.floor(Math.random() * 1_000_000)
-  let attempt = await fetchImage(prompt, seed)
+  let attempt = await fetchImage(prompt, seed, dimensions)
 
   if ("error" in attempt) {
     console.error(`[post-image-pipeline] first attempt failed (${provider}):`, attempt.error)
     const retrySeed = Math.floor(Math.random() * 1_000_000)
-    attempt = await fetchImage(fallbackPrompt, retrySeed)
+    attempt = await fetchImage(fallbackPrompt, retrySeed, dimensions)
 
     if ("error" in attempt) {
       console.error(`[post-image-pipeline] retry also failed (${provider}):`, attempt.error)
@@ -313,7 +327,7 @@ export async function fetchBackgroundImage(
       if (provider === "flux") {
         console.log(`[post-image-pipeline] Flux failed twice, falling back to Pollinations for plan=${plan}`)
         const fallbackSeed = Math.floor(Math.random() * 1_000_000)
-        attempt = await fetchAndCheckPollinationsImage(prompt, fallbackSeed)
+        attempt = await fetchAndCheckPollinationsImage(prompt, fallbackSeed, dimensions)
         actualProvider = "pollinations"
 
         if ("error" in attempt) {
