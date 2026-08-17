@@ -3,7 +3,7 @@
 import { useState, useCallback, useEffect, useRef } from "react"
 import { Loader2, Download, Copy, Check, RefreshCw, AlertCircle, Image, Upload, X, CalendarClock, Plus, Minus } from "lucide-react"
 import { ProductPicker, type PickedProduct } from "@/components/shared/ProductPicker"
-import type { StorySlide } from "@/app/api/v1/ai/stories/generate/route"
+import type { StorySlide, StoryCaption } from "@/app/api/v1/ai/stories/generate/route"
 import { downloadElementAsImage, downloadMultipleAsImages, captureElementAsDataUrl } from "@/lib/utils/download-as-image"
 import { GenerationWarning } from "@/components/shared/GenerationWarning"
 import { getFriendlyError } from "@/lib/utils/error-messages"
@@ -192,10 +192,12 @@ function ScheduleAction({
   brandId,
   slideElementIds,
   caption,
+  hashtags,
 }: {
   brandId: string
   slideElementIds: string[]
   caption: string
+  hashtags: string[]
 }) {
   const [open, setOpen] = useState(false)
   const [connection, setConnection] = useState<ConnectionStatus | null>(null)
@@ -274,6 +276,7 @@ function ScheduleAction({
           imageUrls,
           contentFormat: "story",
           caption,
+          hashtags,
           scheduledDate: date,
           scheduledTime: time,
         }),
@@ -291,7 +294,7 @@ function ScheduleAction({
       setErrorMsg("Network error. Please try again.")
       setSubmitState("error")
     }
-  }, [brandId, slideElementIds, caption, date, time])
+  }, [brandId, slideElementIds, caption, hashtags, date, time])
 
   if (!open) {
     return (
@@ -393,6 +396,8 @@ export function StorySequence({ brandId }: { brandId: string }) {
   const [error, setError] = useState("")
   const [apiError, setApiError] = useState<unknown>(null)
   const [stories, setStories] = useState<StorySlide[]>([])
+  const [storyCaption, setStoryCaption] = useState<StoryCaption | null>(null)
+  const [showCaptionEditor, setShowCaptionEditor] = useState(false)
   const [allCopied, setAllCopied] = useState(false)
   const [showSuccess, setShowSuccess] = useState(false)
   const [saveAllErr, setSaveAllErr] = useState(false)
@@ -411,8 +416,11 @@ export function StorySequence({ brandId }: { brandId: string }) {
     const saved = sessionStorage.getItem(STORAGE_KEY)
     if (saved) {
       try {
-        const parsed = JSON.parse(saved) as { stories?: StorySlide[] }
-        if (parsed.stories && parsed.stories.length > 0) setStories(parsed.stories)
+        const parsed = JSON.parse(saved) as { stories?: StorySlide[]; caption?: StoryCaption }
+        if (parsed.stories && parsed.stories.length > 0) {
+          setStories(parsed.stories)
+          setStoryCaption(parsed.caption ?? null)
+        }
       } catch {}
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -421,9 +429,9 @@ export function StorySequence({ brandId }: { brandId: string }) {
   // Persist to sessionStorage
   useEffect(() => {
     if (stories.length > 0) {
-      sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ stories }))
+      sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ stories, caption: storyCaption }))
     }
-  }, [stories, STORAGE_KEY])
+  }, [stories, storyCaption, STORAGE_KEY])
 
   function handleImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const files = Array.from(e.target.files ?? [])
@@ -452,6 +460,8 @@ export function StorySequence({ brandId }: { brandId: string }) {
     setApiError(null)
     setShowStaleCue(false)
     setStories([])
+    setStoryCaption(null)
+    setShowCaptionEditor(false)
     try {
       const res = await fetch("/api/v1/ai/stories/generate", {
         method: "POST",
@@ -464,13 +474,14 @@ export function StorySequence({ brandId }: { brandId: string }) {
           imageDescriptions: uploadedImages.map((_, i) => `User provided image ${i + 1}`),
         }),
       })
-      const json = await res.json() as { data?: { stories: StorySlide[] }; error?: { code?: string; message?: string } }
+      const json = await res.json() as { data?: { stories: StorySlide[]; caption?: StoryCaption }; error?: { code?: string; message?: string } }
       if (!res.ok || !json.data?.stories) {
         if (isApiError(json)) throw new ApiResponseError(json.error.code, json.error.message)
         throw new Error(json.error?.message ?? "Generation failed")
       }
       const savedStories = json.data.stories
       setStories(savedStories)
+      setStoryCaption(json.data.caption ?? null)
       setShowSuccess(true)
       setTimeout(() => setShowSuccess(false), 4000)
 
@@ -724,10 +735,38 @@ export function StorySequence({ brandId }: { brandId: string }) {
             ))}
           </div>
 
+          {storyCaption && (
+            <div className="rounded-lg border bg-card p-4 space-y-2">
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Caption</p>
+                <button
+                  onClick={() => setShowCaptionEditor((v) => !v)}
+                  className="text-xs font-medium text-violet-600 hover:underline"
+                >
+                  {showCaptionEditor ? "Hide editor" : "✏️ Edit caption"}
+                </button>
+              </div>
+              {showCaptionEditor ? (
+                <textarea
+                  value={storyCaption.caption_text}
+                  onChange={(e) => setStoryCaption({ ...storyCaption, caption_text: e.target.value })}
+                  rows={5}
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm resize-y"
+                />
+              ) : (
+                <p className="text-sm whitespace-pre-wrap text-foreground">{storyCaption.caption_text}</p>
+              )}
+              {storyCaption.hashtags.length > 0 && (
+                <p className="text-xs text-primary">{storyCaption.hashtags.map((h) => `#${h.replace(/^#/, "")}`).join(" ")}</p>
+              )}
+            </div>
+          )}
+
           <ScheduleAction
             brandId={brandId}
             slideElementIds={stories.map((_, i) => `story-card-${i}`)}
-            caption={topic}
+            caption={storyCaption?.caption_text || stories[0]?.text || ""}
+            hashtags={storyCaption?.hashtags ?? []}
           />
         </div>
       )}

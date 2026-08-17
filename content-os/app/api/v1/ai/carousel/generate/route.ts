@@ -3,7 +3,7 @@ import { createClient } from "@/lib/supabase/server"
 import { buildError, ErrorCodes } from "@/types/api"
 import { MODELS, getGroqClient } from "@/lib/ai/models"
 import { checkAndIncrementUsage, refundGenerationUsage } from "@/lib/usage/check-and-increment-usage"
-import { buildPastExamplesBlock } from "@/lib/ai/prompts"
+import { buildPastExamplesBlock, QUALITY_BAR } from "@/lib/ai/prompts"
 import { z } from "zod"
 import type { BrandRow } from "@/types/database"
 
@@ -61,10 +61,26 @@ BACKGROUND STYLES (rotate through these, DO NOT repeat same style twice in a row
 - "white_violet" — white with violet accents (for content slides)
 - "dark_navy" — dark navy to black (alternate option)
 
+COVER HOOK GUIDANCE — cover_hook is what actually gets used as the Instagram caption when this carousel is scheduled, so it carries the same weight as a real caption hook. Make it SPECIFIC to this brand/topic, never a generic template line.
+
+GOOD cover hooks (study these):
+✓ "Your skin is lying to you."
+✓ "Nobody talks about this beauty mistake."
+
+BAD cover hooks (never write these):
+✗ "Swipe to learn more!"
+✗ "5 tips you need to know"
+
+HASHTAG STRATEGY — 5+5+5 RULE for the "hashtags" field:
+- 5 niche-specific (medium competition, 100K–2M posts): e.g. #SkincareRoutine, #CleanBeautyIndia
+- 5 brand/product-specific (low competition, unique to brand): e.g. #BrandName, #ProductName
+- 5 broad/trending (high volume, 5M+ posts): e.g. #Skincare, #Beauty, #SelfCare
+${QUALITY_BAR}
+
 Respond with ONLY this JSON (no markdown, no explanation):
 {
   "title": "short carousel title",
-  "cover_hook": "the scroll-stopping cover text",
+  "cover_hook": "the scroll-stopping cover text — see COVER HOOK GUIDANCE above",
   "slides": [
     {
       "slide_number": 1,
@@ -86,7 +102,7 @@ Respond with ONLY this JSON (no markdown, no explanation):
     "cta": "Follow for more tips like this",
     "handle": "@${brand.instagram_handle ?? brand.name.toLowerCase().replace(/\s/g, "")}"
   },
-  "hashtags": ["relevant", "hashtags", "here"]
+  "hashtags": ["niche1", "niche2", "niche3", "niche4", "niche5", "brand1", "brand2", "brand3", "brand4", "brand5", "broad1", "broad2", "broad3", "broad4", "broad5"]
 }
 
 Make every slide punchy, valuable, and shareable. The cover must stop the scroll immediately.`

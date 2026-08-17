@@ -3,7 +3,7 @@ import { createClient } from "@/lib/supabase/server"
 import { buildError, ErrorCodes } from "@/types/api"
 import { MODELS, getGroqClient } from "@/lib/ai/models"
 import { checkAndIncrementUsage, refundGenerationUsage } from "@/lib/usage/check-and-increment-usage"
-import { buildPastExamplesBlock } from "@/lib/ai/prompts"
+import { buildPastExamplesBlock, QUALITY_BAR } from "@/lib/ai/prompts"
 import { z } from "zod"
 import type { BrandRow } from "@/types/database"
 
@@ -32,8 +32,19 @@ export type StorySlide = {
   background_image_url?: string
 }
 
+// The actual Instagram caption text for this story sequence — separate
+// from the slides themselves. Previously there was no AI-generated caption
+// at all: StorySequence.tsx's ScheduleAction used the user's raw topic
+// input as the literal caption when scheduling. See CAPTION section in
+// buildStoriesPrompt below.
+export type StoryCaption = {
+  caption_text: string
+  hashtags: string[]
+}
+
 export type GeneratedStorySequence = {
   stories: StorySlide[]
+  caption?: StoryCaption
 }
 
 /**
@@ -61,6 +72,10 @@ function buildStoriesPrompt(brand: BrandRow, topic: string, storyCount: number, 
   const typeSequence = buildStoryTypeSequence(storyCount)
   const pastExamplesBlock = buildPastExamplesBlock(pastExamples, "stories")
 
+  const b = brand as BrandRow & { cta_phrase?: string | null }
+  const ctaPhrase = b.cta_phrase || "Shop now"
+  const handle = brand.instagram_handle ? `@${brand.instagram_handle}` : "@handle"
+
   return `${brandCtx}${pastExamplesBlock}
 
 STORY TOPIC: "${topic}"
@@ -82,6 +97,14 @@ Background options:
 - "gradient_dark": Dark dramatic (great for CTA)
 - "gradient_warm": Warm orange/amber (great for buildup)
 - "white": Clean white (great for text-heavy slides)
+
+CAPTION — separate from the story slides above: this is the actual Instagram caption text posted alongside the story sequence when it's scheduled, so it needs its own real copy, not a placeholder.
+- caption_text: a short hook line (can echo the story's opening hook, doesn't need to repeat it word-for-word), 1-2 lines of value or context, then end with "${ctaPhrase}" followed by "${handle}" on its own line. Keep it tight — a few short lines, not an essay.
+- hashtags: 15 tags using the 5+5+5 rule:
+  - 5 niche-specific (medium competition, 100K–2M posts): e.g. #SkincareRoutine, #CleanBeautyIndia
+  - 5 brand/product-specific (low competition, unique to brand): e.g. #BrandName, #ProductName
+  - 5 broad/trending (high volume, 5M+ posts): e.g. #Skincare, #Beauty, #SelfCare
+${QUALITY_BAR}
 
 Respond with ONLY this JSON:
 {
@@ -114,7 +137,11 @@ Respond with ONLY this JSON:
       "has_poll": true,
       "poll_options": ["Yes, I want it!", "Tell me more"]
     }
-  ]
+  ],
+  "caption": {
+    "caption_text": "hook line, 1-2 lines of value, then ${ctaPhrase} and ${handle} on its own line — see CAPTION above",
+    "hashtags": ["niche1", "niche2", "niche3", "niche4", "niche5", "brand1", "brand2", "brand3", "brand4", "brand5", "broad1", "broad2", "broad3", "broad4", "broad5"]
+  }
 }
 
 Make the text punchy and emotion-led. Each story should make the viewer want to tap to the next one.`
@@ -183,7 +210,8 @@ export async function POST(request: Request) {
       messages: [
         {
           role: "system",
-          content: "You are an expert Instagram story creator for Indian D2C brands. Always return valid JSON only.",
+          content: `You are an expert Instagram story creator for Indian D2C brands. Always return valid JSON only.
+${QUALITY_BAR}`,
         },
         { role: "user", content: prompt },
       ],
