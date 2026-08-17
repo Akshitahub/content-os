@@ -13,6 +13,14 @@ import type { UserPlan } from "@/types/app"
 const BUCKET = "brand-images"
 const MODEL_LABEL = "flux+resvg-composite"
 
+// Chains up to 3 sequential external calls (first attempt, retry, and a
+// possible Flux-to-Pollinations fallback) inside generatePostImage — each
+// a real network round-trip that can individually take 10-30s+, so this
+// needs more headroom than Vercel's platform default. Matches the
+// convention already used by other slow-external-call routes in this repo
+// (e.g. app/api/v1/brands/fastlane/route.ts, app/api/v1/ai/stories/slide-image/generate/route.ts).
+export const maxDuration = 60
+
 /**
  * Generates the final Create → Full Post AI image: Pollinations (via
  * lib/ai/post-image-pipeline.ts) grounded in the caption's own message,

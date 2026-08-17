@@ -4,10 +4,17 @@ import { join } from "path"
 import { tmpdir } from "os"
 import { Resvg } from "@resvg/resvg-js"
 import { decompress } from "wawoff2"
+import * as fontkit from "fontkit"
 import type { PostTemplateId } from "@/lib/design/post-templates"
 import type { ColorTheme } from "@/lib/design/color-themes"
 
 const CANVAS_SIZE = 1080
+
+// Headline text never shrinks below this, no matter how long the input —
+// it's the "absolute last resort" floor fitText() stops at; anything that
+// still doesn't fit at this size gets truncated (see fitText below), but
+// only there, never earlier.
+const MIN_HEADLINE_FONT_SIZE = 28
 
 // Same cached-TTF pattern as lib/image/meme-compositor.ts — resvg-js's font
 // loader only accepts raw TrueType/OpenType, not woff2, so the bundled
@@ -28,17 +35,48 @@ async function getFontPath(): Promise<string> {
   return ttfPath
 }
 
+// Parsed once and cached alongside the raw TTF path above — resvg needs the
+// file path to rasterize, fitText/measureTextWidth need the parsed font to
+// measure real glyph advance widths (see FIX 1: wrapText used to estimate
+// wrapping via a fixed characters-per-line budget, which had no idea how
+// wide Anton's glyphs actually render and would silently drop whole lines
+// of headline text that didn't fit that guess).
+let cachedFont: fontkit.Font | null = null
+
+async function getFont(): Promise<fontkit.Font> {
+  if (cachedFont) return cachedFont
+  const ttfPath = await getFontPath()
+  // @fontsource/anton's file is a plain .ttf, never a collection, so this
+  // is always a single Font, not a FontCollection.
+  cachedFont = fontkit.openSync(ttfPath) as fontkit.Font
+  return cachedFont
+}
+
 function escapeXml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;")
 }
 
-function wrapText(text: string, maxCharsPerLine: number, maxLines: number): string[] {
+// Real pixel width of `text` set in `font` at `fontSize`, via the font's
+// actual shaped glyph advances (kerning included) — not an estimate.
+function measureTextWidth(font: fontkit.Font, text: string, fontSize: number): number {
+  if (!text) return 0
+  const run = font.layout(text)
+  const unitsWide = run.positions.reduce((sum, p) => sum + p.xAdvance, 0)
+  return unitsWide * (fontSize / font.unitsPerEm)
+}
+
+// Greedy word-wrap against a real max pixel width instead of an estimated
+// character count. Never drops words — every word ends up on some line
+// (even a single word wider than maxWidthPx gets its own line rather than
+// being split or dropped, same as the previous behavior).
+function wrapTextByWidth(font: fontkit.Font, text: string, fontSize: number, maxWidthPx: number): string[] {
   const words = text.trim().split(/\s+/).filter(Boolean)
+  if (words.length === 0) return [""]
   const lines: string[] = []
   let current = ""
   for (const word of words) {
     const candidate = current ? `${current} ${word}` : word
-    if (candidate.length > maxCharsPerLine && current) {
+    if (current && measureTextWidth(font, candidate, fontSize) > maxWidthPx) {
       lines.push(current)
       current = word
     } else {
@@ -46,7 +84,59 @@ function wrapText(text: string, maxCharsPerLine: number, maxLines: number): stri
     }
   }
   if (current) lines.push(current)
-  return lines.slice(0, maxLines)
+  return lines
+}
+
+interface FitTextOptions {
+  startFontSize: number
+  minFontSize: number
+  lineHeightMultiplier: number
+  maxWidthPx: number
+  /** Only used to derive the available block-height budget below (as
+   * `maxLines * startFontSize * lineHeightMultiplier`) — the fit loop
+   * itself compares against that height, not a hardcoded line count, so a
+   * long headline that needs more lines than this at a smaller font size
+   * can still fit if it stays within the same vertical space. */
+  maxLines: number
+  shrinkFactor?: number
+}
+
+interface FitTextResult {
+  lines: string[]
+  fontSize: number
+  lineHeight: number
+  blockHeight: number
+}
+
+/**
+ * Auto-fit loop (FIX 1): tries `startFontSize`, wraps by real measured
+ * width, and if the resulting block would be taller than the template's
+ * available height budget, shrinks the font ~10% and re-wraps — repeating
+ * down to `minFontSize`. Only at that floor, and only if the text still
+ * doesn't fit, does it truncate — and even then it keeps as many full
+ * lines as the floor size can hold, rather than dropping to an arbitrary
+ * line count. No headline content is ever silently dropped without first
+ * attempting to shrink to fit.
+ */
+function fitText(font: fontkit.Font, text: string, opts: FitTextOptions): FitTextResult {
+  const shrinkFactor = opts.shrinkFactor ?? 0.9
+  const maxBlockHeightPx = opts.maxLines * opts.startFontSize * opts.lineHeightMultiplier
+
+  let fontSize = opts.startFontSize
+  for (;;) {
+    const lines = wrapTextByWidth(font, text, fontSize, opts.maxWidthPx)
+    const lineHeight = fontSize * opts.lineHeightMultiplier
+    const blockHeight = lines.length * lineHeight
+    const atFloor = fontSize <= opts.minFontSize
+
+    if (blockHeight <= maxBlockHeightPx || atFloor) {
+      const maxLinesAtFloor = Math.max(1, Math.floor(maxBlockHeightPx / lineHeight))
+      const finalLines = atFloor && lines.length > maxLinesAtFloor ? lines.slice(0, maxLinesAtFloor) : lines
+      return { lines: finalLines, fontSize, lineHeight, blockHeight: finalLines.length * lineHeight }
+    }
+
+    fontSize = Math.max(opts.minFontSize, Math.round(fontSize * shrinkFactor))
+  }
 }
 
 // A thin dark stroke behind white text guarantees legibility regardless of
@@ -63,11 +153,14 @@ interface OverlayResult {
   logoBox: { x: number; y: number; size: number } | null
 }
 
-function buildBoldStatement(headline: string, cta: string, theme: ColorTheme): OverlayResult {
-  const lines = wrapText(headline.toUpperCase(), 16, 3)
-  const fontSize = lines.length > 2 ? 64 : lines.length > 1 ? 76 : 92
-  const lineHeight = fontSize * 1.12
-  const blockHeight = lines.length * lineHeight
+function buildBoldStatement(headline: string, cta: string, theme: ColorTheme, font: fontkit.Font): OverlayResult {
+  const { lines, fontSize, lineHeight, blockHeight } = fitText(font, headline.toUpperCase(), {
+    startFontSize: 92,
+    minFontSize: MIN_HEADLINE_FONT_SIZE,
+    lineHeightMultiplier: 1.12,
+    maxWidthPx: 960,
+    maxLines: 3,
+  })
   const startY = 760 - blockHeight / 2 + fontSize * 0.8
 
   const headlineSvg = lines.map((line, i) => textEl("50%", startY + i * lineHeight, "middle", fontSize, line)).join("")
@@ -92,10 +185,14 @@ function buildBoldStatement(headline: string, cta: string, theme: ColorTheme): O
   return { svg, logoBox: { x: 66, y: 66, size: 80 } }
 }
 
-function buildProductFocus(headline: string, cta: string, theme: ColorTheme): OverlayResult {
-  const lines = wrapText(headline.toUpperCase(), 20, 2)
-  const fontSize = lines.length > 1 ? 52 : 62
-  const lineHeight = fontSize * 1.15
+function buildProductFocus(headline: string, cta: string, theme: ColorTheme, font: fontkit.Font): OverlayResult {
+  const { lines, fontSize, lineHeight } = fitText(font, headline.toUpperCase(), {
+    startFontSize: 62,
+    minFontSize: MIN_HEADLINE_FONT_SIZE,
+    lineHeightMultiplier: 1.15,
+    maxWidthPx: 960,
+    maxLines: 2,
+  })
   const bandTop = 800
   const headlineY = bandTop - 40 - (lines.length - 1) * lineHeight
 
@@ -119,11 +216,14 @@ function buildProductFocus(headline: string, cta: string, theme: ColorTheme): Ov
   return { svg, logoBox: { x: 71, y: bandTop + (CANVAS_SIZE - bandTop) / 2 - 35, size: 70 } }
 }
 
-function buildQuoteCard(headline: string, cta: string, theme: ColorTheme): OverlayResult {
-  const lines = wrapText(headline, 22, 3)
-  const fontSize = lines.length > 2 ? 54 : lines.length > 1 ? 62 : 72
-  const lineHeight = fontSize * 1.2
-  const blockHeight = lines.length * lineHeight
+function buildQuoteCard(headline: string, cta: string, theme: ColorTheme, font: fontkit.Font): OverlayResult {
+  const { lines, fontSize, lineHeight, blockHeight } = fitText(font, headline, {
+    startFontSize: 72,
+    minFontSize: MIN_HEADLINE_FONT_SIZE,
+    lineHeightMultiplier: 1.2,
+    maxWidthPx: 940,
+    maxLines: 3,
+  })
   const startY = CANVAS_SIZE / 2 - blockHeight / 2 + fontSize * 0.75
 
   const headlineSvg = lines.map((line, i) => textEl("50%", startY + i * lineHeight, "middle", fontSize, line, 700)).join("")
@@ -140,13 +240,16 @@ function buildQuoteCard(headline: string, cta: string, theme: ColorTheme): Overl
   return { svg, logoBox: { x: CANVAS_SIZE / 2 - 120, y: CANVAS_SIZE - 95, size: 60 } }
 }
 
-function buildMinimal(headline: string, cta: string, theme: ColorTheme): OverlayResult {
-  const lines = wrapText(headline.toUpperCase(), 18, 2)
-  const fontSize = lines.length > 1 ? 46 : 54
-  const lineHeight = fontSize * 1.15
-  const blockHeight = lines.length * lineHeight
+function buildMinimal(headline: string, cta: string, theme: ColorTheme, font: fontkit.Font): OverlayResult {
   const padX = 70
   const ctaFontSize = 24
+  const { lines, fontSize, lineHeight, blockHeight } = fitText(font, headline.toUpperCase(), {
+    startFontSize: 54,
+    minFontSize: MIN_HEADLINE_FONT_SIZE,
+    lineHeightMultiplier: 1.15,
+    maxWidthPx: CANVAS_SIZE - padX - 60,
+    maxLines: 2,
+  })
 
   // Box height built up from its actual content (bar, headline block, CTA
   // line, padding) rather than a fixed guess — avoids the accent bar or
@@ -224,7 +327,8 @@ export async function compositePostImage(
     options.template === "quote_card" ? buildQuoteCard :
     buildMinimal
 
-  const { svg: overlaySvg, logoBox } = builder(headline, ctaText, options.colorTheme)
+  const font = await getFont()
+  const { svg: overlaySvg, logoBox } = builder(headline, ctaText, options.colorTheme, font)
   const svg = `<svg width="${CANVAS_SIZE}" height="${CANVAS_SIZE}" xmlns="http://www.w3.org/2000/svg">${overlaySvg}</svg>`
 
   const fontPath = await getFontPath()

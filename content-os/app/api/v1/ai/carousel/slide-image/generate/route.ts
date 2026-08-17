@@ -17,6 +17,14 @@ const schema = z.object({
   role: z.enum(["hook", "cta"]),
 })
 
+// Chains up to 3 sequential external calls (first attempt, retry, and a
+// possible Flux-to-Pollinations fallback) inside fetchBackgroundImage —
+// each a real network round-trip that can individually take 10-30s+, so
+// this needs more headroom than Vercel's platform default. Matches the
+// convention already used by other slow-external-call routes in this repo
+// (e.g. app/api/v1/brands/fastlane/route.ts, app/api/v1/ai/stories/slide-image/generate/route.ts).
+export const maxDuration = 60
+
 /**
  * Generates an AI background image for a carousel's opening (hook) or
  * closing (CTA) slide — see lib/ai/carousel-slide-background.ts for the

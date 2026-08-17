@@ -23,6 +23,27 @@ const NEAR_BLANK_MEAN = 247
 // release later is a one-line change, not a call-site hunt.
 const FLUX_MODEL = "black-forest-labs/flux-2-pro"
 
+// Replicate's Black Forest Labs FLUX models (including the FLUX.2 family
+// flux-2-pro belongs to) control output resolution via a `megapixels`
+// input — a string enum, not raw width/height — that combines with
+// `aspect_ratio` to determine actual pixel dimensions. Confirmed via
+// Replicate/BFL documentation and third-party API references (Replicate's
+// own model page is client-rendered and its live schema couldn't be
+// scraped directly); if this param name has since changed, Replicate
+// returns a validation error that fetchAndCheckFluxImage's catch block
+// already logs in full, so a wrong guess here fails loudly rather than
+// silently. Without an explicit value the model defaults to "1" (~1MP,
+// e.g. ~1024x1024) — smaller than this app's 1080x1080 (and Stories'
+// 1080x1920) compositing targets, which is exactly what was causing
+// compositePostImage's forced resize to upscale (blur) Flux images.
+const FLUX_MEGAPIXEL_TIERS = [0.25, 0.5, 1, 2, 4] as const
+
+function resolveFluxMegapixels(dimensions: ImageDimensions): string {
+  const targetMP = (dimensions.width * dimensions.height) / 1_000_000
+  const tier = FLUX_MEGAPIXEL_TIERS.find((mp) => mp >= targetMP) ?? FLUX_MEGAPIXEL_TIERS[FLUX_MEGAPIXEL_TIERS.length - 1]
+  return String(tier)
+}
+
 export interface ImageDimensions {
   width: number
   height: number
@@ -145,7 +166,8 @@ async function bufferFromReplicateOutput(output: unknown): Promise<{ buffer: Buf
 }
 
 async function fetchAndCheckFluxImage(prompt: string, seed: number, dimensions: ImageDimensions): Promise<{ buffer: Buffer } | { error: string }> {
-  console.log(`[post-image-pipeline] calling Replicate (${FLUX_MODEL}): attemptSeed=${seed} promptLen=${prompt.length} aspectRatio=${dimensions.aspectRatio}`)
+  const megapixels = resolveFluxMegapixels(dimensions)
+  console.log(`[post-image-pipeline] calling Replicate (${FLUX_MODEL}): attemptSeed=${seed} promptLen=${prompt.length} aspectRatio=${dimensions.aspectRatio} megapixels=${megapixels}`)
 
   let output: unknown
   try {
@@ -154,6 +176,7 @@ async function fetchAndCheckFluxImage(prompt: string, seed: number, dimensions: 
       input: {
         prompt,
         aspect_ratio: dimensions.aspectRatio,
+        megapixels,
         output_format: "png",
       },
     })

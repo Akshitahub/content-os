@@ -31,13 +31,23 @@ function loadImage(src: string): Promise<HTMLImageElement> {
   })
 }
 
+interface ProductCardResult {
+  dataUrl: string
+  /** false when the product photo itself failed to load (commonly CORS) —
+   * the returned card still renders (gradient + hook text), but without
+   * the actual product photo. Callers should treat this as a failure to
+   * surface, not a silent downgrade — see FIX 3 in FullPostGenerator's
+   * handleGenerate/runProductCardComposite. */
+  photoLoaded: boolean
+}
+
 async function compositeProductCard(
   productImageUrl: string,
   hookText: string,
   primaryColor: string,
   secondaryColor: string,
   brandName: string,
-): Promise<string> {
+): Promise<ProductCardResult> {
   const size = 1080
   const canvas = document.createElement("canvas")
   canvas.width = size
@@ -56,6 +66,7 @@ async function compositeProductCard(
   ctx.fillRect(0, 0, size, size)
 
   // Product image — upper 62% of the card
+  let photoLoaded = true
   try {
     const img = await loadImage(productImageUrl)
     const pad = 100
@@ -66,7 +77,9 @@ async function compositeProductCard(
     const h = img.naturalHeight * ratio
     ctx.drawImage(img, (size - w) / 2, size * 0.06, w, h)
   } catch {
-    // skip — CORS or load failure; still render the branded text card
+    // CORS or load failure — still render the branded text card below, but
+    // the caller needs to know the photo itself didn't make it in.
+    photoLoaded = false
   }
 
   // Hook text — bottom third, word-wrapped to 2 lines
@@ -97,7 +110,7 @@ async function compositeProductCard(
   ctx.fillStyle = "rgba(255,255,255,0.60)"
   ctx.fillText(brandName, size / 2, size * 0.93)
 
-  return canvas.toDataURL("image/jpeg", 0.90)
+  return { dataUrl: canvas.toDataURL("image/jpeg", 0.90), photoLoaded }
 }
 
 interface Props {
@@ -173,10 +186,40 @@ export function FullPostGenerator({ brandId, products }: Props) {
     )
   }, [brand, brandId, selectedProductId, selectedLayout, effectiveColorThemeId, generatePostImageMutate])
 
+  // FIX 3: a failed product-photo load (commonly CORS) used to silently
+  // fall back to a photo-less gradient card and still report success — the
+  // user had no idea their photo didn't make it in. Now surfaced through
+  // the same imageError UI the AI-generation path already uses.
+  const runProductCardComposite = useCallback((imageUrl: string, hookText: string) => {
+    setImageError(null)
+    compositeProductCard(imageUrl, hookText, primaryColor, secondaryColor, brandName)
+      .then((result) => {
+        if (!result.photoLoaded) {
+          setImageError("Couldn't load your product photo into the post — it may be blocking this kind of use. Try a different image, or remove it to use an AI-generated background instead.")
+          return
+        }
+        setPostImageUrl(result.dataUrl)
+        setImageSource("product_photo")
+      })
+      .catch(() => {
+        // Compositing itself failed (e.g. a CORS-tainted canvas rejecting
+        // toDataURL) — fall back to the raw photo URL so the user at least
+        // sees their actual photo instead of nothing.
+        setPostImageUrl(imageUrl)
+        setImageSource("product_photo")
+      })
+  }, [primaryColor, secondaryColor, brandName])
+
   const handleRegenerateImage = useCallback(() => {
     if (!fullPostResult || !postSessionId) return
-    runImageGeneration(fullPostResult, postSessionId)
-  }, [fullPostResult, postSessionId, runImageGeneration])
+    // Retry whatever path is currently configured — if a product photo is
+    // still selected, retry compositing it; otherwise retry AI generation.
+    if (selectedProduct?.imageUrl) {
+      runProductCardComposite(selectedProduct.imageUrl, fullPostResult.hook.hook_text)
+    } else {
+      runImageGeneration(fullPostResult, postSessionId)
+    }
+  }, [fullPostResult, postSessionId, selectedProduct, runProductCardComposite, runImageGeneration])
 
   useEffect(() => {
     if (occasionContext) setAdditionalContext(occasionContext.angle)
@@ -244,23 +287,7 @@ export function FullPostGenerator({ brandId, products }: Props) {
           setJustSaved(true)
           setTimeout(() => setJustSaved(false), 5000)
           if (selectedProduct?.imageUrl) {
-            compositeProductCard(
-              selectedProduct.imageUrl,
-              data.hook.hook_text,
-              primaryColor,
-              secondaryColor,
-              brandName,
-            )
-              .then((dataUrl) => {
-                setPostImageUrl(dataUrl)
-                setImageSource("product_photo")
-              })
-              .catch(() => {
-                if (selectedProduct.imageUrl) {
-                  setPostImageUrl(selectedProduct.imageUrl)
-                  setImageSource("product_photo")
-                }
-              })
+            runProductCardComposite(selectedProduct.imageUrl, data.hook.hook_text)
           } else if (data.postSessionId) {
             runImageGeneration(data, data.postSessionId)
           } else {
