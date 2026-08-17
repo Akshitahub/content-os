@@ -14,6 +14,45 @@ interface BlogPostResult {
   suggested_tags?: string[]
 }
 
+const WORD_LIMIT_OPTIONS: { words: number; label: string }[] = [
+  { words: 500, label: "Short" },
+  { words: 800, label: "Medium" },
+  { words: 1200, label: "Long" },
+]
+
+function BlogPostEditor({ post, onChange }: { post: BlogPostResult; onChange: (updated: BlogPostResult) => void }) {
+  return (
+    <div className="space-y-3 rounded-lg border bg-card p-4">
+      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Edit post</p>
+      <div>
+        <label className="text-xs text-muted-foreground">Title</label>
+        <input
+          value={post.title}
+          onChange={(e) => onChange({ ...post, title: e.target.value })}
+          className="mt-0.5 w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+        />
+      </div>
+      <div>
+        <label className="text-xs text-muted-foreground">Body</label>
+        <textarea
+          value={post.body}
+          onChange={(e) => onChange({ ...post, body: e.target.value })}
+          rows={16}
+          className="mt-0.5 w-full rounded-md border border-input bg-background px-3 py-2 text-sm resize-y"
+        />
+      </div>
+      <div>
+        <label className="text-xs text-muted-foreground">Meta description</label>
+        <input
+          value={post.meta_description}
+          onChange={(e) => onChange({ ...post, meta_description: e.target.value })}
+          className="mt-0.5 w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+        />
+      </div>
+    </div>
+  )
+}
+
 interface SuggestionState {
   loading: boolean
   suggestions: string[]
@@ -51,6 +90,8 @@ export function BlogPostGenerator({ brandId }: { brandId: string }) {
   const [copied, setCopied] = useState(false)
   const [rating, setRating] = useState<number | null>(null)
   const [ratingSaving, setRatingSaving] = useState(false)
+  const [wordLimit, setWordLimit] = useState(800)
+  const [showEditor, setShowEditor] = useState(false)
 
   const [suggestion, setSuggestion] = useState<SuggestionState | null>(null)
 
@@ -81,11 +122,12 @@ export function BlogPostGenerator({ brandId }: { brandId: string }) {
     setApiError("")
     setPost(null)
     setRating(null)
+    setShowEditor(false)
     try {
       const res = await fetch("/api/v1/ai/blog/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ brandId, prompt: prompt.trim() }),
+        body: JSON.stringify({ brandId, prompt: prompt.trim(), wordLimit }),
       })
       const json = await res.json() as { data?: BlogPostResult; error?: { message?: string } }
       if (!res.ok || !json.data) throw new Error(json.error?.message ?? "Generation failed")
@@ -180,6 +222,23 @@ export function BlogPostGenerator({ brandId }: { brandId: string }) {
           )}
         </div>
 
+        <div className="space-y-1.5">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Length</p>
+          <div className="flex gap-2">
+            {WORD_LIMIT_OPTIONS.map((opt) => (
+              <button
+                key={opt.words}
+                type="button"
+                onClick={() => setWordLimit(opt.words)}
+                className={`flex-1 rounded-lg border-2 py-2 text-sm font-semibold transition-all ${wordLimit === opt.words ? "border-violet-500 bg-violet-50 text-violet-700" : "border-border hover:border-violet-300"}`}
+              >
+                {opt.label}
+                <span className="block text-[10px] font-normal text-muted-foreground">~{opt.words} words</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
         <GenerationWarning isPending={loading} />
         <button
           onClick={generate}
@@ -220,12 +279,23 @@ export function BlogPostGenerator({ brandId }: { brandId: string }) {
             )}
           </div>
 
-          <div className="space-y-2">
-            <h4 className="text-base font-bold leading-snug">{post.title}</h4>
-            <div className="space-y-3 text-sm leading-relaxed text-foreground whitespace-pre-wrap">
-              {post.body}
+          {showEditor ? (
+            <BlogPostEditor post={post} onChange={setPost} />
+          ) : (
+            <div className="space-y-2">
+              <h4 className="text-base font-bold leading-snug">{post.title}</h4>
+              <div className="space-y-3 text-sm leading-relaxed text-foreground whitespace-pre-wrap">
+                {post.body}
+              </div>
             </div>
-          </div>
+          )}
+
+          <button
+            onClick={() => setShowEditor((v) => !v)}
+            className="text-xs font-medium text-violet-600 hover:underline"
+          >
+            {showEditor ? "Hide editor" : "✏️ Edit this post"}
+          </button>
 
           {post.meta_description && (
             <div className="rounded-lg bg-muted/50 p-3 space-y-1">

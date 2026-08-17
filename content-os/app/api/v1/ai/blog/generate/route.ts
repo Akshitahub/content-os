@@ -12,6 +12,10 @@ const schema = z.object({
   // The user's own topic/prompt — required. This feature never auto-generates
   // a blog post from nothing.
   prompt: z.string().min(3).max(1500),
+  // Target body word count — the UI offers Short/Medium/Long presets, but
+  // validated as a plain number here rather than an enum so the client's
+  // preset->words mapping doesn't need to be duplicated server-side.
+  wordLimit: z.number().int().min(200).max(2000).default(800),
 })
 
 export async function POST(request: Request) {
@@ -44,7 +48,7 @@ export async function POST(request: Request) {
     return NextResponse.json(buildError(ErrorCodes.VALIDATION_ERROR, "Validation failed.", parsed.error.issues[0]?.message), { status: 400 })
   }
 
-  const { brandId, productId, prompt } = parsed.data
+  const { brandId, productId, prompt, wordLimit } = parsed.data
 
   const { data: brand } = await supabase.from("brands").select("*").eq("id", brandId).eq("user_id", user.id).single<BrandRow>()
   if (!brand) return NextResponse.json(buildError(ErrorCodes.BRAND_NOT_FOUND, "Brand not found."), { status: 404 })
@@ -74,7 +78,7 @@ export async function POST(request: Request) {
   let result: Awaited<ReturnType<typeof generateBlogPost>>
 
   try {
-    result = await generateBlogPost(brand, { userPrompt: prompt, product, pastExamples })
+    result = await generateBlogPost(brand, { userPrompt: prompt, product, pastExamples, wordLimit })
   } catch (err) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await (supabase.from("ai_generation_logs") as any).insert({

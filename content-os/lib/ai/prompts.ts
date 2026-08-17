@@ -477,6 +477,11 @@ export function buildBlogArticleUserPrompt(
     userPrompt: string
     product?: ProductRow | null
     pastExamples?: string[]
+    /** Target total body word count — the model has no other length
+     * anchor otherwise, which was producing inconsistent (sometimes thin,
+     * sometimes bloated) articles. Distributed across however many
+     * subheadings the article actually needs, not a per-section split. */
+    wordLimit: number
   }
 ): string {
   const brandContext = buildBrandContext(brand, options.product)
@@ -490,7 +495,7 @@ Write a full SEO-friendly blog article for the above brand on this topic${option
 
 Requirements:
 - title: SEO-friendly, compelling, under 70 characters
-- body: intro paragraph, then 2-4 subheadings each followed by 1-3 paragraphs of real substance, then a conclusion paragraph. Format subheadings as a line of their own (no markdown # symbols), with \\n\\n separating paragraphs and subheadings.
+- body: intro paragraph, then 2-4 subheadings each followed by 1-3 paragraphs of real substance, then a conclusion paragraph. Format subheadings as a line of their own (no markdown # symbols), with \\n\\n separating paragraphs and subheadings. Target approximately ${options.wordLimit} words total for the body — stay within roughly 15% of this target, don't pad with filler to hit it and don't cut real substance short to stay under it.
 - meta_description: 140-160 characters, includes the primary keyword, written for search results
 - suggested_tags: 4-6 short topic/category tags for this post (no # symbol)
 

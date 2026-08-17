@@ -17,15 +17,26 @@ export async function generateBlogPost(
     userPrompt: string
     product?: ProductRow | null
     pastExamples?: string[]
+    /** Target body word count (see buildBlogArticleUserPrompt) — also
+     * drives max_tokens below so the ceiling scales with what was actually
+     * asked for, instead of a single fixed value regardless of length. */
+    wordLimit: number
   }
 ): Promise<{ post: BlogPost; model: string; usage: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } | undefined }> {
   const groq = getGroqClient()
   const model = MODELS.generation
 
+  // ~2.5 tokens/word gives headroom for the JSON wrapper (title,
+  // meta_description, tags) plus the tokenizer's real word:token ratio for
+  // English prose, without needing a separate per-field budget. Floored at
+  // 1200 so a short target still has room to finish the JSON structure
+  // cleanly rather than getting cut off mid-object.
+  const maxTokens = Math.max(1200, Math.round(options.wordLimit * 2.5))
+
   const response = await groq.chat.completions.create({
     model,
     temperature: 0.75,
-    max_tokens: 2000,
+    max_tokens: maxTokens,
     response_format: { type: "json_object" },
     messages: [
       { role: "system", content: buildBlogArticleSystemPrompt() },
