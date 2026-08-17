@@ -135,13 +135,19 @@ async function collectCalendarEntryPaths(admin: AdminClient, brandIds: string[],
   }
 }
 
-// Carousel and story slide AI-background images (app/api/v1/ai/carousel/
-// slide-image/generate and app/api/v1/ai/stories/slide-image/generate) are
-// uploaded straight to Storage, but their URLs are never persisted to any
-// DB row — CarouselBuilder.tsx/StorySequence.tsx only ever hold them in
-// client-side React state — so there's no column to walk for these two,
-// unlike every other table above. Listed directly by their known per-brand
-// storage prefix instead, since that's the only way to actually reach them.
+// Carousel/story slide AI-background images (app/api/v1/ai/carousel/
+// slide-image/generate and app/api/v1/ai/stories/slide-image/generate) and
+// Ad Maker variation uploads (app/api/v1/brands/[brandId]/ai/ad-maker/
+// upload-variation) are all uploaded straight to Storage, but their URLs
+// are never persisted to any DB row at upload time — the first two only
+// ever live in client-side React state (CarouselBuilder.tsx/
+// StorySequence.tsx), and an ad variation only gets a DB reference if it's
+// later scheduled, at which point schedule-post/route.ts re-hosts it under
+// a fresh ${brandId}/scheduled-... path rather than reusing this one — so
+// the original ${brandId}/ads/... upload is orphaned either way, scheduled
+// or not. None of these three have a column to walk, unlike every other
+// table above. Listed directly by their known per-brand storage prefix
+// instead, since that's the only way to actually reach them.
 async function collectPrefixedPaths(admin: AdminClient, brandIds: string[], folder: string, paths: CollectedPaths): Promise<void> {
   for (const brandId of brandIds) {
     const dir = `${brandId}/${folder}`
@@ -164,22 +170,17 @@ interface StorageCleanupResult {
 /**
  * Collects every Supabase Storage object belonging to this user's brands
  * (across memes, generated_images, reel_video_jobs, calendar_entries, plus
- * carousel/story AI-background slides that have no DB column of their own —
- * see collectPrefixedPaths) and deletes them. Never throws — a failed
- * removal is reported back in `failed` for the caller to log, not raised,
- * since a storage cleanup problem must never block the account deletion
- * itself.
+ * carousel/story AI-background slides and Ad Maker variation uploads, none
+ * of which have a DB column of their own — see collectPrefixedPaths) and
+ * deletes them. Never throws — a failed removal is reported back in
+ * `failed` for the caller to log, not raised, since a storage cleanup
+ * problem must never block the account deletion itself.
  *
  * Deliberately NOT covered (confirmed while building this, not assumed):
  * brands.logo_url, brand_images.image_urls, and products.image_urls are
  * always external URLs scraped from the brand's own website/product page
  * (lib/ai/url-extractor.ts) — never uploaded to our Storage, so there's
- * nothing of ours to delete for them. Ad Maker variation images
- * (${brandId}/ads/...) that were generated but never actually scheduled
- * have no DB row referencing them either, same situation as carousel/story
- * slides — they are NOT swept here (no prefix-listing added for them in
- * this pass); a variation that WAS scheduled is still covered via
- * calendar_entries.platform_specific_data above.
+ * nothing of ours to delete for them.
  */
 async function deleteUserStorageObjects(admin: AdminClient, userId: string): Promise<StorageCleanupResult> {
   const { data: brands, error: brandsError } = await table(admin, "brands")
@@ -203,6 +204,7 @@ async function deleteUserStorageObjects(admin: AdminClient, userId: string): Pro
     collectCalendarEntryPaths(admin, brandIds, paths),
     collectPrefixedPaths(admin, brandIds, "carousel-slides", paths),
     collectPrefixedPaths(admin, brandIds, "story-slides", paths),
+    collectPrefixedPaths(admin, brandIds, "ads", paths),
   ])
 
   const failed: string[] = []
