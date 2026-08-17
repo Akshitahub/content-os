@@ -170,7 +170,7 @@ export function BlogPostGenerator({ brandId }: { brandId: string }) {
     <div className="space-y-6">
       <div className="space-y-4">
         <div>
-          <h3 className="text-sm font-semibold">Write a blog post ✍️</h3>
+          <h3 className="text-sm font-semibold">Write a blog post</h3>
           <p className="text-xs text-muted-foreground mt-0.5">SEO-friendly article for your brand&apos;s blog — starts from your own topic, always.</p>
         </div>
 
