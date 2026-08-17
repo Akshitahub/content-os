@@ -44,3 +44,70 @@ export const VIBE_FALLBACK_COLORS: Record<Vibe, string[]> = {
 // products, memes). Reusing it here would fight the abstract-only
 // direction these prompts are built around.
 export const ABSTRACT_SAFETY_BOILERPLATE = "no watermarks, no illegible text or symbols, clean high-resolution render, sharp focus"
+
+const HEX_RE = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i
+
+const HUE_NAMES: [max: number, name: string][] = [
+  [10, "red"],
+  [25, "orange-red"],
+  [45, "orange"],
+  [55, "amber"],
+  [70, "yellow"],
+  [90, "yellow-green"],
+  [150, "green"],
+  [190, "teal"],
+  [200, "cyan"],
+  [250, "blue"],
+  [275, "indigo"],
+  [300, "purple"],
+  [330, "magenta"],
+  [350, "pink"],
+  [360, "red"],
+]
+
+function hueName(h: number): string {
+  return HUE_NAMES.find(([max]) => h <= max)?.[1] ?? "red"
+}
+
+/**
+ * Converts a brand hex color into a short plain-English color phrase (e.g.
+ * "a vibrant orange-red", "a soft pastel blue") for use in image-generation
+ * prompts. Diffusion models reliably follow descriptive color language but
+ * not raw hex notation — confirmed via real Pollinations testing (see
+ * docs/research/seedream-5-lite-evaluation.md): prompts asking for "color
+ * palette centered around #FF5733" produced output containing none of that
+ * color, on repeated tests. Returns null for anything that isn't a valid
+ * 6-digit hex so callers can fall back cleanly.
+ */
+export function describeColor(hex: string): string | null {
+  const m = HEX_RE.exec(hex)
+  if (!m) return null
+  const [r, g, b] = [m[1]!, m[2]!, m[3]!].map((h) => parseInt(h, 16) / 255)
+  const max = Math.max(r, g, b)
+  const min = Math.min(r, g, b)
+  const delta = max - min
+  const l = (max + min) / 2
+
+  if (delta === 0) {
+    if (l < 0.15) return "a near-black neutral"
+    if (l > 0.9) return "a near-white neutral"
+    return "a neutral gray"
+  }
+
+  const s = delta / (1 - Math.abs(2 * l - 1))
+  let h: number
+  if (max === r) h = 60 * (((g - b) / delta) % 6)
+  else if (max === g) h = 60 * ((b - r) / delta + 2)
+  else h = 60 * ((r - g) / delta + 4)
+  if (h < 0) h += 360
+
+  const name = hueName(h)
+
+  let tone: string
+  if (l > 0.85) tone = "pale pastel"
+  else if (l > 0.65) tone = s > 0.5 ? "bright" : "soft"
+  else if (l > 0.35) tone = s > 0.6 ? "vibrant" : "muted"
+  else tone = s > 0.4 ? "deep" : "dark muted"
+
+  return `a ${tone} ${name}`
+}

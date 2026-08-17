@@ -1,5 +1,5 @@
 import { fetchBackgroundImage, type BackgroundImageResult } from "./post-image-pipeline"
-import { type Vibe, DEFAULT_VIBE, VIBE_BACKGROUND_STYLES, VIBE_FALLBACK_COLORS, ABSTRACT_SAFETY_BOILERPLATE } from "./vibe-background-styles"
+import { type Vibe, DEFAULT_VIBE, VIBE_BACKGROUND_STYLES, VIBE_FALLBACK_COLORS, ABSTRACT_SAFETY_BOILERPLATE, describeColor } from "./vibe-background-styles"
 import type { UserPlan } from "@/types/app"
 import type { BrandRow } from "@/types/database"
 
@@ -21,10 +21,14 @@ function resolveBrandColors(brand: BrandRow): string[] {
 }
 
 function buildSlidePrompt(headline: string, vibe: Vibe, colors: string[]): string {
+  // Descriptive color names, not raw hex — diffusion models reliably follow
+  // "a vibrant orange-red" but ignore "#FF5733" outright, confirmed via real
+  // testing (see docs/research/seedream-5-lite-evaluation.md).
+  const colorNames = colors.map(describeColor).filter((c): c is string => !!c).slice(0, 3)
   return [
     "abstract atmospheric background image for a social media carousel slide",
     VIBE_BACKGROUND_STYLES[vibe],
-    colors.length > 0 ? `color palette centered around ${colors.slice(0, 3).join(", ")}` : "",
+    colorNames.length > 0 ? `color palette inspired by ${colorNames.join(" and ")}` : "",
     `evokes the mood of: "${headline}"`,
     "no text, no words, no letters, no numbers, no logos anywhere in the image",
     "no literal photos of people, products, or objects — purely abstract shapes, gradients, and textures",

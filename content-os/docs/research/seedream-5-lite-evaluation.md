@@ -4,7 +4,35 @@ Research task, 2026-08-17. No production code was changed as part of this
 work — this is purely a pricing/quality/feasibility writeup to inform a
 future decision.
 
-## TL;DR
+## Follow-up, same day: fixes shipped + Part 2/4 findings
+
+A second pass acted on two of this report's own findings and investigated
+a third. Summary — full detail in each part's section below:
+
+- **Fixed** — the `megapixels` → `resolution` param bug (`lib/ai/post-image-pipeline.ts`).
+  Flux calls now send `resolution: "2 MP"` (square) / `"4 MP"` (portrait)
+  instead of the nonexistent `megapixels` field.
+- **Investigated definitively**: no paying customer was affected. Every
+  user in the production database is on the `free` plan (12/12) — the
+  Flux code path (paid tiers + internal-unlimited bypass) has essentially
+  no confirmed successful use in the logs to date, so neither "silently
+  ran at 1MP" nor "silently fell back to Pollinations" ever happened to an
+  actual paying customer, because there haven't been any yet. One open
+  question flagged below re: the internal-unlimited bypass account.
+- **Fixed** — brand hex colors now get converted to plain-English
+  descriptions (`describeColor()` in `lib/ai/vibe-background-styles.ts`)
+  before going into carousel/story background prompts. Re-tested against
+  the exact same real headline+color combos from the original report;
+  output now visibly reflects the intended color family (before: 0/2 test
+  colors appeared in output; after: 2/2 clearly present).
+- **Still blocked** — real Seedream-vs-Flux generation testing.
+  `REPLICATE_API_TOKEN` is confirmed to exist as a key in the production
+  Vercel environment (pulled via `vercel env pull`), but Vercel returned
+  its value masked (`""`) along with every other secret — this CLI
+  session doesn't have permission to read decrypted values, only key
+  names. See Part 4 below for exactly what's needed.
+
+## TL;DR (original pass)
 
 - Seedream 5.0 Lite **is** available on Replicate (`bytedance/seedream-5-lite`,
   official model) — not Fal-only. Swapping to it is a normal `replicate.run()`
@@ -295,23 +323,104 @@ it here.
 
 ---
 
-## What's needed to finish this evaluation
+## Part 1 (follow-up) — the `megapixels`/`resolution` fix
 
-1. A funded `REPLICATE_API_TOKEN` in an environment with real billing (even
-   a small pre-paid balance covers this — at $0.035–$0.075/image, 20 test
-   images across both models is under $3).
-2. With that token: re-run the exact prompts logged above (all pulled
-   verbatim from real production data) through both
-   `bytedance/seedream-5-lite` and `black-forest-labs/flux-2-pro`, and do
-   the visual side-by-side this task actually asked for — brand-color
-   fidelity, the mirror-symmetry artifact, meme hands/object fidelity, and
-   Ad Maker photorealism are the four concrete things to check first, since
-   they're the four repeatable failure modes I found in the current
-   baseline.
-3. Separately (not a Seedream question at all): confirm whether Flux 2
-   Pro's `megapixels` param is being silently ignored or causing silent
-   Pollinations fallback for paid users — this affects both the real cost
-   number and whether paid customers are currently getting what they're
-   paying for.
+`resolveFluxMegapixels()` → `resolveFluxResolution()` in
+`lib/ai/post-image-pipeline.ts`. Same "smallest tier that meets the
+compositing target" logic, now mapped onto the real enum
+(`["0.5 MP", "1 MP", "2 MP", "4 MP"]`, no `"0.25 MP"` tier exists) instead
+of bare numeric strings on a field name (`megapixels`) that doesn't exist
+in the model's schema:
 
-No production code was changed in this investigation.
+- Square (1080×1080, 1.1664 MP target) → `"2 MP"`
+- Portrait (1080×1920, 2.0736 MP target) → `"4 MP"`
+
+The `input` object now sends `resolution` instead of `megapixels`;
+`aspect_ratio` and `output_format` were already correct and untouched.
+
+## Part 2 (follow-up) — what actually happened before the fix
+
+**Definitive finding: no paying customer was affected, because there have
+been no paying customers.** Queried the production Supabase database
+directly:
+
+- `users` table: **12/12 accounts are on the `free` plan.** Zero `starter`,
+  `pro`, or `agency` accounts exist. `resolveImageProvider()` only ever
+  selects Flux for paid plans or the internal-unlimited bypass — with no
+  paid accounts, the plan-based branch has never fired for a real customer.
+- Cross-checked every logged image-generation row that exists
+  (`ai_generation_logs` + `generated_images`, features `post_image` and
+  `carousel_slide_bg_hook` — no `carousel_slide_bg_cta`, `post_image`, or
+  Stories rows beyond these show up at all in this low-traffic
+  pre-launch dataset): **every single row logged `provider: "pollinations"`,
+  never `"flux"`.** Cross-referenced each row's `user_id` against `users.plan`
+  — all free. So every logged Pollinations result is exactly the *correct*,
+  intended behavior for a free-tier account, not evidence of a Flux failure.
+- **Open question, not fully resolved**: production also has
+  `INTERNAL_UNLIMITED_USER_IDS` configured (confirmed as an existing key via
+  `vercel env pull`, value inaccessible — see Part 4). This bypass routes to
+  Flux regardless of `users.plan`. One of the two `carousel_slide_bg_hook`
+  rows belongs to user `f01e89e2-3c9e-4d4d-a764-b2afb5584818`
+  (`akshitawork16@gmail.com`) — which is very likely the account
+  owner/developer, and a plausible candidate for that bypass list. If it is
+  on that list, this row logging `"pollinations"` instead of `"flux"` would
+  be direct evidence the bypass silently fell back too. I can't confirm
+  either way without reading the actual env var value or brand's own
+  account. Worth a 30-second check by whoever has real dashboard access:
+  look up that user ID against the literal `INTERNAL_UNLIMITED_USER_IDS`
+  value.
+- No refund/credit consideration is needed on the evidence available — no
+  paid customer has been served an undersized or silently-substituted
+  image by this bug. Worth re-confirming once the first real paid customer
+  signs up, though the fix is already shipped so this should be moot.
+
+## Part 3 (follow-up) — hex color fix, before/after
+
+Added `describeColor(hex): string | null` to `lib/ai/vibe-background-styles.ts`
+— converts hex → HSL → a short phrase like `"a vibrant orange-red"` or
+`"a bright red"`, no hardcoded name-lookup table. Both
+`carousel-slide-background.ts` and `story-slide-background.ts` now map
+brand colors (and the vibe fallback palettes) through it before building
+the prompt; the prompt fragment changed from `color palette centered
+around {hex, hex}` to `color palette inspired by {description} and
+{description}`.
+
+Re-ran the **exact same real headline/color pairs** from the original
+report through Pollinations:
+
+| Input | Before (raw hex) | After (`describeColor`) | Visible result |
+|---|---|---|---|
+| `#FF5733`, carousel, "30 AI-Generated Hooks..." | Output was blue/pink/white — no orange anywhere | `"a vibrant orange-red"` | Output now has a strong orange/coral band dominating the center — clearly present |
+| `#FF5A5F`, story, "Make it Yours Tonight!" | Output was purple/teal only | `"a bright red"` | Output is now bordered/dominated by bright coral-red |
+
+2/2 real re-tests now show the intended color family, versus 0/2 before.
+
+## Part 4 (follow-up) — real Seedream/Flux comparison: still blocked
+
+`vercel env pull` **does** work in this environment (no login needed — an
+existing session token was valid enough for this specific command) and
+confirmed `REPLICATE_API_TOKEN` and `INTERNAL_UNLIMITED_USER_IDS` both
+exist as configured keys in the production environment. But every secret
+value came back as a masked empty string (`""`) — `NX_DAEMON="false"` (a
+non-secret build flag) pulled fine, every credential-shaped key did not.
+This is Vercel's "Sensitive" environment variable protection: the value
+exists, but this CLI session's permission level can't decrypt it, only see
+that the key is configured.
+
+**What's actually needed**: someone with real Vercel dashboard access
+(Project Settings → Environment Variables) to either mark
+`REPLICATE_API_TOKEN` as non-sensitive temporarily, or just copy its
+literal value from the dashboard into a local `.env.local` for a one-off
+test session. At $0.035–$0.075/image, the ~12 test images needed to cover
+carousel/story/meme/Ad Maker on both models is under $1.
+
+Once that value is available, the test plan is unchanged from the original
+report: run the exact logged prompts through both
+`bytedance/seedream-5-lite` and `black-forest-labs/flux-2-pro`, checking
+the four concrete failure modes — brand-color fidelity (now fixed on the
+Pollinations baseline, worth confirming Seedream/Flux do at least as well),
+the carousel mirror-symmetry artifact, meme hand/object fidelity, and Ad
+Maker photorealism.
+
+No production model was swapped — Parts 1 and 3 above are bug fixes to
+prompt/param construction in the existing pipeline, not a provider change.

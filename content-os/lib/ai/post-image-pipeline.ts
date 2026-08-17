@@ -23,25 +23,28 @@ const NEAR_BLANK_MEAN = 247
 // release later is a one-line change, not a call-site hunt.
 const FLUX_MODEL = "black-forest-labs/flux-2-pro"
 
-// Replicate's Black Forest Labs FLUX models (including the FLUX.2 family
-// flux-2-pro belongs to) control output resolution via a `megapixels`
-// input — a string enum, not raw width/height — that combines with
-// `aspect_ratio` to determine actual pixel dimensions. Confirmed via
-// Replicate/BFL documentation and third-party API references (Replicate's
-// own model page is client-rendered and its live schema couldn't be
-// scraped directly); if this param name has since changed, Replicate
-// returns a validation error that fetchAndCheckFluxImage's catch block
-// already logs in full, so a wrong guess here fails loudly rather than
-// silently. Without an explicit value the model defaults to "1" (~1MP,
-// e.g. ~1024x1024) — smaller than this app's 1080x1080 (and Stories'
-// 1080x1920) compositing targets, which is exactly what was causing
-// compositePostImage's forced resize to upscale (blur) Flux images.
-const FLUX_MEGAPIXEL_TIERS = [0.25, 0.5, 1, 2, 4] as const
+// Replicate's black-forest-labs/flux-2-pro controls output resolution via a
+// `resolution` input — a string enum ("0.5 MP" | "1 MP" | "2 MP" | "4 MP" |
+// "match_input_image"), NOT the `megapixels` field (with bare numeric
+// strings) this code sent until 2026-08-17. That field name doesn't exist
+// in the model's live schema at all — confirmed directly from Replicate's
+// own OpenAPI schema for this model (pulled from the model page's embedded
+// JSON, since the page itself is client-rendered). The old `megapixels`
+// field was a validation-error-free no-op: Replicate silently drops
+// unrecognized input keys rather than rejecting the call, so every prior
+// Flux call ran at the schema's default ("1 MP", ~1024x1024) regardless of
+// what tier this code picked — smaller than this app's 1080x1080 (and
+// Stories' 1080x1920) compositing targets, which is exactly what was
+// causing compositePostImage's forced resize to upscale (blur) Flux
+// images. See docs/research/seedream-5-lite-evaluation.md for how this was
+// found. No "0.25 MP" tier exists in the real enum, so the smallest valid
+// tier is "0.5 MP".
+const FLUX_RESOLUTION_TIERS = ["0.5 MP", "1 MP", "2 MP", "4 MP"] as const
 
-function resolveFluxMegapixels(dimensions: ImageDimensions): string {
+function resolveFluxResolution(dimensions: ImageDimensions): string {
   const targetMP = (dimensions.width * dimensions.height) / 1_000_000
-  const tier = FLUX_MEGAPIXEL_TIERS.find((mp) => mp >= targetMP) ?? FLUX_MEGAPIXEL_TIERS[FLUX_MEGAPIXEL_TIERS.length - 1]
-  return String(tier)
+  const tier = FLUX_RESOLUTION_TIERS.find((t) => parseFloat(t) >= targetMP) ?? FLUX_RESOLUTION_TIERS[FLUX_RESOLUTION_TIERS.length - 1]
+  return tier
 }
 
 export interface ImageDimensions {
@@ -166,8 +169,8 @@ async function bufferFromReplicateOutput(output: unknown): Promise<{ buffer: Buf
 }
 
 async function fetchAndCheckFluxImage(prompt: string, seed: number, dimensions: ImageDimensions): Promise<{ buffer: Buffer } | { error: string }> {
-  const megapixels = resolveFluxMegapixels(dimensions)
-  console.log(`[post-image-pipeline] calling Replicate (${FLUX_MODEL}): attemptSeed=${seed} promptLen=${prompt.length} aspectRatio=${dimensions.aspectRatio} megapixels=${megapixels}`)
+  const resolution = resolveFluxResolution(dimensions)
+  console.log(`[post-image-pipeline] calling Replicate (${FLUX_MODEL}): attemptSeed=${seed} promptLen=${prompt.length} aspectRatio=${dimensions.aspectRatio} resolution=${resolution}`)
 
   let output: unknown
   try {
@@ -176,7 +179,7 @@ async function fetchAndCheckFluxImage(prompt: string, seed: number, dimensions: 
       input: {
         prompt,
         aspect_ratio: dimensions.aspectRatio,
-        megapixels,
+        resolution,
         output_format: "png",
       },
     })
