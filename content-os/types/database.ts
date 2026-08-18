@@ -684,6 +684,8 @@ export type Database = {
           storage_path: string
           public_url: string
           model_used: string
+          /** Which provider actually produced the base image ("pollinations" | "flux") — see lib/ai/post-image-pipeline.ts's BackgroundImageResult.provider. */
+          provider: string | null
           is_saved: boolean
           created_at: string
         }
@@ -698,12 +700,38 @@ export type Database = {
           storage_path: string
           public_url: string
           model_used?: string
+          provider?: string | null
           is_saved?: boolean
           created_at?: string
         }
         Update: {
           is_saved?: boolean
         }
+      }
+      image_generation_attempts: {
+        Row: {
+          id: string
+          brand_id: string | null
+          feature: string
+          attempt_number: number
+          provider: "pollinations" | "flux"
+          prompt_variant: "primary" | "fallback"
+          success: boolean
+          failure_reason: "too_small" | "near_black" | "near_blank" | "unreadable" | "network_error" | "api_error" | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          brand_id?: string | null
+          feature: string
+          attempt_number: number
+          provider: "pollinations" | "flux"
+          prompt_variant: "primary" | "fallback"
+          success: boolean
+          failure_reason?: "too_small" | "near_black" | "near_blank" | "unreadable" | "network_error" | "api_error" | null
+          created_at?: string
+        }
+        Update: never
       }
       reel_scripts: {
         Row: {
@@ -1154,6 +1182,7 @@ export type CaptionRow = Database["public"]["Tables"]["captions"]["Row"]
 export type CalendarEntryRow = Database["public"]["Tables"]["calendar_entries"]["Row"]
 export type AIGenerationLogRow = Database["public"]["Tables"]["ai_generation_logs"]["Row"]
 export type GeneratedImageRow = Database["public"]["Tables"]["generated_images"]["Row"]
+export type ImageGenerationAttemptRow = Database["public"]["Tables"]["image_generation_attempts"]["Row"]
 export type InfluencerRow = Database["public"]["Tables"]["influencers"]["Row"]
 export type InfluencerPartnershipRow = Database["public"]["Tables"]["influencer_partnerships"]["Row"]
 export type OutreachMessageRow = Database["public"]["Tables"]["outreach_messages"]["Row"]
@@ -1180,6 +1209,7 @@ export type CaptionInsert = Database["public"]["Tables"]["captions"]["Insert"]
 export type CalendarEntryInsert = Database["public"]["Tables"]["calendar_entries"]["Insert"]
 export type AIGenerationLogInsert = Database["public"]["Tables"]["ai_generation_logs"]["Insert"]
 export type GeneratedImageInsert = Database["public"]["Tables"]["generated_images"]["Insert"]
+export type ImageGenerationAttemptInsert = Database["public"]["Tables"]["image_generation_attempts"]["Insert"]
 export type InfluencerInsert = Database["public"]["Tables"]["influencers"]["Insert"]
 export type InfluencerPartnershipInsert = Database["public"]["Tables"]["influencer_partnerships"]["Insert"]
 export type OutreachMessageInsert = Database["public"]["Tables"]["outreach_messages"]["Insert"]

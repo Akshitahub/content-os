@@ -1,6 +1,5 @@
 import sharp from "sharp"
 import Replicate from "replicate"
-import { IMAGE_QUALITY_SAFETY_BOILERPLATE } from "./prompts"
 import { compositePostImage } from "@/lib/image/post-compositor"
 import type { PostTemplateId } from "@/lib/design/post-templates"
 import type { ColorTheme } from "@/lib/design/color-themes"
@@ -61,16 +60,43 @@ export interface ImageDimensions {
 const SQUARE_DIMENSIONS: ImageDimensions = { width: CANVAS_SIZE, height: CANVAS_SIZE, aspectRatio: "1:1" }
 
 export type PostImagePipelineResult =
-  | { success: true; buffer: Buffer; mimeType: string; fullPrompt: string }
-  | { success: false; error: string }
+  | { success: true; buffer: Buffer; mimeType: string; fullPrompt: string; provider: "pollinations" | "flux"; attempts: ImageGenerationAttempt[] }
+  | { success: false; error: string; attempts: ImageGenerationAttempt[] }
+
+// Structured failure classification — distinct from the free-text `error`
+// message so it's actually queryable once persisted (see
+// ImageGenerationAttempt below). Split "near_black"/"near_blank" out from
+// "too_small"/"unreadable" specifically because the open diagnostic
+// question is whether the near-black/near-blank quality check is
+// over-triggering on legitimate photography — that's unanswerable if every
+// failure mode collapses into one generic reason.
+export type ImageAttemptFailureReason = "too_small" | "near_black" | "near_blank" | "unreadable" | "network_error" | "api_error"
+
+/**
+ * One row per real attempt inside fetchBackgroundImage below — not just
+ * the final call outcome. Returned up through generatePostImage so the
+ * calling route can persist each one (see
+ * app/api/v1/ai/post-image/generate/route.ts) — this is what makes "how
+ * often does the near-blank/near-black check trip, and at which attempt"
+ * actually answerable going forward, per
+ * docs/research/post-imagery-diagnosis.md's issue 3 (LOW-MEDIUM
+ * confidence specifically because this data didn't exist before now).
+ */
+export interface ImageGenerationAttempt {
+  attemptNumber: number
+  provider: "pollinations" | "flux"
+  promptVariant: "primary" | "fallback"
+  success: boolean
+  failureReason: ImageAttemptFailureReason | null
+}
 
 // Shared by both providers — a failed generation can come back as a 200
 // with a placeholder/refusal image just as easily as a network error, so
 // every fetched buffer goes through the same size + blank/black check
 // before being treated as usable.
-async function checkImageQuality(buffer: Buffer): Promise<{ ok: true } | { error: string }> {
+async function checkImageQuality(buffer: Buffer): Promise<{ ok: true } | { error: string; reason: ImageAttemptFailureReason }> {
   if (buffer.length < MIN_BUFFER_BYTES) {
-    return { error: `Image response was too small to be a real photo (${buffer.length} bytes).` }
+    return { error: `Image response was too small to be a real photo (${buffer.length} bytes).`, reason: "too_small" }
   }
 
   try {
@@ -80,11 +106,11 @@ async function checkImageQuality(buffer: Buffer): Promise<{ ok: true } | { error
     const isNearBlank = means.every((m) => m >= NEAR_BLANK_MEAN)
     if (isNearBlack || isNearBlank) {
       console.error(`[post-image-pipeline] image failed quality check: channel means=${JSON.stringify(means)}`)
-      return { error: "Generated image was mostly blank or black." }
+      return { error: "Generated image was mostly blank or black.", reason: isNearBlack ? "near_black" : "near_blank" }
     }
   } catch (err) {
     console.error(`[post-image-pipeline] sharp couldn't read the response as an image:`, err instanceof Error ? err.message : err)
-    return { error: "Generated image could not be read." }
+    return { error: "Generated image could not be read.", reason: "unreadable" }
   }
 
   return { ok: true }
@@ -94,7 +120,7 @@ function buildPollinationsUrl(prompt: string, seed: number, dimensions: ImageDim
   return `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=${dimensions.width}&height=${dimensions.height}&seed=${seed}&nologo=true&model=flux`
 }
 
-async function fetchAndCheckPollinationsImage(prompt: string, seed: number, dimensions: ImageDimensions): Promise<{ buffer: Buffer } | { error: string } > {
+async function fetchAndCheckPollinationsImage(prompt: string, seed: number, dimensions: ImageDimensions): Promise<{ buffer: Buffer } | { error: string; reason: ImageAttemptFailureReason }> {
   const url = buildPollinationsUrl(prompt, seed, dimensions)
   console.log(`[post-image-pipeline] calling Pollinations: seed=${seed} promptLen=${prompt.length} url=${url.slice(0, 200)}${url.length > 200 ? "…" : ""}`)
 
@@ -104,7 +130,7 @@ async function fetchAndCheckPollinationsImage(prompt: string, seed: number, dime
   } catch (err) {
     const detail = err instanceof Error ? `${err.name}: ${err.message}` : String(err)
     console.error(`[post-image-pipeline] Pollinations fetch threw before any response (network/DNS/timeout-level failure):`, detail)
-    return { error: err instanceof Error ? err.message : "Image generation request failed." }
+    return { error: err instanceof Error ? err.message : "Image generation request failed.", reason: "network_error" }
   }
 
   console.log(`[post-image-pipeline] Pollinations responded: status=${res.status} content-type=${res.headers.get("content-type")}`)
@@ -120,7 +146,7 @@ async function fetchAndCheckPollinationsImage(prompt: string, seed: number, dime
       bodyText = `<failed to read response body: ${readErr instanceof Error ? readErr.message : String(readErr)}>`
     }
     console.error(`[post-image-pipeline] Pollinations returned non-200: status=${res.status} statusText=${res.statusText} body=${JSON.stringify(bodyText)}`)
-    return { error: `Pollinations API error (${res.status}): ${bodyText || res.statusText}` }
+    return { error: `Pollinations API error (${res.status}): ${bodyText || res.statusText}`, reason: "api_error" }
   }
 
   const buffer = Buffer.from(await res.arrayBuffer())
@@ -147,10 +173,10 @@ function getReplicateClient(): Replicate {
 // true, wrapping each URL in a `FileOutput` — a ReadableStream with a
 // `.blob()`/`.url()` — rather than a plain string). Handled defensively
 // here instead of assuming one specific shape.
-async function bufferFromReplicateOutput(output: unknown): Promise<{ buffer: Buffer } | { error: string }> {
+async function bufferFromReplicateOutput(output: unknown): Promise<{ buffer: Buffer } | { error: string; reason: ImageAttemptFailureReason }> {
   const first = Array.isArray(output) ? output[0] : output
   if (first === undefined || first === null) {
-    return { error: "Replicate returned no image output." }
+    return { error: "Replicate returned no image output.", reason: "api_error" }
   }
 
   if (typeof first === "object" && "blob" in first && typeof (first as { blob: unknown }).blob === "function") {
@@ -161,14 +187,14 @@ async function bufferFromReplicateOutput(output: unknown): Promise<{ buffer: Buf
   const url = typeof first === "string" ? first : String(first)
   try {
     const res = await fetch(url)
-    if (!res.ok) return { error: `Failed to fetch Flux image from Replicate (${res.status}).` }
+    if (!res.ok) return { error: `Failed to fetch Flux image from Replicate (${res.status}).`, reason: "api_error" }
     return { buffer: Buffer.from(await res.arrayBuffer()) }
   } catch (err) {
-    return { error: err instanceof Error ? err.message : "Failed to fetch Flux image from Replicate." }
+    return { error: err instanceof Error ? err.message : "Failed to fetch Flux image from Replicate.", reason: "network_error" }
   }
 }
 
-async function fetchAndCheckFluxImage(prompt: string, seed: number, dimensions: ImageDimensions): Promise<{ buffer: Buffer } | { error: string }> {
+async function fetchAndCheckFluxImage(prompt: string, seed: number, dimensions: ImageDimensions): Promise<{ buffer: Buffer } | { error: string; reason: ImageAttemptFailureReason }> {
   const resolution = resolveFluxResolution(dimensions)
   console.log(`[post-image-pipeline] calling Replicate (${FLUX_MODEL}): attemptSeed=${seed} promptLen=${prompt.length} aspectRatio=${dimensions.aspectRatio} resolution=${resolution}`)
 
@@ -190,7 +216,7 @@ async function fetchAndCheckFluxImage(prompt: string, seed: number, dimensions: 
     // error's own `.response`/`.detail` — never swallowed here.
     console.error(`[post-image-pipeline] Replicate call failed:`, err)
     const detail = err instanceof Error ? err.message : String(err)
-    return { error: `Flux generation failed: ${detail}` }
+    return { error: `Flux generation failed: ${detail}`, reason: "api_error" }
   }
 
   const result = await bufferFromReplicateOutput(output)
@@ -263,7 +289,46 @@ const DEFAULT_NICHE_SETTING = "clean editorial product photography setting appro
 
 const TECH_NICHE_KEYWORDS = ["tech", "software", "saas", "app", "digital product", "startup"]
 
-const PHOTOGRAPHY_STYLE = "professional product photography, natural editorial lighting, premium D2C brand aesthetic, high-detail commercial quality"
+// Concrete photography-technical language (specific lens/aperture/lighting
+// direction) instead of the old vague "natural editorial lighting" — gives
+// the diffusion model something specific to aim for rather than falling
+// back to its generic stock-photo default. See
+// docs/research/post-imagery-diagnosis.md, issue 2.
+const PHOTOGRAPHY_STYLE = "professional product photography shot on a full-frame DSLR with an 85mm lens at f/2.8 for natural background blur, soft directional key light from the upper left with gentle fill, premium D2C brand aesthetic, high-detail commercial quality"
+
+// Posts-specific quality + negative-artifact language — deliberately NOT
+// lib/ai/prompts.ts's shared IMAGE_QUALITY_SAFETY_BOILERPLATE (also used by
+// the standalone Images tab, out of scope for this fix). Two changes from
+// that shared boilerplate: drops the redundant "professional photography"
+// (already covered by PHOTOGRAPHY_STYLE above) and "8K ultra HD, sharp
+// focus" (a generic superlative with nothing for the model to actually aim
+// at), and adds explicit negative-artifact language — confirmed via
+// Pollinations' and Replicate/Flux 2 Pro's actual API docs that NEITHER
+// provider has a dedicated negative-prompt parameter (Pollinations'
+// documented query params are prompt/model/width/height/seed/nologo/
+// enhance/private only, and Black Forest Labs' own FLUX.2 docs say
+// "FLUX.2 does not support negative prompts" outright) — so this has to be
+// folded into the single positive prompt string for both providers, same
+// as everything else here.
+const POST_IMAGE_QUALITY_AND_NEGATIVE_GUARD = "no text, no watermarks, no logos, no illegible text or symbols, anatomically correct human features if any people are shown, correct number of fingers and limbs, natural hand positioning, authentic unretouched skin texture with natural imperfections, not a 3D render, not CGI, not a digital illustration, not an AI-generated look, avoid airbrushed or over-smoothed skin, avoid plastic or waxy-looking surfaces, avoid unnaturally perfect symmetry"
+
+// The only two genuinely unbounded pieces of the assembled prompt below —
+// everything else (niche setting, negative guard, photography style,
+// quality boilerplate) is a short, fixed, code-authored string. Capping
+// these two directly (rather than checking the assembled total after the
+// fact) guarantees the combined prompt can never silently balloon toward
+// Pollinations' URL-length ceiling regardless of how verbose a future LLM
+// response or a brand's target_audience field gets. The client already
+// caps imagePrompt at 500 chars (components/generate/FullPostGenerator.tsx)
+// but this pipeline is reachable without going through that specific
+// client path (e.g. "Regenerate image"), so it needs its own server-side
+// floor — never trust a length limit enforced only by the caller.
+const MAX_IMAGE_PROMPT_CHARS = 600
+const MAX_TARGET_AUDIENCE_CHARS = 150
+
+function capLength(text: string, max: number): string {
+  return text.length > max ? text.slice(0, max).trim() : text
+}
 
 // Word-boundary match, not a raw substring — a plain .includes() would
 // false-positive on e.g. "apparel" containing the tech keyword "app", or
@@ -299,13 +364,13 @@ function simplifyPrompt(prompt: string, brandNiche: string | null): string {
     brandNiche ? `${brandNiche} brand` : "",
     resolveNicheSetting(brandNiche),
     PHOTOGRAPHY_STYLE,
-    IMAGE_QUALITY_SAFETY_BOILERPLATE,
+    POST_IMAGE_QUALITY_AND_NEGATIVE_GUARD,
   ].filter(Boolean).join(", ")
 }
 
 export type BackgroundImageResult =
-  | { success: true; buffer: Buffer; mimeType: string; provider: "pollinations" | "flux" }
-  | { success: false; error: string }
+  | { success: true; buffer: Buffer; mimeType: string; provider: "pollinations" | "flux"; attempts: ImageGenerationAttempt[] }
+  | { success: false; error: string; attempts: ImageGenerationAttempt[] }
 
 /**
  * Fetches a single background image buffer via Pollinations (free plan) or
@@ -335,13 +400,23 @@ export async function fetchBackgroundImage(
   // Pollinations isn't (see ai_generation_logs inserts that read this).
   let actualProvider: "pollinations" | "flux" = provider
 
+  // One entry per real attempt (not just the final outcome) — this is what
+  // makes "how often does the near-blank/near-black check trip, and at
+  // which attempt" answerable going forward once the caller persists it
+  // (see app/api/v1/ai/post-image/generate/route.ts). Previously only the
+  // whole call's outcome was ever logged, so a moderate silent-retry rate
+  // inside this function was invisible in the data entirely.
+  const attempts: ImageGenerationAttempt[] = []
+
   const seed = Math.floor(Math.random() * 1_000_000)
   let attempt = await fetchImage(prompt, seed, dimensions)
+  attempts.push({ attemptNumber: 1, provider, promptVariant: "primary", success: !("error" in attempt), failureReason: "error" in attempt ? attempt.reason : null })
 
   if ("error" in attempt) {
     console.error(`[post-image-pipeline] first attempt failed (${provider}):`, attempt.error)
     const retrySeed = Math.floor(Math.random() * 1_000_000)
     attempt = await fetchImage(fallbackPrompt, retrySeed, dimensions)
+    attempts.push({ attemptNumber: 2, provider, promptVariant: "fallback", success: !("error" in attempt), failureReason: "error" in attempt ? attempt.reason : null })
 
     if ("error" in attempt) {
       console.error(`[post-image-pipeline] retry also failed (${provider}):`, attempt.error)
@@ -355,18 +430,19 @@ export async function fetchBackgroundImage(
         const fallbackSeed = Math.floor(Math.random() * 1_000_000)
         attempt = await fetchAndCheckPollinationsImage(prompt, fallbackSeed, dimensions)
         actualProvider = "pollinations"
+        attempts.push({ attemptNumber: 3, provider: "pollinations", promptVariant: "primary", success: !("error" in attempt), failureReason: "error" in attempt ? attempt.reason : null })
 
         if ("error" in attempt) {
           console.error(`[post-image-pipeline] Pollinations fallback also failed:`, attempt.error)
-          return { success: false, error: `Couldn't generate a usable image after three attempts. Last error: ${attempt.error}` }
+          return { success: false, error: `Couldn't generate a usable image after three attempts. Last error: ${attempt.error}`, attempts }
         }
       } else {
-        return { success: false, error: `Couldn't generate a usable image after two attempts. Last error: ${attempt.error}` }
+        return { success: false, error: `Couldn't generate a usable image after two attempts. Last error: ${attempt.error}`, attempts }
       }
     }
   }
 
-  return { success: true, buffer: attempt.buffer, mimeType: "image/png", provider: actualProvider }
+  return { success: true, buffer: attempt.buffer, mimeType: "image/png", provider: actualProvider, attempts }
 }
 
 export interface GeneratePostImageOptions {
@@ -400,16 +476,23 @@ export async function generatePostImage(options: GeneratePostImageOptions): Prom
   // imagePrompt followed instructions — every image gets an
   // industry-appropriate setting, a consistent premium photography style,
   // and (for non-tech niches) a guard against generic corporate stock-photo
-  // compositions, regardless of what the model itself produced.
+  // compositions, regardless of what the model itself produced. The two
+  // caller-supplied pieces are length-capped before joining so neither an
+  // unusually long LLM-generated imagePrompt nor a verbose brand
+  // target_audience can push the assembled prompt toward Pollinations' URL
+  // length ceiling — every other piece here is a short, fixed string.
+  const cappedImagePrompt = capLength(options.imagePrompt, MAX_IMAGE_PROMPT_CHARS)
+  const cappedTargetAudience = options.targetAudience ? capLength(options.targetAudience, MAX_TARGET_AUDIENCE_CHARS) : null
+
   const fullPrompt = [
-    options.imagePrompt,
+    cappedImagePrompt,
     options.brandNiche ? `${options.brandNiche} brand` : "",
     resolveNicheSetting(options.brandNiche),
-    options.targetAudience ? `styled to appeal to ${options.targetAudience}` : "",
+    cappedTargetAudience ? `styled to appeal to ${cappedTargetAudience}` : "",
     PHOTOGRAPHY_STYLE,
     buildNegativeGuard(options.brandNiche),
     "leave the lower third of the frame visually simpler and less busy for a text overlay",
-    IMAGE_QUALITY_SAFETY_BOILERPLATE,
+    POST_IMAGE_QUALITY_AND_NEGATIVE_GUARD,
   ].filter(Boolean).join(", ")
 
   const retryPrompt = simplifyPrompt(fullPrompt, options.brandNiche)
@@ -429,9 +512,9 @@ export async function generatePostImage(options: GeneratePostImageOptions): Prom
       logoUrl: options.logoUrl,
     })
     console.log(`[post-image-pipeline] composited successfully: ${composited.length} bytes`)
-    return { success: true, buffer: composited, mimeType: "image/png", fullPrompt }
+    return { success: true, buffer: composited, mimeType: "image/png", fullPrompt, provider: result.provider, attempts: result.attempts }
   } catch (err) {
     console.error("[post-image-pipeline] compositing failed:", err instanceof Error ? `${err.name}: ${err.message}\n${err.stack}` : err)
-    return { success: false, error: "Couldn't finish styling the generated image. Please try again." }
+    return { success: false, error: "Couldn't finish styling the generated image. Please try again.", attempts: result.attempts }
   }
 }

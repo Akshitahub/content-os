@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { createClient, createAdminClient } from "@/lib/supabase/server"
 import { generatePostImageSchema } from "@/lib/validations/ai"
-import { generatePostImage } from "@/lib/ai/post-image-pipeline"
+import { generatePostImage, type ImageGenerationAttempt } from "@/lib/ai/post-image-pipeline"
 import { resolveColorThemes, findColorTheme } from "@/lib/design/color-themes"
 import { buildError, ErrorCodes } from "@/types/api"
 import { checkAndIncrementUsage, refundGenerationUsage } from "@/lib/usage/check-and-increment-usage"
@@ -11,7 +11,34 @@ import type { BrandRow } from "@/types/database"
 import type { UserPlan } from "@/types/app"
 
 const BUCKET = "brand-images"
-const MODEL_LABEL = "flux+resvg-composite"
+const FEATURE = "post_image"
+
+/**
+ * Persists every attempt fetchBackgroundImage made (not just the final
+ * outcome) — see docs/research/post-imagery-diagnosis.md issue 3. Never
+ * blocks or fails the response over this: it's pure observability, and a
+ * logging failure here must never look like an image-generation failure
+ * to the user.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function persistAttempts(supabase: any, brandId: string, attempts: ImageGenerationAttempt[]): Promise<void> {
+  if (attempts.length === 0) return
+  try {
+    await supabase.from("image_generation_attempts").insert(
+      attempts.map((a) => ({
+        brand_id: brandId,
+        feature: FEATURE,
+        attempt_number: a.attemptNumber,
+        provider: a.provider,
+        prompt_variant: a.promptVariant,
+        success: a.success,
+        failure_reason: a.failureReason,
+      }))
+    )
+  } catch (err) {
+    console.error("[ai/post-image/generate] failed to persist generation attempts (non-fatal):", err)
+  }
+}
 
 // Chains up to 3 sequential external calls (first attempt, retry, and a
 // possible Flux-to-Pollinations fallback) inside generatePostImage — each
@@ -88,9 +115,15 @@ export async function POST(request: Request) {
 
   if (!result.success) {
     console.error(`[ai/post-image/generate] generation failed after ${Date.now() - startTime}ms:`, result.error)
+    await persistAttempts(supabase, brandId, result.attempts)
+    // Best-effort provider label from whatever was actually attempted —
+    // previously this was hardcoded to "flux+resvg-composite" regardless
+    // of which provider (if any) actually ran, which was actively
+    // misleading for every free-plan (Pollinations) failure.
+    const lastProvider = result.attempts[result.attempts.length - 1]?.provider ?? "unknown"
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await (supabase.from("ai_generation_logs") as any).insert({
-      user_id: user.id, brand_id: brandId, feature: "post_image", model: MODEL_LABEL,
+      user_id: user.id, brand_id: brandId, feature: FEATURE, model: lastProvider,
       latency_ms: Date.now() - startTime, success: false, error_message: result.error,
     })
     // Only refund if this call actually charged a credit — the free
@@ -98,6 +131,8 @@ export async function POST(request: Request) {
     if (shouldCharge) await refundGenerationUsage(supabase, user.id)
     return NextResponse.json(buildError(ErrorCodes.AI_GENERATION_FAILED, result.error), { status: 500 })
   }
+
+  await persistAttempts(supabase, brandId, result.attempts)
 
   // Upload via the admin client — storage RLS expects the path to start
   // with the user's auth uid, admin bypasses RLS safely here since brand
@@ -122,6 +157,14 @@ export async function POST(request: Request) {
   const { data: publicUrlData } = admin.storage.from(BUCKET).getPublicUrl(storagePath)
   const latencyMs = Date.now() - startTime
 
+  // model_used and provider both now record the real provider that
+  // actually produced the base image — previously model_used was
+  // hardcoded to "flux+resvg-composite" even for the 100% of production
+  // images that were actually served by Pollinations (every current user
+  // is on the free plan), making it impossible to answer how often the
+  // Flux->Pollinations fallback fires. provider is the new structured
+  // column; model_used keeps its existing "<what produced this>+resvg-composite"
+  // shape for anything still reading it as a single label.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data: savedImage } = await (supabase.from("generated_images") as any).insert({
     brand_id: brandId,
@@ -131,13 +174,14 @@ export async function POST(request: Request) {
     aspect_ratio: "1:1",
     storage_path: storagePath,
     public_url: publicUrlData.publicUrl,
-    model_used: MODEL_LABEL,
+    model_used: `${result.provider}+resvg-composite`,
+    provider: result.provider,
     is_saved: true,
   }).select().single()
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   await (supabase.from("ai_generation_logs") as any).insert({
-    user_id: user.id, brand_id: brandId, feature: "post_image", model: MODEL_LABEL,
+    user_id: user.id, brand_id: brandId, feature: FEATURE, model: `${result.provider}+resvg-composite`,
     latency_ms: latencyMs, success: true,
   })
 
