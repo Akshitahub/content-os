@@ -73,6 +73,98 @@ export async function sendWelcomeEmail(to: string, name?: string): Promise<void>
 }
 
 /**
+ * Sends a payment confirmation receipt right after a plan upgrade is
+ * applied. Mirrors sendWelcomeEmail's shape exactly (silent no-op without
+ * RESEND_API_KEY, logs-and-swallows on send failure, no result the caller
+ * needs to check) — this fires from the server-to-server webhook path,
+ * where a flaky email provider must never fail the webhook response or
+ * block the plan upgrade that already succeeded.
+ */
+export async function sendPaymentConfirmationEmail(
+  to: string,
+  details: { planName: string; amountRupees: number; billingPeriod: "monthly" | "annual" }
+): Promise<void> {
+  if (!process.env.RESEND_API_KEY) return
+
+  const resend = new Resend(process.env.RESEND_API_KEY)
+  const dashboardUrl = `${APP_URL}/dashboard`
+  const periodLabel = details.billingPeriod === "annual" ? "year" : "month"
+  const formattedAmount = `₹${details.amountRupees.toLocaleString("en-IN")}`
+
+  const html = `
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#f9fafb;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f9fafb;padding:40px 20px;">
+    <tr><td align="center">
+      <table width="560" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.08);">
+        <!-- Header -->
+        <tr><td style="background:#0f0f0f;padding:32px 40px;">
+          <p style="margin:0;font-size:20px;font-weight:700;color:#ffffff;letter-spacing:-0.3px;">⚡ SocioPosts</p>
+        </td></tr>
+        <!-- Body -->
+        <tr><td style="padding:40px;">
+          <h1 style="margin:0 0 12px;font-size:26px;font-weight:700;color:#0f0f0f;letter-spacing:-0.5px;">Payment confirmed 🎉</h1>
+          <p style="margin:0 0 24px;font-size:15px;color:#6b7280;line-height:1.6;">
+            Thanks for upgrading! Your ${details.planName} plan is now active.
+          </p>
+          <!-- Receipt -->
+          <table cellpadding="0" cellspacing="0" width="100%" style="margin:0 0 32px;background:#f9fafb;border-radius:8px;">
+            <tr><td style="padding:20px 24px;">
+              <table cellpadding="0" cellspacing="0" width="100%">
+                <tr>
+                  <td style="padding:4px 0;font-size:14px;color:#6b7280;">Plan</td>
+                  <td style="padding:4px 0;font-size:14px;color:#0f0f0f;font-weight:600;text-align:right;">${details.planName}</td>
+                </tr>
+                <tr>
+                  <td style="padding:4px 0;font-size:14px;color:#6b7280;">Billing period</td>
+                  <td style="padding:4px 0;font-size:14px;color:#0f0f0f;font-weight:600;text-align:right;text-transform:capitalize;">${details.billingPeriod}</td>
+                </tr>
+                <tr>
+                  <td style="padding:4px 0;font-size:14px;color:#6b7280;">Amount charged</td>
+                  <td style="padding:4px 0;font-size:14px;color:#0f0f0f;font-weight:600;text-align:right;">${formattedAmount} / ${periodLabel}</td>
+                </tr>
+              </table>
+            </td></tr>
+          </table>
+          <!-- CTA -->
+          <table cellpadding="0" cellspacing="0" style="margin:0 0 32px;">
+            <tr><td style="background:#7c3aed;border-radius:8px;">
+              <a href="${dashboardUrl}" style="display:inline-block;padding:14px 28px;font-size:15px;font-weight:600;color:#ffffff;text-decoration:none;">
+                Go to dashboard →
+              </a>
+            </td></tr>
+          </table>
+          <p style="margin:0;font-size:13px;color:#9ca3af;">
+            Have questions about your billing? Just reply to this email — we read every one.
+          </p>
+        </td></tr>
+        <!-- Footer -->
+        <tr><td style="padding:24px 40px;border-top:1px solid #f3f4f6;">
+          <p style="margin:0;font-size:12px;color:#9ca3af;">
+            You received this because you upgraded your SocioPosts plan.
+          </p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`.trim()
+
+  try {
+    await resend.emails.send({
+      from: FROM,
+      to,
+      subject: `Payment confirmed — ${details.planName} plan is active`,
+      html,
+    })
+  } catch (err) {
+    console.error("[email/payment-confirmation] Failed to send payment confirmation email:", err)
+  }
+}
+
+/**
  * Sends a brand's outreach message directly to an influencer's email.
  * Unlike sendWelcomeEmail, this returns a result the caller must check —
  * the user is actively trying to reach someone, so a silent failure here

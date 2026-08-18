@@ -3,6 +3,7 @@ import Razorpay from "razorpay"
 import { NextResponse } from "next/server"
 import { createAdminClient } from "@/lib/supabase/server"
 import { applyPlanUpgrade } from "@/lib/billing/apply-plan-upgrade"
+import { sendPaymentConfirmationEmail } from "@/lib/email/resend"
 import { buildError, ErrorCodes } from "@/types/api"
 
 interface RazorpayWebhookPayload {
@@ -110,6 +111,25 @@ export async function POST(request: Request) {
   if (error) {
     console.error("[billing/webhook] plan upgrade failed:", error)
     return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Failed to apply plan upgrade."), { status: 500 })
+  }
+
+  // Best-effort receipt — never lets an email-provider hiccup fail this
+  // response or undo the plan upgrade that already succeeded above. This
+  // (not /verify-payment, which depends on the user's browser still being
+  // there) is the reliable place for it, same reasoning as this route's
+  // own doc comment above.
+  try {
+    const { data: authUser } = await admin.auth.admin.getUserById(String(orderUserId))
+    if (authUser?.user?.email) {
+      const planName = orderPlan.charAt(0).toUpperCase() + orderPlan.slice(1)
+      await sendPaymentConfirmationEmail(authUser.user.email, {
+        planName,
+        amountRupees: Number(order.amount) / 100,
+        billingPeriod: "monthly",
+      })
+    }
+  } catch (err) {
+    console.error("[billing/webhook] payment confirmation email failed (non-fatal):", err)
   }
 
   return NextResponse.json({ data: { received: true } }, { status: 200 })
