@@ -6,9 +6,8 @@ import { generatePostImage } from "@/lib/ai/post-image-pipeline"
 import { DEFAULT_POST_TEMPLATE_ID } from "@/lib/design/post-templates"
 import { resolveColorThemes } from "@/lib/design/color-themes"
 import { mergeCaptionWithHookAndCta } from "@/lib/utils/caption-merge"
-import { generateSceneAssets } from "@/lib/video/reel-scene-assets"
-import { renderReelVideo } from "@/lib/video/render-trigger"
-import type { RenderReelVideoInput } from "@/lib/video/render-trigger"
+import { submitSceneAssetJobs } from "@/lib/video/reel-scene-assets"
+import type { KlingWebhookConfig } from "@/lib/video/kling-client"
 import { MUSIC_OPTIONS, resolveMusicTrackId } from "@/lib/video/music-options"
 import { renderCarouselSlidesToPng } from "@/lib/image/carousel-compositor"
 import { uploadMediaToStorage } from "@/lib/storage/upload-media"
@@ -511,27 +510,28 @@ function normalizeReelScenes(raw: unknown): ReelScene[] {
   return scenes
 }
 
-interface RenderAutopilotReelInput {
+interface SubmitAutopilotReelInput {
   brandId: string
   scriptId: string
   jobId: string
   calendarEntryId: string
   scenes: ReelScene[]
-  musicUrl: string | null
 }
 
 /**
- * Runs the same scene-generation → render pipeline as
- * reel-scripts/[scriptId]/video/route.ts's own after() callback
- * (generateSceneAssets + renderReelVideo, updating the same reel_video_jobs
- * row shape) — but also writes the finished video into the Autopilot
- * calendar entry's platform_specific_data once done, since that route has
- * no calendar entry of its own to update (manually generated reels aren't
- * scheduled until a separate later step). Deferred into the caller's
- * after() so it runs post-response — never awaited inline, since a single
- * reel's scene generation + JSON2Video render can take several minutes.
+ * Submits one Kling video job per scene (webhook-driven, see
+ * lib/video/kling-client.ts) plus each scene's TTS voiceover — mirrors
+ * reel-scripts/[scriptId]/video/route.ts's own after() callback exactly.
+ * Actual completion (JSON2Video render, writing the finished video back
+ * into this reel's calendar entry) is handled centrally by
+ * app/api/v1/webhooks/kling/route.ts once every scene has reported in, via
+ * reel_video_jobs.calendar_entry_id (set on the job row right after the
+ * calendar entry itself is inserted — see executeFastlane below). This
+ * function only needs to handle the case where every single scene fails to
+ * even submit, since then no webhook will ever arrive to report that.
+ * Deferred into the caller's after() so it runs post-response.
  */
-async function renderAutopilotReel(input: RenderAutopilotReelInput): Promise<void> {
+async function submitAutopilotReel(input: SubmitAutopilotReelInput): Promise<void> {
   const admin = await createAdminClient()
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const jobsTable = (admin as any).from("reel_video_jobs")
@@ -549,24 +549,33 @@ async function renderAutopilotReel(input: RenderAutopilotReelInput): Promise<voi
       .eq("id", input.calendarEntryId)
   }
 
+  if (!process.env.NEXT_PUBLIC_APP_URL || !process.env.KLING_WEBHOOK_SECRET) {
+    console.error(`[fastlane] reel job ${input.jobId}: NEXT_PUBLIC_APP_URL or KLING_WEBHOOK_SECRET not configured`)
+    await jobsTable
+      .update({ status: "failed", progress_message: null, error_message: "Video generation isn't configured yet." })
+      .eq("id", input.jobId)
+    await failEntry("Video generation isn't configured yet.")
+    return
+  }
+
+  const webhookConfig: KlingWebhookConfig = {
+    endpoint: `${process.env.NEXT_PUBLIC_APP_URL}/api/v1/webhooks/kling`,
+    secret: process.env.KLING_WEBHOOK_SECRET,
+  }
+
   try {
     await jobsTable
       .update({ status: "generating_images", progress_message: "Generating AI video scenes and voiceover — this can take a few minutes…" })
       .eq("id", input.jobId)
 
-    const sceneAssets = await generateSceneAssets(input.brandId, input.scriptId, input.scenes)
-    const failedScenes = sceneAssets.filter((s) => s.error)
-    const hasUsableAssets = sceneAssets.some((s) => s.videoUrl && s.audioUrl)
+    const result = await submitSceneAssetJobs(admin, input.brandId, input.scriptId, input.jobId, input.scenes, undefined, webhookConfig)
 
-    if (!hasUsableAssets) {
-      if (failedScenes.length > 0) {
-        console.error(`[fastlane] reel job ${input.jobId} scene failures:`, failedScenes.map((s) => s.error))
-      }
+    if (result.pendingCount === 0) {
+      console.error(`[fastlane] reel job ${input.jobId}: all ${result.totalScenes} scene(s) failed to submit`)
       await jobsTable
         .update({
           status: "failed",
           progress_message: null,
-          scene_assets: sceneAssets as unknown as Json,
           error_message: "Couldn't generate any usable scene assets for this video.",
         })
         .eq("id", input.jobId)
@@ -576,52 +585,15 @@ async function renderAutopilotReel(input: RenderAutopilotReelInput): Promise<voi
 
     await jobsTable
       .update({
-        status: "assets_ready",
+        status: "generating_voiceover",
         progress_message:
-          failedScenes.length > 0
-            ? `Video scenes ready — ${failedScenes.length} scene(s) had an issue and may need attention.`
-            : "All video scenes generated. Finalizing your video…",
-        scene_assets: sceneAssets as unknown as Json,
+          result.immediateFailureCount > 0
+            ? `${result.immediateFailureCount} scene(s) failed to start — generating the rest…`
+            : "Generating AI video scenes — this can take a few minutes…",
       })
       .eq("id", input.jobId)
-
-    await jobsTable
-      .update({ status: "rendering", progress_message: "Combining your scenes into the final video…" })
-      .eq("id", input.jobId)
-
-    const renderInput: RenderReelVideoInput = {
-      jobId: input.jobId,
-      scenes: sceneAssets
-        .filter((s) => s.videoUrl !== null)
-        .map((s) => ({ imageUrl: s.videoUrl!, audioUrl: s.audioUrl, text: s.voiceoverText, durationSeconds: s.durationSeconds })),
-      musicUrl: input.musicUrl,
-    }
-
-    const renderResult = await renderReelVideo(renderInput)
-
-    if (renderResult.success) {
-      await jobsTable
-        .update({ status: "completed", progress_message: null, video_url: renderResult.videoUrl })
-        .eq("id", input.jobId)
-
-      const { data: current } = await entriesTable
-        .select("platform_specific_data")
-        .eq("id", input.calendarEntryId)
-        .single()
-      const existing = (current?.platform_specific_data ?? {}) as Record<string, unknown>
-      await entriesTable
-        .update({
-          platform_specific_data: { ...existing, content_format: "video", video_status: "ready", video_url: renderResult.videoUrl },
-        })
-        .eq("id", input.calendarEntryId)
-    } else {
-      await jobsTable
-        .update({ status: "failed", progress_message: null, error_message: renderResult.error })
-        .eq("id", input.jobId)
-      await failEntry(renderResult.error)
-    }
   } catch (err) {
-    console.error(`[fastlane] reel job ${input.jobId} failed:`, err instanceof Error ? err.message : err)
+    console.error(`[fastlane] reel job ${input.jobId} submit failed:`, err instanceof Error ? err.message : err)
     await jobsTable
       .update({ status: "failed", progress_message: null, error_message: "Video generation failed." })
       .eq("id", input.jobId)
@@ -998,9 +970,19 @@ export async function executeFastlane(
           const jobId = reelVideoJobId
           const scriptId = reelScriptId
           const scenesForRender = reelScenes
-          const musicUrl = reelMusicUrl
+
+          // Links the job back to this calendar entry so
+          // app/api/v1/webhooks/kling/route.ts can find and update it once
+          // every scene has reported in and the video is actually done —
+          // set here (not at job-creation time above) since the calendar
+          // entry itself didn't exist yet then.
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          await (supabase.from("reel_video_jobs") as any)
+            .update({ calendar_entry_id: calendarEntryId })
+            .eq("id", jobId)
+
           after(async () => {
-            await renderAutopilotReel({ brandId, scriptId, jobId, calendarEntryId, scenes: scenesForRender, musicUrl })
+            await submitAutopilotReel({ brandId, scriptId, jobId, calendarEntryId, scenes: scenesForRender })
           })
         }
 

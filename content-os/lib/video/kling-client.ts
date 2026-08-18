@@ -1,36 +1,39 @@
 /**
- * Kling AI video generation client.
+ * Kling AI video generation client — submit-and-webhook, not submit-and-poll.
  *
- * PROVIDER NOTE: Kling can be reached either via Kuaishou's own direct API
- * (what this file targets — https://klingapi.com/docs) or via an aggregator
- * that resells Kling access, e.g. PiAPI (https://piapi.ai/docs/kling-api),
- * fal.ai (https://fal.ai/models/fal-ai/kling-video), or WaveSpeedAI. Several
- * of those are commonly used in production instead of the direct API since
- * they smooth over Kuaishou's account/region setup. No provider has been
- * chosen yet, so this defaults to the direct API's request/response shape.
- * If a different provider is bought instead, only `submitKlingJob` and
- * `pollKlingJob` below need to change (different base URL, auth header,
- * and response field names) — `generateKlingVideo`'s public signature, and
- * every call site elsewhere in the app, stays the same.
+ * PROVIDER: PiAPI (https://piapi.ai/docs/kling-api), an aggregator reselling
+ * Kuaishou's Kling model. `KLING_API_BASE` below is PiAPI's own base URL.
+ *
+ * ARCHITECTURE NOTE (2026-08-18): this used to submit a task and then poll
+ * it in a loop inside the same request/function invocation — that's what
+ * made reel video generation dependent on Vercel's maxDuration ceiling.
+ * PiAPI supports a real webhook mechanism (confirmed via their docs, not
+ * assumed) via a `webhook_config: { endpoint, secret }` field on task
+ * creation — NOT a field literally called `callBackUrl`. This client now
+ * only submits; the webhook receiver at app/api/v1/webhooks/kling/route.ts
+ * is where a task's result actually gets handled, in its own separate
+ * function invocation with its own fresh execution budget.
+ *
+ * Webhook payload PiAPI POSTs to `endpoint`: `{ timestamp, data }`, where
+ * `data` mirrors this same file's KlingTaskData shape (task_id, status,
+ * output.video_url, error.message) — i.e. the same shape the old poll
+ * endpoint returned. Auth is a plain shared secret, not HMAC: if a secret
+ * is configured, PiAPI sends it back verbatim in an `x-webhook-secret`
+ * header for the receiver to compare — see the webhook route for that
+ * check. Fires on both task-created and terminal (completed/failed)
+ * states, and retries up to 3x on a non-2xx response.
  *
  * COST: Kling's budget/"std" tier without native audio runs roughly
  * $0.07-0.08 per second of generated video (a 5s clip ≈ $0.35-0.40, a 10s
  * clip ≈ $0.70-0.80). Every reel scene generated through this client has a
- * real, non-trivial cost — keep that in mind before loosening reel limits,
- * retry counts, or poll timeouts.
+ * real, non-trivial cost — keep that in mind before loosening reel limits
+ * or retry counts.
  */
 
 const KLING_API_BASE = "https://api.piapi.ai/api/v1"
 
-// Kling generation is genuinely slow (roughly 30s-several minutes per clip
-// depending on provider/load) — this is not a near-instant call like
-// Pollinations was. 5s interval, up to 48 attempts = ~4 minutes of polling
-// per scene before giving up.
-const POLL_INTERVAL_MS = 5000
-const MAX_POLL_ATTEMPTS = 48
-
-// Matches the exponential backoff already used in
-// lib/video/reel-scene-assets.ts and lib/storage/upload-media.ts for
+// Matches the exponential backoff already used elsewhere in this codebase
+// (lib/video/reel-scene-assets.ts, lib/storage/upload-media.ts) for
 // rate-limited (429) calls: 1s, 2s, 4s, 8s.
 const SUBMIT_BACKOFF_DELAYS_MS = [1000, 2000, 4000, 8000]
 
@@ -47,27 +50,47 @@ interface KlingSubmitResponse {
   }
 }
 
-interface KlingPollResponse {
-  data?: {
-    status?: "pending" | "processing" | "failed" | "completed"
-    output?: { video_url?: string }
-    error?: { message?: string }
-  }
+/** The shape of PiAPI's webhook `data` field, and of a GET /task/{id} response's `data` — identical either way. */
+export interface KlingTaskData {
+  task_id?: string
+  status?: "pending" | "processing" | "failed" | "completed"
+  output?: { video_url?: string }
+  error?: { message?: string }
 }
 
-type KlingSubmitResult =
+export interface KlingWebhookPayload {
+  timestamp?: number
+  data?: KlingTaskData
+}
+
+export interface KlingWebhookConfig {
+  endpoint: string
+  secret: string
+}
+
+export type KlingSubmitResult =
   | { taskId: string }
   | { error: string; retryable: boolean }
 
-type KlingPollResult =
-  | { videoUrl: string }
-  | { error: string; retryable: boolean }
-
-async function submitKlingJob(
-  apiKey: string,
+/**
+ * Submits a Kling video generation task and returns immediately with its
+ * task_id — does NOT wait for the video to finish. The result arrives
+ * later via the webhook configured in `webhook`.
+ */
+export async function submitKlingVideoJob(
   prompt: string,
-  options: { durationSeconds: number; aspectRatio: "9:16" | "16:9" | "1:1" }
+  options: { durationSeconds: number; aspectRatio: "9:16" | "16:9" | "1:1" },
+  webhook: KlingWebhookConfig
 ): Promise<KlingSubmitResult> {
+  const apiKey = process.env.KLING_API_KEY
+  if (!apiKey) {
+    console.error("[kling-client] KLING_API_KEY is not configured")
+    return { error: "Video generation isn't configured yet.", retryable: false }
+  }
+  if (!prompt.trim()) {
+    return { error: "No prompt provided for video generation.", retryable: false }
+  }
+
   // Kling only supports fixed 5s/10s clip lengths as of writing — round to
   // the nearest supported duration rather than failing outright.
   const duration = options.durationSeconds > 7 ? 10 : 5
@@ -93,6 +116,7 @@ async function submitKlingJob(
             // separately, so paying for Kling's audio would be redundant.
             mode: "std",
           },
+          webhook_config: { endpoint: webhook.endpoint, secret: webhook.secret },
         }),
       })
     } catch (err) {
@@ -118,80 +142,5 @@ async function submitKlingJob(
     }
 
     return { taskId }
-  }
-}
-
-async function pollKlingJob(apiKey: string, taskId: string): Promise<KlingPollResult> {
-  for (let attempt = 0; attempt < MAX_POLL_ATTEMPTS; attempt++) {
-    await sleep(POLL_INTERVAL_MS)
-
-    let res: Response
-    try {
-      res = await fetch(`${KLING_API_BASE}/task/${taskId}`, {
-        headers: { "x-api-key": apiKey },
-      })
-    } catch (err) {
-      // Transient network hiccup — keep polling rather than failing the
-      // whole scene on one dropped request.
-      console.error(`[kling-client] poll network error (task ${taskId}):`, err instanceof Error ? err.message : err)
-      continue
-    }
-
-    if (!res.ok) {
-      console.error(`[kling-client] poll failed for task ${taskId}: HTTP ${res.status}`)
-      continue
-    }
-
-    const json = await res.json().catch(() => null) as KlingPollResponse | null
-    const status = json?.data?.status
-
-    if (status === "completed") {
-      const videoUrl = json?.data?.output?.video_url
-      if (!videoUrl) {
-        return { error: "Kling reported success but returned no video.", retryable: false }
-      }
-      return { videoUrl }
-    }
-
-    if (status === "failed") {
-      return { error: json?.data?.error?.message ?? "Kling video generation failed.", retryable: false }
-    }
-
-    // "pending" / "processing" (or an unrecognized transient shape) —
-    // keep polling until MAX_POLL_ATTEMPTS is exhausted.
-  }
-
-  return { error: "Timed out waiting for video generation to finish.", retryable: true }
-}
-
-export async function generateKlingVideo(
-  prompt: string,
-  options: { durationSeconds: number; aspectRatio: "9:16" | "16:9" | "1:1" }
-): Promise<{ success: true; videoUrl: string } | { success: false; error: string; retryable: boolean }> {
-  const apiKey = process.env.KLING_API_KEY
-  if (!apiKey) {
-    console.error("[kling-client] KLING_API_KEY is not configured")
-    return { success: false, error: "Video generation isn't configured yet.", retryable: false }
-  }
-
-  if (!prompt.trim()) {
-    return { success: false, error: "No prompt provided for video generation.", retryable: false }
-  }
-
-  try {
-    const submitResult = await submitKlingJob(apiKey, prompt, options)
-    if ("error" in submitResult) {
-      return { success: false, error: submitResult.error, retryable: submitResult.retryable }
-    }
-
-    const pollResult = await pollKlingJob(apiKey, submitResult.taskId)
-    if ("error" in pollResult) {
-      return { success: false, error: pollResult.error, retryable: pollResult.retryable }
-    }
-
-    return { success: true, videoUrl: pollResult.videoUrl }
-  } catch (err) {
-    console.error("[kling-client] unexpected error:", err instanceof Error ? err.message : err)
-    return { success: false, error: "Unexpected error generating video.", retryable: true }
   }
 }

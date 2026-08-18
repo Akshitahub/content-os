@@ -1,7 +1,9 @@
+import type { SupabaseClient } from "@supabase/supabase-js"
 import { getGroqClient } from "@/lib/ai/models"
 import { uploadMediaToStorage } from "@/lib/storage/upload-media"
-import { generateKlingVideo } from "@/lib/video/kling-client"
+import { submitKlingVideoJob, type KlingWebhookConfig } from "@/lib/video/kling-client"
 import type { ReelScene } from "@/types/app"
+import type { Database } from "@/types/database"
 
 // Groq's TTS model — priced per character ($50/1M chars as of writing),
 // unlike the free-tier llama models used elsewhere in this codebase.
@@ -15,17 +17,17 @@ import type { ReelScene } from "@/types/app"
 const TTS_MODEL = "canopylabs/orpheus-v1-english"
 const TTS_VOICE = "troy"
 
-// Stagger each scene's start so we don't fire every scene's video + TTS
-// request at the same instant — this originally guarded against
-// Pollinations' and Groq's rate limits (700ms wasn't enough headroom under
-// real load; bumped to 1500ms), and matters just as much now that "image"
-// generation means a real Kling job with its own per-account concurrency
-// limits.
+// Stagger each scene's Kling submission + TTS call so we don't fire
+// everything at the same instant — guards against PiAPI's and Groq's
+// per-account rate/concurrency limits. Submission itself is now fast (no
+// polling happens here), so this only adds a few seconds total even for a
+// 10-scene reel, not the minutes it used to when each stagger step also
+// waited out a full generation.
 const SCENE_STAGGER_MS = 1500
 
-// Exponential backoff for rate-limited (429) calls: 1s, 2s, 4s, 8s over up
-// to 4 retries — widened from 3 retries (500ms-4s) after production testing
-// still showed most scenes failing with 429s under the shorter backoff.
+// Exponential backoff for rate-limited (429) TTS calls: 1s, 2s, 4s, 8s over
+// up to 4 retries — widened from 3 retries (500ms-4s) after production
+// testing still showed most calls failing with 429s under the shorter backoff.
 const BACKOFF_DELAYS_MS = [1000, 2000, 4000, 8000]
 
 function sleep(ms: number): Promise<void> {
@@ -49,50 +51,6 @@ async function retryOn429<T>(fn: () => Promise<T>, maxRetries = 4): Promise<T> {
       await sleep(delay)
     }
   }
-}
-
-export interface SceneAsset {
-  sceneIndex: number
-  visualDirection: string
-  voiceoverText: string
-  durationSeconds: number
-  videoUrl: string | null
-  audioUrl: string | null
-  error: string | null
-}
-
-/**
- * Generates a real motion video clip for one scene via Kling AI (replacing
- * the earlier Pollinations still-image approach), then re-hosts it to
- * Supabase Storage — Kling's own returned URLs aren't guaranteed to stay
- * reachable long-term, same reasoning as the image/audio re-hosting below.
- */
-async function generateSceneVideo(
-  brandId: string,
-  scriptId: string,
-  sceneIndex: number,
-  visualDirection: string,
-  durationSeconds: number
-): Promise<{ url: string } | { error: string }> {
-  const result = await generateKlingVideo(visualDirection, {
-    durationSeconds,
-    aspectRatio: "9:16",
-  })
-
-  if (!result.success) {
-    console.error(`[reel-scene-assets] scene ${sceneIndex} Kling generation failed:`, result.error)
-    return { error: result.error }
-  }
-
-  const uploadResult = await uploadMediaToStorage(
-    { kind: "remoteUrl", url: result.videoUrl },
-    `${brandId}/reel-video/${scriptId}/scene-${sceneIndex}-video`
-  )
-  if ("error" in uploadResult) {
-    console.error(`[reel-scene-assets] scene ${sceneIndex} video hosting failed:`, uploadResult.error)
-    return { error: uploadResult.error }
-  }
-  return { url: uploadResult.publicUrl }
 }
 
 async function generateSceneVoiceover(
@@ -137,15 +95,32 @@ async function generateSceneVoiceover(
   }
 }
 
+export interface SubmitScenesResult {
+  totalScenes: number
+  /** Scenes with a valid Kling task_id, now awaiting the webhook. */
+  pendingCount: number
+  /** Scenes whose Kling submit call itself failed — no webhook will ever arrive for these. */
+  immediateFailureCount: number
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function reelVideoJobScenesTable(supabase: SupabaseClient<Database>): any {
+  return supabase.from("reel_video_job_scenes")
+}
+
 /**
- * Generates one real AI video clip (Kling, re-hosted to Supabase Storage for
- * reliability) and one Groq TTS voiceover clip per scene. Each scene's start
- * is staggered by SCENE_STAGGER_MS rather than firing all scenes at once —
- * reel scripts can have 6-10 scenes, and generating everything simultaneously
- * risks tripping Kling's and Groq's rate/concurrency limits. Never throws: a
- * failure on one scene is captured in that scene's own `error` field rather
- * than aborting the whole batch, so the caller can decide how to handle
- * partial failures.
+ * Submits one Kling video-generation task per scene (webhook-driven, not
+ * polled) and one Groq TTS voiceover per scene (still synchronous — TTS is
+ * fast and isn't the timeout risk Kling's full generation was), then
+ * writes one reel_video_job_scenes row per scene recording the outcome.
+ * Each scene's start is staggered by SCENE_STAGGER_MS, same reasoning as
+ * before: reel scripts can have 6-10 scenes, and firing everything at once
+ * risks tripping PiAPI's and Groq's rate/concurrency limits.
+ *
+ * Never throws: a scene whose Kling submit fails outright gets a 'failed'
+ * row immediately (no webhook will ever arrive for it) rather than
+ * aborting the whole batch — the caller decides what a job with 0 pending
+ * scenes means (total failure, nothing to wait for).
  *
  * `scenePromptOverrides` lets a caller substitute a scene's own
  * `visual_direction` with a user-confirmed prompt (raw or AI-enhanced, from
@@ -153,37 +128,68 @@ async function generateSceneVoiceover(
  * per-index so a script's original prompt is used wherever no override was
  * supplied.
  */
-export async function generateSceneAssets(
+export async function submitSceneAssetJobs(
+  supabase: SupabaseClient<Database>,
   brandId: string,
   scriptId: string,
+  jobId: string,
   scenes: ReelScene[],
-  scenePromptOverrides?: (string | undefined)[]
-): Promise<SceneAsset[]> {
-  return Promise.all(
-    scenes.map(async (scene, sceneIndex): Promise<SceneAsset> => {
+  scenePromptOverrides: (string | undefined)[] | undefined,
+  webhook: KlingWebhookConfig
+): Promise<SubmitScenesResult> {
+  const rows = await Promise.all(
+    scenes.map(async (scene, sceneIndex) => {
       await sleep(sceneIndex * SCENE_STAGGER_MS)
 
       const prompt = scenePromptOverrides?.[sceneIndex]?.trim() || scene.visual_direction
 
-      const [videoResult, audioResult] = await Promise.all([
-        generateSceneVideo(brandId, scriptId, sceneIndex, prompt, scene.duration_seconds),
+      const [submitResult, audioResult] = await Promise.all([
+        submitKlingVideoJob(prompt, { durationSeconds: scene.duration_seconds, aspectRatio: "9:16" }, webhook),
         generateSceneVoiceover(brandId, scriptId, sceneIndex, scene.voiceover_or_text_overlay),
       ])
 
-      const errors = [
-        "error" in videoResult ? `Video: ${videoResult.error}` : null,
-        "error" in audioResult ? `Voiceover: ${audioResult.error}` : null,
-      ].filter((e): e is string => e !== null)
+      const audioUrl = "url" in audioResult ? audioResult.url : null
+
+      if ("error" in submitResult) {
+        console.error(`[reel-scene-assets] scene ${sceneIndex} Kling submit failed:`, submitResult.error)
+        return {
+          job_id: jobId,
+          scene_index: sceneIndex,
+          visual_direction: prompt,
+          voiceover_text: scene.voiceover_or_text_overlay,
+          duration_seconds: scene.duration_seconds,
+          kling_task_id: null,
+          status: "failed" as const,
+          video_url: null,
+          audio_url: audioUrl,
+          error_message: `Video: ${submitResult.error}`,
+        }
+      }
 
       return {
-        sceneIndex,
-        visualDirection: prompt,
-        voiceoverText: scene.voiceover_or_text_overlay,
-        durationSeconds: scene.duration_seconds,
-        videoUrl: "url" in videoResult ? videoResult.url : null,
-        audioUrl: "url" in audioResult ? audioResult.url : null,
-        error: errors.length > 0 ? errors.join(" ") : null,
+        job_id: jobId,
+        scene_index: sceneIndex,
+        visual_direction: prompt,
+        voiceover_text: scene.voiceover_or_text_overlay,
+        duration_seconds: scene.duration_seconds,
+        kling_task_id: submitResult.taskId,
+        status: "pending" as const,
+        video_url: null,
+        audio_url: audioUrl,
+        error_message: null,
       }
     })
   )
+
+  const { error: insertError } = await reelVideoJobScenesTable(supabase).insert(rows)
+  if (insertError) {
+    console.error(`[reel-scene-assets] failed to insert scene rows for job ${jobId}:`, insertError)
+  }
+
+  const pendingCount = rows.filter((r) => r.status === "pending").length
+  return {
+    totalScenes: rows.length,
+    pendingCount,
+    immediateFailureCount: rows.length - pendingCount,
+  }
 }

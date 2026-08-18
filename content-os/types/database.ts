@@ -981,6 +981,7 @@ export type Database = {
           music_url: string | null
           video_url: string | null
           error_message: string | null
+          calendar_entry_id: string | null
           created_at: string
           updated_at: string
         }
@@ -994,6 +995,7 @@ export type Database = {
           music_url?: string | null
           video_url?: string | null
           error_message?: string | null
+          calendar_entry_id?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -1003,6 +1005,47 @@ export type Database = {
           scene_assets?: Json
           music_url?: string | null
           video_url?: string | null
+          error_message?: string | null
+          calendar_entry_id?: string | null
+          updated_at?: string
+        }
+      }
+      reel_video_job_scenes: {
+        Row: {
+          id: string
+          job_id: string
+          scene_index: number
+          visual_direction: string
+          voiceover_text: string
+          duration_seconds: number
+          kling_task_id: string | null
+          status: "pending" | "completed" | "failed"
+          video_url: string | null
+          audio_url: string | null
+          error_message: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          job_id: string
+          scene_index: number
+          visual_direction: string
+          voiceover_text: string
+          duration_seconds: number
+          kling_task_id?: string | null
+          status?: "pending" | "completed" | "failed"
+          video_url?: string | null
+          audio_url?: string | null
+          error_message?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          kling_task_id?: string | null
+          status?: "pending" | "completed" | "failed"
+          video_url?: string | null
+          audio_url?: string | null
           error_message?: string | null
           updated_at?: string
         }
@@ -1116,6 +1159,7 @@ export type EmailSequenceRow = Database["public"]["Tables"]["email_sequences"]["
 export type ProductDescriptionRow = Database["public"]["Tables"]["product_descriptions"]["Row"]
 export type SocialConnectionRow = Database["public"]["Tables"]["social_connections"]["Row"]
 export type ReelVideoJobRow = Database["public"]["Tables"]["reel_video_jobs"]["Row"]
+export type ReelVideoJobSceneRow = Database["public"]["Tables"]["reel_video_job_scenes"]["Row"]
 export type StoryRow = Database["public"]["Tables"]["stories"]["Row"]
 export type MemeRow = Database["public"]["Tables"]["memes"]["Row"]
 export type PostImageGenerationSessionRow = Database["public"]["Tables"]["post_image_generation_sessions"]["Row"]
@@ -1140,4 +1184,5 @@ export type EmailSequenceInsert = Database["public"]["Tables"]["email_sequences"
 export type ProductDescriptionInsert = Database["public"]["Tables"]["product_descriptions"]["Insert"]
 export type SocialConnectionInsert = Database["public"]["Tables"]["social_connections"]["Insert"]
 export type ReelVideoJobInsert = Database["public"]["Tables"]["reel_video_jobs"]["Insert"]
+export type ReelVideoJobSceneInsert = Database["public"]["Tables"]["reel_video_job_scenes"]["Insert"]
 export type StoryInsert = Database["public"]["Tables"]["stories"]["Insert"]

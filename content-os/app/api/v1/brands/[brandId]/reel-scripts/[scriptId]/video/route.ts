@@ -1,9 +1,7 @@
 import { NextResponse, after } from "next/server"
 import { createClient, createAdminClient } from "@/lib/supabase/server"
 import { buildError, ErrorCodes } from "@/types/api"
-import { generateSceneAssets } from "@/lib/video/reel-scene-assets"
-import { renderReelVideo } from "@/lib/video/render-trigger"
-import type { RenderReelVideoInput } from "@/lib/video/render-trigger"
+import { submitSceneAssetJobs } from "@/lib/video/reel-scene-assets"
 import { checkAndIncrementReelUsage, refundReelUsage } from "@/lib/usage/check-and-increment-reel-usage"
 import { MUSIC_OPTIONS } from "@/lib/video/music-options"
 import { z } from "zod"
@@ -22,14 +20,15 @@ const bodySchema = z.object({
   musicTrackId: z.string().optional(),
 })
 
-// Kling video generation is genuinely slow (submit + poll, often
-// 30s-several minutes per clip) — nothing like Pollinations' near-instant
-// stills. 300s is Vercel Pro's function-duration ceiling; Vercel Hobby hard-
-// caps at 60s regardless of this setting and cannot run this reliably at
-// all with real scene counts. If jobs are timing out in production, the
-// real fix is moving off in-request polling (Kling supports a
-// `callBackUrl` webhook) rather than raising this further.
-export const maxDuration = 300
+// This route only SUBMITS work now — one Kling task per scene (webhook-
+// driven, see lib/video/kling-client.ts) plus synchronous Groq TTS calls,
+// staggered SCENE_STAGGER_MS apart. No polling happens here anymore, so
+// even a 10-scene reel should finish submission in well under 30s. The
+// actual generation result arrives later via
+// app/api/v1/webhooks/kling/route.ts, which also triggers the JSON2Video
+// render step once every scene has reported in — that route has its own
+// separate, longer maxDuration budget, independent of this one.
+export const maxDuration = 30
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function reelVideoJobsTable(supabase: any): any {
@@ -62,6 +61,13 @@ export async function POST(request: Request, { params }: RouteParams) {
   // their one-time free reel or weekly allowance on.
   if (!process.env.KLING_API_KEY) {
     console.error("[reel-scripts/video] KLING_API_KEY is not configured")
+    return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Video generation isn't configured yet."), { status: 500 })
+  }
+  // Same reasoning — without this, every scene's Kling job would be
+  // submitted with no way for the webhook receiver to verify (or even
+  // trust) the callback, and no way for us to ever learn the result.
+  if (!process.env.KLING_WEBHOOK_SECRET) {
+    console.error("[reel-scripts/video] KLING_WEBHOOK_SECRET is not configured")
     return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Video generation isn't configured yet."), { status: 500 })
   }
 
@@ -138,11 +144,18 @@ export async function POST(request: Request, { params }: RouteParams) {
     return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Failed to start video generation."), { status: 500 })
   }
 
-  // Runs after the response is sent, so the client isn't held open while
-  // several Kling video + TTS calls complete. Still bounded by the
-  // function's own max execution duration — it just doesn't block the HTTP
-  // response. Kling generation is genuinely slow now (see maxDuration
-  // comment above), so this can legitimately run for minutes.
+  // Absolute URL PiAPI's webhook needs to reach — same fallback convention
+  // used by every OAuth callback route in this codebase (NEXT_PUBLIC_APP_URL,
+  // falling back to the request's own origin).
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? new URL(request.url).origin
+  const webhookConfig = { endpoint: `${appUrl}/api/v1/webhooks/kling`, secret: process.env.KLING_WEBHOOK_SECRET! }
+
+  // Runs after the response is sent, so the client isn't held open — but
+  // unlike before, this only SUBMITS each scene's Kling job and generates
+  // its TTS voiceover (both fast, no polling), so it finishes in seconds,
+  // not minutes. The actual video results arrive later via
+  // app/api/v1/webhooks/kling/route.ts, which also owns triggering the
+  // JSON2Video render step once every scene has reported in.
   after(async () => {
     const admin = await createAdminClient()
 
@@ -151,22 +164,17 @@ export async function POST(request: Request, { params }: RouteParams) {
         .update({ status: "generating_images", progress_message: "Generating AI video scenes and voiceover — this can take a few minutes…" })
         .eq("id", job.id)
 
-      const sceneAssets = await generateSceneAssets(brandId, scriptId, scenes, scenePrompts)
-      const failedScenes = sceneAssets.filter((s) => s.error)
-      const hasUsableAssets = sceneAssets.some((s) => s.videoUrl && s.audioUrl)
+      const result = await submitSceneAssetJobs(admin, brandId, scriptId, job.id, scenes, scenePrompts, webhookConfig)
 
-      if (!hasUsableAssets) {
-        // scene_assets (stored, not shown as a raw string) retains each
-        // scene's own error for debugging; error_message shown to the user
-        // stays a fixed, clean sentence — never the raw per-scene error text.
-        if (failedScenes.length > 0) {
-          console.error(`[reel-scripts/video] job ${job.id} scene failures:`, failedScenes.map((s) => s.error))
-        }
+      if (result.pendingCount === 0) {
+        // Every scene failed to even submit — no webhook will ever arrive
+        // for any of them, so this is a total failure right now rather than
+        // something to wait on.
+        console.error(`[reel-scripts/video] job ${job.id}: all ${result.totalScenes} scene(s) failed to submit`)
         await reelVideoJobsTable(admin)
           .update({
             status: "failed",
             progress_message: null,
-            scene_assets: sceneAssets as unknown as Json,
             error_message: "Couldn't generate any usable scene assets for this video. Please try again.",
           })
           .eq("id", job.id)
@@ -177,43 +185,21 @@ export async function POST(request: Request, { params }: RouteParams) {
         return
       }
 
+      // At least one scene is genuinely in flight — the webhook receiver
+      // takes it from here (per-scene completion, then the JSON2Video
+      // render step once all scenes have reported in).
       await reelVideoJobsTable(admin)
         .update({
-          status: "assets_ready",
+          status: "generating_voiceover",
           progress_message:
-            failedScenes.length > 0
-              ? `Video scenes ready — ${failedScenes.length} scene(s) had an issue and may need attention.`
-              : "All video scenes generated. Finalizing your video…",
-          scene_assets: sceneAssets as unknown as Json,
+            result.immediateFailureCount > 0
+              ? `${result.immediateFailureCount} scene(s) failed to start — generating the rest…`
+              : "Generating AI video scenes — this can take a few minutes…",
         })
         .eq("id", job.id)
-
-      await reelVideoJobsTable(admin)
-        .update({ status: "rendering", progress_message: "Combining your scenes into the final video…" })
-        .eq("id", job.id)
-
-      const renderInput: RenderReelVideoInput = {
-        jobId: job.id,
-        scenes: sceneAssets
-          .filter((s) => s.videoUrl !== null)
-          .map((s) => ({ imageUrl: s.videoUrl!, audioUrl: s.audioUrl, text: s.voiceoverText, durationSeconds: s.durationSeconds })),
-        musicUrl: job.music_url ?? musicUrl,
-      }
-
-      const renderResult = await renderReelVideo(renderInput)
-
-      if (renderResult.success) {
-        await reelVideoJobsTable(admin)
-          .update({ status: "completed", progress_message: null, video_url: renderResult.videoUrl })
-          .eq("id", job.id)
-      } else {
-        await reelVideoJobsTable(admin)
-          .update({ status: "failed", progress_message: null, error_message: renderResult.error })
-          .eq("id", job.id)
-      }
     } catch (err) {
       // Full raw error stays server-side only — never shown to the user.
-      console.error(`[reel-scripts/video] job ${job.id} failed:`, err instanceof Error ? err.message : err)
+      console.error(`[reel-scripts/video] job ${job.id} submit failed:`, err instanceof Error ? err.message : err)
       await reelVideoJobsTable(admin)
         .update({
           status: "failed",
@@ -221,6 +207,7 @@ export async function POST(request: Request, { params }: RouteParams) {
           error_message: "Video generation failed. Please try again.",
         })
         .eq("id", job.id)
+      await refundReelUsage(admin, user.id)
     }
   })
 
