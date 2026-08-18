@@ -179,7 +179,36 @@ IMAGE PROMPT: Also produce an "image_prompt" — a vivid, CONCRETE visual scene 
 - Avoid generic corporate stock-photo compositions (laptops on a desk, empty office interiors, generic handshake or boardroom meeting scenes) UNLESS this brand's niche is genuinely tech/software/SaaS.
 - It must NOT describe any text, caption, or words appearing in the image itself (text is added separately) — as a soft compositional hint, leave the lower third of the frame visually simpler/less busy, since text will be overlaid there, but do not rely on this for actual text placement.`
 
-export function buildCaptionSystemPrompt(includeImagePrompt = false): string {
+// Readable labels for BrandRow.vibe (a free-text column, same values as
+// app/onboarding/brand-profile/page.tsx's VIBE_LABELS) — used to surface
+// the brand's own stated vibe directly in the caption system prompt
+// instead of leaving VIBE MATCHING to be inferred from tone_of_voice alone
+// (see docs/research/captions-generation-audit.md §3 — vibe was the single
+// most actionable unused brand field).
+const CAPTION_VIBE_LABELS: Record<string, string> = {
+  fun_playful: "Fun & Playful",
+  clean_minimal: "Clean & Minimal",
+  bold_dramatic: "Bold & Dramatic",
+  warm_cozy: "Warm & Cozy",
+  professional: "Professional",
+  trendy_genz: "Trendy & Gen Z",
+}
+
+// Hard character caps per platform — single source of truth shared between
+// the prompt text below (platformRules) and captions-generator.ts's
+// post-generation validation, so the two can never drift apart.
+export const PLATFORM_CHAR_LIMITS: Record<Platform, number> = {
+  instagram: 2200,
+  facebook: 500,
+  tiktok: 300,
+  youtube: 500,
+  linkedin: 3000,
+  twitter: 280,
+}
+
+export function buildCaptionSystemPrompt(vibe?: string | null, includeImagePrompt = false): string {
+  const vibeLabel = vibe ? CAPTION_VIBE_LABELS[vibe] ?? vibe : null
+
   return `You are an expert social media copywriter for Indian D2C brands. You write captions that convert — not just get likes.
 
 CAPTION STRUCTURE (follow this every time):
@@ -197,9 +226,8 @@ BAD hook lines (never write these):
 
 2. Story or value — 2-4 lines building connection, value, or relatability
 3. CTA line — one clear action (always ends with brand's CTA phrase + @handle)
-4. [blank line]
-5. [blank line]
-6. Hashtags — 15-20 tags using the 5+5+5 method below
+
+Hashtags are NEVER part of caption_text — they belong ONLY in the separate "hashtags" JSON field described below. Do not append, embed, or repeat any hashtag anywhere inside caption_text.
 
 NEVER OPEN A CAPTION WITH:
 - "Are you tired of..."
@@ -208,12 +236,12 @@ NEVER OPEN A CAPTION WITH:
 - "Let's talk about..."
 These read as generic AI filler, not a real hook.
 
-HASHTAG STRATEGY — 5+5+5 RULE:
+HASHTAG STRATEGY — 5+5+5 RULE (for the separate "hashtags" field, exactly 15-20 tags total):
 - 5 niche-specific (medium competition, 100K–2M posts): e.g. #SkincareRoutine, #CleanBeautyIndia
 - 5 brand/product-specific (low competition, unique to brand): e.g. #BrandName, #ProductName
 - 5 broad/trending (high volume, 5M+ posts): e.g. #Skincare, #Beauty, #SelfCare
 
-VIBE MATCHING:
+VIBE MATCHING:${vibeLabel ? `\nThis brand's stated vibe is "${vibeLabel}" — use it together with the tone_of_voice above to decide which style below to lean into most (a brand can blend more than one, but the stated vibe should be the dominant signal, not a guess).` : ""}
 - Educational: "Here's why...", "The truth about...", teach a lesson
 - Entertaining: humor, relatable "when you..." moments, wit
 - Inspirational: "You deserve...", "Imagine...", second-person empowerment
@@ -250,13 +278,20 @@ export function buildCaptionUserPrompt(
   const ctaPhrase = b.cta_phrase || "Shop now"
   const handle = brand.instagram_handle ? `@${brand.instagram_handle}` : ""
 
+  // Hashtag counts/placement are intentionally NOT mentioned per-platform
+  // here — the system prompt's HASHTAG STRATEGY section is the single,
+  // global rule (always 15-20, always in the separate "hashtags" field)
+  // regardless of platform. Per-platform text used to also state a
+  // different, contradicting hashtag count (e.g. "1-2 or none" for
+  // Twitter) — that directly conflicted with the global rule and the
+  // validation in captions-generator.ts now enforces, so it's gone.
   const platformRules: Record<Platform, string> = {
-    instagram: `Max 2200 chars. Use line breaks for readability. 3-5 paragraphs. End with: "${ctaPhrase} 👇\\n${handle}". Then 2 blank lines. Then 15-20 hashtags.`,
-    facebook: `Max 500 chars. Conversational. End with "${ctaPhrase}". 1-3 hashtags or none.`,
-    tiktok: `Max 300 chars. Punchy. End with "Follow ${handle || "us"} for more!" 3-5 hashtags.`,
-    youtube: `Max 500 chars. Informative. End with "${ctaPhrase}". 3-5 hashtags.`,
-    linkedin: `Max 3000 chars. Professional storytelling. End with "What do you think? Comment below 👇". 3-5 hashtags.`,
-    twitter: "Max 280 chars. Punchy. 1-2 hashtags or none.",
+    instagram: `Max ${PLATFORM_CHAR_LIMITS.instagram} chars. Use line breaks for readability. 3-5 paragraphs. End with: "${ctaPhrase} 👇\\n${handle}".`,
+    facebook: `Max ${PLATFORM_CHAR_LIMITS.facebook} chars. Conversational. End with "${ctaPhrase}".`,
+    tiktok: `Max ${PLATFORM_CHAR_LIMITS.tiktok} chars. Punchy. End with "Follow ${handle || "us"} for more!"`,
+    youtube: `Max ${PLATFORM_CHAR_LIMITS.youtube} chars. Informative. End with "${ctaPhrase}".`,
+    linkedin: `Max ${PLATFORM_CHAR_LIMITS.linkedin} chars. Professional storytelling. End with "What do you think? Comment below 👇".`,
+    twitter: `Max ${PLATFORM_CHAR_LIMITS.twitter} chars. Punchy.`,
   }
 
   const endingExample = handle
@@ -267,7 +302,9 @@ export function buildCaptionUserPrompt(
     ? `,\n  "image_prompt": "vivid scene description grounded in this post's specific message/topic above, no text or words in the image, lower third kept visually simpler for text overlay"`
     : ""
 
-  return `${brandContext}${pastExamplesBlock}
+  const vibeLine = brand.vibe ? `Brand Vibe: ${CAPTION_VIBE_LABELS[brand.vibe] ?? brand.vibe}` : ""
+
+  return `${brandContext}${vibeLine ? `\n${vibeLine}` : ""}${pastExamplesBlock}
 Platform: ${options.platform} — ${platformRules[options.platform]}
 Content type: ${options.contentType}
 ${hookLine}
@@ -283,8 +320,7 @@ Respond with this exact JSON:
 {
   "caption_text": "full caption ending with: ${ctaPhrase} 👇\\n${handle || "@handle"}",
   "hashtags": ["niche1", "niche2", "niche3", "niche4", "niche5", "brand1", "brand2", "brand3", "brand4", "brand5", "broad1", "broad2", "broad3", "broad4", "broad5"],
-  "cta": "${ctaPhrase}",
-  "character_count": 123${imagePromptField}
+  "cta": "${ctaPhrase}"${imagePromptField}
 }`
 }
 

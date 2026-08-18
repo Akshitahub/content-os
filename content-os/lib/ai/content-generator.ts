@@ -46,7 +46,7 @@ function buildPrompts(
   switch (format) {
     case "social_post":
       return {
-        system: buildCaptionSystemPrompt(options.includeImagePrompt ?? false),
+        system: buildCaptionSystemPrompt(brand.vibe, options.includeImagePrompt ?? false),
         user: buildCaptionUserPrompt(brand, {
           platform: options.platform ?? "instagram",
           contentType: "post",
