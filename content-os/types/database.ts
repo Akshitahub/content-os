@@ -24,6 +24,7 @@ export type Database = {
           full_name: string | null
           avatar_url: string | null
           plan: "free" | "starter" | "pro" | "agency"
+          plan_billing_period: "monthly" | "annual" | null
           stripe_customer_id: string | null
           generation_count: number
           generation_count_reset_at: string | null
@@ -45,6 +46,7 @@ export type Database = {
           full_name?: string | null
           avatar_url?: string | null
           plan?: "free" | "starter" | "pro" | "agency"
+          plan_billing_period?: "monthly" | "annual" | null
           stripe_customer_id?: string | null
           generation_count?: number
           generation_count_reset_at?: string | null
@@ -65,6 +67,7 @@ export type Database = {
           full_name?: string | null
           avatar_url?: string | null
           plan?: "free" | "starter" | "pro" | "agency"
+          plan_billing_period?: "monthly" | "annual" | null
           stripe_customer_id?: string | null
           generation_count?: number
           generation_count_reset_at?: string | null

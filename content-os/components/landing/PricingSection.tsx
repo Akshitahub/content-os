@@ -19,15 +19,12 @@ function formatRupees(amount: number): string {
   return `₹${amount.toLocaleString("en-IN")}`
 }
 
-// Annual billing is display-only (not wired to Razorpay yet — see the
-// toggle below): ~2 months free, i.e. 10 months' price billed upfront,
-// charm-priced to the nearest ₹999 so the total doesn't look arbitrary.
-// Derived from PLAN_LIMITS[id].price rather than hand-copied so it can
-// never drift from the real monthly price.
-function annualPricing(monthlyPrice: number): { monthlyEquivalent: string; billedLabel: string } {
-  const rawAnnual = monthlyPrice * 10
-  const charmed = Math.ceil((rawAnnual + 1) / 1000) * 1000 - 1
-  return { monthlyEquivalent: formatRupees(Math.floor(charmed / 12)), billedLabel: `Billed ${formatRupees(charmed)}/year` }
+// Real annual price from PLAN_LIMITS[id].annualPrice (the same value
+// actually charged at checkout — see create-checkout-session/route.ts) —
+// not a display-only formula, since annual billing is now wired up for
+// real. Per-month equivalent shown so the discount is legible at a glance.
+function annualPricing(annualPrice: number): { monthlyEquivalent: string; billedLabel: string } {
+  return { monthlyEquivalent: formatRupees(Math.floor(annualPrice / 12)), billedLabel: `Billed ${formatRupees(annualPrice)}/year` }
 }
 
 const TIERS: PricingTier[] = [
@@ -95,7 +92,7 @@ export function PricingSection() {
         <h2 className="text-3xl font-bold tracking-tight text-gray-900 sm:text-4xl">Simple, honest pricing</h2>
       </div>
 
-      {/* Monthly / Annual toggle — display only, no annual billing wired up yet */}
+      {/* Monthly / Annual toggle */}
       <div className="mb-10 flex flex-col items-center gap-2">
         <div className="inline-flex rounded-full border border-gray-200 bg-gray-50 p-1">
           <button
@@ -118,14 +115,14 @@ export function PricingSection() {
           </button>
         </div>
         {cycle === "annual" && (
-          <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">Save ~17%</span>
+          <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">Save 10%</span>
         )}
       </div>
 
       <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
         {TIERS.map((tier) => {
           const monthlyPrice = PLAN_LIMITS[tier.id].price
-          const annual = tier.id !== "free" ? annualPricing(monthlyPrice) : null
+          const annual = tier.id !== "free" ? annualPricing(PLAN_LIMITS[tier.id].annualPrice) : null
           const price = cycle === "annual" && annual ? annual.monthlyEquivalent : formatRupees(monthlyPrice)
           const subtitle = cycle === "annual" && annual ? annual.billedLabel : tier.tagline
 

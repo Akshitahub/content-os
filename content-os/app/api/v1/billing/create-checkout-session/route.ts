@@ -7,6 +7,7 @@ import { z } from "zod"
 
 const schema = z.object({
   plan: z.enum(["starter", "pro", "agency"]),
+  billingPeriod: z.enum(["monthly", "annual"]).default("monthly"),
 })
 
 export async function POST(request: Request) {
@@ -26,9 +27,9 @@ export async function POST(request: Request) {
     return NextResponse.json(buildError(ErrorCodes.VALIDATION_ERROR, "Invalid plan."), { status: 400 })
   }
 
-  const { plan } = parsed.data
-  // Razorpay wants paise; PLAN_LIMITS.price is whole rupees.
-  const amount = PLAN_LIMITS[plan].price * 100
+  const { plan, billingPeriod } = parsed.data
+  // Razorpay wants paise; PLAN_LIMITS.price/.annualPrice are whole rupees.
+  const amount = (billingPeriod === "annual" ? PLAN_LIMITS[plan].annualPrice : PLAN_LIMITS[plan].price) * 100
 
   const razorpay = new Razorpay({
     key_id: process.env.RAZORPAY_KEY_ID!,
@@ -43,6 +44,7 @@ export async function POST(request: Request) {
       notes: {
         user_id: user.id,
         plan,
+        billing_period: billingPeriod,
       },
     })
 

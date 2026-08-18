@@ -196,11 +196,16 @@ export interface AutopilotTier {
 // AI-generated background image on a carousel's closing (CTA) slide —
 // Starter and above; the opening (hook) slide gets one on every plan
 // including Free unconditionally, so it has no flag of its own here.
-export const PLAN_LIMITS: Record<UserPlan, { price: number; generations: number; brands: number; products: number; zernioSocialPlatforms: boolean; reelsPerWeek: number; autopilot: AutopilotTier; influencerOutreach: boolean; carouselCtaAiBackground: boolean }> = {
-  free:    { price: 0,    generations: 15,   brands: 1, products: 5,    zernioSocialPlatforms: false, reelsPerWeek: 0, autopilot: { days: 3,  slots: 5,  creditCost: 8 },  influencerOutreach: false, carouselCtaAiBackground: false },
-  starter: { price: 1199, generations: 350,  brands: 2, products: 30,   zernioSocialPlatforms: false, reelsPerWeek: 0, autopilot: { days: 30, slots: 30, creditCost: 30 }, influencerOutreach: false, carouselCtaAiBackground: true },
-  pro:     { price: 2999, generations: 1200, brands: 3, products: 200,  zernioSocialPlatforms: true,  reelsPerWeek: 1, autopilot: { days: 30, slots: 30, creditCost: 30 }, influencerOutreach: true,  carouselCtaAiBackground: true },
-  agency:  { price: 8000, generations: 2000, brands: 5, products: 1000, zernioSocialPlatforms: true,  reelsPerWeek: 4, autopilot: { days: 30, slots: 30, creditCost: 30 }, influencerOutreach: true,  carouselCtaAiBackground: true },
+// `annualPrice` is the full upfront yearly charge (not a monthly rate) —
+// same unit as `price` (whole rupees). Free has no annual option, but
+// carries 0 here anyway so every tier shares one shape rather than making
+// the field optional. ~10% cheaper than 12x the monthly price on every
+// paid tier.
+export const PLAN_LIMITS: Record<UserPlan, { price: number; annualPrice: number; generations: number; brands: number; products: number; zernioSocialPlatforms: boolean; reelsPerWeek: number; autopilot: AutopilotTier; influencerOutreach: boolean; carouselCtaAiBackground: boolean }> = {
+  free:    { price: 0,    annualPrice: 0,     generations: 15,   brands: 1, products: 5,    zernioSocialPlatforms: false, reelsPerWeek: 0, autopilot: { days: 3,  slots: 5,  creditCost: 8 },  influencerOutreach: false, carouselCtaAiBackground: false },
+  starter: { price: 1199, annualPrice: 12949, generations: 350,  brands: 2, products: 30,   zernioSocialPlatforms: false, reelsPerWeek: 0, autopilot: { days: 30, slots: 30, creditCost: 30 }, influencerOutreach: false, carouselCtaAiBackground: true },
+  pro:     { price: 2999, annualPrice: 32389, generations: 1200, brands: 3, products: 200,  zernioSocialPlatforms: true,  reelsPerWeek: 1, autopilot: { days: 30, slots: 30, creditCost: 30 }, influencerOutreach: true,  carouselCtaAiBackground: true },
+  agency:  { price: 8000, annualPrice: 86400, generations: 2000, brands: 5, products: 1000, zernioSocialPlatforms: true,  reelsPerWeek: 4, autopilot: { days: 30, slots: 30, creditCost: 30 }, influencerOutreach: true,  carouselCtaAiBackground: true },
 }
 
 // ─── Trending context ────────────────────────────────────────────────────────

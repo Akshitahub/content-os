@@ -95,6 +95,10 @@ export async function POST(request: Request) {
 
   const orderUserId = order.notes?.user_id
   const orderPlan = order.notes?.plan
+  // Absent on any order created before this field existed — defaults to
+  // "monthly" rather than rejecting the order, same fallback the checkout
+  // session route itself uses when the client omits billingPeriod.
+  const billingPeriod = order.notes?.billing_period === "annual" ? "annual" : "monthly"
 
   if (!orderUserId || (orderPlan !== "starter" && orderPlan !== "pro" && orderPlan !== "agency")) {
     console.error("[billing/webhook] order missing expected notes:", orderId)
@@ -106,7 +110,7 @@ export async function POST(request: Request) {
   }
 
   const admin = await createAdminClient()
-  const { error } = await applyPlanUpgrade(admin, String(orderUserId), orderPlan)
+  const { error } = await applyPlanUpgrade(admin, String(orderUserId), orderPlan, billingPeriod)
 
   if (error) {
     console.error("[billing/webhook] plan upgrade failed:", error)
@@ -125,7 +129,7 @@ export async function POST(request: Request) {
       await sendPaymentConfirmationEmail(authUser.user.email, {
         planName,
         amountRupees: Number(order.amount) / 100,
-        billingPeriod: "monthly",
+        billingPeriod,
       })
     }
   } catch (err) {

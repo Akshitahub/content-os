@@ -67,6 +67,10 @@ export async function POST(request: Request) {
 
   const orderUserId = order.notes?.user_id
   const orderPlan = order.notes?.plan
+  // Absent on any order created before this field existed — defaults to
+  // "monthly" rather than rejecting the order, same fallback the checkout
+  // session route itself uses when the client omits billingPeriod.
+  const billingPeriod = order.notes?.billing_period === "annual" ? "annual" : "monthly"
 
   if (orderUserId !== user.id) {
     return NextResponse.json(buildError(ErrorCodes.VALIDATION_ERROR, "This order does not belong to your account."), { status: 400 })
@@ -81,7 +85,7 @@ export async function POST(request: Request) {
   const plan = orderPlan
 
   // Signature valid — upgrade the user's plan and reset their generation count
-  const { error: updateError } = await applyPlanUpgrade(supabase, user.id, plan)
+  const { error: updateError } = await applyPlanUpgrade(supabase, user.id, plan, billingPeriod)
 
   if (updateError) {
     return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Failed to update plan."), { status: 500 })

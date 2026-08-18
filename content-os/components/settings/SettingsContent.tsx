@@ -57,7 +57,13 @@ interface SettingsContentProps {
 // previously hand-maintained its own stale copy (Pro showed a 500/mo cap
 // here when the real limit had already moved to 1200).
 
-function formatPlanPrice(plan: "starter" | "pro" | "agency"): string {
+type BillingPeriod = "monthly" | "annual"
+
+function formatPlanPrice(plan: "starter" | "pro" | "agency", billingPeriod: BillingPeriod): string {
+  if (billingPeriod === "annual") {
+    const perMonth = Math.floor(PLAN_LIMITS[plan].annualPrice / 12)
+    return `₹${perMonth.toLocaleString("en-IN")}/mo, billed ₹${PLAN_LIMITS[plan].annualPrice.toLocaleString("en-IN")}/yr`
+  }
   return `₹${PLAN_LIMITS[plan].price.toLocaleString("en-IN")}/mo`
 }
 
@@ -228,6 +234,7 @@ function PlanSection({ user }: { user: UserProps }) {
   const [upgradeState, setUpgradeState] = useState<"idle" | "loading">("idle")
   const [billingError, setBillingError] = useState<string | null>(null)
   const [paymentSuccess, setPaymentSuccess] = useState(false)
+  const [billingPeriod, setBillingPeriod] = useState<BillingPeriod>("monthly")
 
   // Load the Razorpay checkout script once on mount
   useEffect(() => {
@@ -248,7 +255,7 @@ function PlanSection({ user }: { user: UserProps }) {
       const res = await fetch("/api/v1/billing/create-checkout-session", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ plan }),
+        body: JSON.stringify({ plan, billingPeriod }),
       })
       const json = await res.json() as {
         data?: { orderId: string; amount: number; currency: string; keyId: string }
@@ -269,7 +276,7 @@ function PlanSection({ user }: { user: UserProps }) {
         amount,
         currency,
         name: "SocioPosts",
-        description: `${{ starter: "Starter", pro: "Pro", agency: "Agency" }[plan]} Plan`,
+        description: `${{ starter: "Starter", pro: "Pro", agency: "Agency" }[plan]} Plan — ${billingPeriod === "annual" ? "Annual" : "Monthly"}`,
         order_id: orderId,
         handler: async function (response: RazorpayResponse) {
           try {
@@ -317,7 +324,7 @@ function PlanSection({ user }: { user: UserProps }) {
       setBillingError("Network error. Please try again.")
       setUpgradeState("idle")
     }
-  }, [])
+  }, [billingPeriod])
 
   return (
     <Card id="plan-usage">
@@ -387,6 +394,37 @@ function PlanSection({ user }: { user: UserProps }) {
           </div>
         )}
 
+        {/* Billing period toggle — only relevant when there's at least one
+            upgrade path below (agency has none). */}
+        {user.plan !== "agency" && (
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-muted-foreground">Billing</span>
+            <div className="inline-flex rounded-full border border-input bg-secondary/50 p-0.5">
+              <button
+                type="button"
+                onClick={() => setBillingPeriod("monthly")}
+                className={`rounded-full px-3 py-1 text-xs font-semibold transition-colors ${
+                  billingPeriod === "monthly" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                Monthly
+              </button>
+              <button
+                type="button"
+                onClick={() => setBillingPeriod("annual")}
+                className={`rounded-full px-3 py-1 text-xs font-semibold transition-colors ${
+                  billingPeriod === "annual" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                Annual
+              </button>
+            </div>
+            {billingPeriod === "annual" && (
+              <span className="rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-semibold text-emerald-700">Save 10%</span>
+            )}
+          </div>
+        )}
+
         {/* Upgrade buttons */}
         {user.plan === "free" && (
           <div className="flex flex-wrap gap-3">
@@ -395,21 +433,21 @@ function PlanSection({ user }: { user: UserProps }) {
               disabled={upgradeState === "loading"}
               className="bg-violet-600 hover:bg-violet-700 text-white"
             >
-              {upgradeState === "loading" ? "Loading…" : `Upgrade to Starter — ${formatPlanPrice("starter")}`}
+              {upgradeState === "loading" ? "Loading…" : `Upgrade to Starter — ${formatPlanPrice("starter", billingPeriod)}`}
             </Button>
             <Button
               variant="outline"
               onClick={() => handleUpgrade("pro")}
               disabled={upgradeState === "loading"}
             >
-              {`Upgrade to Pro — ${formatPlanPrice("pro")}`}
+              {`Upgrade to Pro — ${formatPlanPrice("pro", billingPeriod)}`}
             </Button>
             <Button
               variant="outline"
               onClick={() => handleUpgrade("agency")}
               disabled={upgradeState === "loading"}
             >
-              {`Upgrade to Agency — ${formatPlanPrice("agency")}`}
+              {`Upgrade to Agency — ${formatPlanPrice("agency", billingPeriod)}`}
             </Button>
           </div>
         )}
@@ -421,14 +459,14 @@ function PlanSection({ user }: { user: UserProps }) {
               disabled={upgradeState === "loading"}
               className="bg-violet-600 hover:bg-violet-700 text-white"
             >
-              {upgradeState === "loading" ? "Loading…" : `Upgrade to Pro — ${formatPlanPrice("pro")}`}
+              {upgradeState === "loading" ? "Loading…" : `Upgrade to Pro — ${formatPlanPrice("pro", billingPeriod)}`}
             </Button>
             <Button
               variant="outline"
               onClick={() => handleUpgrade("agency")}
               disabled={upgradeState === "loading"}
             >
-              {`Upgrade to Agency — ${formatPlanPrice("agency")}`}
+              {`Upgrade to Agency — ${formatPlanPrice("agency", billingPeriod)}`}
             </Button>
           </div>
         )}
@@ -440,7 +478,7 @@ function PlanSection({ user }: { user: UserProps }) {
               disabled={upgradeState === "loading"}
               className="bg-violet-600 hover:bg-violet-700 text-white"
             >
-              {upgradeState === "loading" ? "Loading…" : `Upgrade to Agency — ${formatPlanPrice("agency")}`}
+              {upgradeState === "loading" ? "Loading…" : `Upgrade to Agency — ${formatPlanPrice("agency", billingPeriod)}`}
             </Button>
           </div>
         )}
