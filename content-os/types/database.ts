@@ -982,6 +982,7 @@ export type Database = {
           video_url: string | null
           error_message: string | null
           calendar_entry_id: string | null
+          json2video_project_id: string | null
           created_at: string
           updated_at: string
         }
@@ -996,6 +997,7 @@ export type Database = {
           video_url?: string | null
           error_message?: string | null
           calendar_entry_id?: string | null
+          json2video_project_id?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -1007,6 +1009,7 @@ export type Database = {
           video_url?: string | null
           error_message?: string | null
           calendar_entry_id?: string | null
+          json2video_project_id?: string | null
           updated_at?: string
         }
       }

@@ -3,23 +3,17 @@ import { NextResponse } from "next/server"
 import { createAdminClient } from "@/lib/supabase/server"
 import { buildError, ErrorCodes } from "@/types/api"
 import { uploadMediaToStorage } from "@/lib/storage/upload-media"
-import { renderReelVideo, type RenderReelVideoInput } from "@/lib/video/render-trigger"
-import { refundReelUsage } from "@/lib/usage/check-and-increment-reel-usage"
-import { captureServerEvent } from "@/lib/analytics/posthog"
+import { submitReelRender } from "@/lib/video/render-trigger"
+import { markReelJobFailed } from "@/lib/video/reel-job-completion"
 import type { KlingWebhookPayload } from "@/lib/video/kling-client"
 import type { ReelVideoJobRow, ReelVideoJobSceneRow } from "@/types/database"
-import type { UserPlan } from "@/types/app"
 
-// The full chain this can trigger — Kling's own webhook delivery, plus (once
-// every scene for a job has reported in) submitting to and polling
-// JSON2Video for the final render — runs in THIS function's own execution
-// window, separate from and much longer than the submit route's maxDuration
-// (see app/api/v1/brands/[brandId]/reel-scripts/[scriptId]/video/route.ts).
-// JSON2Video's own poll can take up to ~280s (see lib/video/render-trigger.ts) —
-// this is deliberately NOT webhook-driven itself yet (JSON2Video does
-// support a webhook, but that wasn't in scope for this pass — see the PR
-// description). 300s gives ~20s of headroom on top of that worst case.
-export const maxDuration = 300
+// 2026-08-18: this used to also submit to and poll JSON2Video for the final
+// render (up to ~280s) once every scene reported in — that's now webhook-
+// driven too (app/api/v1/webhooks/json2video/route.ts), so this route only
+// ever does a handful of DB round-trips plus one fast JSON2Video submit
+// call. 30s matches the Kling submit route's own budget.
+export const maxDuration = 30
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function reelVideoJobsTable(supabase: any): any {
@@ -28,29 +22,6 @@ function reelVideoJobsTable(supabase: any): any {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function reelVideoJobScenesTable(supabase: any): any {
   return supabase.from("reel_video_job_scenes")
-}
-
-/**
- * Autopilot (lib/ai/fastlane.ts) reels have a calendar entry that needs the
- * finished video (or failure) reflected in its platform_specific_data —
- * manually-generated reels (reel-scripts/[scriptId]/video/route.ts) have no
- * calendar entry yet at generation time, so calendar_entry_id is null there
- * and this is a no-op.
- */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function syncCalendarEntry(admin: any, calendarEntryId: string | null, status: "ready" | "failed", videoUrl: string | null, errorMessage: string | null): Promise<void> {
-  if (!calendarEntryId) return
-  const entriesTable = admin.from("calendar_entries")
-  const { data: current } = await entriesTable.select("platform_specific_data").eq("id", calendarEntryId).single()
-  const existing = (current?.platform_specific_data ?? {}) as Record<string, unknown>
-  await entriesTable
-    .update({
-      platform_specific_data:
-        status === "ready"
-          ? { ...existing, content_format: "video", video_status: "ready", video_url: videoUrl }
-          : { ...existing, content_format: "video", video_status: "failed", video_error: errorMessage },
-    })
-    .eq("id", calendarEntryId)
 }
 
 /**
@@ -197,64 +168,52 @@ export async function POST(request: Request) {
 
   const completedScenes = (allScenes ?? []).filter((s) => s.status === "completed" && s.video_url)
 
-  const { data: brand } = await admin.from("brands").select("user_id").eq("id", job.brand_id).maybeSingle<{ user_id: string }>()
-  const userId = brand?.user_id
-
   if (completedScenes.length === 0) {
     console.error(`[webhooks/kling] job ${job.id}: no usable scenes after all reported in`)
-    await reelVideoJobsTable(admin)
-      .update({
-        status: "failed",
-        progress_message: null,
-        error_message: "Couldn't generate any usable scene assets for this video. Please try again.",
-      })
-      .eq("id", job.id)
     // Total failure, nothing usable produced — don't let this burn a free
     // user's one-time free reel or a pro/agency user's weekly allowance on
     // a video that was never made.
-    if (userId) await refundReelUsage(admin, userId)
-    await syncCalendarEntry(admin, job.calendar_entry_id, "failed", null, "Couldn't generate any usable scene assets for this video. Please try again.")
+    await markReelJobFailed(admin, job, "Couldn't generate any usable scene assets for this video. Please try again.", { refund: true })
     return NextResponse.json({ data: { received: true } }, { status: 200 })
   }
 
-  const renderInput: RenderReelVideoInput = {
-    jobId: job.id,
-    scenes: completedScenes.map((s) => ({
-      imageUrl: s.video_url!,
-      audioUrl: s.audio_url,
-      text: s.voiceover_text,
-      durationSeconds: s.duration_seconds,
-    })),
-    musicUrl: job.music_url,
+  if (!process.env.NEXT_PUBLIC_APP_URL || !process.env.JSON2VIDEO_WEBHOOK_SECRET) {
+    console.error(`[webhooks/kling] job ${job.id}: NEXT_PUBLIC_APP_URL or JSON2VIDEO_WEBHOOK_SECRET not configured`)
+    // Assets existed but we can't even submit the render — same non-refund
+    // policy as any other post-assets render failure.
+    await markReelJobFailed(admin, job, "Video rendering isn't configured yet.", { refund: false })
+    return NextResponse.json({ data: { received: true } }, { status: 200 })
   }
 
-  const renderResult = await renderReelVideo(renderInput)
+  const renderWebhookEndpoint = `${process.env.NEXT_PUBLIC_APP_URL}/api/v1/webhooks/json2video?token=${encodeURIComponent(process.env.JSON2VIDEO_WEBHOOK_SECRET)}`
 
-  if (renderResult.success) {
-    await reelVideoJobsTable(admin)
-      .update({ status: "completed", progress_message: null, video_url: renderResult.videoUrl })
-      .eq("id", job.id)
-    await syncCalendarEntry(admin, job.calendar_entry_id, "ready", renderResult.videoUrl, null)
+  const submitResult = await submitReelRender(
+    {
+      jobId: job.id,
+      scenes: completedScenes.map((s) => ({
+        imageUrl: s.video_url!,
+        audioUrl: s.audio_url,
+        text: s.voiceover_text,
+        durationSeconds: s.duration_seconds,
+      })),
+      musicUrl: job.music_url,
+    },
+    { endpoint: renderWebhookEndpoint }
+  )
 
-    // Not a refund case — some (or all) scenes rendered successfully, this
-    // is a genuine completion, just possibly with fewer scenes than asked
-    // for. Only fires for the free plan's one-time reel, to build a
-    // free_reel_generated -> upgraded_within_7_days funnel in PostHog.
-    if (userId) {
-      const { data: userRow } = await admin.from("users").select("plan").eq("id", userId).maybeSingle<{ plan: UserPlan }>()
-      if (userRow?.plan === "free") {
-        await captureServerEvent(userId, "free_reel_generated", { user_id: userId, timestamp: new Date().toISOString() })
-      }
-    }
-  } else {
-    // Assets existed (partial or full success) but the render itself
-    // failed — per the pre-existing refund policy, this is NOT a total
-    // failure and does not get refunded.
-    await reelVideoJobsTable(admin)
-      .update({ status: "failed", progress_message: null, error_message: renderResult.error })
-      .eq("id", job.id)
-    await syncCalendarEntry(admin, job.calendar_entry_id, "failed", null, renderResult.error)
+  if ("error" in submitResult) {
+    // Assets existed (partial or full success) but we couldn't even get
+    // JSON2Video to accept the render — per the pre-existing policy, this
+    // is NOT a total failure and does not get refunded.
+    await markReelJobFailed(admin, job, submitResult.error, { refund: false })
+    return NextResponse.json({ data: { received: true } }, { status: 200 })
   }
+
+  // Job stays in 'rendering' (already set by the claim update above) — the
+  // JSON2Video webhook receiver takes it from here.
+  await reelVideoJobsTable(admin)
+    .update({ json2video_project_id: submitResult.projectId })
+    .eq("id", job.id)
 
   return NextResponse.json({ data: { received: true } }, { status: 200 })
 }
