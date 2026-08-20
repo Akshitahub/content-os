@@ -15,6 +15,7 @@ import {
   buildAdCopySystemPrompt,
   buildAdCopyUserPrompt,
 } from "./prompts"
+import { generateValidatedCaption, type CaptionChatMessage } from "./caption-validation"
 
 export type GenerateContentOptions = {
   product?: ProductRow | null
@@ -99,15 +100,14 @@ function buildPrompts(
   }
 }
 
+// social_post is validated/cast via generateValidatedCaption in
+// generateContent() instead — it never reaches this function.
 function validateAndCast(
-  format: ContentFormat,
+  format: Exclude<ContentFormat, "social_post">,
   parsed: unknown
 ): ContentFormatOutputMap[ContentFormat] {
   const obj = parsed as Record<string, unknown>
   switch (format) {
-    case "social_post":
-      if (!obj.caption_text) throw new Error("AI response missing caption_text")
-      break
     case "reel_script":
       if (!obj.hook || !Array.isArray(obj.scenes) || obj.scenes.length === 0)
         throw new Error("AI response missing hook or scenes")
@@ -143,6 +143,46 @@ export async function generateContent(
   const model = MODELS.generation
   const { system, user, maxTokens, reasoningEffort } = buildPrompts(format, brand, options)
 
+  // social_post is the only format with real production traffic that
+  // needs output enforcement (hashtag count, CTA/handle ending, platform
+  // char limit) — see docs/research/captions-generation-audit.md. Routed
+  // through the same generateValidatedCaption() orchestrator that
+  // lib/ai/captions-generator.ts uses, so the two paths can't drift apart
+  // again. Every other format keeps the original single-call flow below.
+  if (format === "social_post") {
+    const b = brand as BrandRow & { cta_phrase?: string | null }
+    const ctaPhrase = b.cta_phrase || "Shop now"
+    const handle = brand.instagram_handle ? `@${brand.instagram_handle}` : ""
+    const platform = options.platform ?? "instagram"
+
+    const requestParams = {
+      model,
+      temperature: 0.8,
+      reasoning_effort: reasoningEffort,
+      max_tokens: maxTokens,
+      response_format: { type: "json_object" as const },
+    }
+
+    const messages: CaptionChatMessage[] = [
+      { role: "system", content: system },
+      { role: "user", content: user },
+    ]
+
+    const { caption, usage } = await generateValidatedCaption({
+      messages,
+      callModel: async (msgs) => {
+        const res = await groq.chat.completions.create({ ...requestParams, messages: msgs })
+        return { content: res.choices[0]?.message?.content ?? "{}", usage: res.usage ?? undefined }
+      },
+      brand,
+      ctaPhrase,
+      handle,
+      platform,
+    })
+
+    return { data: caption, model, usage }
+  }
+
   const response = await groq.chat.completions.create({
     model,
     temperature: 0.8,
@@ -168,11 +208,6 @@ export async function generateContent(
   }
 
   const data = validateAndCast(format, parsed)
-
-  if (format === "social_post") {
-    const caption = data as ContentFormatOutputMap["social_post"]
-    caption.character_count = caption.caption_text.length
-  }
 
   return { data, model, usage: response.usage ?? undefined }
 }
