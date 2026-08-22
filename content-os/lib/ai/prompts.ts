@@ -227,6 +227,8 @@ BAD hook lines (never write these):
 2. Story or value — 2-4 lines building connection, value, or relatability
 3. CTA line — one clear action (always ends with brand's CTA phrase + @handle)
 
+CAPTION LENGTH: Default to short-to-medium — keep the hook line under ~150 characters and the overall caption tight (a few short lines), unless the additional context signals a storytelling, educational, or narrative angle, in which case the story/value section above can extend further.
+
 Hashtags are NEVER part of caption_text — they belong ONLY in the separate "hashtags" JSON field described below. Do not append, embed, or repeat any hashtag anywhere inside caption_text.
 
 NEVER OPEN A CAPTION WITH:

@@ -49,6 +49,7 @@ CRITICAL RULES:
 - If you don't know a specific number (founding year, age, stats), write content that doesn't need it
 - Write only actual, complete text — no template variables, no placeholders
 - No exclamation marks, no hashtags, no emojis in "headline", "subtext", "points", "cta", or "cover_hook" — plain, punchy text only
+- Keep headline under ~50 characters and each bullet point under ~12 words — slides are meant to be scanned in a swipe, not read like an essay
 - RESPOND WITH ONLY VALID JSON — no markdown fences, no explanation text, no trailing commas
 
 SLIDE STRUCTURE:
