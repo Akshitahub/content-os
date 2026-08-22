@@ -1,4 +1,4 @@
-import { MODELS, getGroqClient } from "./models"
+import { MODELS, getGroqClient, withGroqRateLimitRetry } from "./models"
 import { scrapeInfluencerProfile } from "./scraper"
 import { cacheRemoteImage } from "@/lib/storage/upload-media"
 import {
@@ -203,7 +203,13 @@ export async function autoDiscoverAndScoreInfluencers(
         const [{ fit_score, fit_reasoning }, niche, cachedAvatarUrl] = await Promise.all([
           (async (): Promise<{ fit_score: number | null; fit_reasoning: string | null }> => {
             try {
-              const scoreRes = await groq.chat.completions.create({
+              // Wrapped in a single retry-on-429 — batches of 3+ concurrent
+              // scoring calls regularly exceed the Groq account's
+              // tokens-per-minute cap for this model (measured live: ~40%
+              // of calls 429'd in a 20-handle run), and until now that
+              // failure was swallowed into a permanently unscored insert
+              // below rather than recovered.
+              const scoreRes = await withGroqRateLimitRetry(() => groq.chat.completions.create({
                 model: MODELS.scoring,
                 temperature: 0.3,
                 // GPT-OSS reasoning tokens count against max_tokens — 400
@@ -235,7 +241,7 @@ export async function autoDiscoverAndScoreInfluencers(
                     }),
                   },
                 ],
-              })
+              }))
               let scoreCleaned = sanitizeJsonString(scoreRes.choices[0]?.message?.content ?? "{}")
               const scoreJsonMatch = scoreCleaned.match(/\{[\s\S]*\}/)
               if (scoreJsonMatch) scoreCleaned = scoreJsonMatch[0]
