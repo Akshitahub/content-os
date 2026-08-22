@@ -33,6 +33,7 @@ function buildSlidePrompt(headline: string, vibe: Vibe, colors: string[]): strin
     "no text, no words, no letters, no numbers, no logos anywhere in the image",
     "no literal photos of people, products, or objects — purely abstract shapes, gradients, and textures",
     "leave calm, uncluttered negative space so text stays readable when overlaid on top",
+    "keep the composition's key visual interest centered in the frame — avoid placing it in the outer ~10% margin on any side",
     ABSTRACT_SAFETY_BOILERPLATE,
   ].filter(Boolean).join(", ")
 }
@@ -42,6 +43,7 @@ function simplifySlidePrompt(vibe: Vibe): string {
     "abstract atmospheric gradient background",
     VIBE_BACKGROUND_STYLES[vibe],
     "no text, no words, no letters",
+    "keep the composition centered, avoid the outer ~10% margin",
   ].join(", ")
 }
 
