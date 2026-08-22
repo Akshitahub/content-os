@@ -1,7 +1,10 @@
 "use client"
 
 import { useState, useRef, useCallback, useEffect } from "react"
-import { Upload, Check, Loader2, Download, RefreshCw, ChevronRight, AlertCircle, X, CalendarClock } from "lucide-react"
+import {
+  Upload, Check, Loader2, Download, RefreshCw, ChevronRight, AlertCircle, X, CalendarClock,
+  Sun, Moon, Gem, Table, Leaf, Palmtree, Building2, Coffee, Flame, TreePine, PartyPopper, Wand2,
+} from "lucide-react"
 import { useBrand } from "@/hooks/useBrand"
 import { GenerationWarning } from "@/components/shared/GenerationWarning"
 import { Button } from "@/components/ui/button"
@@ -13,18 +16,18 @@ import Link from "next/link"
 // ─── Scene definitions ─────────────────────────────────────────────────────
 
 const SCENES = [
-  { id: "white_studio",   emoji: "🤍", name: "White Studio",    desc: "Clean, professional, premium" },
-  { id: "dark_studio",    emoji: "🖤", name: "Dark Studio",     desc: "Moody, luxury, dramatic" },
-  { id: "marble_surface", emoji: "🪨", name: "Marble Surface",  desc: "Elegant, minimal, classy" },
-  { id: "wooden_table",   emoji: "🪵", name: "Wooden Table",    desc: "Warm, natural, cozy" },
-  { id: "nature_green",   emoji: "🌿", name: "Nature & Green",  desc: "Fresh, organic, outdoor" },
-  { id: "beach_summer",   emoji: "🏖️", name: "Beach & Summer",  desc: "Fun, bright, seasonal" },
-  { id: "urban_street",   emoji: "🌆", name: "Urban Street",    desc: "Trendy, bold, editorial" },
-  { id: "cozy_cafe",      emoji: "☕", name: "Cozy Cafe",       desc: "Warm, aesthetic, relatable" },
-  { id: "diwali_glow",    emoji: "🪔", name: "Diwali Glow",     desc: "Festive, golden, celebration" },
-  { id: "christmas",      emoji: "🎄", name: "Christmas",       desc: "Warm, gifting, holiday" },
-  { id: "party_fun",      emoji: "🎉", name: "Party & Fun",     desc: "Energetic, colorful, exciting" },
-  { id: "custom",         emoji: "✨", name: "Custom Scene",    desc: "Describe your own" },
+  { id: "white_studio",   Icon: Sun,         name: "White Studio",    desc: "Clean, professional, premium" },
+  { id: "dark_studio",    Icon: Moon,        name: "Dark Studio",     desc: "Moody, luxury, dramatic" },
+  { id: "marble_surface", Icon: Gem,         name: "Marble Surface",  desc: "Elegant, minimal, classy" },
+  { id: "wooden_table",   Icon: Table,       name: "Wooden Table",    desc: "Warm, natural, cozy" },
+  { id: "nature_green",   Icon: Leaf,        name: "Nature & Green",  desc: "Fresh, organic, outdoor" },
+  { id: "beach_summer",   Icon: Palmtree,    name: "Beach & Summer",  desc: "Fun, bright, seasonal" },
+  { id: "urban_street",   Icon: Building2,   name: "Urban Street",    desc: "Trendy, bold, editorial" },
+  { id: "cozy_cafe",      Icon: Coffee,      name: "Cozy Cafe",       desc: "Warm, aesthetic, relatable" },
+  { id: "diwali_glow",    Icon: Flame,       name: "Diwali Glow",     desc: "Festive, golden, celebration" },
+  { id: "christmas",      Icon: TreePine,    name: "Christmas",       desc: "Warm, gifting, holiday" },
+  { id: "party_fun",      Icon: PartyPopper, name: "Party & Fun",     desc: "Energetic, colorful, exciting" },
+  { id: "custom",         Icon: Wand2,       name: "Custom Scene",    desc: "Describe your own" },
 ]
 
 const SCENE_PROMPTS: Record<string, string> = {
@@ -793,7 +796,7 @@ export function AdMaker({ brandId }: AdMakerProps) {
             {SCENES.map(s => (
               <button key={s.id} type="button" onClick={() => setScene(s.id)}
                 className={`rounded-xl border-2 p-3 text-left transition-all hover:scale-[1.02] ${scene === s.id ? "border-violet-500 bg-violet-50 dark:bg-violet-950/30" : "border-border hover:border-violet-300"}`}>
-                <div className="text-xl mb-1">{s.emoji}</div>
+                <s.Icon className="h-5 w-5 mb-1" />
                 <p className="text-xs font-semibold leading-tight">{s.name}</p>
                 <p className="text-[10px] text-muted-foreground mt-0.5 leading-snug hidden sm:block">{s.desc}</p>
               </button>

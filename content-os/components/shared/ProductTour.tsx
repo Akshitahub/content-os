@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react"
 import { useRouter } from "next/navigation"
+import { Tag, Plane, Calendar, Sparkles, type LucideIcon } from "lucide-react"
 
 const TOUR_KEY = "contentos_tour_completed"
 
@@ -9,7 +10,7 @@ interface TourStep {
   targetId: string
   title: string
   body: string
-  emoji: string
+  Icon: LucideIcon
 }
 
 const STEPS: TourStep[] = [
@@ -17,25 +18,25 @@ const STEPS: TourStep[] = [
     targetId: "tour-brand-selector",
     title: "This is your brand 👋",
     body: "SocioPosts creates all content in your brand's voice. Switch brands here anytime.",
-    emoji: "🏷️",
+    Icon: Tag,
   },
   {
     targetId: "tour-autopilot",
     title: "⚡ Run Autopilot",
     body: "One click generates 30 days of hooks, captions, reels, and carousels — tailored to your brand.",
-    emoji: "✈️",
+    Icon: Plane,
   },
   {
     targetId: "tour-calendar",
     title: "📅 Your content calendar",
     body: "All your planned content lives here. See what's ready, scheduled, or still needs work.",
-    emoji: "📅",
+    Icon: Calendar,
   },
   {
     targetId: "tour-create",
     title: "✨ Create specific content",
     body: "Need a hook for tomorrow's post? A reel script? Go here to generate exactly what you need.",
-    emoji: "✨",
+    Icon: Sparkles,
   },
 ]
 
@@ -120,7 +121,7 @@ function TooltipCard({
     >
       <div className="flex items-start justify-between gap-3 mb-3">
         <div className="flex items-center gap-2">
-          <span className="text-xl">{step.emoji}</span>
+          <step.Icon className="h-5 w-5 text-violet-600" />
           <h3 className="text-sm font-bold text-gray-900">{step.title}</h3>
         </div>
         <span className="shrink-0 text-[11px] font-medium text-muted-foreground">{index + 1} of {total}</span>

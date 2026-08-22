@@ -1,5 +1,5 @@
 import Link from "next/link"
-import { Globe, Zap, Sparkles, Star, ArrowRight, Check } from "lucide-react"
+import { Globe, Zap, Sparkles, Star, ArrowRight, Check, Gem, Leaf, Shirt, Home } from "lucide-react"
 import { createClient } from "@/lib/supabase/server"
 import { ScrollNavHandler } from "@/components/landing/ScrollNavHandler"
 import { LiveDemo } from "@/components/landing/LiveDemo"
@@ -243,13 +243,13 @@ export default async function RootPage() {
             </div>
             <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
               {[
-                { emoji: "💍", title: "Jewellery & Accessories", desc: "Handmade, silver, gold, fashion: generate hooks and reels that make people stop and save." },
-                { emoji: "🌿", title: "Skincare & Wellness", desc: "Natural, ayurvedic, D2C: content that builds trust, not just hype." },
-                { emoji: "👗", title: "Fashion & Apparel", desc: "Ethnic, western, sustainable: captions that match your vibe exactly." },
-                { emoji: "🏠", title: "Home & Lifestyle", desc: "Decor, gifting, organics: content plans that keep you consistent on Instagram." },
-              ].map(({ emoji, title, desc }) => (
+                { Icon: Gem, title: "Jewellery & Accessories", desc: "Handmade, silver, gold, fashion: generate hooks and reels that make people stop and save." },
+                { Icon: Leaf, title: "Skincare & Wellness", desc: "Natural, ayurvedic, D2C: content that builds trust, not just hype." },
+                { Icon: Shirt, title: "Fashion & Apparel", desc: "Ethnic, western, sustainable: captions that match your vibe exactly." },
+                { Icon: Home, title: "Home & Lifestyle", desc: "Decor, gifting, organics: content plans that keep you consistent on Instagram." },
+              ].map(({ Icon, title, desc }) => (
                 <div key={title} className="rounded-2xl border border-gray-100 p-6 hover:shadow-md transition-shadow">
-                  <div className="mb-3 text-3xl">{emoji}</div>
+                  <Icon className="mb-3 h-8 w-8 text-violet-600" />
                   <h3 className="mb-2 font-bold text-gray-900">{title}</h3>
                   <p className="text-sm leading-relaxed text-gray-500">{desc}</p>
                 </div>

@@ -1,5 +1,7 @@
 "use client"
 
+import { Clapperboard, Camera, GalleryHorizontal } from "lucide-react"
+
 // Pure CSS animated demo — no video files, no state, no refs.
 // 4 phases cycle every 8s via CSS animation-delay.
 export function LiveDemo() {
@@ -112,16 +114,16 @@ export function LiveDemo() {
           >
             <p className="text-center text-xs font-semibold text-muted-foreground">Your content is ready 🎉</p>
             {[
-              { emoji: "🎬", type: "Reel Script", text: "Your skin is not a problem to solve. It’s a story to tell. 💄", delay: "0s" },
-              { emoji: "📸", type: "Instagram Post", text: "Bold lips, bolder you. Shop the new collection before it sells out!", delay: "0.15s" },
-              { emoji: "🎠", type: "Carousel", text: "5 skincare mistakes you didn’t know were aging you faster", delay: "0.3s" },
+              { Icon: Clapperboard, type: "Reel Script", text: "Your skin is not a problem to solve. It’s a story to tell. 💄", delay: "0s" },
+              { Icon: Camera, type: "Instagram Post", text: "Bold lips, bolder you. Shop the new collection before it sells out!", delay: "0.15s" },
+              { Icon: GalleryHorizontal, type: "Carousel", text: "5 skincare mistakes you didn’t know were aging you faster", delay: "0.3s" },
             ].map((card) => (
               <div
                 key={card.type}
                 className="flex items-start gap-3 rounded-xl border bg-card p-3 shadow-sm"
                 style={{ animation: `slide-up 0.4s ease-out ${card.delay} both` }}
               >
-                <span className="text-base">{card.emoji}</span>
+                <card.Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
                 <div className="flex-1 min-w-0">
                   <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{card.type}</p>
                   <p className="mt-0.5 text-xs text-foreground">{card.text}</p>

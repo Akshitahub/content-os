@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
-import { ArrowRight, Loader2, CheckCircle2 } from "lucide-react"
+import { ArrowRight, Loader2, CheckCircle2, Zap, Plane, Clapperboard } from "lucide-react"
 import { REELS_ENABLED } from "@/lib/constants"
 import { ComingSoonBadge } from "@/components/shared/ComingSoonBadge"
 
@@ -36,12 +36,12 @@ export default function DonePage() {
 
       <div className="mt-10 grid gap-3 sm:grid-cols-3 text-left">
         {[
-          { emoji: "⚡", label: "Generate hooks", desc: "Scroll-stopping openers for any post" },
-          { emoji: "✈️", label: "Run Autopilot", desc: "Get 30 days of content in one click" },
-          { emoji: "🎬", label: "Write reel scripts", desc: "Full voiceover scripts, ready to record", comingSoon: !REELS_ENABLED },
-        ].map(({ emoji, label, desc, comingSoon }) => (
+          { Icon: Zap, label: "Generate hooks", desc: "Scroll-stopping openers for any post" },
+          { Icon: Plane, label: "Run Autopilot", desc: "Get 30 days of content in one click" },
+          { Icon: Clapperboard, label: "Write reel scripts", desc: "Full voiceover scripts, ready to record", comingSoon: !REELS_ENABLED },
+        ].map(({ Icon, label, desc, comingSoon }) => (
           <div key={label} className="rounded-xl border border-white/10 bg-white/5 p-4">
-            <div className="mb-2 text-2xl">{emoji}</div>
+            <Icon className="mb-2 h-6 w-6 text-violet-400" />
             <div className="flex items-center gap-1.5">
               <p className="text-sm font-semibold text-white">{label}</p>
               {comingSoon && <ComingSoonBadge />}

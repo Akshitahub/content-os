@@ -2,7 +2,10 @@
 
 import { useState, useEffect } from "react"
 import { useParams } from "next/navigation"
-import { Loader2, CheckCircle2, XCircle, Calendar, BarChart2, AlertTriangle, Trash2, Plane } from "lucide-react"
+import {
+  Loader2, CheckCircle2, XCircle, Calendar, BarChart2, AlertTriangle, Trash2, Plane,
+  Camera, Music2, Briefcase, Users, PlayCircle, AtSign, BookOpen, Theater, Sparkles, IndianRupee, Handshake,
+} from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { CalendarEntryPanel } from "@/components/calendar/CalendarEntryPanel"
@@ -47,20 +50,20 @@ const FREQUENCY_OPTIONS = [
 ] as const
 
 const PLATFORM_OPTIONS = [
-  { id: "instagram", label: "Instagram", emoji: "📸" },
-  { id: "tiktok", label: "TikTok", emoji: "🎵" },
-  { id: "linkedin", label: "LinkedIn", emoji: "💼" },
-  { id: "facebook", label: "Facebook", emoji: "👥" },
-  { id: "youtube", label: "YouTube", emoji: "▶️" },
-  { id: "twitter", label: "Twitter / X", emoji: "🐦" },
+  { id: "instagram", label: "Instagram", Icon: Camera },
+  { id: "tiktok", label: "TikTok", Icon: Music2 },
+  { id: "linkedin", label: "LinkedIn", Icon: Briefcase },
+  { id: "facebook", label: "Facebook", Icon: Users },
+  { id: "youtube", label: "YouTube", Icon: PlayCircle },
+  { id: "twitter", label: "Twitter / X", Icon: AtSign },
 ]
 
 const VIBE_OPTIONS = [
-  { id: "educational", label: "Educational", emoji: "📚" },
-  { id: "entertaining", label: "Entertaining", emoji: "🎭" },
-  { id: "inspirational", label: "Inspirational", emoji: "✨" },
-  { id: "sales", label: "Sales-focused", emoji: "💰" },
-  { id: "community", label: "Community", emoji: "🤝" },
+  { id: "educational", label: "Educational", Icon: BookOpen },
+  { id: "entertaining", label: "Entertaining", Icon: Theater },
+  { id: "inspirational", label: "Inspirational", Icon: Sparkles },
+  { id: "sales", label: "Sales-focused", Icon: IndianRupee },
+  { id: "community", label: "Community", Icon: Handshake },
 ]
 
 const FOCUS_AREAS = [
@@ -383,7 +386,7 @@ export default function AutopilotPage() {
                         : "border-border hover:border-violet-300"
                     }`}
                   >
-                    <span>{p.emoji}</span>
+                    <p.Icon className="h-3.5 w-3.5" />
                     {p.label}
                   </button>
                 ))}
@@ -405,7 +408,7 @@ export default function AutopilotPage() {
                         : "border-border hover:border-violet-300"
                     }`}
                   >
-                    <span>{v.emoji}</span>
+                    <v.Icon className="h-3.5 w-3.5" />
                     {v.label}
                   </button>
                 ))}
