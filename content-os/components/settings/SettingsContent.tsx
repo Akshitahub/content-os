@@ -355,7 +355,7 @@ function PlanSection({ user }: { user: UserProps }) {
         {/* Generation usage */}
         <div className="space-y-2">
           <p className="text-sm text-muted-foreground">
-            {count} / {limit} generations used this month
+            {count} / {limit} credits used this month
           </p>
           <div className="h-2 w-full overflow-hidden rounded-full bg-secondary">
             <div

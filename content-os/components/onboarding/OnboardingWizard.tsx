@@ -10,7 +10,7 @@ import Link from "next/link"
 import posthog from "posthog-js"
 import { POSTHOG_KEY } from "@/lib/analytics/posthog"
 import type { BrandRow } from "@/types/database"
-import type { FastlaneResult } from "@/types/app"
+import { PLAN_LIMITS, type FastlaneResult } from "@/types/app"
 
 type Step = 1 | 2 | 3
 
@@ -373,7 +373,13 @@ function Step3Fastlane({ brand }: Step3Props) {
             <Zap className="h-4 w-4" />
             Run Fastlane for {brand.name} →
           </Button>
-          <p className="text-center text-xs text-muted-foreground">Uses 30 of your monthly generation credits.</p>
+          {/* Onboarding only ever runs for a brand-new signup, always on
+              Free at this point — reads the real Free-tier Autopilot
+              preview cost (see estimateAutopilotCreditCost in
+              lib/ai/fastlane.ts) instead of a hardcoded number, so this
+              can't drift out of sync the way the old flat "30" did once
+              credit weights stopped being 1-per-action. */}
+          <p className="text-center text-xs text-muted-foreground">Uses {PLAN_LIMITS.free.autopilot.creditCost} of your monthly credits.</p>
           <div className="text-center">
             <button onClick={handleSkip} className="text-sm text-muted-foreground hover:text-foreground underline">
               Skip — I&apos;ll do this later

@@ -4,6 +4,7 @@ import { useState } from "react"
 import Link from "next/link"
 import { Check } from "lucide-react"
 import { PLAN_LIMITS } from "@/types/app"
+import { POST } from "@/lib/usage/credit-costs"
 
 type BillingCycle = "monthly" | "annual"
 
@@ -17,6 +18,17 @@ interface PricingTier {
 
 function formatRupees(amount: number): string {
   return `₹${amount.toLocaleString("en-IN")}`
+}
+
+// Credits, not "generations" — different content types now cost different
+// amounts (a Post costs more than a Hook), so a flat generation count
+// would be misleading on its own. Computed from PLAN_LIMITS/POST directly
+// (not hand-typed) so this line can never drift out of sync with the real
+// pool size or weight the way the old hardcoded per-tier strings did.
+function creditsLine(planId: "free" | "starter" | "pro" | "agency"): string {
+  const credits = PLAN_LIMITS[planId].generations
+  const postsEquivalent = Math.round(credits / POST)
+  return `${credits.toLocaleString("en-IN")} credits / month (~${postsEquivalent.toLocaleString("en-IN")} full posts)`
 }
 
 // Real annual price from PLAN_LIMITS[id].annualPrice (the same value
@@ -34,7 +46,7 @@ const TIERS: PricingTier[] = [
     tagline: "Try it out",
     features: [
       "1 brand",
-      "15 AI generations / month",
+      creditsLine("free"),
       "Post manually to Instagram, Facebook",
       "1 free AI video reel, on us",
     ],
@@ -45,7 +57,7 @@ const TIERS: PricingTier[] = [
     tagline: "For getting serious",
     features: [
       "2 brands",
-      "350 AI generations / month",
+      creditsLine("starter"),
       "Auto-post & schedule to Instagram, Facebook, Threads, Pinterest",
       "Autopilot: generate a month of content in one click",
       "Basic analytics & ROI tracking",
@@ -58,7 +70,7 @@ const TIERS: PricingTier[] = [
     highlighted: true,
     features: [
       "3 brands",
-      "1,200 AI generations / month",
+      creditsLine("pro"),
       "+ LinkedIn, YouTube, Twitter/X",
       "Autopilot: generate a month of content in one click",
       "1 real AI video reel every week",
@@ -74,7 +86,7 @@ const TIERS: PricingTier[] = [
     tagline: "For managing multiple brands",
     features: [
       "5 brands",
-      "2,000 AI generations / month",
+      creditsLine("agency"),
       "3-4 real AI video reels every week",
       "Competitor tracking across multiple brands",
       "Dedicated support",
