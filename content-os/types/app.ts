@@ -231,23 +231,19 @@ export interface AutopilotTier {
 // intended scope (3 days, 5 slots) rather than being trimmed further
 // than necessary.
 //
-// `generations` below is the final, approved monthly credit pool per
-// plan — calculated bottom-up from real target usage (manual posts +
-// Autopilot runs per brand), not derived mechanically from the old flat
-// numbers:
-// - Free: a trial allowance (100) — Pollinations-based, so pool size
-//   isn't cost-constrained the same way paid tiers are.
-// - Starter (450): ~30 manual posts (30 x 5 credits = 150) + Autopilot
-//   for its 2 brands (2 x 150 = 300) = 450.
-// - Pro (850): ~75 manual posts (375) + Autopilot for its 3 brands
-//   (3 x 150 = 450) = 825, rounded to 850.
-// - Agency (1300): ~100 manual posts (500) + Autopilot for its 5 brands
-//   (5 x 150 = 750) = 1250, rounded to 1300.
+// `price`/`annualPrice`/`generations` below are the latest final, approved
+// business numbers — a pricing revision superseding the prior round
+// (starter/pro/agency prices increased, and their credit pools grew
+// further beyond the previous 450/850/1300 to match). annualPrice for
+// each paid tier = monthly x 12 x 0.9 (the same ~10% annual discount
+// used since annual billing launched), rounded down to whole rupees —
+// confirmed: 1999x12x0.9=21589.2, 4999x12x0.9=53989.2,
+// 14999x12x0.9=161989.2, matching the given values exactly.
 export const PLAN_LIMITS: Record<UserPlan, { price: number; annualPrice: number; generations: number; brands: number; products: number; zernioSocialPlatforms: boolean; reelsPerWeek: number; autopilot: AutopilotTier; influencerOutreach: boolean; carouselCtaAiBackground: boolean }> = {
-  free:    { price: 0,    annualPrice: 0,     generations: 100,  brands: 1, products: 5,    zernioSocialPlatforms: false, reelsPerWeek: 0, autopilot: { days: 3,  slots: 5,  creditCost: 29 },  influencerOutreach: false, carouselCtaAiBackground: false },
-  starter: { price: 1199, annualPrice: 12949, generations: 450,  brands: 2, products: 30,   zernioSocialPlatforms: false, reelsPerWeek: 0, autopilot: { days: 30, slots: 30, creditCost: 162 }, influencerOutreach: false, carouselCtaAiBackground: true },
-  pro:     { price: 2999, annualPrice: 32389, generations: 850,  brands: 3, products: 200,  zernioSocialPlatforms: true,  reelsPerWeek: 1, autopilot: { days: 30, slots: 30, creditCost: 162 }, influencerOutreach: true,  carouselCtaAiBackground: true },
-  agency:  { price: 8000, annualPrice: 86400, generations: 1300, brands: 5, products: 1000, zernioSocialPlatforms: true,  reelsPerWeek: 4, autopilot: { days: 30, slots: 30, creditCost: 162 }, influencerOutreach: true,  carouselCtaAiBackground: true },
+  free:    { price: 0,     annualPrice: 0,      generations: 100,  brands: 1, products: 5,    zernioSocialPlatforms: false, reelsPerWeek: 0, autopilot: { days: 3,  slots: 5,  creditCost: 29 },  influencerOutreach: false, carouselCtaAiBackground: false },
+  starter: { price: 1999,  annualPrice: 21589,  generations: 500,  brands: 2, products: 30,   zernioSocialPlatforms: false, reelsPerWeek: 0, autopilot: { days: 30, slots: 30, creditCost: 162 }, influencerOutreach: false, carouselCtaAiBackground: true },
+  pro:     { price: 4999,  annualPrice: 53989,  generations: 1300, brands: 3, products: 200,  zernioSocialPlatforms: true,  reelsPerWeek: 1, autopilot: { days: 30, slots: 30, creditCost: 162 }, influencerOutreach: true,  carouselCtaAiBackground: true },
+  agency:  { price: 14999, annualPrice: 161989, generations: 3800, brands: 5, products: 1000, zernioSocialPlatforms: true,  reelsPerWeek: 4, autopilot: { days: 30, slots: 30, creditCost: 162 }, influencerOutreach: true,  carouselCtaAiBackground: true },
 }
 
 // ─── Trending context ────────────────────────────────────────────────────────
