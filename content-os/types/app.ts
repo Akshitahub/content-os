@@ -222,6 +222,15 @@ export interface AutopilotTier {
 // the pool resize below — per-feature weights aren't touched here, only
 // how many credits each plan gets to spend against them.
 //
+// Free's 5 slots were kept as-is (not reduced) after checking this
+// against its resized 100-credit pool: 29 against 100 leaves 71 credits
+// free for manual generation in the same month — well past the ~50-60
+// target for "the trial tier should let someone try both Autopilot and
+// manual generation, not just one or the other." Reducing to fewer
+// slots wasn't needed to hit that bar, so the preview stays at its full
+// intended scope (3 days, 5 slots) rather than being trimmed further
+// than necessary.
+//
 // `generations` below is the final, approved monthly credit pool per
 // plan — calculated bottom-up from real target usage (manual posts +
 // Autopilot runs per brand), not derived mechanically from the old flat
