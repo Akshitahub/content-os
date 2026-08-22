@@ -8,7 +8,18 @@ import * as fontkit from "fontkit"
 import type { PostTemplateId } from "@/lib/design/post-templates"
 import type { ColorTheme } from "@/lib/design/color-themes"
 
-const CANVAS_SIZE = 1080
+// Matches lib/ai/post-image-pipeline.ts's PORTRAIT_DIMENSIONS (4:5, the
+// current Instagram feed default) — width unchanged from the old square
+// canvas, only height grew. Every template's layout math below either
+// already expresses vertical position relative to CANVAS_HEIGHT (so it
+// adapts automatically) or, for the handful of genuinely hardcoded pixel
+// anchors that weren't, has been proportionally rescaled by the same
+// CANVAS_HEIGHT / 1080 ratio those anchors were originally tuned against.
+// Fixed corner-margin decorations (logo badges anchored to a literal
+// corner) are deliberately left as-is — they're edge margins, not content
+// proportional to overall height, so they shouldn't scale with it.
+const CANVAS_WIDTH = 1080
+const CANVAS_HEIGHT = 1350
 
 // Headline text never shrinks below this, no matter how long the input —
 // it's the "absolute last resort" floor fitText() stops at; anything that
@@ -228,7 +239,9 @@ function buildBoldStatement(headline: string, cta: string, theme: ColorTheme, fo
     maxWidthPx: 960,
     maxLines: 3,
   })
-  const startY = 760 - blockHeight / 2 + fontSize * 0.8
+  // 950 = 760 * (CANVAS_HEIGHT / 1080) — proportionally rescaled from the
+  // original square canvas's tuned anchor (see canvas-height comment above).
+  const startY = 950 - blockHeight / 2 + fontSize * 0.8
 
   const headlineSvg = lines.map((line, i) => textEl("50%", startY + i * lineHeight, "middle", fontSize, line)).join("")
 
@@ -253,9 +266,9 @@ function buildBoldStatement(headline: string, cta: string, theme: ColorTheme, fo
         <stop offset="100%" stop-color="#000000" stop-opacity="0.78"/>
       </linearGradient>
     </defs>
-    <rect x="0" y="460" width="${CANVAS_SIZE}" height="${CANVAS_SIZE - 460}" fill="url(#scrim)"/>
+    <rect x="0" y="575" width="${CANVAS_WIDTH}" height="${CANVAS_HEIGHT - 575}" fill="url(#scrim)"/>
     ${headlineSvg}
-    <rect x="${CANVAS_SIZE / 2 - ctaPillWidth / 2}" y="${ctaPillTop}" width="${ctaPillWidth}" height="${ctaPillHeight}" rx="${ctaPillHeight / 2}" fill="${theme.primary}"/>
+    <rect x="${CANVAS_WIDTH / 2 - ctaPillWidth / 2}" y="${ctaPillTop}" width="${ctaPillWidth}" height="${ctaPillHeight}" rx="${ctaPillHeight / 2}" fill="${theme.primary}"/>
     ${ctaSvg}
     <circle cx="106" cy="106" r="50" fill="#ffffff" fill-opacity="0.92"/>
   `
@@ -270,7 +283,9 @@ function buildProductFocus(headline: string, cta: string, theme: ColorTheme, fon
     maxWidthPx: 960,
     maxLines: 2,
   })
-  const bandTop = 800
+  // 1000 = 800 * (CANVAS_HEIGHT / 1080) — proportionally rescaled from the
+  // original square canvas's tuned anchor.
+  const bandTop = 1000
   const headlineY = bandTop - 40 - (lines.length - 1) * lineHeight
 
   const headlineSvg = lines.map((line, i) => textEl("50%", headlineY + i * lineHeight, "middle", fontSize, line)).join("")
@@ -281,10 +296,10 @@ function buildProductFocus(headline: string, cta: string, theme: ColorTheme, fon
   // instead of letting an unbound right-aligned string grow left forever.
   const ctaMaxWidthPx = 680
   const ctaFit = fitCtaText(font, ctaText, ctaMaxWidthPx, 34, 18)
-  const ctaAnchorY = bandTop + (CANVAS_SIZE - bandTop) / 2 + 12
+  const ctaAnchorY = bandTop + (CANVAS_HEIGHT - bandTop) / 2 + 12
   const ctaFirstLineY = ctaAnchorY - (ctaFit.lines.length - 1) * ctaFit.lineHeight
   const ctaSvg = ctaFit.lines
-    .map((line, i) => textEl(`${CANVAS_SIZE - 60}`, ctaFirstLineY + i * ctaFit.lineHeight, "end", ctaFit.fontSize, line))
+    .map((line, i) => textEl(`${CANVAS_WIDTH - 60}`, ctaFirstLineY + i * ctaFit.lineHeight, "end", ctaFit.fontSize, line))
     .join("")
 
   const svg = `
@@ -294,14 +309,14 @@ function buildProductFocus(headline: string, cta: string, theme: ColorTheme, fon
         <stop offset="100%" stop-color="#000000" stop-opacity="0.55"/>
       </linearGradient>
     </defs>
-    <rect x="0" y="580" width="${CANVAS_SIZE}" height="${bandTop - 580}" fill="url(#scrim)"/>
+    <rect x="0" y="725" width="${CANVAS_WIDTH}" height="${bandTop - 725}" fill="url(#scrim)"/>
     ${headlineSvg}
-    <rect x="0" y="${bandTop}" width="${CANVAS_SIZE}" height="${CANVAS_SIZE - bandTop}" fill="${theme.primary}"/>
-    <rect x="0" y="${bandTop}" width="${CANVAS_SIZE}" height="${CANVAS_SIZE - bandTop}" fill="#000000" fill-opacity="0.12"/>
-    <circle cx="106" cy="${bandTop + (CANVAS_SIZE - bandTop) / 2}" r="42" fill="#ffffff" fill-opacity="0.92"/>
+    <rect x="0" y="${bandTop}" width="${CANVAS_WIDTH}" height="${CANVAS_HEIGHT - bandTop}" fill="${theme.primary}"/>
+    <rect x="0" y="${bandTop}" width="${CANVAS_WIDTH}" height="${CANVAS_HEIGHT - bandTop}" fill="#000000" fill-opacity="0.12"/>
+    <circle cx="106" cy="${bandTop + (CANVAS_HEIGHT - bandTop) / 2}" r="42" fill="#ffffff" fill-opacity="0.92"/>
     ${ctaSvg}
   `
-  return { svg, logoBox: { x: 71, y: bandTop + (CANVAS_SIZE - bandTop) / 2 - 35, size: 70 } }
+  return { svg, logoBox: { x: 71, y: bandTop + (CANVAS_HEIGHT - bandTop) / 2 - 35, size: 70 } }
 }
 
 function buildQuoteCard(headline: string, cta: string, theme: ColorTheme, font: fontkit.Font): OverlayResult {
@@ -312,7 +327,7 @@ function buildQuoteCard(headline: string, cta: string, theme: ColorTheme, font: 
     maxWidthPx: 940,
     maxLines: 3,
   })
-  const startY = CANVAS_SIZE / 2 - blockHeight / 2 + fontSize * 0.75
+  const startY = CANVAS_HEIGHT / 2 - blockHeight / 2 + fontSize * 0.75
 
   const headlineSvg = lines.map((line, i) => textEl("50%", startY + i * lineHeight, "middle", fontSize, line, 700)).join("")
   const ctaText = cta.toUpperCase()
@@ -324,20 +339,20 @@ function buildQuoteCard(headline: string, cta: string, theme: ColorTheme, font: 
   // grows tall enough to actually contain whatever comes out.
   const ctaFit = fitCtaText(font, ctaText, 460, 26, 16)
   const ctaBarHeight = Math.max(130, ctaFit.blockHeight + 60)
-  const ctaBaseY = CANVAS_SIZE - 55
+  const ctaBaseY = CANVAS_HEIGHT - 55
   const ctaSvg = ctaFit.lines
-    .map((line, i) => textEl(`${CANVAS_SIZE / 2 + 20}`, ctaBaseY - (ctaFit.lines.length - 1 - i) * ctaFit.lineHeight, "start", ctaFit.fontSize, line))
+    .map((line, i) => textEl(`${CANVAS_WIDTH / 2 + 20}`, ctaBaseY - (ctaFit.lines.length - 1 - i) * ctaFit.lineHeight, "start", ctaFit.fontSize, line))
     .join("")
 
   const svg = `
-    <rect x="0" y="0" width="${CANVAS_SIZE}" height="${CANVAS_SIZE}" fill="#000000" fill-opacity="0.38"/>
+    <rect x="0" y="0" width="${CANVAS_WIDTH}" height="${CANVAS_HEIGHT}" fill="#000000" fill-opacity="0.38"/>
     <text x="90" y="${startY - blockHeight - 20}" font-family="PostFont, sans-serif" font-weight="900" font-size="220" fill="${theme.secondary}" fill-opacity="0.5">&#8220;</text>
     ${headlineSvg}
-    <rect x="0" y="${CANVAS_SIZE - ctaBarHeight}" width="${CANVAS_SIZE}" height="${ctaBarHeight}" fill="#000000" fill-opacity="0.3"/>
-    <circle cx="${CANVAS_SIZE / 2 - 90}" cy="${CANVAS_SIZE - 65}" r="30" fill="#ffffff" fill-opacity="0.9"/>
+    <rect x="0" y="${CANVAS_HEIGHT - ctaBarHeight}" width="${CANVAS_WIDTH}" height="${ctaBarHeight}" fill="#000000" fill-opacity="0.3"/>
+    <circle cx="${CANVAS_WIDTH / 2 - 90}" cy="${CANVAS_HEIGHT - 65}" r="30" fill="#ffffff" fill-opacity="0.9"/>
     ${ctaSvg}
   `
-  return { svg, logoBox: { x: CANVAS_SIZE / 2 - 120, y: CANVAS_SIZE - 95, size: 60 } }
+  return { svg, logoBox: { x: CANVAS_WIDTH / 2 - 120, y: CANVAS_HEIGHT - 95, size: 60 } }
 }
 
 function buildMinimal(headline: string, cta: string, theme: ColorTheme, font: fontkit.Font): OverlayResult {
@@ -346,11 +361,11 @@ function buildMinimal(headline: string, cta: string, theme: ColorTheme, font: fo
     startFontSize: 54,
     minFontSize: MIN_HEADLINE_FONT_SIZE,
     lineHeightMultiplier: 1.15,
-    maxWidthPx: CANVAS_SIZE - padX - 60,
+    maxWidthPx: CANVAS_WIDTH - padX - 60,
     maxLines: 2,
   })
   const ctaText = cta.toUpperCase()
-  const ctaFit = fitCtaText(font, ctaText, CANVAS_SIZE - padX - 60, 24, 16)
+  const ctaFit = fitCtaText(font, ctaText, CANVAS_WIDTH - padX - 60, 24, 16)
 
   // Box height built up from its actual content (bar, headline block, CTA
   // block, padding) rather than a fixed guess — avoids the accent bar or
@@ -366,7 +381,7 @@ function buildMinimal(headline: string, cta: string, theme: ColorTheme, font: fo
   const headlineFirstBaseline = headlineTop + fontSize * 0.8
   const ctaFirstBaseline = headlineTop + blockHeight + gapHeadlineToCta + ctaFit.fontSize * 0.8
   const boxHeight = ctaFirstBaseline + (ctaFit.lines.length - 1) * ctaFit.lineHeight + bottomPad
-  const boxY = CANVAS_SIZE - boxHeight
+  const boxY = CANVAS_HEIGHT - boxHeight
 
   const headlineSvg = lines
     .map((line, i) => textEl(`${padX}`, boxY + headlineFirstBaseline + i * lineHeight, "start", fontSize, line))
@@ -376,13 +391,13 @@ function buildMinimal(headline: string, cta: string, theme: ColorTheme, font: fo
     .join("")
 
   const svg = `
-    <rect x="0" y="${boxY}" width="${CANVAS_SIZE}" height="${boxHeight}" fill="#000000" fill-opacity="0.42"/>
+    <rect x="0" y="${boxY}" width="${CANVAS_WIDTH}" height="${boxHeight}" fill="#000000" fill-opacity="0.42"/>
     <rect x="${padX}" y="${boxY + topPad}" width="52" height="${barHeight}" fill="${theme.primary}"/>
     ${headlineSvg}
     ${ctaSvg}
-    <rect x="${CANVAS_SIZE - 130}" y="50" width="70" height="70" rx="12" fill="#ffffff" fill-opacity="0.9"/>
+    <rect x="${CANVAS_WIDTH - 130}" y="50" width="70" height="70" rx="12" fill="#ffffff" fill-opacity="0.9"/>
   `
-  return { svg, logoBox: { x: CANVAS_SIZE - 122, y: 58, size: 54 } }
+  return { svg, logoBox: { x: CANVAS_WIDTH - 122, y: 58, size: 54 } }
 }
 
 async function fetchLogoBuffer(logoUrl: string): Promise<Buffer | null> {
@@ -433,7 +448,7 @@ export async function compositePostImage(
 
   const font = await getFont()
   const { svg: overlaySvg, logoBox } = builder(headline, ctaText, options.colorTheme, font)
-  const svg = `<svg width="${CANVAS_SIZE}" height="${CANVAS_SIZE}" xmlns="http://www.w3.org/2000/svg">${overlaySvg}</svg>`
+  const svg = `<svg width="${CANVAS_WIDTH}" height="${CANVAS_HEIGHT}" xmlns="http://www.w3.org/2000/svg">${overlaySvg}</svg>`
 
   const fontPath = await getFontPath()
   const resvg = new Resvg(svg, {
@@ -465,7 +480,7 @@ export async function compositePostImage(
   }
 
   return sharp(baseImageBuffer)
-    .resize(CANVAS_SIZE, CANVAS_SIZE, { fit: "cover" })
+    .resize(CANVAS_WIDTH, CANVAS_HEIGHT, { fit: "cover" })
     .composite(layers)
     .png()
     .toBuffer()

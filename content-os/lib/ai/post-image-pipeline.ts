@@ -53,11 +53,32 @@ export interface ImageDimensions {
   aspectRatio: string
 }
 
-// Square, matching the post/carousel compositing target — the default for
-// every existing caller so this stays behavior-preserving for them.
-// Callers with a different canvas shape (e.g. lib/ai/story-slide-background.ts's
-// portrait Stories slides) pass their own ImageDimensions explicitly.
+// Square — kept available (not deleted) for a future square option or any
+// caller that explicitly wants it, but no longer the default (see
+// PORTRAIT_DIMENSIONS below).
 const SQUARE_DIMENSIONS: ImageDimensions = { width: CANVAS_SIZE, height: CANVAS_SIZE, aspectRatio: "1:1" }
+
+// Instagram's 2026 feed default is 4:5 portrait, not square — taller in the
+// scroll and less cropped by the 3:4 profile-grid preview than 1:1 was. Now
+// the default for every existing caller of fetchBackgroundImage (Post,
+// Carousel via lib/ai/carousel-slide-background.ts, Autopilot/Fastlane via
+// generatePostImage) so this stays behavior-preserving for them without each
+// needing to pass dimensions explicitly. Stories keeps its own explicit 9:16
+// STORY_DIMENSIONS (lib/ai/story-slide-background.ts) — untouched by this.
+//
+// `aspectRatio` here is deliberately "3:4", NOT the true "4:5" pixel ratio —
+// Replicate's flux-2-pro model only accepts a fixed aspect_ratio enum
+// (confirmed from its own schema, see docs/research/seedream-5-lite-evaluation.md):
+// ["match_input_image","1:1","4:3","3:4","16:9","9:16","3:2","2:3","21:9"].
+// "4:5" isn't in it — sending it would risk every Flux (paid-plan) call
+// failing and silently downgrading to Pollinations via the fallback below.
+// "3:4" is the closest valid enum value; it only affects what aspect Flux is
+// asked to natively generate at, since compositePostImage's own
+// `sharp(...).resize(width, height, { fit: "cover" })` already forces the
+// final output to these exact width/height regardless of what a provider
+// actually returned. Pollinations has no such enum — its width/height query
+// params below are used directly, so this substitution only matters for Flux.
+const PORTRAIT_DIMENSIONS: ImageDimensions = { width: 1080, height: 1350, aspectRatio: "3:4" }
 
 export type PostImagePipelineResult =
   | { success: true; buffer: Buffer; mimeType: string; fullPrompt: string; provider: "pollinations" | "flux"; attempts: ImageGenerationAttempt[] }
@@ -312,6 +333,13 @@ const PHOTOGRAPHY_STYLE = "professional product photography shot on a full-frame
 // as everything else here.
 const POST_IMAGE_QUALITY_AND_NEGATIVE_GUARD = "no text, no watermarks, no logos, no illegible text or symbols, anatomically correct human features if any people are shown, correct number of fingers and limbs, natural hand positioning, authentic unretouched skin texture with natural imperfections, not a 3D render, not CGI, not a digital illustration, not an AI-generated look, avoid airbrushed or over-smoothed skin, avoid plastic or waxy-looking surfaces, avoid unnaturally perfect symmetry"
 
+// Now that the target canvas is 4:5 portrait (see PORTRAIT_DIMENSIONS
+// above), Instagram's profile-grid preview crops it further to 3:4 — tighter
+// than the 4:5 feed view. Keeping the subject and any key visual detail
+// centered means it survives that extra crop instead of being clipped at
+// the top/bottom edges.
+const CENTERED_COMPOSITION_GUARD = "keep the main subject, text, logos, and key visual elements centered in the frame — avoid placing them in the outer ~10% margin on any side"
+
 // The only two genuinely unbounded pieces of the assembled prompt below —
 // everything else (niche setting, negative guard, photography style,
 // quality boilerplate) is a short, fixed, code-authored string. Capping
@@ -364,6 +392,7 @@ function simplifyPrompt(prompt: string, brandNiche: string | null): string {
     brandNiche ? `${brandNiche} brand` : "",
     resolveNicheSetting(brandNiche),
     PHOTOGRAPHY_STYLE,
+    CENTERED_COMPOSITION_GUARD,
     POST_IMAGE_QUALITY_AND_NEGATIVE_GUARD,
   ].filter(Boolean).join(", ")
 }
@@ -388,7 +417,7 @@ export async function fetchBackgroundImage(
   fallbackPrompt: string,
   plan: UserPlan,
   isInternalUnlimitedUser: boolean,
-  dimensions: ImageDimensions = SQUARE_DIMENSIONS
+  dimensions: ImageDimensions = PORTRAIT_DIMENSIONS
 ): Promise<BackgroundImageResult> {
   const provider = resolveImageProvider(plan, isInternalUnlimitedUser)
   const fetchImage = provider === "flux" ? fetchAndCheckFluxImage : fetchAndCheckPollinationsImage
@@ -492,6 +521,7 @@ export async function generatePostImage(options: GeneratePostImageOptions): Prom
     PHOTOGRAPHY_STYLE,
     buildNegativeGuard(options.brandNiche),
     "leave the lower third of the frame visually simpler and less busy for a text overlay",
+    CENTERED_COMPOSITION_GUARD,
     POST_IMAGE_QUALITY_AND_NEGATIVE_GUARD,
   ].filter(Boolean).join(", ")
 
