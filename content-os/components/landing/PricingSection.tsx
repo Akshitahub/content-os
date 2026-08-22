@@ -29,11 +29,13 @@ function formatRupees(amount: number): string {
 // allowance plus one Autopilot run per brand) — deliberately NOT
 // re-derived by dividing the whole pool by POST, since that would
 // overstate what's left after also budgeting for Autopilot.
+// Free unchanged from the prior pricing round; starter/pro/agency bumped
+// to the latest approved figures (500/1300/3800 credit pools).
 const MANUAL_POSTS_TARGET: Record<"free" | "starter" | "pro" | "agency", number> = {
   free: 14,
-  starter: 30,
-  pro: 75,
-  agency: 100,
+  starter: 40,
+  pro: 110,
+  agency: 300,
 }
 
 function creditsLine(planId: "free" | "starter" | "pro" | "agency"): string {
@@ -42,7 +44,11 @@ function creditsLine(planId: "free" | "starter" | "pro" | "agency"): string {
   const autopilotNote = planId === "free"
     ? "a free Autopilot preview"
     : `monthly Autopilot for ${brands === 2 ? "both your brands" : `all ${brands} of your brands`}`
-  return `${credits.toLocaleString("en-IN")} credits / month — ~${posts} posts + ${autopilotNote}`
+  // Agency's pool has the most headroom left after its posts+Autopilot
+  // budget of any paid tier — worth calling out, matching the approved
+  // copy framing.
+  const spareNote = planId === "agency" ? " — with plenty of room to spare" : ""
+  return `${credits.toLocaleString("en-IN")} credits / month — ~${posts} posts + ${autopilotNote}${spareNote}`
 }
 
 // Real annual price from PLAN_LIMITS[id].annualPrice (the same value
