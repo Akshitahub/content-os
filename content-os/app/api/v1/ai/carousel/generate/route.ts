@@ -48,6 +48,7 @@ CRITICAL RULES:
 - NEVER use square-bracket placeholders like [Age], [Name], [Number], [Year], [Date] etc.
 - If you don't know a specific number (founding year, age, stats), write content that doesn't need it
 - Write only actual, complete text — no template variables, no placeholders
+- No exclamation marks, no hashtags, no emojis in "headline", "subtext", "points", "cta", or "cover_hook" — plain, punchy text only
 - RESPOND WITH ONLY VALID JSON — no markdown fences, no explanation text, no trailing commas
 
 SLIDE STRUCTURE:

@@ -86,10 +86,12 @@ Create ${storyCount} connected Instagram stories that build narrative momentum.
 Story type sequence: ${typeSequence.join(" → ")}
 
 Story types:
-- hook: Stops the scroll, creates curiosity, "Wait till you see this 👀" energy
+- hook: Stops the scroll, creates curiosity, "Wait till you see this" energy
 - reveal: Shows/introduces the main thing (product, concept, transformation)
 - buildup: Adds details, benefits, social proof, or context
 - cta: Final slide with strong call to action and @handle
+
+TEXT RULES: No exclamation marks, no hashtags, no emojis in "text" or "subtext" — plain, punchy text only.
 
 Background options:
 - "gradient_violet": Purple/violet gradient (great for hook)
@@ -131,7 +133,7 @@ Respond with ONLY this JSON:
       "story_number": ${storyCount},
       "type": "cta",
       "text": "CTA line",
-      "subtext": "Link in bio 👆",
+      "subtext": "Link in bio",
       "background": "gradient_dark",
       "text_position": "center",
       "has_poll": true,
