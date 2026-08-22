@@ -79,9 +79,9 @@ export default async function RootPage() {
         </nav>
 
         {/* HERO */}
-        <section className="relative overflow-hidden px-6 pb-24 pt-32 sm:px-8 sm:pb-32 sm:pt-40" style={{ backgroundColor: "#0f0f0f" }}>
+        <section className="relative flex min-h-[100svh] flex-col justify-center overflow-hidden px-6 pb-24 pt-32 sm:px-8 sm:pb-32 sm:pt-40" style={{ backgroundColor: "#0f0f0f" }}>
           <div aria-hidden="true" className="pointer-events-none absolute inset-0" style={{ background: "radial-gradient(ellipse 60% 40% at 50% 0%, rgba(124,58,237,0.18) 0%, transparent 70%)" }} />
-          <div className="relative mx-auto max-w-6xl">
+          <div className="relative mx-auto w-full max-w-6xl">
             <div className="grid items-center gap-12 lg:grid-cols-2">
               <div>
                 <span className="mb-6 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-medium text-violet-300">
