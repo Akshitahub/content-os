@@ -955,8 +955,7 @@ function PostImagePreview({
       <img
         src={postImageUrl}
         alt="Generated post image"
-        className="w-full rounded-lg object-cover"
-        style={{ maxHeight: 360 }}
+        className="w-full rounded-lg object-contain"
       />
     </div>
   )
