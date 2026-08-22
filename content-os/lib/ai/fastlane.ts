@@ -12,6 +12,7 @@ import { MUSIC_OPTIONS, resolveMusicTrackId } from "@/lib/video/music-options"
 import { renderCarouselSlidesToPng } from "@/lib/image/carousel-compositor"
 import { uploadMediaToStorage } from "@/lib/storage/upload-media"
 import { createAdminClient } from "@/lib/supabase/server"
+import { POST as POST_CREDIT_COST, CAROUSEL as CAROUSEL_CREDIT_COST } from "@/lib/usage/credit-costs"
 import type { BrandRow, ProductRow, CalendarEntryRow, Json } from "@/types/database"
 import type { ContentStrategy, ContentSlot, FastlaneResult, Platform, ReelScene, UserPlan } from "@/types/app"
 import type { SupabaseClient } from "@supabase/supabase-js"
@@ -228,6 +229,43 @@ function buildContentMix(focusAreas?: string[], totalSlots = 30): typeof CONTENT
   })()
 
   return totalSlots === 30 ? base : scaleMix(base, totalSlots)
+}
+
+// Real per-slot-type credit cost — line 762 below shows every content_type
+// EXCEPT "carousel" and "reel_script" routes through generatePostImage,
+// i.e. is really a full bundled Post regardless of what its content_type
+// label says (confirmed: "ad_copy" here still produces a caption+hashtags
+// post with an image, NOT the standalone {headline,primary_text,description,
+// cta_button} Ad Copy format used elsewhere — same string, different
+// shape, a pre-existing naming collision in the content_type enum this
+// wasn't the place to rename). reel_script intentionally stays at the
+// pre-existing flat rate of 1 credit/slot: Reel credit logic
+// (checkAndIncrementReelUsage, REELS_ENABLED) is explicitly out of scope
+// for this change, so reel slots' contribution to the total is left at
+// their historical implicit per-slot rate rather than inventing a new
+// Reel weight here.
+const SLOT_CONTENT_TYPE_CREDIT_COST: Record<string, number> = {
+  hooks: POST_CREDIT_COST,
+  caption: POST_CREDIT_COST,
+  ad_copy: POST_CREDIT_COST,
+  carousel: CAROUSEL_CREDIT_COST,
+  reel_script: 1,
+}
+
+/**
+ * The real weighted Autopilot cost for a run of `totalSlots` slots
+ * (optionally narrowed by `focusAreas`) — sums each slot's actual weighted
+ * content-type cost rather than a flat per-tier number, per
+ * docs/research (weighted credit costs replace flat 1-credit-per-generation).
+ * Exported so app/api/v1/brands/fastlane/route.ts can both pre-flight
+ * check affordability and charge the real total against the exact same
+ * mix buildStrategyUserPrompt/executeFastlane actually use, instead of
+ * duplicating buildContentMix's mix-selection logic or drifting out of
+ * sync with it.
+ */
+export function estimateAutopilotCreditCost(focusAreas?: string[], totalSlots = 30): number {
+  const mix = buildContentMix(focusAreas, totalSlots)
+  return mix.reduce((sum, m) => sum + m.count * (SLOT_CONTENT_TYPE_CREDIT_COST[m.format] ?? 1), 0)
 }
 
 function buildStrategyUserPrompt(brand: BrandRow, products: ProductRow[], params?: AutopilotParams): string {

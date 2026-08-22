@@ -4,6 +4,7 @@ import { generateContentSchema } from "@/lib/validations/ai"
 import { generateContent } from "@/lib/ai/content-generator"
 import { buildError, ErrorCodes } from "@/types/api"
 import { checkAndIncrementUsage, refundGenerationUsage } from "@/lib/usage/check-and-increment-usage"
+import { CONTENT_FORMAT_CREDIT_COSTS } from "@/lib/usage/credit-costs"
 import { captureServerEvent } from "@/lib/analytics/posthog"
 import { buildPatternNote } from "@/lib/ai/pattern-match"
 import type { BrandRow, ProductRow } from "@/types/database"
@@ -144,12 +145,6 @@ export async function POST(request: Request) {
   const { data: { user }, error: authError } = await supabase.auth.getUser()
   if (authError || !user) return NextResponse.json(buildError(ErrorCodes.UNAUTHENTICATED, "You must be logged in."), { status: 401 })
 
-  const usageCheck = await checkAndIncrementUsage(user.id)
-  if (!usageCheck.ok) {
-    const code = usageCheck.status === 429 ? ErrorCodes.USAGE_LIMIT_EXCEEDED : ErrorCodes.INTERNAL_ERROR
-    return NextResponse.json(buildError(code, usageCheck.message), { status: usageCheck.status })
-  }
-
   let body: unknown
   try { body = await request.json() } catch {
     return NextResponse.json(buildError(ErrorCodes.VALIDATION_ERROR, "Invalid JSON."), { status: 400 })
@@ -159,6 +154,17 @@ export async function POST(request: Request) {
   if (!parsed.success) return NextResponse.json(buildError(ErrorCodes.VALIDATION_ERROR, "Validation failed.", parsed.error.message), { status: 400 })
 
   const { brandId, productId, format, platform, hookText, additionalContext } = parsed.data
+
+  // Cost depends on `format` (a Hook/Caption-weight text-only generation
+  // and a full Carousel are wildly different real costs) — moved after
+  // body parsing (was previously checked before the request body was even
+  // read) so the format is actually known before charging for it.
+  const cost = CONTENT_FORMAT_CREDIT_COSTS[format]
+  const usageCheck = await checkAndIncrementUsage(user.id, cost)
+  if (!usageCheck.ok) {
+    const code = usageCheck.status === 429 ? ErrorCodes.USAGE_LIMIT_EXCEEDED : ErrorCodes.INTERNAL_ERROR
+    return NextResponse.json(buildError(code, usageCheck.message), { status: usageCheck.status })
+  }
 
   const { data: brand } = await supabase.from("brands").select("*").eq("id", brandId).eq("user_id", user.id).single<BrandRow>()
   if (!brand) return NextResponse.json(buildError(ErrorCodes.BRAND_NOT_FOUND, "Brand not found."), { status: 404 })
@@ -188,7 +194,7 @@ export async function POST(request: Request) {
       latency_ms: Date.now() - startTime, success: false,
       error_message: err instanceof Error ? err.message : "Unknown error",
     })
-    await refundGenerationUsage(supabase, user.id)
+    await refundGenerationUsage(supabase, user.id, cost)
     return NextResponse.json(buildError(ErrorCodes.AI_GENERATION_FAILED, "AI generation failed. Please try again."), { status: 500 })
   }
 

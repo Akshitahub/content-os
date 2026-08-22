@@ -9,7 +9,13 @@ export type UsageCheckResult =
   | { ok: true }
   | { ok: false; status: 429 | 500; message: string }
 
-export async function checkAndIncrementUsage(userId: string): Promise<UsageCheckResult> {
+/**
+ * `cost` is the number of credits this specific action draws from the
+ * user's single shared monthly pool (see lib/usage/credit-costs.ts) — a
+ * required parameter, not defaulted to 1, so every call site has to state
+ * its cost explicitly rather than silently inheriting the old flat rate.
+ */
+export async function checkAndIncrementUsage(userId: string, cost: number): Promise<UsageCheckResult> {
   if (isInternalUnlimited(userId)) {
     console.log(`[check-and-increment-usage] internal unlimited bypass for ${userId} — quota check skipped, generation_count not incremented`)
     return { ok: true }
@@ -40,20 +46,27 @@ export async function checkAndIncrementUsage(userId: string): Promise<UsageCheck
 
   if (needsReset) count = 0
 
-  if (count >= limit) {
+  // Was `count >= limit` — correct only when every action cost exactly 1
+  // (so "at the limit" and "can't afford the next action" were the same
+  // thing). Under weighted costs they're not: a user with headroom for a
+  // cheap action but not an expensive one needs `count + cost > limit`,
+  // not just "have I hit the ceiling at all."
+  if (count + cost > limit) {
     console.error(
-      `[check-and-increment-usage] REJECTED user ${userId}: plan=${user.plan} count=${count} limit=${limit} needsReset=${needsReset}`
+      `[check-and-increment-usage] REJECTED user ${userId}: plan=${user.plan} count=${count} cost=${cost} limit=${limit} needsReset=${needsReset}`
     )
-    const noun = user.plan === "free" ? `${limit} free` : String(limit)
+    const remaining = Math.max(0, limit - count)
     return {
       ok: false,
       status: 429,
-      message: `You've used all ${noun} generations this month. Upgrade to continue.`,
+      message: count >= limit
+        ? `You've used all ${limit} generations this month. Upgrade to continue.`
+        : `This action requires ${cost} credits, but you only have ${remaining} remaining this month. Upgrade to continue.`,
     }
   }
 
   console.log(
-    `[check-and-increment-usage] OK user ${userId}: plan=${user.plan} count=${count} limit=${limit} needsReset=${needsReset} — incrementing to ${count + 1}`
+    `[check-and-increment-usage] OK user ${userId}: plan=${user.plan} count=${count} cost=${cost} limit=${limit} needsReset=${needsReset} — incrementing to ${count + cost}`
   )
 
   const nextResetDate = new Date()
@@ -62,12 +75,12 @@ export async function checkAndIncrementUsage(userId: string): Promise<UsageCheck
   if (needsReset) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await (supabase.from("users") as any)
-      .update({ generation_count: count + 1, generation_count_reset_at: nextResetDate.toISOString() })
+      .update({ generation_count: count + cost, generation_count_reset_at: nextResetDate.toISOString() })
       .eq("id", userId)
   } else {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await (supabase.from("users") as any)
-      .update({ generation_count: count + 1 })
+      .update({ generation_count: count + cost })
       .eq("id", userId)
   }
 
@@ -88,7 +101,7 @@ export async function checkAndIncrementUsage(userId: string): Promise<UsageCheck
  * from contexts (e.g. an after() callback) where a fresh request-scoped
  * cookie client isn't reliable.
  */
-export async function refundGenerationUsage(supabase: SupabaseClient<Database>, userId: string): Promise<void> {
+export async function refundGenerationUsage(supabase: SupabaseClient<Database>, userId: string, cost: number): Promise<void> {
   if (isInternalUnlimited(userId)) {
     // checkAndIncrementUsage never incremented anything for this user in
     // the first place — nothing to refund.
@@ -108,6 +121,6 @@ export async function refundGenerationUsage(supabase: SupabaseClient<Database>, 
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   await (supabase.from("users") as any)
-    .update({ generation_count: Math.max(0, (user.generation_count ?? 0) - 1) })
+    .update({ generation_count: Math.max(0, (user.generation_count ?? 0) - cost) })
     .eq("id", userId)
 }

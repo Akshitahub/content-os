@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server"
 import { buildError, ErrorCodes } from "@/types/api"
 import { MODELS, getGroqClient } from "@/lib/ai/models"
 import { checkAndIncrementUsage, refundGenerationUsage } from "@/lib/usage/check-and-increment-usage"
+import { STORY } from "@/lib/usage/credit-costs"
 import { buildPastExamplesBlock, QUALITY_BAR } from "@/lib/ai/prompts"
 import { z } from "zod"
 import type { BrandRow } from "@/types/database"
@@ -156,7 +157,7 @@ export async function POST(request: Request) {
     return NextResponse.json(buildError(ErrorCodes.UNAUTHENTICATED, "You must be logged in."), { status: 401 })
   }
 
-  const usageCheck = await checkAndIncrementUsage(user.id)
+  const usageCheck = await checkAndIncrementUsage(user.id, STORY)
   if (!usageCheck.ok) {
     const code = usageCheck.status === 429 ? ErrorCodes.USAGE_LIMIT_EXCEEDED : ErrorCodes.INTERNAL_ERROR
     return NextResponse.json(buildError(code, usageCheck.message), { status: usageCheck.status })
@@ -232,13 +233,13 @@ ${QUALITY_BAR}`,
     try {
       data = JSON.parse(cleaned)
     } catch {
-      await refundGenerationUsage(supabase, user.id)
+      await refundGenerationUsage(supabase, user.id, STORY)
       return NextResponse.json(buildError(ErrorCodes.AI_GENERATION_FAILED, "AI returned invalid JSON. Please try again."), { status: 500 })
     }
 
     const d = data as Record<string, unknown>
     if (!Array.isArray(d.stories) || d.stories.length === 0) {
-      await refundGenerationUsage(supabase, user.id)
+      await refundGenerationUsage(supabase, user.id, STORY)
       return NextResponse.json(buildError(ErrorCodes.AI_GENERATION_FAILED, "Story generation failed. Please try again."), { status: 500 })
     }
 
@@ -259,7 +260,7 @@ ${QUALITY_BAR}`,
 
     return NextResponse.json({ data }, { status: 200 })
   } catch (err) {
-    await refundGenerationUsage(supabase, user.id)
+    await refundGenerationUsage(supabase, user.id, STORY)
     const msg = err instanceof Error ? err.message : "Generation failed"
     return NextResponse.json(buildError(ErrorCodes.AI_GENERATION_FAILED, msg), { status: 500 })
   }

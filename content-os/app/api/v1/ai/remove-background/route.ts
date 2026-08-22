@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import { buildError, ErrorCodes } from "@/types/api"
 import { checkAndIncrementUsage, refundGenerationUsage } from "@/lib/usage/check-and-increment-usage"
+import { REMOVE_BACKGROUND } from "@/lib/usage/credit-costs"
 
 export async function POST(request: Request) {
   let supabase
@@ -16,7 +17,7 @@ export async function POST(request: Request) {
     return NextResponse.json(buildError(ErrorCodes.UNAUTHENTICATED, "You must be logged in."), { status: 401 })
   }
 
-  const usageCheck = await checkAndIncrementUsage(user.id)
+  const usageCheck = await checkAndIncrementUsage(user.id, REMOVE_BACKGROUND)
   if (!usageCheck.ok) {
     const code = usageCheck.status === 429 ? ErrorCodes.USAGE_LIMIT_EXCEEDED : ErrorCodes.INTERNAL_ERROR
     return NextResponse.json(buildError(code, usageCheck.message), { status: usageCheck.status })
@@ -68,7 +69,7 @@ export async function POST(request: Request) {
       const errorMsg = response.status === 402
         ? "Remove.bg free tier limit reached. Get a free API key at remove.bg"
         : `Background removal failed (${response.status})`
-      await refundGenerationUsage(supabase, user.id)
+      await refundGenerationUsage(supabase, user.id, REMOVE_BACKGROUND)
       return NextResponse.json(buildError(ErrorCodes.AI_GENERATION_FAILED, errorMsg), { status: 500 })
     }
 
@@ -78,7 +79,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ data: { base64 } }, { status: 200 })
   } catch (err) {
     console.error("[remove-background] error:", err)
-    await refundGenerationUsage(supabase, user.id)
+    await refundGenerationUsage(supabase, user.id, REMOVE_BACKGROUND)
     return NextResponse.json(
       buildError(ErrorCodes.INTERNAL_ERROR, "Background removal failed. Please try again."),
       { status: 500 }

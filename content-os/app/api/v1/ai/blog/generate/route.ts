@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import { buildError, ErrorCodes } from "@/types/api"
 import { checkAndIncrementUsage, refundGenerationUsage } from "@/lib/usage/check-and-increment-usage"
+import { BLOG_POST } from "@/lib/usage/credit-costs"
 import { generateBlogPost } from "@/lib/ai/blog-generator"
 import { MODELS } from "@/lib/ai/models"
 import { z } from "zod"
@@ -33,7 +34,7 @@ export async function POST(request: Request) {
   const { data: { user }, error: authError } = await supabase.auth.getUser()
   if (authError || !user) return NextResponse.json(buildError(ErrorCodes.UNAUTHENTICATED, "You must be logged in."), { status: 401 })
 
-  const usageCheck = await checkAndIncrementUsage(user.id)
+  const usageCheck = await checkAndIncrementUsage(user.id, BLOG_POST)
   if (!usageCheck.ok) {
     const code = usageCheck.status === 429 ? ErrorCodes.USAGE_LIMIT_EXCEEDED : ErrorCodes.INTERNAL_ERROR
     return NextResponse.json(buildError(code, usageCheck.message), { status: usageCheck.status })
@@ -87,7 +88,7 @@ export async function POST(request: Request) {
       latency_ms: Date.now() - startTime, success: false,
       error_message: err instanceof Error ? err.message : "Unknown error",
     })
-    await refundGenerationUsage(supabase, user.id)
+    await refundGenerationUsage(supabase, user.id, BLOG_POST)
     return NextResponse.json(buildError(ErrorCodes.AI_GENERATION_FAILED, "AI generation failed. Please try again."), { status: 500 })
   }
 

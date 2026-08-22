@@ -4,6 +4,7 @@ import { generateImageSchema } from "@/lib/validations/ai"
 import { generateImage } from "@/lib/ai/image-generator"
 import { buildError, ErrorCodes } from "@/types/api"
 import { checkAndIncrementUsage, refundGenerationUsage } from "@/lib/usage/check-and-increment-usage"
+import { IMAGE } from "@/lib/usage/credit-costs"
 import type { BrandRow, ProductRow } from "@/types/database"
 
 const BUCKET = "brand-images"
@@ -13,7 +14,7 @@ export async function POST(request: Request) {
   const { data: { user }, error: authError } = await supabase.auth.getUser()
   if (authError || !user) return NextResponse.json(buildError(ErrorCodes.UNAUTHENTICATED, "You must be logged in."), { status: 401 })
 
-  const usageCheck = await checkAndIncrementUsage(user.id)
+  const usageCheck = await checkAndIncrementUsage(user.id, IMAGE)
   if (!usageCheck.ok) {
     const code = usageCheck.status === 429 ? ErrorCodes.USAGE_LIMIT_EXCEEDED : ErrorCodes.INTERNAL_ERROR
     return NextResponse.json(buildError(code, usageCheck.message), { status: usageCheck.status })
@@ -53,7 +54,7 @@ export async function POST(request: Request) {
       latency_ms: Date.now() - startTime, success: false,
       error_message: err instanceof Error ? err.message : "Unknown error",
     })
-    await refundGenerationUsage(supabase, user.id)
+    await refundGenerationUsage(supabase, user.id, IMAGE)
     return NextResponse.json(buildError(ErrorCodes.AI_GENERATION_FAILED, "Image generation failed. Please try again."), { status: 500 })
   }
 
@@ -71,7 +72,7 @@ export async function POST(request: Request) {
   if (uploadError) {
     // Image was generated but never actually delivered to the user — no
     // usable output, same as a generation failure.
-    await refundGenerationUsage(supabase, user.id)
+    await refundGenerationUsage(supabase, user.id, IMAGE)
     return NextResponse.json(
       buildError(ErrorCodes.INTERNAL_ERROR, "Image generated but upload to storage failed.", uploadError.message),
       { status: 500 }

@@ -7,6 +7,7 @@ import { generatePostCardHtml } from "@/lib/design/post-card-generator"
 import { mergeCaptionWithHookAndCta } from "@/lib/utils/caption-merge"
 import { buildError, ErrorCodes } from "@/types/api"
 import { checkAndIncrementUsage, refundGenerationUsage } from "@/lib/usage/check-and-increment-usage"
+import { CONTENT_FORMAT_CREDIT_COSTS } from "@/lib/usage/credit-costs"
 import { createPostImageSession } from "@/lib/usage/post-image-regenerate-session"
 import type { BrandRow, ProductRow } from "@/types/database"
 import type { GeneratedCaption, ReelScript, CarouselContent, AdCopy } from "@/types/app"
@@ -15,12 +16,6 @@ export async function POST(request: Request) {
   const supabase = await createClient()
   const { data: { user }, error: authError } = await supabase.auth.getUser()
   if (authError || !user) return NextResponse.json(buildError(ErrorCodes.UNAUTHENTICATED, "You must be logged in."), { status: 401 })
-
-  const usageCheck = await checkAndIncrementUsage(user.id)
-  if (!usageCheck.ok) {
-    const code = usageCheck.status === 429 ? ErrorCodes.USAGE_LIMIT_EXCEEDED : ErrorCodes.INTERNAL_ERROR
-    return NextResponse.json(buildError(code, usageCheck.message), { status: usageCheck.status })
-  }
 
   let body: unknown
   try { body = await request.json() } catch {
@@ -31,6 +26,21 @@ export async function POST(request: Request) {
   if (!parsed.success) return NextResponse.json(buildError(ErrorCodes.VALIDATION_ERROR, "Validation failed.", parsed.error.message), { status: 400 })
 
   const { brandId, productId, format, platform, additionalContext } = parsed.data
+
+  // social_post is the "Create → Full Post" flow — this text-generation
+  // step charges 0 here because the whole Post (hook + caption + AI image)
+  // is billed as ONE bundled charge at the image step
+  // (app/api/v1/ai/post-image/generate/route.ts, cost = POST). Every other
+  // format has no follow-up image charge, so it pays its real weighted
+  // cost right here. Moved after body parsing (was previously checked
+  // before the request body was even read) so `format` is known before
+  // charging for it.
+  const cost = format === "social_post" ? 0 : CONTENT_FORMAT_CREDIT_COSTS[format]
+  const usageCheck = await checkAndIncrementUsage(user.id, cost)
+  if (!usageCheck.ok) {
+    const code = usageCheck.status === 429 ? ErrorCodes.USAGE_LIMIT_EXCEEDED : ErrorCodes.INTERNAL_ERROR
+    return NextResponse.json(buildError(code, usageCheck.message), { status: usageCheck.status })
+  }
 
   const { data: brand } = await supabase.from("brands").select("*").eq("id", brandId).eq("user_id", user.id).single<BrandRow>()
   if (!brand) return NextResponse.json(buildError(ErrorCodes.BRAND_NOT_FOUND, "Brand not found."), { status: 404 })
@@ -238,7 +248,7 @@ export async function POST(request: Request) {
         error_message: err instanceof Error ? err.message : "Unknown error",
       })
     })
-    await refundGenerationUsage(supabase, user.id)
+    await refundGenerationUsage(supabase, user.id, cost)
     return NextResponse.json(
       buildError(ErrorCodes.AI_GENERATION_FAILED, "Full post generation failed. Please try again."),
       { status: 500 }

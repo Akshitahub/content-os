@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import { buildError, ErrorCodes } from "@/types/api"
 import { fastlaneSchema } from "@/lib/validations/fastlane"
-import { executeFastlane } from "@/lib/ai/fastlane"
+import { executeFastlane, estimateAutopilotCreditCost } from "@/lib/ai/fastlane"
 import { PLAN_LIMITS } from "@/types/app"
 import type { UserPlan } from "@/types/app"
 import { isInternalUnlimited } from "@/lib/usage/is-internal-unlimited"
@@ -80,6 +80,16 @@ export async function POST(request: Request) {
     // "the full tier," not a plan change.
     const tier = isUnlimited ? PLAN_LIMITS.agency.autopilot : PLAN_LIMITS[plan].autopilot
 
+    // Real weighted cost for THIS run's actual slot mix (see
+    // lib/usage/credit-costs.ts) — replaces the old flat tier.creditCost,
+    // which charged the same number regardless of whether the run's slots
+    // were cheap text or an expensive image-bearing Post/Carousel. Computed
+    // once and reused for both the pre-flight affordability check below
+    // and the real charge after the run completes, so the two can never
+    // disagree — both derive from the exact same buildContentMix inputs
+    // (focusAreas, tier.slots) that the strategy generation itself uses.
+    const estimatedCost = estimateAutopilotCreditCost(focusAreas, tier.slots)
+
     const today = new Date().toISOString().split("T")[0]!
     const windowEnd = new Date(Date.now() + tier.days * 24 * 60 * 60 * 1000).toISOString().split("T")[0]!
 
@@ -111,7 +121,7 @@ export async function POST(request: Request) {
     }
 
     // Check usage limits — canonical PLAN_LIMITS[plan].generations (not a
-    // separate hand-rolled table), against this tier's actual credit cost.
+    // separate hand-rolled table), against this run's real weighted cost.
     if (userData && !isUnlimited) {
       const limit = PLAN_LIMITS[plan].generations
 
@@ -122,13 +132,13 @@ export async function POST(request: Request) {
 
       const currentCount = shouldReset ? 0 : userData.generation_count
 
-      if (currentCount + tier.creditCost > limit) {
+      if (currentCount + estimatedCost > limit) {
         return NextResponse.json(
           {
-            error: { code: ErrorCodes.USAGE_LIMIT_EXCEEDED, message: `Autopilot requires ${tier.creditCost} credits.` },
+            error: { code: ErrorCodes.USAGE_LIMIT_EXCEEDED, message: `Autopilot requires ${estimatedCost} credits.` },
             remaining_credits: Math.max(0, limit - currentCount),
             plan,
-            credits_needed: tier.creditCost,
+            credits_needed: estimatedCost,
           },
           { status: 429 }
         )
@@ -156,8 +166,8 @@ export async function POST(request: Request) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       await (supabase.from("users") as any).update({
         generation_count: shouldReset
-          ? tier.creditCost
-          : currentUser.generation_count + tier.creditCost,
+          ? estimatedCost
+          : currentUser.generation_count + estimatedCost,
         generation_count_reset_at: shouldReset ? now.toISOString() : currentUser.generation_count_reset_at,
       }).eq("id", user.id)
     }

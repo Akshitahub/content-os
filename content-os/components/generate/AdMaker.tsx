@@ -616,7 +616,23 @@ export function AdMaker({ brandId }: AdMakerProps) {
     setGenError("")
     setResults([])
     setExpandedIdx(null)
+
+    // Generation itself (Pollinations background fetch + canvas
+    // compositing below) is entirely client-side, with no server round-trip
+    // to hang a credit charge on — so this is a dedicated check-and-charge
+    // call before doing any local work, mirroring every other feature's
+    // "check credits before generating" order.
+    let charged = false
     try {
+      const chargeRes = await fetch(`/api/v1/brands/${brandId}/ai/ad-maker/generate`, { method: "POST" })
+      const chargeJson: unknown = await chargeRes.json()
+      if (!chargeRes.ok || isApiError(chargeJson)) {
+        setGenError(isApiError(chargeJson) ? chargeJson.error.message : "Couldn't start generation. Please try again.")
+        setGenerating(false)
+        return
+      }
+      charged = true
+
       const niche = brand?.niche ?? "lifestyle brand"
       const brandName = brand?.name ?? "Brand"
       const handle = brand?.instagram_handle ?? ""
@@ -629,6 +645,14 @@ export function AdMaker({ brandId }: AdMakerProps) {
       setTimeout(() => setShowSuccess(false), 4000)
     } catch (err) {
       setGenError(err instanceof Error ? err.message : "Generation failed. Try again.")
+      // Credits were already charged above but no usable output came out
+      // of it — undo the charge rather than let a failed local generation
+      // silently cost the user credits. Best-effort: a failed refund here
+      // shouldn't turn into a second error on top of the generation
+      // failure already being shown.
+      if (charged) {
+        fetch(`/api/v1/brands/${brandId}/ai/ad-maker/refund`, { method: "POST" }).catch(() => {})
+      }
     } finally {
       setGenerating(false)
     }
