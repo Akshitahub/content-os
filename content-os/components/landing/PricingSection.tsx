@@ -4,7 +4,6 @@ import { useState } from "react"
 import Link from "next/link"
 import { Check } from "lucide-react"
 import { PLAN_LIMITS } from "@/types/app"
-import { POST } from "@/lib/usage/credit-costs"
 
 type BillingCycle = "monthly" | "annual"
 
@@ -22,13 +21,28 @@ function formatRupees(amount: number): string {
 
 // Credits, not "generations" — different content types now cost different
 // amounts (a Post costs more than a Hook), so a flat generation count
-// would be misleading on its own. Computed from PLAN_LIMITS/POST directly
-// (not hand-typed) so this line can never drift out of sync with the real
-// pool size or weight the way the old hardcoded per-tier strings did.
+// would be misleading on its own. `credits` and `brands` are read from
+// PLAN_LIMITS directly (not hand-typed) so those parts can never drift
+// out of sync with the real pool size. The manual-posts figures below
+// are the specific numbers each plan's pool was actually budgeted
+// around (see the PLAN_LIMITS comment in types/app.ts: a posts
+// allowance plus one Autopilot run per brand) — deliberately NOT
+// re-derived by dividing the whole pool by POST, since that would
+// overstate what's left after also budgeting for Autopilot.
+const MANUAL_POSTS_TARGET: Record<"free" | "starter" | "pro" | "agency", number> = {
+  free: 14,
+  starter: 30,
+  pro: 75,
+  agency: 100,
+}
+
 function creditsLine(planId: "free" | "starter" | "pro" | "agency"): string {
-  const credits = PLAN_LIMITS[planId].generations
-  const postsEquivalent = Math.round(credits / POST)
-  return `${credits.toLocaleString("en-IN")} credits / month (~${postsEquivalent.toLocaleString("en-IN")} full posts)`
+  const { generations: credits, brands } = PLAN_LIMITS[planId]
+  const posts = MANUAL_POSTS_TARGET[planId]
+  const autopilotNote = planId === "free"
+    ? "a free Autopilot preview"
+    : `monthly Autopilot for ${brands === 2 ? "both your brands" : `all ${brands} of your brands`}`
+  return `${credits.toLocaleString("en-IN")} credits / month — ~${posts} posts + ${autopilotNote}`
 }
 
 // Real annual price from PLAN_LIMITS[id].annualPrice (the same value
