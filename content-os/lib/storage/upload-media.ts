@@ -111,3 +111,25 @@ export async function uploadMediaToStorage(
     return { error: err instanceof Error ? err.message : "Upload failed." }
   }
 }
+
+/**
+ * Downloads a third-party image URL server-side (at the moment we already
+ * have a working fetch to it — e.g. right after scraping an influencer
+ * profile) and re-hosts it in our own bucket, so the frontend never
+ * depends on the source staying reachable. Instagram/TikTok CDN URLs in
+ * particular are often signed/short-lived and can hotlink-block direct
+ * browser loads even when the URL was valid moments earlier server-side.
+ * Never throws and never surfaces an error to the caller — returns null on
+ * any failure (dead link, host-side block, rate limit) so a bad avatar URL
+ * can never block the discovery flow that's fetching it. `url` may be null
+ * so callers can pass a possibly-missing scraped field straight through.
+ */
+export async function cacheRemoteImage(url: string | null, pathPrefix: string): Promise<string | null> {
+  if (!url) return null
+  const result = await uploadMediaToStorage({ kind: "remoteUrl", url }, pathPrefix)
+  if ("error" in result) {
+    console.error(`[upload-media] cacheRemoteImage failed for ${url.slice(0, 120)}: ${result.error}`)
+    return null
+  }
+  return result.publicUrl
+}

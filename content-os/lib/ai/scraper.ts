@@ -49,6 +49,28 @@ function parseFollowerCount(text: string): number | null {
   return Math.round(raw)
 }
 
+// The raw content="..." attribute value is still HTML-encoded (e.g. a
+// scraped avatar/image URL's query-string "&" arrives as "&amp;") —
+// undecoded, this silently corrupts CDN URL signatures. Confirmed directly:
+// a real scraped Instagram og:image URL 403'd on fetch with its literal
+// "&amp;" separators intact, and the exact same URL with "&amp;" replaced
+// by "&" loaded successfully (200) — this was the actual cause of what
+// looked like a hotlink block, not Instagram rejecting third-party
+// requests outright. Decodes amp last so a genuinely double-escaped
+// entity (e.g. "&amp;lt;", meaning the literal text "&lt;") doesn't get
+// over-decoded into "<" by a later pass matching what amp-decoding
+// revealed.
+function decodeHtmlEntities(text: string): string {
+  return text
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, hex: string) => String.fromCodePoint(parseInt(hex, 16)))
+    .replace(/&#(\d+);/g, (_, dec: string) => String.fromCodePoint(parseInt(dec, 10)))
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, "\"")
+    .replace(/&apos;|&#0*39;/g, "'")
+    .replace(/&amp;/g, "&")
+}
+
 function extractMetaContent(html: string, property: string): string | null {
   const re = new RegExp(
     `<meta[^>]+(?:property|name)=["']${property}["'][^>]+content=["']([^"']+)["']`,
@@ -58,7 +80,8 @@ function extractMetaContent(html: string, property: string): string | null {
     `<meta[^>]+content=["']([^"']+)["'][^>]+(?:property|name)=["']${property}["']`,
     "i",
   )
-  return (html.match(re) ?? html.match(alt))?.[1] ?? null
+  const raw = (html.match(re) ?? html.match(alt))?.[1] ?? null
+  return raw !== null ? decodeHtmlEntities(raw) : null
 }
 
 // ─── Instagram ────────────────────────────────────────────────────────────────

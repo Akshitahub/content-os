@@ -1,5 +1,6 @@
 import { MODELS, getGroqClient } from "./models"
 import { scrapeInfluencerProfile } from "./scraper"
+import { cacheRemoteImage } from "@/lib/storage/upload-media"
 import {
   buildInfluencerFitScoringSystemPrompt,
   buildInfluencerFitScoringUserPrompt,
@@ -191,11 +192,15 @@ export async function autoDiscoverAndScoreInfluencers(
           }
         }
 
-        // Scoring and niche extraction are fully independent Groq calls —
-        // run them concurrently instead of back to back. Each keeps its own
-        // non-fatal try/catch exactly as before, just wrapped so Promise.all
-        // can run them side by side.
-        const [{ fit_score, fit_reasoning }, niche] = await Promise.all([
+        // Scoring, niche extraction, and avatar re-hosting are fully
+        // independent I/O — run them concurrently instead of back to back.
+        // Avatar caching downloads the scraped avatar_url (Instagram/TikTok
+        // CDN URLs are often signed/short-lived and can hotlink-block a
+        // later direct browser load even when valid right now,
+        // server-side) and re-hosts it in our own storage; each keeps its
+        // own non-fatal failure handling, just wrapped so Promise.all can
+        // run them side by side.
+        const [{ fit_score, fit_reasoning }, niche, cachedAvatarUrl] = await Promise.all([
           (async (): Promise<{ fit_score: number | null; fit_reasoning: string | null }> => {
             try {
               const scoreRes = await groq.chat.completions.create({
@@ -277,6 +282,7 @@ export async function autoDiscoverAndScoreInfluencers(
               return null
             }
           })(),
+          cacheRemoteImage(scraped.avatar_url, `${brandId}/influencer-avatars`),
         ])
 
         const raw_scraped_data: Record<string, unknown> = {
@@ -295,7 +301,7 @@ export async function autoDiscoverAndScoreInfluencers(
             bio: scraped.bio,
             follower_count: scraped.follower_count,
             post_count: scraped.post_count,
-            avatar_url: scraped.avatar_url,
+            avatar_url: cachedAvatarUrl,
             profile_url: scraped.profile_url,
             fit_score,
             fit_reasoning,

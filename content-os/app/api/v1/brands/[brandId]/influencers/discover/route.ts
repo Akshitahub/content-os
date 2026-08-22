@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import { scrapeInfluencerProfile } from "@/lib/ai/scraper"
+import { cacheRemoteImage } from "@/lib/storage/upload-media"
 import {
   buildInfluencerFitScoringSystemPrompt,
   buildInfluencerFitScoringUserPrompt,
@@ -60,6 +61,15 @@ export async function POST(request: Request, { params }: RouteParams) {
 
   // Step 1: Scrape influencer profile
   let scraped = await scrapeInfluencerProfile(platform, handle)
+
+  // Instagram/TikTok's scraped avatar URLs are often signed/short-lived and
+  // can hotlink-block direct browser loads even when valid moments earlier
+  // server-side — re-host in our own storage now, while we still have a
+  // working fetch to it, instead of storing the raw CDN URL. Kicked off
+  // immediately and awaited later (right before the insert) so this
+  // independent I/O overlaps with the AI scoring/niche steps below instead
+  // of adding to the route's total latency.
+  const avatarCachePromise = cacheRemoteImage(scraped.avatar_url, `${brandId}/influencer-avatars`)
 
   // Step 2: Score with NVIDIA API regardless of scrape success
   let fit_score: number | null = null
@@ -153,6 +163,8 @@ export async function POST(request: Request, { params }: RouteParams) {
   }
 
   // Step 4: Insert into influencers table
+  const cachedAvatarUrl = await avatarCachePromise
+
   let influencer: InfluencerRow | null
   try {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -165,7 +177,7 @@ export async function POST(request: Request, { params }: RouteParams) {
         bio: scraped.bio,
         follower_count: scraped.follower_count,
         post_count: scraped.post_count,
-        avatar_url: scraped.avatar_url,
+        avatar_url: cachedAvatarUrl,
         profile_url: scraped.profile_url,
         fit_score,
         fit_reasoning,
