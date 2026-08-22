@@ -192,6 +192,11 @@ export type ContentFormatOutputMap = {
 // display before a run starts, and can differ slightly from the real
 // charge if the user's chosen focusAreas shift the slot mix away from the
 // default distribution these numbers were computed against.
+//
+// The per-feature weights this is built from (lib/usage/credit-costs.ts)
+// are ESTIMATES, not measured from real usage — see the note at the top
+// of that file for what to check once real Groq/Replicate billing
+// history exists.
 export interface AutopilotTier {
   days: number
   slots: number

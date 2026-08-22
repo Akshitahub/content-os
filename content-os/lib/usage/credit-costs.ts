@@ -17,6 +17,13 @@ import type { ContentFormat } from "@/types/app"
  * The standalone Content tab's format "social_post" (caption-only, no
  * image ever produced in that flow — see app/api/v1/ai/content/generate/route.ts)
  * is a genuinely different, cheaper action and stays at HOOK_OR_CAPTION.
+ *
+ * NOTE (August 2026): these weights are ESTIMATES — based on public
+ * Flux/Replicate pricing and typical Groq token counts, not measured
+ * from our own historical usage (no real billing history existed yet
+ * when these were set). Revisit against actual Groq and Replicate
+ * dashboard billing data (real token counts and image counts per
+ * generation type) once enough usage has accumulated to measure it.
  */
 export const HOOK_OR_CAPTION = 1
 export const BLOG_POST = 1
