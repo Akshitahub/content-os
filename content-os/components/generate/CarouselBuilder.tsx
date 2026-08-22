@@ -129,7 +129,13 @@ function SlidePreview({
     <div
       id={elementId}
       className={`relative flex flex-col overflow-hidden rounded-xl bg-cover bg-center ${hasBg ? "" : s.bg} ${
-        isThumb ? "h-20 w-14 shrink-0" : "aspect-square w-full max-w-md"
+        // 4:5 (1080x1350) — matches PORTRAIT_DIMENSIONS in
+        // lib/ai/carousel-slide-background.ts, so the full generated
+        // background is actually shown, not cropped to a square. One
+        // shared className for every slide type (cover/content/cta) and
+        // both AI-background and flat-color slides, so all slides in a
+        // carousel stay visually uniform at the same ratio.
+        isThumb ? "h-20 w-14 shrink-0" : "aspect-[4/5] w-full max-w-md"
       }`}
       style={hasBg ? { backgroundImage: `url(${backgroundImageUrl})` } : undefined}
     >
