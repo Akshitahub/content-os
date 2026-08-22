@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useCallback, useEffect, useRef } from "react"
-import { Loader2, Download, Copy, Check, RefreshCw, AlertCircle, Image, Upload, X, CalendarClock, Plus, Minus } from "lucide-react"
+import { Loader2, Download, Copy, Check, RefreshCw, AlertCircle, Image, Upload, X, CalendarClock, Plus, Minus, Palette } from "lucide-react"
 import { ProductPicker, type PickedProduct } from "@/components/shared/ProductPicker"
 import type { StorySlide, StoryCaption } from "@/app/api/v1/ai/stories/generate/route"
 import { downloadElementAsImage, downloadMultipleAsImages, captureElementAsDataUrl } from "@/lib/utils/download-as-image"
@@ -24,6 +24,19 @@ const STORY_BG: Record<string, { bg: string; text: string; sub: string }> = {
   gradient_warm:   { bg: "bg-gradient-to-b from-amber-400 via-orange-500 to-red-600", text: "text-white", sub: "text-white/70" },
   white:           { bg: "bg-white border border-gray-200", text: "text-gray-900", sub: "text-gray-500" },
 }
+
+// Curated preset swatches offered by the inline color picker below — the
+// same 5 flat backgrounds StorySequence can already render, just exposed
+// as a tap target. Picking one is a local re-composite only: it swaps
+// `background` and drops any AI `background_image_url` so the flat color
+// actually shows, with no new generation call.
+const STORY_BG_PRESETS: { key: string; swatch: string; label: string }[] = [
+  { key: "gradient_violet", swatch: "bg-gradient-to-b from-violet-600 to-indigo-700", label: "Violet" },
+  { key: "gradient_pink", swatch: "bg-gradient-to-b from-pink-500 to-red-500", label: "Pink" },
+  { key: "gradient_dark", swatch: "bg-gradient-to-b from-gray-900 to-black", label: "Dark" },
+  { key: "gradient_warm", swatch: "bg-gradient-to-b from-amber-400 to-red-600", label: "Warm" },
+  { key: "white", swatch: "bg-white border border-gray-300", label: "White" },
+]
 
 // ─── TOPIC CHIPS ────────────────────────────────────────────────────────────────
 
@@ -62,17 +75,39 @@ function PhoneStory({
   index,
   total,
   uploadedImage,
+  onUpdateSlide,
 }: {
   story: StorySlide
   index: number
   total: number
   uploadedImage?: string
+  onUpdateSlide: (updates: Partial<StorySlide>) => void
 }) {
   const [copied, setCopied] = useState(false)
   const [dlErr, setDlErr] = useState(false)
+  const [showColors, setShowColors] = useState(false)
   const s = STORY_BG[story.background] ?? STORY_BG.gradient_violet
   const elementId = `story-card-${index}`
   const hasBg = !!story.background_image_url
+
+  // contentEditable is inherently uncontrolled — commit on blur only
+  // (never on every keystroke) so the cursor never jumps mid-typing.
+  // Enter commits instead of inserting a newline, since both fields are
+  // meant to stay short single-line copy.
+  function commitEdit(field: "text" | "subtext", e: React.FocusEvent<HTMLParagraphElement>) {
+    const value = e.currentTarget.innerText.trim()
+    if (field === "text" && !value) {
+      e.currentTarget.innerText = story.text
+      return
+    }
+    if (value !== story[field]) onUpdateSlide({ [field]: value })
+  }
+  function commitOnEnter(e: React.KeyboardEvent<HTMLParagraphElement>) {
+    if (e.key === "Enter") {
+      e.preventDefault()
+      e.currentTarget.blur()
+    }
+  }
   // A photo background's own contrast can't be predicted the way the flat
   // STORY_BG swatches can, so text always goes white-on-scrim instead of
   // following the slide's normal light/dark text pairing.
@@ -128,14 +163,24 @@ function PhoneStory({
 
           {/* Main content */}
           <div className={`relative z-10 flex flex-1 flex-col items-center px-4 ${posClass}`}>
-            <p className={`text-center text-lg font-black leading-tight ${textColor}`}>
+            <p
+              contentEditable
+              suppressContentEditableWarning
+              onBlur={(e) => commitEdit("text", e)}
+              onKeyDown={commitOnEnter}
+              className={`text-center text-lg font-black leading-tight outline-none rounded px-1 -mx-1 cursor-text hover:bg-white/10 focus:bg-white/10 focus:ring-1 focus:ring-white/40 ${textColor}`}
+            >
               {story.text}
             </p>
-            {story.subtext && (
-              <p className={`mt-2 text-center text-xs font-medium ${subColor}`}>
-                {story.subtext}
-              </p>
-            )}
+            <p
+              contentEditable
+              suppressContentEditableWarning
+              onBlur={(e) => commitEdit("subtext", e)}
+              onKeyDown={commitOnEnter}
+              className={`mt-2 text-center text-xs font-medium outline-none rounded px-1 -mx-1 cursor-text hover:bg-white/10 focus:bg-white/10 focus:ring-1 focus:ring-white/40 min-h-[1em] ${subColor}`}
+            >
+              {story.subtext}
+            </p>
 
             {/* Poll sticker */}
             {story.has_poll && story.poll_options && (
@@ -166,6 +211,10 @@ function PhoneStory({
           {copied ? <Check className="h-3 w-3 text-green-500" /> : <Copy className="h-3 w-3" />}
           Copy
         </button>
+        <button onClick={() => setShowColors((v) => !v)}
+          className={`flex items-center gap-1 rounded-full border px-3 py-1.5 text-[11px] font-medium hover:bg-secondary ${showColors ? "border-violet-300 bg-violet-50 text-violet-700" : ""}`}>
+          <Palette className="h-3 w-3" /> Color
+        </button>
         <button onClick={async () => {
           setDlErr(false)
           const ok = await downloadElementAsImage(elementId, `story-${index + 1}`)
@@ -176,6 +225,23 @@ function PhoneStory({
         </button>
         {dlErr && <p className="text-[10px] text-destructive">Download failed</p>}
       </div>
+
+      {/* Preset color/gradient swap — local re-composite only, no new
+          generation call. Picking a swatch also drops any AI background
+          image so the flat color actually becomes visible. */}
+      {showColors && (
+        <div className="flex items-center gap-1.5">
+          {STORY_BG_PRESETS.map((preset) => (
+            <button
+              key={preset.key}
+              type="button"
+              title={preset.label}
+              onClick={() => onUpdateSlide({ background: preset.key as StorySlide["background"], background_image_url: undefined })}
+              className={`h-6 w-6 rounded-full ${preset.swatch} transition-transform hover:scale-110 ${story.background === preset.key && !hasBg ? "ring-2 ring-offset-2 ring-violet-500" : ""}`}
+            />
+          ))}
+        </div>
+      )}
     </div>
   )
 }
@@ -515,6 +581,19 @@ export function StorySequence({ brandId }: { brandId: string }) {
     }
   }
 
+  // Backs both the inline text edit (contentEditable onBlur) and the color
+  // swatch picker in PhoneStory — always a local state update, never a new
+  // generation call. Round-trips through the existing sessionStorage
+  // persistence effect above for free, same as any other stories change.
+  function updateSlide(index: number, updates: Partial<StorySlide>) {
+    setStories((prev) => {
+      if (!prev[index]) return prev
+      const next = [...prev]
+      next[index] = { ...next[index]!, ...updates }
+      return next
+    })
+  }
+
   function copyAllText() {
     const text = stories.map((s, i) => `Story ${i + 1} (${s.type}):\n${s.text}\n${s.subtext}`).join("\n\n---\n\n")
     navigator.clipboard.writeText(text)
@@ -731,6 +810,7 @@ export function StorySequence({ brandId }: { brandId: string }) {
                 index={i}
                 total={stories.length}
                 uploadedImage={selectedProduct?.imageUrl ?? uploadedImages[i]?.preview}
+                onUpdateSlide={(updates) => updateSlide(i, updates)}
               />
             ))}
           </div>
