@@ -445,6 +445,7 @@ export function FullPostGenerator({ brandId, products }: Props) {
           copied={copied}
           onCopy={copy}
           brandId={brandId}
+          brandName={brandName}
           postImageUrl={postImageUrl}
           imageGenerating={imageGenerating}
           imageError={imageError}
@@ -886,12 +887,14 @@ function ScheduleAction({
 
 function PostImagePreview({
   postImageUrl,
+  alt,
   imageGenerating,
   imageError,
   showRegenerate,
   onRegenerateImage,
 }: {
   postImageUrl: string | null
+  alt: string
   imageGenerating: boolean
   imageError: string | null
   showRegenerate: boolean
@@ -954,7 +957,7 @@ function PostImagePreview({
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
         src={postImageUrl}
-        alt="Generated post image"
+        alt={alt}
         className="w-full rounded-lg object-contain"
       />
     </div>
@@ -966,6 +969,7 @@ function FullPostResults({
   copied,
   onCopy,
   brandId,
+  brandName,
   postImageUrl,
   imageGenerating,
   imageError,
@@ -976,6 +980,7 @@ function FullPostResults({
   copied: string | null
   onCopy: (text: string, key: string) => void
   brandId: string
+  brandName: string
   postImageUrl: string | null
   imageGenerating: boolean
   imageError: string | null
@@ -983,6 +988,19 @@ function FullPostResults({
   onRegenerateImage: () => void
 }) {
   const scheduleCaption = getScheduleCaption(result)
+
+  // Screen readers otherwise get nothing but "Generated post image" for a
+  // composited PNG whose headline/CTA text isn't real, selectable DOM text
+  // anywhere else. Reuses the AI's own image_prompt (already generated for
+  // the image pipeline, no new LLM call) as the scene description when the
+  // AI path produced it — it doesn't describe a user-uploaded product
+  // photo, so that path falls back to a plain brand/headline template.
+  const caption = result.content.content as GeneratedCaption
+  const headline = result.hook.hook_text
+  const scene = imageSource === "ai" ? caption.image_prompt?.trim() : null
+  const postImageAlt = scene
+    ? `${headline} — ${scene}`
+    : `${imageSource === "ai" ? "AI-generated" : ""} Instagram post image for ${brandName}: ${headline}`.replace(/\s+/g, " ").trim()
 
   return (
     <div className="space-y-4">
@@ -993,6 +1011,7 @@ function FullPostResults({
           gets scheduled, never a separate raw/unstyled preview. */}
       <PostImagePreview
         postImageUrl={postImageUrl}
+        alt={postImageAlt}
         imageGenerating={imageGenerating}
         imageError={imageError}
         showRegenerate={imageSource === "ai"}

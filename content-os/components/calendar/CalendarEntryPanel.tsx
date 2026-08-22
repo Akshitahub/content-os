@@ -272,6 +272,11 @@ export function CalendarEntryPanel({ entry, onClose, onUpdate, brandId }: Calend
                 const carouselHtml = typeof platformData?.carousel_html === "string" ? platformData.carousel_html : null
 
                 if (imageUrl) {
+                  // No image_prompt/scene description is saved on
+                  // calendar_entries — compose from what's actually there
+                  // (title is always populated) rather than adding a new
+                  // AI call just for alt text.
+                  const imageAlt = `AI-generated ${entry.content_type ?? "post"} image${entry.platform ? ` for ${entry.platform}` : ""}: ${entry.title}`
                   return (
                     <div>
                       <div className="mb-1.5 flex items-center justify-between">
@@ -288,7 +293,7 @@ export function CalendarEntryPanel({ entry, onClose, onUpdate, brandId }: Calend
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
                         src={imageUrl}
-                        alt="AI generated post image"
+                        alt={imageAlt}
                         width={300}
                         height={300}
                         className="rounded-lg border object-cover"
