@@ -115,9 +115,19 @@ function PhoneStory({
   const subColor = hasBg ? "text-white/70" : s.sub
 
   const posClass =
-    story.text_position === "top" ? "justify-start pt-10" :
-    story.text_position === "bottom" ? "justify-end pb-16" :
+    story.text_position === "top" ? "justify-start" :
+    story.text_position === "bottom" ? "justify-end" :
     "justify-center"
+
+  // Instagram's Stories UI overlays the top (profile/username) and bottom
+  // (reply bar, link stickers) of the real 1080x1920 canvas — standard
+  // guidance keeps text within the central ~1420px band, i.e. clear of the
+  // outer ~250px top and bottom. This preview's phone frame is a fixed
+  // 220x390px mock (the same element html-to-image captures for
+  // download/schedule), so the same 250/1920 ratio scaled to 390px height
+  // is applied as a hard inset — independent of text_position, which only
+  // controls alignment within this already-safe interior.
+  const STORY_SAFE_ZONE_PX = Math.round(390 * (250 / 1920))
 
   function copyText() {
     navigator.clipboard.writeText(`${story.text}\n${story.subtext}`)
@@ -162,7 +172,10 @@ function PhoneStory({
               at publish time. */}
 
           {/* Main content */}
-          <div className={`relative z-10 flex flex-1 flex-col items-center px-4 ${posClass}`}>
+          <div
+            className={`relative z-10 flex flex-1 flex-col items-center px-4 ${posClass}`}
+            style={{ paddingTop: STORY_SAFE_ZONE_PX, paddingBottom: STORY_SAFE_ZONE_PX }}
+          >
             <p
               contentEditable
               suppressContentEditableWarning
