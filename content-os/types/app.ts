@@ -213,19 +213,23 @@ export interface AutopilotTier {
 // autopilot.creditCost below: 29 (free, 5 slots) and 162 (starter/pro/
 // agency, 30 slots) are the real weighted defaults — computed via
 // lib/ai/fastlane.ts's estimateAutopilotCreditCost(undefined, slots)
-// against the default (no focusAreas override) slot mix, replacing the
-// old flat 8/30/30/30. Free's entire monthly pool (generations: 15) is
-// now smaller than a single Autopilot preview run (29) — an intentional,
-// explicitly-accepted consequence of weighting Autopilot's real slot mix
-// rather than a bug: the free Autopilot preview is not affordable within
-// the current pool size until pool sizes are revisited in a separate
-// pricing commit (out of scope here — this commit only changes what
-// actions cost, not the pool sizes).
+// against the default (no focusAreas override) slot mix. Unchanged by
+// the pool resize below — per-feature weights aren't touched here, only
+// how many credits each plan gets to spend against them.
+//
+// `generations` below was resized from the old flat 15/350/1200/2000 to
+// keep Posts-only usage capacity the same or better after weighted costs
+// landed (see lib/usage/credit-costs.ts) — under the old flat-1 system,
+// `generations` WAS the max number of Posts a plan could generate; under
+// weighted costs (POST = 5), the same old number now buys 1/5 as many
+// Posts unless the pool grows to compensate. New values are old x 5,
+// rounded to a clean number (Free rounded up to 100, not the raw 75, to
+// leave real headroom — see the Free Autopilot preview fix below).
 export const PLAN_LIMITS: Record<UserPlan, { price: number; annualPrice: number; generations: number; brands: number; products: number; zernioSocialPlatforms: boolean; reelsPerWeek: number; autopilot: AutopilotTier; influencerOutreach: boolean; carouselCtaAiBackground: boolean }> = {
-  free:    { price: 0,    annualPrice: 0,     generations: 15,   brands: 1, products: 5,    zernioSocialPlatforms: false, reelsPerWeek: 0, autopilot: { days: 3,  slots: 5,  creditCost: 29 },  influencerOutreach: false, carouselCtaAiBackground: false },
-  starter: { price: 1199, annualPrice: 12949, generations: 350,  brands: 2, products: 30,   zernioSocialPlatforms: false, reelsPerWeek: 0, autopilot: { days: 30, slots: 30, creditCost: 162 }, influencerOutreach: false, carouselCtaAiBackground: true },
-  pro:     { price: 2999, annualPrice: 32389, generations: 1200, brands: 3, products: 200,  zernioSocialPlatforms: true,  reelsPerWeek: 1, autopilot: { days: 30, slots: 30, creditCost: 162 }, influencerOutreach: true,  carouselCtaAiBackground: true },
-  agency:  { price: 8000, annualPrice: 86400, generations: 2000, brands: 5, products: 1000, zernioSocialPlatforms: true,  reelsPerWeek: 4, autopilot: { days: 30, slots: 30, creditCost: 162 }, influencerOutreach: true,  carouselCtaAiBackground: true },
+  free:    { price: 0,    annualPrice: 0,     generations: 100,   brands: 1, products: 5,    zernioSocialPlatforms: false, reelsPerWeek: 0, autopilot: { days: 3,  slots: 5,  creditCost: 29 },  influencerOutreach: false, carouselCtaAiBackground: false },
+  starter: { price: 1199, annualPrice: 12949, generations: 1750,  brands: 2, products: 30,   zernioSocialPlatforms: false, reelsPerWeek: 0, autopilot: { days: 30, slots: 30, creditCost: 162 }, influencerOutreach: false, carouselCtaAiBackground: true },
+  pro:     { price: 2999, annualPrice: 32389, generations: 6000,  brands: 3, products: 200,  zernioSocialPlatforms: true,  reelsPerWeek: 1, autopilot: { days: 30, slots: 30, creditCost: 162 }, influencerOutreach: true,  carouselCtaAiBackground: true },
+  agency:  { price: 8000, annualPrice: 86400, generations: 10000, brands: 5, products: 1000, zernioSocialPlatforms: true,  reelsPerWeek: 4, autopilot: { days: 30, slots: 30, creditCost: 162 }, influencerOutreach: true,  carouselCtaAiBackground: true },
 }
 
 // ─── Trending context ────────────────────────────────────────────────────────
