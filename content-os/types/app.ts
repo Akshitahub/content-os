@@ -233,17 +233,17 @@ export interface AutopilotTier {
 //
 // `price`/`annualPrice`/`generations` below are the latest final, approved
 // business numbers — a pricing revision superseding the prior round
-// (starter/pro/agency prices increased, and their credit pools grew
-// further beyond the previous 450/850/1300 to match). annualPrice for
-// each paid tier = monthly x 12 x 0.9 (the same ~10% annual discount
-// used since annual billing launched), rounded down to whole rupees —
-// confirmed: 1999x12x0.9=21589.2, 4999x12x0.9=53989.2,
-// 14999x12x0.9=161989.2, matching the given values exactly.
+// (starter/pro/agency prices and credit pools all revised down from the
+// previous 1999/4999/14999 and 500/1300/3800). annualPrice for each paid
+// tier = monthly x 12 x 0.9 (the same ~10% annual discount used since
+// annual billing launched), rounded down to whole rupees — confirmed:
+// 1499x12x0.9=16189.2, 3499x12x0.9=37789.2, 9999x12x0.9=107989.2,
+// matching the given values exactly.
 export const PLAN_LIMITS: Record<UserPlan, { price: number; annualPrice: number; generations: number; brands: number; products: number; zernioSocialPlatforms: boolean; reelsPerWeek: number; autopilot: AutopilotTier; influencerOutreach: boolean; carouselCtaAiBackground: boolean }> = {
-  free:    { price: 0,     annualPrice: 0,      generations: 100,  brands: 1, products: 5,    zernioSocialPlatforms: false, reelsPerWeek: 0, autopilot: { days: 3,  slots: 5,  creditCost: 29 },  influencerOutreach: false, carouselCtaAiBackground: false },
-  starter: { price: 1999,  annualPrice: 21589,  generations: 500,  brands: 2, products: 30,   zernioSocialPlatforms: false, reelsPerWeek: 0, autopilot: { days: 30, slots: 30, creditCost: 162 }, influencerOutreach: false, carouselCtaAiBackground: true },
-  pro:     { price: 4999,  annualPrice: 53989,  generations: 1300, brands: 3, products: 200,  zernioSocialPlatforms: true,  reelsPerWeek: 1, autopilot: { days: 30, slots: 30, creditCost: 162 }, influencerOutreach: true,  carouselCtaAiBackground: true },
-  agency:  { price: 14999, annualPrice: 161989, generations: 3800, brands: 5, products: 1000, zernioSocialPlatforms: true,  reelsPerWeek: 4, autopilot: { days: 30, slots: 30, creditCost: 162 }, influencerOutreach: true,  carouselCtaAiBackground: true },
+  free:    { price: 0,    annualPrice: 0,      generations: 100,  brands: 1, products: 5,    zernioSocialPlatforms: false, reelsPerWeek: 0, autopilot: { days: 3,  slots: 5,  creditCost: 29 },  influencerOutreach: false, carouselCtaAiBackground: false },
+  starter: { price: 1499, annualPrice: 16189,  generations: 450,  brands: 2, products: 30,   zernioSocialPlatforms: false, reelsPerWeek: 0, autopilot: { days: 30, slots: 30, creditCost: 162 }, influencerOutreach: false, carouselCtaAiBackground: true },
+  pro:     { price: 3499, annualPrice: 37789,  generations: 850,  brands: 3, products: 200,  zernioSocialPlatforms: true,  reelsPerWeek: 1, autopilot: { days: 30, slots: 30, creditCost: 162 }, influencerOutreach: true,  carouselCtaAiBackground: true },
+  agency:  { price: 9999, annualPrice: 107989, generations: 3100, brands: 5, products: 1000, zernioSocialPlatforms: true,  reelsPerWeek: 4, autopilot: { days: 30, slots: 30, creditCost: 162 }, influencerOutreach: true,  carouselCtaAiBackground: true },
 }
 
 // ─── Trending context ────────────────────────────────────────────────────────
