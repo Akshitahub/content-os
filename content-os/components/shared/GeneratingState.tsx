@@ -14,7 +14,7 @@ export function GeneratingState({ message = "Generating your content..." }: { me
       </div>
       <p className="text-sm font-medium text-foreground">{message}</p>
       <p className="mt-1 text-xs text-muted-foreground">
-        Powered by Groq AI, usually takes 3–8 seconds
+        Usually takes 3–8 seconds
       </p>
     </div>
   )

@@ -653,7 +653,6 @@ export default function AutopilotPage() {
                 style={{ width: `${progress}%` }}
               />
             </div>
-            <p className="mt-1.5 text-xs text-muted-foreground">Powered by Groq AI</p>
           </div>
 
           <div className="mt-6 space-y-2 text-left">
