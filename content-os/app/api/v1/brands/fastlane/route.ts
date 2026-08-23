@@ -203,7 +203,13 @@ export async function POST(request: Request) {
       }).eq("id", user.id)
     }
 
-    return NextResponse.json({ data: result }, { status: 201 })
+    // Surfaced back to the Fastlane UI so it can show the real credits this
+    // run actually consumed (not just the pre-flight estimate shown before
+    // the run started) -- there's no per-slot refund for individual
+    // generation failures within a run, so this is always exactly
+    // estimatedCost (0 for internal-unlimited accounts, who were never
+    // charged at all).
+    return NextResponse.json({ data: result, credits_charged: isUnlimited ? 0 : estimatedCost }, { status: 201 })
   } catch (err) {
     console.error("[fastlane] POST unexpected error:", err)
     const message = err instanceof Error ? err.message : "Failed to execute Autopilot."

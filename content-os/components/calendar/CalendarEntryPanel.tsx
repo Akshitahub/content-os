@@ -1,9 +1,15 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
-import { X, Copy, Check, Download, ExternalLink } from "lucide-react"
+import { X, Copy, Check, Download, ExternalLink, RefreshCw } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import type { CalendarEntryRow } from "@/types/database"
+import { isApiError } from "@/types/api"
+
+// Matches what app/api/v1/brands/[brandId]/calendar/[entryId]/regenerate/route.ts
+// actually supports — routing "reel" (or any other content_type) there
+// always 400s, so the button is only offered for the two it can regenerate.
+const REGENERATABLE_CONTENT_TYPES = new Set(["post", "carousel"])
 
 // Platforms with a real, working auto-publish pipeline today (cron job +
 // per-platform publish function). TikTok has no publish pipeline at all
@@ -113,6 +119,8 @@ export function CalendarEntryPanel({ entry, onClose, onUpdate, brandId }: Calend
   const [editHashtags, setEditHashtags] = useState("")
   const [isSaving, setIsSaving] = useState(false)
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus | null>(null)
+  const [isRegenerating, setIsRegenerating] = useState(false)
+  const [regenerateError, setRegenerateError] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -136,6 +144,7 @@ export function CalendarEntryPanel({ entry, onClose, onUpdate, brandId }: Calend
       setEditCaption(entry.caption_text ?? "")
       setEditHashtags((entry.hashtags ?? []).join(" "))
       setIsEditing(false)
+      setRegenerateError(null)
     }
   }, [entry])
 
@@ -190,6 +199,25 @@ export function CalendarEntryPanel({ entry, onClose, onUpdate, brandId }: Calend
       }
     } finally {
       setIsSaving(false)
+    }
+  }
+
+  async function handleRegenerate() {
+    if (!entry) return
+    setIsRegenerating(true)
+    setRegenerateError(null)
+    try {
+      const res = await fetch(`/api/v1/brands/${brandId}/calendar/${entry.id}/regenerate`, { method: "POST" })
+      const json: unknown = await res.json()
+      if (!res.ok || isApiError(json)) {
+        setRegenerateError(isApiError(json) ? json.error.message : "Regeneration failed. Please try again.")
+        return
+      }
+      onUpdate((json as { data: CalendarEntryRow }).data)
+    } catch {
+      setRegenerateError("Network error. Please try again.")
+    } finally {
+      setIsRegenerating(false)
     }
   }
 
@@ -264,6 +292,23 @@ export function CalendarEntryPanel({ entry, onClose, onUpdate, brandId }: Calend
                   </p>
                 </div>
               )}
+
+              {/* Regenerate — re-runs generation for this one entry in
+                  place, only offered for content types the route actually
+                  supports (see REGENERATABLE_CONTENT_TYPES above). */}
+              {entry.content_type && REGENERATABLE_CONTENT_TYPES.has(entry.content_type) && (
+                <div className="flex items-center justify-between gap-2 rounded-lg border p-3">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Not happy with this?</p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">Regenerate the content and image for this post.</p>
+                  </div>
+                  <Button size="sm" variant="outline" onClick={handleRegenerate} disabled={isRegenerating} className="shrink-0 gap-1.5">
+                    <RefreshCw className={`h-3.5 w-3.5 ${isRegenerating ? "animate-spin" : ""}`} />
+                    {isRegenerating ? "Regenerating…" : "Regenerate"}
+                  </Button>
+                </div>
+              )}
+              {regenerateError && <p className="text-xs text-destructive">{regenerateError}</p>}
 
               {/* AI image or carousel preview */}
               {(() => {

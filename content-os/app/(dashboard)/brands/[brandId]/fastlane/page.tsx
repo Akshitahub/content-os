@@ -93,6 +93,7 @@ export default function AutopilotPage() {
 
   const [state, setState] = useState<AutopilotState>("SETUP")
   const [result, setResult] = useState<FastlaneResult | null>(null)
+  const [creditsCharged, setCreditsCharged] = useState<number | null>(null)
   const [errorMsg, setErrorMsg] = useState<string>("")
   const [warning, setWarning] = useState<WarningData | null>(null)
   const [upsellData, setUpsellData] = useState<UpsellData | null>(null)
@@ -212,6 +213,7 @@ export default function AutopilotPage() {
 
     setState("RUNNING")
     setResult(null)
+    setCreditsCharged(null)
     setErrorMsg("")
     setWarning(null)
     setEntries([])
@@ -245,6 +247,7 @@ export default function AutopilotPage() {
         run_cap_reached?: boolean
         runs_used?: number
         runs_allowed?: number
+        credits_charged?: number
       }
 
       // Monthly Autopilot run cap reached — distinct from the credits
@@ -285,6 +288,7 @@ export default function AutopilotPage() {
       }
 
       setResult(json.data ?? null)
+      setCreditsCharged(json.credits_charged ?? null)
       const createdEntries = json.data?.created_entries ?? []
       setEntries(createdEntries)
       // Select all by default — Autopilot generated these intentionally,
@@ -700,6 +704,16 @@ export default function AutopilotPage() {
               </Card>
             ))}
           </div>
+
+          {/* Real credits this run actually consumed -- distinct from the
+              pre-flight estimate shown before the run started (SETUP/
+              STRATEGY screens above), even though today they're always the
+              same number (no per-slot refund exists within a run yet). */}
+          {creditsCharged !== null && (
+            <p className="mt-3 text-center text-xs text-muted-foreground">
+              {creditsCharged === 0 ? "No credits charged for this run." : `⚡ ${creditsCharged} credit${creditsCharged === 1 ? "" : "s"} used for this run.`}
+            </p>
+          )}
 
           {/* Review & approve — nothing here is published or even scheduled
               until the user explicitly bulk-schedules the approved subset. */}
