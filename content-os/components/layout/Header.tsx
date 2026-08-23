@@ -9,23 +9,27 @@ import { Button } from "@/components/ui/button"
 import { BrandSelector } from "@/components/layout/BrandSelector"
 import { PLAN_LIMITS } from "@/types/app"
 import type { UserPlan } from "@/types/app"
+import { useUserCredits } from "@/hooks/useUserCredits"
 
 interface HeaderProps {
   userEmail?: string
   userName?: string
   onMenuClick?: () => void
-  generationCount?: number
-  plan?: string
 }
 
-export function Header({ userEmail, userName, onMenuClick, generationCount = 0, plan = "free" }: HeaderProps) {
+export function Header({ userEmail, userName, onMenuClick }: HeaderProps) {
   const router = useRouter()
   const [dropdownOpen, setDropdownOpen] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
 
-  const userPlan = (plan as UserPlan) in PLAN_LIMITS ? (plan as UserPlan) : "free"
-  const limit = PLAN_LIMITS[userPlan].generations
-  const remaining = Math.max(0, limit - generationCount)
+  // Fetched live (shared cache with every other credit display — see
+  // hooks/useUserCredits.ts) instead of a server-rendered prop, which
+  // never updated after the dashboard shell's own initial render.
+  const { data: credits } = useUserCredits()
+  const userPlan: UserPlan = credits?.plan && credits.plan in PLAN_LIMITS ? credits.plan : "free"
+  const limit = credits?.limit ?? PLAN_LIMITS[userPlan].generations
+  const generationCount = credits?.used ?? 0
+  const remaining = credits?.remaining ?? Math.max(0, limit - generationCount)
   const usagePct = Math.min(100, Math.round((generationCount / limit) * 100))
   const creditColor = remaining === 0 ? "text-red-500" : remaining < 5 ? "text-amber-500" : "text-muted-foreground"
   const barColor = remaining === 0 ? "bg-red-500" : remaining < 5 ? "bg-amber-500" : "bg-primary"
@@ -134,7 +138,7 @@ export function Header({ userEmail, userName, onMenuClick, generationCount = 0, 
                 )}
                 <div className="mt-1 flex items-center gap-2">
                   <span className="inline-block rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary capitalize">
-                    {plan} plan
+                    {userPlan} plan
                   </span>
                   <Link
                     href="/settings#plan-usage"

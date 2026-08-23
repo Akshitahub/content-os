@@ -13,8 +13,10 @@ import Link from "next/link"
 import posthog from "posthog-js"
 import { POSTHOG_KEY } from "@/lib/analytics/posthog"
 import { PLAN_LIMITS } from "@/types/app"
-import type { FastlaneResult, UserPlan } from "@/types/app"
+import type { FastlaneResult } from "@/types/app"
 import type { CalendarEntryRow } from "@/types/database"
+import { useQueryClient } from "@tanstack/react-query"
+import { useUserCredits, userCreditsKeys } from "@/hooks/useUserCredits"
 
 const STATUS_BADGE: Record<string, string> = {
   planned: "bg-slate-100 text-slate-700",
@@ -95,9 +97,16 @@ export default function AutopilotPage() {
   const [warning, setWarning] = useState<WarningData | null>(null)
   const [upsellData, setUpsellData] = useState<UpsellData | null>(null)
   const [runCapData, setRunCapData] = useState<RunCapData | null>(null)
-  const [userCredits, setUserCredits] = useState<number | null>(null)
-  const [userPlan, setUserPlan] = useState<UserPlan | null>(null)
   const [progress, setProgress] = useState(0)
+  const queryClient = useQueryClient()
+
+  // Shared with Header/Settings (hooks/useUserCredits.ts) -- previously
+  // this page fetched its own separate copy of the same data, which could
+  // disagree with Header's server-rendered-and-never-refreshed prop (the
+  // actual root cause of the two-different-numbers bug this replaced).
+  const { data: credits } = useUserCredits()
+  const userCredits = credits?.remaining ?? null
+  const userPlan = credits?.plan ?? null
 
   // Explicit, plan-aware Autopilot tier (PLAN_LIMITS[plan].autopilot) —
   // defaults to the free tier's numbers while the plan is still loading,
@@ -123,17 +132,6 @@ export default function AutopilotPage() {
   const [strategyLoading, setStrategyLoading] = useState(false)
   const [strategyError, setStrategyError] = useState<string | null>(null)
 
-  // Fetch remaining credits + plan (drives which Autopilot tier — full vs.
-  // free preview — this page shows and gates against).
-  useEffect(() => {
-    fetch("/api/v1/user/profile")
-      .then(r => r.json())
-      .then((json: { data?: { remaining: number; plan?: string } }) => {
-        if (json.data?.remaining !== undefined) setUserCredits(json.data.remaining)
-        if (json.data?.plan && json.data.plan in PLAN_LIMITS) setUserPlan(json.data.plan as UserPlan)
-      })
-      .catch(() => {})
-  }, [])
 
   // Setup form state
   const [frequency, setFrequency] = useState<"3x_week" | "5x_week" | "daily">("daily")
@@ -285,6 +283,10 @@ export default function AutopilotPage() {
       // so the burden should be deselecting what you don't want, not the reverse.
       setSelectedIds(new Set(createdEntries.filter(e => e.status === "content_ready").map(e => e.id)))
       setState("DONE")
+      // This run just deducted credits server-side -- refetch the shared
+      // balance now so Header updates in lockstep with this page instead
+      // of only catching up on its own next refetch.
+      queryClient.invalidateQueries({ queryKey: userCreditsKeys.all })
       try {
         if (POSTHOG_KEY) posthog.capture("autopilot_completed", {
           brand_id: brandId,

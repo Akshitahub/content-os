@@ -8,11 +8,9 @@ interface DashboardShellProps {
   children: React.ReactNode
   userEmail?: string
   userName?: string
-  generationCount?: number
-  plan?: string
 }
 
-export function DashboardShell({ children, userEmail, userName, generationCount, plan }: DashboardShellProps) {
+export function DashboardShell({ children, userEmail, userName }: DashboardShellProps) {
   const [mobileOpen, setMobileOpen] = useState(false)
 
   const openMenu = useCallback(() => setMobileOpen(true), [])
@@ -36,8 +34,6 @@ export function DashboardShell({ children, userEmail, userName, generationCount,
           userEmail={userEmail}
           userName={userName}
           onMenuClick={openMenu}
-          generationCount={generationCount}
-          plan={plan}
         />
         <main className="flex-1 overflow-y-auto animate-in fade-in duration-200">
           {children}

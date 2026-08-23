@@ -16,6 +16,7 @@ import posthog from "posthog-js"
 import { POSTHOG_KEY } from "@/lib/analytics/posthog"
 import { PLAN_LIMITS } from "@/types/app"
 import { useBrands, useDeleteBrand } from "@/hooks/useBrand"
+import { useUserCredits } from "@/hooks/useUserCredits"
 
 // ---------------------------------------------------------------------------
 // Types
@@ -220,8 +221,18 @@ interface RazorpayResponse {
 }
 
 function PlanSection({ user }: { user: UserProps }) {
-  const limit = PLAN_LIMITS[user.plan].generations
-  const count = user.generation_count
+  // Shared with Header/the Autopilot page (hooks/useUserCredits.ts) --
+  // previously this read a server-rendered prop computed without the
+  // monthly-reset check /api/v1/user/profile applies, and could disagree
+  // with Header (shown on the same screen) for that reason as well as
+  // simply never refreshing after this page's own initial load. Falls
+  // back to the prop's SSR snapshot only for the brief window before the
+  // live fetch resolves (usually instant -- Header very likely already
+  // warmed this same cached query).
+  const { data: credits } = useUserCredits()
+  const plan = credits?.plan ?? user.plan
+  const limit = credits?.limit ?? PLAN_LIMITS[user.plan].generations
+  const count = credits?.used ?? user.generation_count
   const pct = Math.min(100, Math.round((count / limit) * 100))
 
   const [upgradeState, setUpgradeState] = useState<"idle" | "loading">("idle")
@@ -328,8 +339,8 @@ function PlanSection({ user }: { user: UserProps }) {
         {/* Current plan badge */}
         <div className="flex flex-wrap items-center gap-3">
           <span className="text-sm font-medium text-muted-foreground">Current plan</span>
-          <span className={`rounded-full px-3 py-0.5 text-xs font-semibold capitalize ${PLAN_COLORS[user.plan]}`}>
-            {user.plan}
+          <span className={`rounded-full px-3 py-0.5 text-xs font-semibold capitalize ${PLAN_COLORS[plan]}`}>
+            {plan}
           </span>
         </div>
 
@@ -351,7 +362,7 @@ function PlanSection({ user }: { user: UserProps }) {
           <p className="text-sm font-medium">Features on your plan</p>
           <ul className="mt-2 space-y-1.5">
             {PLAN_FEATURES.map((feat) => {
-              const included = feat.plans.includes(user.plan)
+              const included = feat.plans.includes(plan)
               return (
                 <li key={feat.label} className="flex items-center gap-2 text-sm">
                   {included ? (
@@ -377,7 +388,7 @@ function PlanSection({ user }: { user: UserProps }) {
 
         {/* Billing period toggle — only relevant when there's at least one
             upgrade path below (agency has none). */}
-        {user.plan !== "agency" && (
+        {plan !== "agency" && (
           <div className="flex items-center gap-2">
             <span className="text-sm text-muted-foreground">Billing</span>
             <div className="inline-flex rounded-full border border-input bg-secondary/50 p-0.5">
@@ -407,7 +418,7 @@ function PlanSection({ user }: { user: UserProps }) {
         )}
 
         {/* Upgrade buttons */}
-        {user.plan === "free" && (
+        {plan === "free" && (
           <div className="flex flex-wrap gap-3">
             <Button
               onClick={() => handleUpgrade("starter")}
@@ -433,7 +444,7 @@ function PlanSection({ user }: { user: UserProps }) {
           </div>
         )}
 
-        {user.plan === "starter" && (
+        {plan === "starter" && (
           <div className="flex flex-wrap gap-3">
             <Button
               onClick={() => handleUpgrade("pro")}
@@ -452,7 +463,7 @@ function PlanSection({ user }: { user: UserProps }) {
           </div>
         )}
 
-        {user.plan === "pro" && (
+        {plan === "pro" && (
           <div className="flex flex-wrap gap-3">
             <Button
               onClick={() => handleUpgrade("agency")}

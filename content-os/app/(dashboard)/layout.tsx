@@ -17,11 +17,16 @@ export default async function DashboardLayout({
     redirect("/login")
   }
 
+  // plan/generation_count no longer queried here -- Header now reads
+  // those live via useUserCredits() (hooks/useUserCredits.ts) instead of
+  // a static server-rendered prop that never updated after this layout's
+  // initial render (it persists across client-side navigation between
+  // dashboard pages, unlike a leaf page's own data fetch).
   const { data: profile } = await supabase
     .from("users")
-    .select("full_name, plan, generation_count")
+    .select("full_name")
     .eq("id", user.id)
-    .single<Pick<UserRow, "full_name" | "plan" | "generation_count">>()
+    .single<Pick<UserRow, "full_name">>()
 
   return (
     <>
@@ -29,8 +34,6 @@ export default async function DashboardLayout({
       <DashboardShell
         userEmail={user.email}
         userName={profile?.full_name ?? undefined}
-        generationCount={profile?.generation_count ?? 0}
-        plan={profile?.plan ?? "free"}
       >
         {children}
       </DashboardShell>
