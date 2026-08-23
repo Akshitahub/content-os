@@ -201,6 +201,14 @@ export interface AutopilotTier {
   days: number
   slots: number
   creditCost: number
+  /** Hard cap on Autopilot RUNS per calendar month — independent of, and
+   * enforced in addition to, the shared credit pool (a user with credits
+   * to spare still can't exceed this). Applies per-user across all of
+   * their brands (not per-brand): Agency's 4 runs/month against its 5
+   * brands is intentional — the user manually chooses which brands to
+   * spend their runs on each month, no automatic rotation. Enforced in
+   * app/api/v1/brands/fastlane/route.ts via users.autopilot_run_count. */
+  maxRunsPerMonth: number
 }
 
 // `price` is in whole rupees (₹/mo) — the single source Razorpay checkout
@@ -222,6 +230,15 @@ export interface AutopilotTier {
 // the pool resize below — per-feature weights aren't touched here, only
 // how many credits each plan gets to spend against them.
 //
+// autopilot.maxRunsPerMonth: a hard per-user monthly cap on Autopilot RUNS
+// (1/2/3/4 for free/starter/pro/agency), separate from and enforced
+// alongside the creditCost/generations check above — previously there was
+// no run-count cap at all, only the shared credit pool (a user could run
+// Autopilot as many times as their credits allowed). Deliberately not tied
+// to brand count: Agency gets 4 runs/month against its 5 brands, and the
+// user manually picks which brands to spend those runs on — no automatic
+// rotation.
+//
 // Free's 5 slots were kept as-is (not reduced) after checking this
 // against its resized 100-credit pool: 29 against 100 leaves 71 credits
 // free for manual generation in the same month — well past the ~50-60
@@ -240,10 +257,10 @@ export interface AutopilotTier {
 // 1499x12x0.9=16189.2, 3499x12x0.9=37789.2, 9999x12x0.9=107989.2,
 // matching the given values exactly.
 export const PLAN_LIMITS: Record<UserPlan, { price: number; annualPrice: number; generations: number; brands: number; products: number; zernioSocialPlatforms: boolean; reelsPerWeek: number; autopilot: AutopilotTier; influencerOutreach: boolean; carouselCtaAiBackground: boolean }> = {
-  free:    { price: 0,    annualPrice: 0,      generations: 100,  brands: 1, products: 5,    zernioSocialPlatforms: false, reelsPerWeek: 0, autopilot: { days: 3,  slots: 5,  creditCost: 29 },  influencerOutreach: false, carouselCtaAiBackground: false },
-  starter: { price: 1499, annualPrice: 16189,  generations: 450,  brands: 2, products: 30,   zernioSocialPlatforms: false, reelsPerWeek: 0, autopilot: { days: 30, slots: 30, creditCost: 162 }, influencerOutreach: false, carouselCtaAiBackground: true },
-  pro:     { price: 3499, annualPrice: 37789,  generations: 850,  brands: 3, products: 200,  zernioSocialPlatforms: true,  reelsPerWeek: 1, autopilot: { days: 30, slots: 30, creditCost: 162 }, influencerOutreach: true,  carouselCtaAiBackground: true },
-  agency:  { price: 9999, annualPrice: 107989, generations: 3100, brands: 5, products: 1000, zernioSocialPlatforms: true,  reelsPerWeek: 4, autopilot: { days: 30, slots: 30, creditCost: 162 }, influencerOutreach: true,  carouselCtaAiBackground: true },
+  free:    { price: 0,    annualPrice: 0,      generations: 100,  brands: 1, products: 5,    zernioSocialPlatforms: false, reelsPerWeek: 0, autopilot: { days: 3,  slots: 5,  creditCost: 29,  maxRunsPerMonth: 1 }, influencerOutreach: false, carouselCtaAiBackground: false },
+  starter: { price: 1499, annualPrice: 16189,  generations: 450,  brands: 2, products: 30,   zernioSocialPlatforms: false, reelsPerWeek: 0, autopilot: { days: 30, slots: 30, creditCost: 162, maxRunsPerMonth: 2 }, influencerOutreach: false, carouselCtaAiBackground: true },
+  pro:     { price: 3499, annualPrice: 37789,  generations: 850,  brands: 3, products: 200,  zernioSocialPlatforms: true,  reelsPerWeek: 1, autopilot: { days: 30, slots: 30, creditCost: 162, maxRunsPerMonth: 3 }, influencerOutreach: true,  carouselCtaAiBackground: true },
+  agency:  { price: 9999, annualPrice: 107989, generations: 3100, brands: 5, products: 1000, zernioSocialPlatforms: true,  reelsPerWeek: 4, autopilot: { days: 30, slots: 30, creditCost: 162, maxRunsPerMonth: 4 }, influencerOutreach: true,  carouselCtaAiBackground: true },
 }
 
 // ─── Trending context ────────────────────────────────────────────────────────

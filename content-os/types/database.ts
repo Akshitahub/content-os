@@ -28,6 +28,8 @@ export type Database = {
           stripe_customer_id: string | null
           generation_count: number
           generation_count_reset_at: string | null
+          autopilot_run_count: number
+          autopilot_run_count_reset_at: string | null
           reel_count_this_week: number
           reel_count_reset_at: string | null
           free_reel_used_at: string | null
@@ -50,6 +52,8 @@ export type Database = {
           stripe_customer_id?: string | null
           generation_count?: number
           generation_count_reset_at?: string | null
+          autopilot_run_count?: number
+          autopilot_run_count_reset_at?: string | null
           reel_count_this_week?: number
           reel_count_reset_at?: string | null
           free_reel_used_at?: string | null
@@ -71,6 +75,8 @@ export type Database = {
           stripe_customer_id?: string | null
           generation_count?: number
           generation_count_reset_at?: string | null
+          autopilot_run_count?: number
+          autopilot_run_count_reset_at?: string | null
           reel_count_this_week?: number
           reel_count_reset_at?: string | null
           free_reel_used_at?: string | null

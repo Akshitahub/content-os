@@ -68,9 +68,9 @@ export async function POST(request: Request) {
     // than silently skipping gating.
     const { data: userData } = await supabase
       .from("users")
-      .select("plan, generation_count, generation_count_reset_at")
+      .select("plan, generation_count, generation_count_reset_at, autopilot_run_count, autopilot_run_count_reset_at")
       .eq("id", user.id)
-      .single<{ plan: string; generation_count: number; generation_count_reset_at: string | null }>()
+      .single<{ plan: string; generation_count: number; generation_count_reset_at: string | null; autopilot_run_count: number; autopilot_run_count_reset_at: string | null }>()
 
     const isUnlimited = isInternalUnlimited(user.id)
     const plan = resolvePlan(userData?.plan)
@@ -120,6 +120,32 @@ export async function POST(request: Request) {
       }
     }
 
+    // Hard per-user cap on Autopilot RUNS/month (see AutopilotTier.
+    // maxRunsPerMonth in types/app.ts) — separate from, and checked before,
+    // the credit-pool check below. A user with credits to spare still can't
+    // exceed this; it applies across all of their brands, not per-brand
+    // (Agency's 4 runs against 5 brands is intentional — the user manually
+    // picks which brands to spend runs on, no automatic rotation).
+    if (userData && !isUnlimited) {
+      const runsNow = new Date()
+      const runsResetAt = userData.autopilot_run_count_reset_at ? new Date(userData.autopilot_run_count_reset_at) : null
+      const shouldResetRuns = !runsResetAt || (runsNow.getMonth() !== runsResetAt.getMonth() || runsNow.getFullYear() !== runsResetAt.getFullYear())
+      const currentRunCount = shouldResetRuns ? 0 : userData.autopilot_run_count
+
+      if (currentRunCount >= tier.maxRunsPerMonth) {
+        return NextResponse.json(
+          {
+            error: { code: ErrorCodes.USAGE_LIMIT_EXCEEDED, message: `You've used all ${tier.maxRunsPerMonth} Autopilot run${tier.maxRunsPerMonth === 1 ? "" : "s"} this month. Upgrade or wait until next month for more.` },
+            run_cap_reached: true,
+            runs_used: currentRunCount,
+            runs_allowed: tier.maxRunsPerMonth,
+            plan,
+          },
+          { status: 429 }
+        )
+      }
+    }
+
     // Check usage limits — canonical PLAN_LIMITS[plan].generations (not a
     // separate hand-rolled table), against this run's real weighted cost.
     if (userData && !isUnlimited) {
@@ -151,17 +177,20 @@ export async function POST(request: Request) {
       plan, isInternalUnlimitedUser: isUnlimited,
     })
 
-    // Increment generation count
+    // Increment generation count and Autopilot run count
     const { data: currentUser } = await supabase
       .from("users")
-      .select("generation_count, generation_count_reset_at")
+      .select("generation_count, generation_count_reset_at, autopilot_run_count, autopilot_run_count_reset_at")
       .eq("id", user.id)
-      .single<{ generation_count: number; generation_count_reset_at: string | null }>()
+      .single<{ generation_count: number; generation_count_reset_at: string | null; autopilot_run_count: number; autopilot_run_count_reset_at: string | null }>()
 
     if (currentUser && !isUnlimited) {
       const now = new Date()
       const resetAt = currentUser.generation_count_reset_at ? new Date(currentUser.generation_count_reset_at) : null
       const shouldReset = !resetAt || (now.getMonth() !== resetAt.getMonth() || now.getFullYear() !== resetAt.getFullYear())
+
+      const runsResetAt = currentUser.autopilot_run_count_reset_at ? new Date(currentUser.autopilot_run_count_reset_at) : null
+      const shouldResetRuns = !runsResetAt || (now.getMonth() !== runsResetAt.getMonth() || now.getFullYear() !== runsResetAt.getFullYear())
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       await (supabase.from("users") as any).update({
@@ -169,6 +198,8 @@ export async function POST(request: Request) {
           ? estimatedCost
           : currentUser.generation_count + estimatedCost,
         generation_count_reset_at: shouldReset ? now.toISOString() : currentUser.generation_count_reset_at,
+        autopilot_run_count: shouldResetRuns ? 1 : currentUser.autopilot_run_count + 1,
+        autopilot_run_count_reset_at: shouldResetRuns ? now.toISOString() : currentUser.autopilot_run_count_reset_at,
       }).eq("id", user.id)
     }
 

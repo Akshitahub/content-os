@@ -24,7 +24,14 @@ const STATUS_BADGE: Record<string, string> = {
   missed: "bg-red-100 text-red-700",
 }
 
-type AutopilotState = "SETUP" | "STRATEGY" | "RUNNING" | "DONE" | "ERROR" | "WARNING" | "UPSELL"
+type AutopilotState = "SETUP" | "STRATEGY" | "RUNNING" | "DONE" | "ERROR" | "WARNING" | "UPSELL" | "RUN_CAP"
+
+interface RunCapData {
+  message: string
+  runsUsed: number
+  runsAllowed: number
+  plan: string
+}
 
 interface WarningData {
   message: string
@@ -87,6 +94,7 @@ export default function AutopilotPage() {
   const [errorMsg, setErrorMsg] = useState<string>("")
   const [warning, setWarning] = useState<WarningData | null>(null)
   const [upsellData, setUpsellData] = useState<UpsellData | null>(null)
+  const [runCapData, setRunCapData] = useState<RunCapData | null>(null)
   const [userCredits, setUserCredits] = useState<number | null>(null)
   const [userPlan, setUserPlan] = useState<UserPlan | null>(null)
   const [progress, setProgress] = useState(0)
@@ -228,6 +236,25 @@ export default function AutopilotPage() {
         remaining_credits?: number
         plan?: string
         credits_needed?: number
+        run_cap_reached?: boolean
+        runs_used?: number
+        runs_allowed?: number
+      }
+
+      // Monthly Autopilot run cap reached — distinct from the credits
+      // upsell below (a user can have credits to spare and still hit
+      // this), and needs its own message since the credits-upsell copy
+      // and "Upgrade to Starter" CTA don't make sense here (Agency, the
+      // top tier, has this cap too, with nowhere higher to upgrade to).
+      if (json.run_cap_reached) {
+        setRunCapData({
+          message: json.error?.message ?? "You've used all your Autopilot runs this month.",
+          runsUsed: json.runs_used ?? 0,
+          runsAllowed: json.runs_allowed ?? 0,
+          plan: json.plan ?? "free",
+        })
+        setState("RUN_CAP")
+        return
       }
 
       // Credits insufficient — show upsell instead of generic error
@@ -830,6 +857,30 @@ export default function AutopilotPage() {
 
           <Button className="mt-8 w-full" variant="outline" onClick={() => setState("SETUP")}>
             Try again
+          </Button>
+        </div>
+      )}
+
+      {/* RUN_CAP — monthly Autopilot run cap reached (separate from credits) */}
+      {state === "RUN_CAP" && runCapData && (
+        <div className="w-full max-w-lg text-center space-y-4">
+          <div className="text-5xl">🗓️</div>
+          <h2 className="text-xl font-bold">You&apos;re out of Autopilot runs this month</h2>
+          <p className="text-muted-foreground text-sm max-w-sm mx-auto">
+            You&apos;ve used <strong>{runCapData.runsUsed}/{runCapData.runsAllowed}</strong> Autopilot runs on your{" "}
+            <strong>{runCapData.plan}</strong> plan this month. Choose which brand to run it on next time, or{" "}
+            {runCapData.plan === "agency" ? "wait until next month for more." : "upgrade for more runs."}
+          </p>
+          {runCapData.plan !== "agency" && (
+            <Link
+              href="/settings"
+              className="flex w-full items-center justify-center rounded-full bg-violet-600 py-3 text-sm font-semibold text-white hover:bg-violet-700 transition-colors"
+            >
+              Upgrade for more Autopilot runs →
+            </Link>
+          )}
+          <Button variant="ghost" className="w-full text-xs text-muted-foreground" onClick={() => setState("SETUP")}>
+            ← Go back
           </Button>
         </div>
       )}
