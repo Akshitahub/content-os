@@ -5,6 +5,34 @@ import { PLATFORM_CHAR_LIMITS } from "./prompts"
 export const MIN_HASHTAGS = 15
 export const MAX_HASHTAGS = 20
 
+// Short list of genuinely common AI-sounding offenders — matches the
+// examples named in QUALITY_BAR's own anti-cliché instruction (prompts.ts)
+// so the model is told about exactly what gets checked, not a longer
+// hidden list it can't see. Deliberately narrow multi-word phrases, not
+// single words like "elevate" or "unlock" alone — a substring match on
+// just "elevate" would flag "elevate your everyday coffee ritual" (a fine,
+// specific sentence) as readily as the generic "elevate your ___"
+// template. "elevate your"/"unlock the power of" stay on the list as
+// two-word-plus phrases because even filled in with something specific
+// (e.g. "elevate your morning routine") they still read as the same
+// templated marketing pattern regardless of what follows — that's the
+// actual offender the task named, not just the bare word.
+export const CLICHE_PHRASES = [
+  "in today's fast-paced world",
+  "unlock the power of",
+  "elevate your",
+  "game-changer",
+  "game changer",
+  "look no further",
+  "take it to the next level",
+]
+
+/** Case-insensitive substring check against the full caption_text (not just the opener — a cliché mid-caption is just as generic-sounding as one in the hook line). */
+export function findClichePhrases(captionText: string): string[] {
+  const lower = captionText.toLowerCase()
+  return CLICHE_PHRASES.filter((phrase) => lower.includes(phrase))
+}
+
 export type CaptionChatMessage = { role: "system" | "user" | "assistant"; content: string }
 export type CaptionModelUsage = { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number }
 
@@ -61,6 +89,11 @@ export function validateCaption(parsed: GeneratedCaption, ctaPhrase: string, han
   const limit = PLATFORM_CHAR_LIMITS[platform]
   if (parsed.caption_text.length > limit) {
     issues.push(`Your caption_text is ${parsed.caption_text.length} characters — it must be under ${limit} characters for ${platform}.`)
+  }
+
+  const cliches = findClichePhrases(parsed.caption_text)
+  if (cliches.length > 0) {
+    issues.push(`Your caption_text contains generic AI-sounding phrase(s): ${cliches.map((c) => `"${c}"`).join(", ")} — rewrite that part in specific, natural language about this brand, not a cliché.`)
   }
 
   return issues

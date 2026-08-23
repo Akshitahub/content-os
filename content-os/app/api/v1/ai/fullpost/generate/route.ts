@@ -9,6 +9,7 @@ import { buildError, ErrorCodes } from "@/types/api"
 import { checkAndIncrementUsage, refundGenerationUsage } from "@/lib/usage/check-and-increment-usage"
 import { CONTENT_FORMAT_CREDIT_COSTS } from "@/lib/usage/credit-costs"
 import { createPostImageSession } from "@/lib/usage/post-image-regenerate-session"
+import { fetchPastExamples } from "@/lib/ai/past-examples"
 import type { BrandRow, ProductRow } from "@/types/database"
 import type { GeneratedCaption, ReelScript, CarouselContent, AdCopy } from "@/types/app"
 
@@ -53,6 +54,14 @@ export async function POST(request: Request) {
 
   const startTime = Date.now()
 
+  // Feed the brand's own past highly-rated content of this same format back
+  // into the prompt as few-shot examples — app/api/v1/ai/content/generate
+  // already did this (fetchPastExamples, shared from lib/ai/past-examples
+  // so the two routes can't drift apart), but this flow never did, leaving
+  // its caption/copy generation with no brand-voice grounding from past
+  // examples at all despite the prompt already supporting it.
+  const pastExamples = await fetchPastExamples(supabase, brandId, format)
+
   try {
     let hookResult: Awaited<ReturnType<typeof generateHooks>>
     let contentResult: Awaited<ReturnType<typeof generateContent>>
@@ -81,6 +90,7 @@ export async function POST(request: Request) {
           platform,
           hookText: firstHook.hook_text,
           additionalContext,
+          pastExamples,
           includeImagePrompt: true,
         }),
         createPostImageSession(user.id),
@@ -104,6 +114,7 @@ export async function POST(request: Request) {
           platform,
           hookText: undefined,
           additionalContext,
+          pastExamples,
           includeImagePrompt: false,
         }),
       ])
