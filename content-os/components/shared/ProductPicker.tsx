@@ -48,8 +48,10 @@ export function ProductPicker({ brandId, selected, onSelect, label = "Product im
     })
   }
 
-  function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
+  // Shared by file-browse and clipboard paste so validation/preview logic
+  // lives in exactly one place instead of being duplicated per input
+  // method (mirrors components/generate/AdMaker.tsx's processImageFile).
+  function processImageFile(file: File | undefined | null) {
     if (!file) return
     const reader = new FileReader()
     reader.onload = (ev) => {
@@ -70,7 +72,25 @@ export function ProductPicker({ brandId, selected, onSelect, label = "Product im
       img.src = dataUrl
     }
     reader.readAsDataURL(file)
+  }
+
+  function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    processImageFile(e.target.files?.[0])
     e.target.value = ""
+  }
+
+  function handlePaste(e: React.ClipboardEvent) {
+    const items = e.clipboardData?.items
+    if (!items) return
+    for (const item of items) {
+      if (item.type.startsWith("image/")) {
+        const file = item.getAsFile()
+        if (file) {
+          processImageFile(file)
+          break
+        }
+      }
+    }
   }
 
   if (selected) {
@@ -185,11 +205,14 @@ export function ProductPicker({ brandId, selected, onSelect, label = "Product im
       <div>
         <button
           type="button"
+          tabIndex={0}
           onClick={() => fileInputRef.current?.click()}
+          onPaste={handlePaste}
           className="flex w-full items-center justify-center gap-2 rounded-lg border-2 border-dashed border-muted-foreground/20 px-3 py-2.5 text-xs text-muted-foreground hover:border-violet-400 hover:text-violet-600 transition-colors"
         >
           <Upload className="h-3.5 w-3.5" /> Upload an image
         </button>
+        <p className="mt-1 text-center text-[10px] text-muted-foreground/60">or paste from clipboard (Ctrl+V)</p>
         <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleFileUpload} />
       </div>
 

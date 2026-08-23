@@ -33,8 +33,10 @@ export function SceneComposer({ brandId: _brandId }: SceneComposerProps) {
   const [resultDataUrl, setResultDataUrl] = useState<string | null>(null)
   const [composeError, setComposeError] = useState<string | null>(null)
 
-  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
+  // Shared by file-browse and clipboard paste so validation/preview logic
+  // lives in exactly one place instead of being duplicated per input
+  // method (mirrors components/generate/AdMaker.tsx's processImageFile).
+  function processImageFile(file: File | undefined | null) {
     if (!file) return
     setOriginalFile(file)
     setRemovedBgDataUrl(null)
@@ -44,6 +46,24 @@ export function SceneComposer({ brandId: _brandId }: SceneComposerProps) {
     const reader = new FileReader()
     reader.onload = () => setOriginalPreview(reader.result as string)
     reader.readAsDataURL(file)
+  }
+
+  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    processImageFile(e.target.files?.[0])
+  }
+
+  function handlePaste(e: React.ClipboardEvent) {
+    const items = e.clipboardData?.items
+    if (!items) return
+    for (const item of items) {
+      if (item.type.startsWith("image/")) {
+        const file = item.getAsFile()
+        if (file) {
+          processImageFile(file)
+          break
+        }
+      }
+    }
   }
 
   const handleRemoveBackground = useCallback(async () => {
@@ -161,12 +181,15 @@ export function SceneComposer({ brandId: _brandId }: SceneComposerProps) {
           {!originalPreview ? (
             <button
               type="button"
+              tabIndex={0}
               onClick={() => fileInputRef.current?.click()}
+              onPaste={handlePaste}
               className="flex w-full flex-col items-center justify-center rounded-lg border-2 border-dashed border-muted-foreground/30 py-8 text-center hover:border-primary/40 hover:bg-muted/30 transition-colors"
             >
               <Upload className="h-8 w-8 text-muted-foreground/40 mb-2" />
               <p className="text-sm font-medium text-muted-foreground">Click to upload</p>
               <p className="text-xs text-muted-foreground/60 mt-0.5">JPG or PNG, max 10MB</p>
+              <p className="text-xs text-muted-foreground/60 mt-0.5">or paste from clipboard (Ctrl+V)</p>
             </button>
           ) : (
             <div className="flex items-start gap-4">
