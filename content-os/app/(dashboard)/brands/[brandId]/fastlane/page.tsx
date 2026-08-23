@@ -115,6 +115,14 @@ export default function AutopilotPage() {
   const tier = PLAN_LIMITS[userPlan ?? "free"].autopilot
   const isFreeTier = (userPlan ?? "free") === "free"
   const hasEnoughCredits = userCredits === null || userCredits >= tier.creditCost
+  // Display-only rounding (nearest 10) -- tier.creditCost's real value
+  // (e.g. 162) is the precise output of estimateAutopilotCreditCost's
+  // weighted math (lib/ai/fastlane.ts) and looks like raw internal
+  // arithmetic leaking into the UI rather than a deliberately designed
+  // number. The actual charge (this same tier.creditCost, used in
+  // hasEnoughCredits above and sent to the server) is untouched -- only
+  // what's shown to the user in the three spots below is rounded.
+  const displayCreditCost = Math.round(tier.creditCost / 10) * 10
 
   // Review/approve-then-schedule step — Autopilot itself only ever
   // produces content_ready entries; nothing flips to scheduled without
@@ -470,7 +478,7 @@ export default function AutopilotPage() {
               {/* Credit indicator */}
               {userCredits !== null && (
                 <div className={`rounded-lg px-4 py-2.5 text-sm ${hasEnoughCredits ? "bg-green-50 text-green-700 border border-green-200" : "bg-amber-50 text-amber-700 border border-amber-200"}`}>
-                  ⚡ Autopilot uses {tier.creditCost} credits. You have <strong>{userCredits}</strong> remaining.
+                  ⚡ Autopilot uses ~{displayCreditCost} credits. You have <strong>{userCredits}</strong> remaining.
                   {!hasEnoughCredits && " You don't have enough credits to run it right now."}
                 </div>
               )}
@@ -484,7 +492,7 @@ export default function AutopilotPage() {
                 Launch Autopilot
               </Button>
               <p className="text-center text-xs text-muted-foreground">
-                Uses {tier.creditCost} credits · Adds {tier.slots} entries to your content calendar
+                Uses ~{displayCreditCost} credits · Adds {tier.slots} entries to your content calendar
               </p>
             </div>
           </div>
