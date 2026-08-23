@@ -85,26 +85,43 @@ export function GenerationPanel({ brandId, products }: GenerationPanelProps) {
             <ChevronLeft className="h-4 w-4" /> Change type
           </button>
           <p className="text-xs text-muted-foreground mt-2 mb-4 px-1">{TAB_DESCRIPTIONS[activeTab]}</p>
-
-          {activeTab === "ad_maker"  && <AdMaker brandId={brandId} />}
-          {activeTab === "full_post" && <FullPostGenerator brandId={brandId} products={products} />}
-          {activeTab === "carousel"  && <CarouselBuilder brandId={brandId} />}
-          {activeTab === "stories"   && <StorySequence brandId={brandId} />}
-          {activeTab === "memes"     && <MemeMaker brandId={brandId} />}
-          {activeTab === "hooks"     && <HookGenerator brandId={brandId} products={products} />}
-          {activeTab === "content"   && <ContentTypeGenerator brandId={brandId} products={products} />}
-          {activeTab === "images"    && (
-            <div className="space-y-8">
-              <ImageGenerator brandId={brandId} products={products} />
-              <div className="border-t pt-8">
-                <SceneComposer brandId={brandId} />
-              </div>
-            </div>
-          )}
-          {activeTab === "repurpose" && <ContentRepurposer brandId={brandId} />}
-          {activeTab === "blog"      && <BlogPostGenerator brandId={brandId} />}
         </>
       )}
+
+      {/* Every tab component stays mounted for the life of this panel,
+          hidden via CSS rather than conditionally rendered -- deliberately
+          NOT nested inside the `activeTab !== null` block above, since the
+          only way to move between two tabs is via "Change type" -> the
+          CreatePicker screen (activeTab briefly null) -> pick the next tab,
+          so gating this on activeTab !== null would still unmount (and
+          lose the state of) every tab on each switch, the exact bug this
+          is fixing. Conditional mounting (`activeTab === "x" && <Comp/>`)
+          fully unmounted whichever tab wasn't selected, discarding any
+          in-flight generation's local state (loading flag, result, error)
+          the moment its promise resolved after the switch, since React
+          silently drops setState calls on an unmounted component. Each
+          tab's local useState now survives a tab switch for free, no store
+          lifting needed. Checked all 10 tab components for a top-level
+          useEffect(..., []) that does real work on mount before this
+          change -- none exist; every one only restores/persists to
+          sessionStorage (cheap, local, idempotent), so mounting all of them
+          upfront (even before a tab is first picked) doesn't newly trigger
+          any network calls or timers. */}
+      <div style={{ display: activeTab === "ad_maker" ? undefined : "none" }}><AdMaker brandId={brandId} /></div>
+      <div style={{ display: activeTab === "full_post" ? undefined : "none" }}><FullPostGenerator brandId={brandId} products={products} /></div>
+      <div style={{ display: activeTab === "carousel" ? undefined : "none" }}><CarouselBuilder brandId={brandId} /></div>
+      <div style={{ display: activeTab === "stories" ? undefined : "none" }}><StorySequence brandId={brandId} /></div>
+      <div style={{ display: activeTab === "memes" ? undefined : "none" }}><MemeMaker brandId={brandId} /></div>
+      <div style={{ display: activeTab === "hooks" ? undefined : "none" }}><HookGenerator brandId={brandId} products={products} /></div>
+      <div style={{ display: activeTab === "content" ? undefined : "none" }}><ContentTypeGenerator brandId={brandId} products={products} /></div>
+      <div style={{ display: activeTab === "images" ? undefined : "none" }} className="space-y-8">
+        <ImageGenerator brandId={brandId} products={products} />
+        <div className="border-t pt-8">
+          <SceneComposer brandId={brandId} />
+        </div>
+      </div>
+      <div style={{ display: activeTab === "repurpose" ? undefined : "none" }}><ContentRepurposer brandId={brandId} /></div>
+      <div style={{ display: activeTab === "blog" ? undefined : "none" }}><BlogPostGenerator brandId={brandId} /></div>
     </div>
   )
 }
