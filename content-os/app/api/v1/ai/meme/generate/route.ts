@@ -143,7 +143,11 @@ export async function POST(request: Request) {
   // use), and the one model actually listed there ("sana") produced
   // byte-identical output to flux at the same seed in testing -- i.e. not
   // a real distinct option on this public endpoint. flux stays.
-  const pollinationsUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(`${concept.image_prompt}, meme photo style, vibrant colors, high contrast, funny expression, no text, no illegible symbols, anatomically correct features, correct number of fingers and limbs, natural hand positioning`)}?width=1080&height=1080&seed=${seed}&nologo=true&model=flux&enhance=true`
+  // Sharpness clause matches lib/ai/post-image-pipeline.ts's
+  // POST_IMAGE_QUALITY_AND_NEGATIVE_GUARD wording — this route builds its
+  // own separate Pollinations prompt rather than sharing that pipeline, so
+  // the same quality language needs its own copy here.
+  const pollinationsUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(`${concept.image_prompt}, meme photo style, vibrant colors, high contrast, funny expression, no text, no illegible symbols, anatomically correct features, correct number of fingers and limbs, natural hand positioning, crisp sharp focus with clearly resolved fine detail, not soft, hazy, or out of focus`)}?width=1080&height=1080&seed=${seed}&nologo=true&model=flux&enhance=true`
 
   let imageBuffer: Buffer
   try {

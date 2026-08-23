@@ -14,6 +14,28 @@ const MIN_BUFFER_BYTES = 5000
 const NEAR_BLACK_MEAN = 8
 const NEAR_BLANK_MEAN = 247
 
+// Variance of a Laplacian convolution — a standard blur-detection metric
+// (low variance = few sharp edges = blurry/flat). Threshold calibrated
+// live against real Pollinations output: genuinely sharp generations
+// (including deliberately low-texture "minimal studio" compositions, the
+// realistic false-positive risk) scored 4.1-30.9; the same images with a
+// mild synthetic blur applied scored 1.4-1.9, heavy blur 0.7-1.2. 2.5 sits
+// with over 1.6x margin below the lowest observed sharp score and above
+// the highest observed mild-blur score.
+const BLUR_VARIANCE_THRESHOLD = 2.5
+const LAPLACIAN_KERNEL = { width: 3, height: 3, kernel: [0, 1, 0, 1, -4, 1, 0, 1, 0] }
+
+async function isTooBlurry(buffer: Buffer): Promise<boolean> {
+  const { data } = await sharp(buffer).greyscale().convolve(LAPLACIAN_KERNEL).raw().toBuffer({ resolveWithObject: true })
+  const n = data.length
+  let sum = 0
+  for (let i = 0; i < n; i++) sum += data[i]
+  const mean = sum / n
+  let sqDiff = 0
+  for (let i = 0; i < n; i++) sqDiff += (data[i] - mean) ** 2
+  return sqDiff / n < BLUR_VARIANCE_THRESHOLD
+}
+
 // Pinned to a specific version string (not just "black-forest-labs/flux-2-pro"'s
 // unversioned alias) isn't required here — Replicate's `owner/model` form
 // without a `:version` always resolves to that model's current default
@@ -91,7 +113,7 @@ export type PostImagePipelineResult =
 // question is whether the near-black/near-blank quality check is
 // over-triggering on legitimate photography — that's unanswerable if every
 // failure mode collapses into one generic reason.
-export type ImageAttemptFailureReason = "too_small" | "near_black" | "near_blank" | "unreadable" | "network_error" | "api_error"
+export type ImageAttemptFailureReason = "too_small" | "near_black" | "near_blank" | "blurry" | "unreadable" | "network_error" | "api_error"
 
 /**
  * One row per real attempt inside fetchBackgroundImage below — not just
@@ -128,6 +150,11 @@ async function checkImageQuality(buffer: Buffer): Promise<{ ok: true } | { error
     if (isNearBlack || isNearBlank) {
       console.error(`[post-image-pipeline] image failed quality check: channel means=${JSON.stringify(means)}`)
       return { error: "Generated image was mostly blank or black.", reason: isNearBlack ? "near_black" : "near_blank" }
+    }
+
+    if (await isTooBlurry(buffer)) {
+      console.error(`[post-image-pipeline] image failed quality check: too blurry`)
+      return { error: "Generated image was too blurry to use.", reason: "blurry" }
     }
   } catch (err) {
     console.error(`[post-image-pipeline] sharp couldn't read the response as an image:`, err instanceof Error ? err.message : err)
@@ -331,7 +358,16 @@ const PHOTOGRAPHY_STYLE = "professional product photography shot on a full-frame
 // "FLUX.2 does not support negative prompts" outright) — so this has to be
 // folded into the single positive prompt string for both providers, same
 // as everything else here.
-const POST_IMAGE_QUALITY_AND_NEGATIVE_GUARD = "no text, no watermarks, no logos, no illegible text or symbols, anatomically correct human features if any people are shown, correct number of fingers and limbs, natural hand positioning, authentic unretouched skin texture with natural imperfections, not a 3D render, not CGI, not a digital illustration, not an AI-generated look, avoid airbrushed or over-smoothed skin, avoid plastic or waxy-looking surfaces, avoid unnaturally perfect symmetry"
+// "the main subject in crisp sharp focus... not soft, hazy, or out of
+// focus" — contrastive rather than a bare superlative (the prior "8K ultra
+// HD, sharp focus" removed in favor of PHOTOGRAPHY_STYLE's specific lens/
+// lighting language was reasoned as "nothing for the model to actually aim
+// at"; pairing a positive target with its negative opposite is the same
+// pattern already used successfully elsewhere in this string, e.g.
+// "authentic unretouched skin texture... avoid airbrushed or over-smoothed
+// skin"). Scoped to "the main subject" specifically so it doesn't fight
+// PHOTOGRAPHY_STYLE's own deliberate shallow-depth-of-field background blur.
+const POST_IMAGE_QUALITY_AND_NEGATIVE_GUARD = "no text, no watermarks, no logos, no illegible text or symbols, anatomically correct human features if any people are shown, correct number of fingers and limbs, natural hand positioning, authentic unretouched skin texture with natural imperfections, not a 3D render, not CGI, not a digital illustration, not an AI-generated look, avoid airbrushed or over-smoothed skin, avoid plastic or waxy-looking surfaces, avoid unnaturally perfect symmetry, the main subject rendered in crisp sharp focus with clearly resolved fine detail, not soft, hazy, or out of focus"
 
 // Now that the target canvas is 4:5 portrait (see PORTRAIT_DIMENSIONS
 // above), Instagram's profile-grid preview crops it further to 3:4 — tighter
