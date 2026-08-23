@@ -159,7 +159,13 @@ function PhoneStory({
             <div className="absolute inset-0 z-0 bg-gradient-to-t from-black/75 via-black/25 to-black/45" />
           )}
 
-          {story.type === "reveal" && uploadedImage && (
+          {/* buildStoryTypeSequence() only produces a "reveal" slide when
+              storyCount >= 3, so gating solely on "reveal" silently drops
+              the uploaded product photo for 1- and 2-slide sequences.
+              "cta" always exists whenever storyCount >= 2, and for a
+              single-slide sequence ("hook" only) that hook slide is the
+              fallback, so the image is guaranteed to show up somewhere. */}
+          {(story.type === "reveal" || story.type === "cta" || (total === 1 && story.type === "hook")) && uploadedImage && (
             // eslint-disable-next-line @next/next/no-img-element
             <img src={uploadedImage} alt="" crossOrigin="anonymous" className="absolute inset-0 z-10 h-full w-full object-contain" style={{ background: "rgba(0,0,0,0.35)" }} />
           )}
@@ -664,14 +670,14 @@ export function StorySequence({ brandId }: { brandId: string }) {
           />
         </div>
 
-        {/* Product image for reveal slides */}
+        {/* Product image */}
         <div className="space-y-1.5">
-          <label className="text-xs font-medium">Product image for reveal slides (optional)</label>
+          <label className="text-xs font-medium">Product image (optional)</label>
           <ProductPicker
             brandId={brandId}
             selected={selectedProduct}
             onSelect={setSelectedProduct}
-            label="Select product image (shown on reveal slides)"
+            label="Select product image (shown on reveal/CTA slides)"
           />
         </div>
 
@@ -710,7 +716,7 @@ export function StorySequence({ brandId }: { brandId: string }) {
             className="hidden"
             onChange={handleImageUpload}
           />
-          <p className="text-[11px] text-muted-foreground">Images will appear in &quot;reveal&quot; type story slides</p>
+          <p className="text-[11px] text-muted-foreground">Images will appear on &quot;reveal&quot; and &quot;cta&quot; slides (or the only slide, if just one)</p>
         </div>
 
         <div className="space-y-1.5">
