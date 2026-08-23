@@ -168,7 +168,16 @@ function buildPollinationsUrl(prompt: string, seed: number, dimensions: ImageDim
   return `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=${dimensions.width}&height=${dimensions.height}&seed=${seed}&nologo=true&model=flux`
 }
 
-async function fetchAndCheckPollinationsImage(prompt: string, seed: number, dimensions: ImageDimensions): Promise<{ buffer: Buffer } | { error: string; reason: ImageAttemptFailureReason }> {
+// productImageUrl is accepted here purely so this function's signature
+// matches fetchAndCheckFluxImage's (both get assigned to the same
+// `fetchImage` variable in fetchBackgroundImage below, based on
+// provider) -- Pollinations has no image-to-image capability, so it's
+// silently ignored. Free-plan users are the only ones who can reach this
+// path with a productImageUrl set (paid tiers and the internal bypass
+// always resolve to Flux -- see resolveImageProvider), and even then the
+// prompt itself still carries useful scene context, just without an
+// actual reference photo attached.
+async function fetchAndCheckPollinationsImage(prompt: string, seed: number, dimensions: ImageDimensions, _productImageUrl?: string | null): Promise<{ buffer: Buffer } | { error: string; reason: ImageAttemptFailureReason }> {
   const url = buildPollinationsUrl(prompt, seed, dimensions)
   console.log(`[post-image-pipeline] calling Pollinations: seed=${seed} promptLen=${prompt.length} url=${url.slice(0, 200)}${url.length > 200 ? "…" : ""}`)
 
@@ -242,9 +251,9 @@ async function bufferFromReplicateOutput(output: unknown): Promise<{ buffer: Buf
   }
 }
 
-async function fetchAndCheckFluxImage(prompt: string, seed: number, dimensions: ImageDimensions): Promise<{ buffer: Buffer } | { error: string; reason: ImageAttemptFailureReason }> {
+async function fetchAndCheckFluxImage(prompt: string, seed: number, dimensions: ImageDimensions, productImageUrl?: string | null): Promise<{ buffer: Buffer } | { error: string; reason: ImageAttemptFailureReason }> {
   const resolution = resolveFluxResolution(dimensions)
-  console.log(`[post-image-pipeline] calling Replicate (${FLUX_MODEL}): attemptSeed=${seed} promptLen=${prompt.length} aspectRatio=${dimensions.aspectRatio} resolution=${resolution}`)
+  console.log(`[post-image-pipeline] calling Replicate (${FLUX_MODEL}): attemptSeed=${seed} promptLen=${prompt.length} aspectRatio=${dimensions.aspectRatio} resolution=${resolution} productReference=${productImageUrl ? "yes" : "no"}`)
 
   let output: unknown
   try {
@@ -255,6 +264,16 @@ async function fetchAndCheckFluxImage(prompt: string, seed: number, dimensions: 
         aspect_ratio: dimensions.aspectRatio,
         resolution,
         output_format: "png",
+        // Confirmed against Replicate's own live schema for
+        // black-forest-labs/flux-2-pro (not assumed — this file already
+        // shipped one silent-no-op bug from guessing a field name that
+        // didn't exist, see FLUX_RESOLUTION_TIERS above): "input_images"
+        // is an array of up to 8 reference image URLs, used for
+        // image-to-image generation/editing. Omitted entirely (not sent
+        // as an empty array) when there's no real product photo, so this
+        // never accidentally engages image-to-image mode with nothing to
+        // reference.
+        ...(productImageUrl ? { input_images: [productImageUrl] } : {}),
       },
     })
   } catch (err) {
@@ -421,9 +440,23 @@ function buildNegativeGuard(niche: string | null): string {
   return "avoid generic corporate stock-photo clichés — no laptops on a desk, no empty office interiors, no generic handshake or boardroom meeting scenes"
 }
 
-function simplifyPrompt(prompt: string, brandNiche: string | null): string {
+// When a real product photo is attached as a Flux image-to-image reference
+// (see fetchAndCheckFluxImage's input_images), the prompt needs to describe
+// the SCENE/setting/lighting around the product rather than re-describing
+// the product's own appearance — the LLM-generated imagePrompt does the
+// latter by design (IMAGE_PROMPT_INSTRUCTION in prompts.ts explicitly asks
+// for "the actual skincare product/routine/texture"), which would
+// otherwise fight the reference image with conflicting appearance
+// language. Wraps rather than strips, since that LLM-generated text still
+// carries genuinely useful context (the post's specific message/theme)
+// beyond just what the product looks like.
+function wrapForReferenceImage(sceneDescription: string): string {
+  return `Using the exact product shown in the attached reference photo, keep its real appearance, shape, color, packaging, and label completely unchanged from the reference — do not redesign or reimagine the product. Place it into this new scene: ${sceneDescription}`
+}
+
+function simplifyPrompt(prompt: string, brandNiche: string | null, hasReferenceImage: boolean): string {
   const core = prompt.split(",")[0]?.trim() || prompt.slice(0, 150)
-  return [
+  const sceneDescription = [
     core,
     brandNiche ? `${brandNiche} brand` : "",
     resolveNicheSetting(brandNiche),
@@ -431,6 +464,7 @@ function simplifyPrompt(prompt: string, brandNiche: string | null): string {
     CENTERED_COMPOSITION_GUARD,
     POST_IMAGE_QUALITY_AND_NEGATIVE_GUARD,
   ].filter(Boolean).join(", ")
+  return hasReferenceImage ? wrapForReferenceImage(sceneDescription) : sceneDescription
 }
 
 export type BackgroundImageResult =
@@ -453,11 +487,16 @@ export async function fetchBackgroundImage(
   fallbackPrompt: string,
   plan: UserPlan,
   isInternalUnlimitedUser: boolean,
-  dimensions: ImageDimensions = PORTRAIT_DIMENSIONS
+  dimensions: ImageDimensions = PORTRAIT_DIMENSIONS,
+  /** Real uploaded product photo (products.image_urls[0]) — only actually
+   * sent to the provider on the Flux path (see fetchAndCheckFluxImage's
+   * input_images); Pollinations has no image-to-image capability and
+   * ignores it. */
+  productImageUrl?: string | null
 ): Promise<BackgroundImageResult> {
   const provider = resolveImageProvider(plan, isInternalUnlimitedUser)
   const fetchImage = provider === "flux" ? fetchAndCheckFluxImage : fetchAndCheckPollinationsImage
-  console.log(`[post-image-pipeline] fetchBackgroundImage provider=${provider} plan=${plan} internalUnlimited=${isInternalUnlimitedUser} dimensions=${dimensions.width}x${dimensions.height}`)
+  console.log(`[post-image-pipeline] fetchBackgroundImage provider=${provider} plan=${plan} internalUnlimited=${isInternalUnlimitedUser} dimensions=${dimensions.width}x${dimensions.height} productReference=${productImageUrl ? "yes" : "no"}`)
 
   // Tracks which provider actually produced the returned buffer — distinct
   // from `provider` above once the Flux-fails-twice fallback kicks in, and
@@ -474,13 +513,13 @@ export async function fetchBackgroundImage(
   const attempts: ImageGenerationAttempt[] = []
 
   const seed = Math.floor(Math.random() * 1_000_000)
-  let attempt = await fetchImage(prompt, seed, dimensions)
+  let attempt = await fetchImage(prompt, seed, dimensions, productImageUrl)
   attempts.push({ attemptNumber: 1, provider, promptVariant: "primary", success: !("error" in attempt), failureReason: "error" in attempt ? attempt.reason : null })
 
   if ("error" in attempt) {
     console.error(`[post-image-pipeline] first attempt failed (${provider}):`, attempt.error)
     const retrySeed = Math.floor(Math.random() * 1_000_000)
-    attempt = await fetchImage(fallbackPrompt, retrySeed, dimensions)
+    attempt = await fetchImage(fallbackPrompt, retrySeed, dimensions, productImageUrl)
     attempts.push({ attemptNumber: 2, provider, promptVariant: "fallback", success: !("error" in attempt), failureReason: "error" in attempt ? attempt.reason : null })
 
     if ("error" in attempt) {
@@ -489,7 +528,9 @@ export async function fetchBackgroundImage(
       // Flux failing twice (Replicate outage, out of credit, etc.) shouldn't
       // leave a paying user with nothing — fall back to the always-available
       // free provider rather than a hard failure. Logged loudly since this
-      // is a last-resort safety net, not a routine path.
+      // is a last-resort safety net, not a routine path. Pollinations can't
+      // use productImageUrl anyway (no image-to-image support), so this
+      // fallback is text-only regardless of whether Flux had a reference.
       if (provider === "flux") {
         console.log(`[post-image-pipeline] Flux failed twice, falling back to Pollinations for plan=${plan}`)
         const fallbackSeed = Math.floor(Math.random() * 1_000_000)
@@ -524,6 +565,14 @@ export interface GeneratePostImageOptions {
   plan: UserPlan
   /** Internal owner-bypass — always resolves to Flux regardless of `plan`. */
   isInternalUnlimitedUser: boolean
+  /** Real uploaded product photo (products.image_urls[0]), if the user
+   * picked a product for this post. Only actually usable as a Flux
+   * image-to-image reference (see fetchAndCheckFluxImage) — still passed
+   * through even on plans that will resolve to Pollinations, since it also
+   * switches the assembled prompt onto the scene-focused hasReferenceImage
+   * path below rather than re-describing the product's appearance from
+   * scratch. */
+  productImageUrl?: string | null
 }
 
 /**
@@ -548,8 +597,9 @@ export async function generatePostImage(options: GeneratePostImageOptions): Prom
   // length ceiling — every other piece here is a short, fixed string.
   const cappedImagePrompt = capLength(options.imagePrompt, MAX_IMAGE_PROMPT_CHARS)
   const cappedTargetAudience = options.targetAudience ? capLength(options.targetAudience, MAX_TARGET_AUDIENCE_CHARS) : null
+  const hasReferenceImage = !!options.productImageUrl
 
-  const fullPrompt = [
+  const sceneDescription = [
     cappedImagePrompt,
     options.brandNiche ? `${options.brandNiche} brand` : "",
     resolveNicheSetting(options.brandNiche),
@@ -560,9 +610,16 @@ export async function generatePostImage(options: GeneratePostImageOptions): Prom
     CENTERED_COMPOSITION_GUARD,
     POST_IMAGE_QUALITY_AND_NEGATIVE_GUARD,
   ].filter(Boolean).join(", ")
+  const fullPrompt = hasReferenceImage ? wrapForReferenceImage(sceneDescription) : sceneDescription
 
-  const retryPrompt = simplifyPrompt(fullPrompt, options.brandNiche)
-  const result = await fetchBackgroundImage(fullPrompt, retryPrompt, options.plan, options.isInternalUnlimitedUser)
+  // Passes the UNwrapped sceneDescription, not fullPrompt -- simplifyPrompt
+  // extracts its "core" topic from the first comma-separated segment, and
+  // wrapForReferenceImage's own wrapper text starts with a comma right
+  // after "reference photo", which would hijack that extraction if passed
+  // the already-wrapped fullPrompt. simplifyPrompt applies the same
+  // wrapping itself, once it has the real core.
+  const retryPrompt = simplifyPrompt(sceneDescription, options.brandNiche, hasReferenceImage)
+  const result = await fetchBackgroundImage(fullPrompt, retryPrompt, options.plan, options.isInternalUnlimitedUser, undefined, options.productImageUrl)
   if (!result.success) return result
 
   console.log(

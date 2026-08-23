@@ -8,7 +8,7 @@ import { checkAndIncrementUsage, refundGenerationUsage } from "@/lib/usage/check
 import { POST as POST_CREDIT_COST } from "@/lib/usage/credit-costs"
 import { checkAndIncrementPostImageSession } from "@/lib/usage/post-image-regenerate-session"
 import { isInternalUnlimited } from "@/lib/usage/is-internal-unlimited"
-import type { BrandRow } from "@/types/database"
+import type { BrandRow, ProductRow } from "@/types/database"
 import type { UserPlan } from "@/types/app"
 
 const BUCKET = "brand-images"
@@ -89,6 +89,19 @@ export async function POST(request: Request) {
   const { data: brand } = await supabase.from("brands").select("*").eq("id", brandId).eq("user_id", user.id).single<BrandRow>()
   if (!brand) return NextResponse.json(buildError(ErrorCodes.BRAND_NOT_FOUND, "Brand not found."), { status: 404 })
 
+  // productId was previously only ever written onto the output record
+  // (product_id below) and never actually reached generation -- the
+  // AI-generated image had no idea what the real product looked like,
+  // even when the user had picked one and uploaded a photo. Scoped to
+  // brandId the same way the brand fetch above is, so a productId from
+  // another brand can't leak someone else's product photo in.
+  let product: Pick<ProductRow, "image_urls" | "name"> | null = null
+  if (productId) {
+    const { data: prod } = await supabase.from("products").select("image_urls, name").eq("id", productId).eq("brand_id", brandId).single<Pick<ProductRow, "image_urls" | "name">>()
+    product = prod
+  }
+  const productImageUrl = product?.image_urls?.[0] ?? null
+
   // Determines the image provider (Free -> Pollinations, paid -> Flux) —
   // see lib/ai/post-image-pipeline.ts's resolveImageProvider.
   const { data: userData } = await supabase.from("users").select("plan").eq("id", user.id).single<{ plan: UserPlan }>()
@@ -97,7 +110,7 @@ export async function POST(request: Request) {
   const colorTheme = findColorTheme(resolveColorThemes(brand), colorThemeId)
 
   console.log(
-    `[ai/post-image/generate] starting generation for brand ${brandId}: template=${template} colorTheme=${colorTheme.id} promptLen=${imagePrompt.length} promptPreview=${JSON.stringify(imagePrompt.slice(0, 120))}`
+    `[ai/post-image/generate] starting generation for brand ${brandId}: template=${template} colorTheme=${colorTheme.id} promptLen=${imagePrompt.length} promptPreview=${JSON.stringify(imagePrompt.slice(0, 120))} product=${product ? `"${product.name}" (${productImageUrl ? "has photo" : "no photo uploaded"})` : "none"}`
   )
 
   const startTime = Date.now()
@@ -112,6 +125,7 @@ export async function POST(request: Request) {
     logoUrl: brand.logo_url,
     plan,
     isInternalUnlimitedUser: isInternalUnlimited(user.id),
+    productImageUrl,
   })
 
   if (!result.success) {
