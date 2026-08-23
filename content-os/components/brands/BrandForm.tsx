@@ -129,7 +129,7 @@ export function BrandForm({ defaultValues, onSubmit, submitLabel = "Save brand",
       <ImportFromUrl<ExtractedBrandData>
         label="Import from your website"
         placeholder="https://yourbrand.com"
-        helperText="Paste your homepage or about page — we'll read it and fill in your brand voice automatically."
+        helperText="Paste your homepage or about page, and we'll read it and fill in your brand voice automatically."
         useExtractHook={useExtractBrandFromUrl}
         onExtracted={(data, url) => {
           if (data.name) setValue("name", data.name)

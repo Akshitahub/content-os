@@ -10,7 +10,7 @@ function toPublishError(body: GraphErrorBody): { message: string; retryable: boo
   const interpreted = interpretGraphError(body)
 
   if (interpreted.kind === "rate_limit") {
-    return { message: "Facebook rate limit reached — will retry later.", retryable: true }
+    return { message: "Facebook rate limit reached, will retry later.", retryable: true }
   }
   if (interpreted.kind === "invalid_token" || interpreted.kind === "permission_error") {
     return {

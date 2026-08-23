@@ -68,7 +68,7 @@ export async function GET() {
             marginBottom: "44px",
           }}
         >
-          AI hooks, captions, reels &amp; carousels — tailored to your brand voice, not templates.
+          AI hooks, captions, reels &amp; carousels, tailored to your brand voice, not templates.
         </div>
 
         {/* Feature pills */}

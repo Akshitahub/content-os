@@ -47,8 +47,8 @@ const MANUAL_POSTS_TARGET: Record<"free" | "starter" | "pro" | "agency", number>
 // have no reel cost exposure; Starter isn't mentioned either, matching
 // PLAN_LIMITS.starter.reelsPerWeek staying 0.
 function reelNote(planId: "free" | "starter" | "pro" | "agency"): string {
-  if (planId === "pro") return " — plus AI video reels from the same credit pool"
-  if (planId === "agency") return " — with generous room for AI video reels too"
+  if (planId === "pro") return ", plus AI video reels from the same credit pool"
+  if (planId === "agency") return ", with generous room for AI video reels too"
   return ""
 }
 
@@ -64,7 +64,7 @@ function creditsLine(planId: "free" | "starter" | "pro" | "agency"): string {
   const autopilotNote = planId === "free"
     ? "a free Autopilot preview"
     : `${runs} Autopilot run${runs === 1 ? "" : "s"} across your ${brands} brand${brands === 1 ? "" : "s"}`
-  return `${credits.toLocaleString("en-IN")} credits / month — ~${posts} posts + ${autopilotNote}${reelNote(planId)}`
+  return `${credits.toLocaleString("en-IN")} credits / month: ~${posts} posts + ${autopilotNote}${reelNote(planId)}`
 }
 
 // Real annual price from PLAN_LIMITS[id].annualPrice (the same value

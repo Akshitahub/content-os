@@ -12,7 +12,7 @@ interface PinterestErrorBody {
 function toPublishError(body: PinterestErrorBody): { message: string; retryable: boolean } {
   const message = body.message ?? "Unknown error publishing to Pinterest."
   if (body.code === 429 || /rate limit/i.test(message)) {
-    return { message: "Pinterest rate limit reached — will retry later.", retryable: true }
+    return { message: "Pinterest rate limit reached, will retry later.", retryable: true }
   }
   if (body.code === 401 || /token|unauthorized/i.test(message)) {
     return {

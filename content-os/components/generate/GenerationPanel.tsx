@@ -60,7 +60,7 @@ export function GenerationPanel({ brandId, products }: GenerationPanelProps) {
           <p className="text-sm">
             <span className="mr-1">✨</span>
             <span className="font-semibold">Creating content for {occasionContext.name}</span>
-            <span className="text-muted-foreground"> — {occasionContext.angle}</span>
+            <span className="text-muted-foreground">: {occasionContext.angle}</span>
           </p>
           <button
             type="button"

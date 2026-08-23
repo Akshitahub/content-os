@@ -449,7 +449,7 @@ function ScheduleAction({
       {!checkingConnection && !connectionError && connection && !connection.instagram_connected && (
         <div className="rounded-md border border-amber-200 bg-amber-50 p-3 space-y-1.5">
           <p className="text-sm text-amber-900">
-            Connect an Instagram Business account to schedule carousels — carousel scheduling is Instagram-only.
+            Connect an Instagram Business account to schedule carousels. Carousel scheduling is Instagram-only.
           </p>
           <Link
             href={`/brands/${brandId}`}

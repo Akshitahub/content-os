@@ -112,7 +112,7 @@ function Step2Import({ onNext }: Step2Props) {
       <div className="text-center mb-8">
         <h1 className="text-3xl font-bold tracking-tight">Import your brand</h1>
         <p className="mt-2 text-muted-foreground max-w-md mx-auto">
-          Paste your website URL — we&apos;ll learn your brand voice, products, and audience automatically. No forms.
+          Paste your website URL, and we&apos;ll learn your brand voice, products, and audience automatically. No forms.
         </p>
       </div>
 
@@ -302,7 +302,7 @@ function Step3Fastlane({ brand }: Step3Props) {
         </Button>
         <div className="mt-4">
           <button onClick={handleSkip} className="text-sm text-muted-foreground hover:text-foreground underline">
-            Skip — I&apos;ll do this later
+            Skip, I&apos;ll do this later
           </button>
         </div>
       </div>
@@ -334,7 +334,7 @@ function Step3Fastlane({ brand }: Step3Props) {
         </div>
         <h1 className="text-2xl font-bold">Generate your first 30 days of content</h1>
         <p className="mt-2 text-muted-foreground">
-          Fastlane will build a complete content strategy and populate your calendar — in about 2 minutes.
+          Fastlane will build a complete content strategy and populate your calendar in about 2 minutes.
         </p>
       </div>
 
@@ -382,7 +382,7 @@ function Step3Fastlane({ brand }: Step3Props) {
           <p className="text-center text-xs text-muted-foreground">Uses {PLAN_LIMITS.free.autopilot.creditCost} of your monthly credits.</p>
           <div className="text-center">
             <button onClick={handleSkip} className="text-sm text-muted-foreground hover:text-foreground underline">
-              Skip — I&apos;ll do this later
+              Skip, I&apos;ll do this later
             </button>
           </div>
         </div>

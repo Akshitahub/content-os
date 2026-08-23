@@ -65,7 +65,7 @@ export function ImportFromUrl<T>({ label, placeholder, helperText, useExtractHoo
       {error && <p className="mt-2 text-xs text-destructive">{error}</p>}
       {success && !error && (
         <p className="mt-2 text-xs text-primary">
-          Done — fields below were filled in. Review and edit anything before saving.
+          Done. Fields below were filled in. Review and edit anything before saving.
         </p>
       )}
     </div>

@@ -444,7 +444,7 @@ export default function AutopilotPage() {
 
             {/* Focus areas */}
             <div>
-              <p className="mb-1 text-sm font-semibold">Focus areas <span className="text-muted-foreground font-normal">(optional — select what you want more of)</span></p>
+              <p className="mb-1 text-sm font-semibold">Focus areas <span className="text-muted-foreground font-normal">(optional, select what you want more of)</span></p>
               <div className="flex flex-wrap gap-2">
                 {FOCUS_AREAS.map(fa => (
                   <button
@@ -523,7 +523,7 @@ export default function AutopilotPage() {
                   <BarChart2 className="h-10 w-10 text-white" />
                 </div>
                 <h2 className="text-2xl font-bold">Here&apos;s your content strategy for this month</h2>
-                <p className="mt-2 text-muted-foreground">Review it, then generate your calendar — or regenerate for a different angle.</p>
+                <p className="mt-2 text-muted-foreground">Review it, then generate your calendar, or regenerate for a different angle.</p>
               </div>
 
               <Card className="text-left">
@@ -898,7 +898,7 @@ export default function AutopilotPage() {
             <strong>{upsellData.plan}</strong> plan.
           </p>
           <div className="rounded-xl border border-violet-200 bg-violet-50 p-4 text-left space-y-2">
-            <p className="font-semibold text-violet-900">Starter Plan — ₹{PLAN_LIMITS.starter.price.toLocaleString("en-IN")}/month</p>
+            <p className="font-semibold text-violet-900">Starter Plan (₹{PLAN_LIMITS.starter.price.toLocaleString("en-IN")}/month)</p>
             <ul className="text-sm text-violet-700 space-y-1">
               <li>✓ {PLAN_LIMITS.starter.generations.toLocaleString("en-IN")} credits/month</li>
               <li>✓ Autopilot (30-day calendar)</li>

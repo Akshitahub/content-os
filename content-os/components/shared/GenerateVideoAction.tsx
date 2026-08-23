@@ -519,7 +519,7 @@ export function GenerateVideoAction({
           )}
           {job.status === "assets_ready" && (
             <p className="flex items-center gap-1.5 text-muted-foreground">
-              <Loader2 className="h-3 w-3 animate-spin" /> Almost done — finishing up your video…
+              <Loader2 className="h-3 w-3 animate-spin" /> Almost done, finishing up your video…
             </p>
           )}
           {job.status === "completed" && job.video_url && (

@@ -23,7 +23,7 @@ const STEPS: TourStep[] = [
   {
     targetId: "tour-autopilot",
     title: "⚡ Run Autopilot",
-    body: "One click generates 30 days of hooks, captions, reels, and carousels — tailored to your brand.",
+    body: "One click generates 30 days of hooks, captions, reels, and carousels, tailored to your brand.",
     Icon: Plane,
   },
   {

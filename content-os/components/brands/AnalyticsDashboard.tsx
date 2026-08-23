@@ -172,7 +172,7 @@ export function AnalyticsDashboard({ brandId }: { brandId: string }) {
         {!loading && data && (
           <div className="space-y-4">
             <p className="text-xs text-muted-foreground">
-              Last {data.windowDays} days, from Instagram&apos;s own account Insights — independent of whether posts were published through SocioPosts.
+              Last {data.windowDays} days, from Instagram&apos;s own account Insights, independent of whether posts were published through SocioPosts.
             </p>
 
             <div className="grid grid-cols-3 gap-3">
@@ -263,7 +263,7 @@ export function AnalyticsDashboard({ brandId }: { brandId: string }) {
             <div className="rounded-md border p-3 space-y-2">
               <div className="flex items-center gap-1.5">
                 <Clock className="h-3.5 w-3.5 text-muted-foreground" />
-                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Time saved (estimate) — {data.roi.periodLabel}</p>
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Time saved (estimate): {data.roi.periodLabel}</p>
               </div>
               <p className="text-lg font-bold">
                 {data.roi.totalHoursSaved} hrs

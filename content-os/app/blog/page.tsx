@@ -2,7 +2,7 @@ import type { Metadata } from "next"
 import Link from "next/link"
 
 export const metadata: Metadata = {
-  title: "Blog — SocioPosts",
+  title: "Blog | SocioPosts",
   description: "AI content generation tips, guides, and case studies for Indian D2C brands and creators.",
 }
 

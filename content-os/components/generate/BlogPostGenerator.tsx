@@ -171,7 +171,7 @@ export function BlogPostGenerator({ brandId }: { brandId: string }) {
       <div className="space-y-4">
         <div>
           <h3 className="text-sm font-semibold">Write a blog post</h3>
-          <p className="text-xs text-muted-foreground mt-0.5">SEO-friendly article for your brand&apos;s blog — starts from your own topic, always.</p>
+          <p className="text-xs text-muted-foreground mt-0.5">SEO-friendly article for your brand&apos;s blog, starting from your own topic, always.</p>
         </div>
 
         <div className="space-y-1.5">
@@ -333,7 +333,7 @@ export function BlogPostGenerator({ brandId }: { brandId: string }) {
           </div>
 
           <p className="text-xs text-muted-foreground">
-            Paste this into your website&apos;s blog or CMS (Shopify, WordPress, etc.) — direct publishing isn&apos;t available for blog posts on any connected platform today.
+            Paste this into your website&apos;s blog or CMS (Shopify, WordPress, etc.). Direct publishing isn&apos;t available for blog posts on any connected platform today.
           </p>
         </div>
       )}

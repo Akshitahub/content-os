@@ -34,7 +34,7 @@ export function interpretGraphError(body: GraphErrorBody): InterpretedGraphError
   const code = err?.code
 
   if (code !== undefined && RATE_LIMIT_CODES.has(code)) {
-    return { kind: "rate_limit", message: "Meta API rate limit reached — will retry later.", retryable: true }
+    return { kind: "rate_limit", message: "Meta API rate limit reached, will retry later.", retryable: true }
   }
   if (code === INVALID_TOKEN_CODE) {
     return { kind: "invalid_token", message: err?.message ?? "Access token is invalid or expired.", retryable: false }

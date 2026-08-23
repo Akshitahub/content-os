@@ -110,7 +110,7 @@ export function SocialConnections({ brandId }: { brandId: string }) {
     } else if (success === "partial") {
       setBanner({
         type: "success",
-        message: "Facebook connected. Instagram not available — no Instagram Business account is linked to this Page.",
+        message: "Facebook connected. Instagram not available: no Instagram Business account is linked to this Page.",
       })
       router.replace(pathname)
     } else if (error) {
@@ -239,7 +239,7 @@ export function SocialConnections({ brandId }: { brandId: string }) {
                   <div className="rounded-md border px-4 py-3">
                     <p className="text-sm font-medium">Instagram</p>
                     <p className="text-xs text-muted-foreground">
-                      Not available — no Instagram Business account is linked to this Page.
+                      Not available: no Instagram Business account is linked to this Page.
                     </p>
                   </div>
                 )}

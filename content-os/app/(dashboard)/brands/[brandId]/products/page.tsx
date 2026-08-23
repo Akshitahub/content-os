@@ -29,7 +29,7 @@ export default function ProductsPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Products</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Your product catalog — the AI uses these to generate targeted content.
+            Your product catalog. The AI uses these to generate targeted content.
           </p>
         </div>
         <Button onClick={() => setShowForm(true)} size="sm">
@@ -59,7 +59,7 @@ export default function ProductsPage() {
           <Package className="h-10 w-10 text-muted-foreground/40 mb-3" />
           <h2 className="text-base font-semibold">No products yet</h2>
           <p className="mt-1 max-w-sm text-sm text-muted-foreground">
-            No products yet — add your first product so the AI can generate content specifically about what you sell.
+            No products yet. Add your first product so the AI can generate content specifically about what you sell.
           </p>
           <Button className="mt-6" onClick={() => setShowForm(true)}>
             <Plus className="h-4 w-4 mr-1.5" /> Add your first product

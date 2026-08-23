@@ -269,7 +269,7 @@ function PlanSection({ user }: { user: UserProps }) {
         amount,
         currency,
         name: "SocioPosts",
-        description: `${{ starter: "Starter", pro: "Pro", agency: "Agency" }[plan]} Plan — ${billingPeriod === "annual" ? "Annual" : "Monthly"}`,
+        description: `${{ starter: "Starter", pro: "Pro", agency: "Agency" }[plan]} Plan (${billingPeriod === "annual" ? "Annual" : "Monthly"})`,
         order_id: orderId,
         handler: async function (response: RazorpayResponse) {
           try {
@@ -414,21 +414,21 @@ function PlanSection({ user }: { user: UserProps }) {
               disabled={upgradeState === "loading"}
               className="bg-violet-600 hover:bg-violet-700 text-white"
             >
-              {upgradeState === "loading" ? "Loading…" : `Upgrade to Starter — ${formatPlanPrice("starter", billingPeriod)}`}
+              {upgradeState === "loading" ? "Loading…" : `Upgrade to Starter (${formatPlanPrice("starter", billingPeriod)})`}
             </Button>
             <Button
               variant="outline"
               onClick={() => handleUpgrade("pro")}
               disabled={upgradeState === "loading"}
             >
-              {`Upgrade to Pro — ${formatPlanPrice("pro", billingPeriod)}`}
+              {`Upgrade to Pro (${formatPlanPrice("pro", billingPeriod)})`}
             </Button>
             <Button
               variant="outline"
               onClick={() => handleUpgrade("agency")}
               disabled={upgradeState === "loading"}
             >
-              {`Upgrade to Agency — ${formatPlanPrice("agency", billingPeriod)}`}
+              {`Upgrade to Agency (${formatPlanPrice("agency", billingPeriod)})`}
             </Button>
           </div>
         )}
@@ -440,14 +440,14 @@ function PlanSection({ user }: { user: UserProps }) {
               disabled={upgradeState === "loading"}
               className="bg-violet-600 hover:bg-violet-700 text-white"
             >
-              {upgradeState === "loading" ? "Loading…" : `Upgrade to Pro — ${formatPlanPrice("pro", billingPeriod)}`}
+              {upgradeState === "loading" ? "Loading…" : `Upgrade to Pro (${formatPlanPrice("pro", billingPeriod)})`}
             </Button>
             <Button
               variant="outline"
               onClick={() => handleUpgrade("agency")}
               disabled={upgradeState === "loading"}
             >
-              {`Upgrade to Agency — ${formatPlanPrice("agency", billingPeriod)}`}
+              {`Upgrade to Agency (${formatPlanPrice("agency", billingPeriod)})`}
             </Button>
           </div>
         )}
@@ -459,7 +459,7 @@ function PlanSection({ user }: { user: UserProps }) {
               disabled={upgradeState === "loading"}
               className="bg-violet-600 hover:bg-violet-700 text-white"
             >
-              {upgradeState === "loading" ? "Loading…" : `Upgrade to Agency — ${formatPlanPrice("agency", billingPeriod)}`}
+              {upgradeState === "loading" ? "Loading…" : `Upgrade to Agency (${formatPlanPrice("agency", billingPeriod)})`}
             </Button>
           </div>
         )}
@@ -718,7 +718,7 @@ function ConnectionsSection({ brands }: { brands: BrandProps[] }) {
                   size="sm"
                   variant="outline"
                   disabled
-                  title="Coming soon — deploy your app first to enable OAuth callbacks"
+                  title="Coming soon: deploy your app first to enable OAuth callbacks"
                 >
                   Connect
                 </Button>

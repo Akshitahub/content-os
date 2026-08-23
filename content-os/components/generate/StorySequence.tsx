@@ -140,7 +140,7 @@ function PhoneStory({
       {/* Type label */}
       <div className="flex items-center gap-2">
         <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-          Story {index + 1} — {story.type}
+          Story {index + 1}: {story.type}
         </span>
       </div>
 
@@ -414,7 +414,7 @@ function ScheduleAction({
       {!checkingConnection && !connectionError && connection && !connection.instagram_connected && (
         <div className="rounded-md border border-amber-200 bg-amber-50 p-3 space-y-1.5">
           <p className="text-sm text-amber-900">
-            Connect an Instagram Business account to schedule stories — story scheduling is Instagram-only.
+            Connect an Instagram Business account to schedule stories. Story scheduling is Instagram-only.
           </p>
           <Link
             href={`/brands/${brandId}`}
@@ -616,7 +616,7 @@ export function StorySequence({ brandId }: { brandId: string }) {
 
   function downloadAllText() {
     const lines = stories.map((s, i) =>
-      `Story ${i + 1} — ${s.type.toUpperCase()}\n${"─".repeat(30)}\nMain text: ${s.text}\nSubtext: ${s.subtext}${s.has_poll && s.poll_options ? `\nPoll: ${s.poll_options.join(" | ")}` : ""}\n`
+      `Story ${i + 1}: ${s.type.toUpperCase()}\n${"─".repeat(30)}\nMain text: ${s.text}\nSubtext: ${s.subtext}${s.has_poll && s.poll_options ? `\nPoll: ${s.poll_options.join(" | ")}` : ""}\n`
     )
     const blob = new Blob([lines.join("\n")], { type: "text/plain" })
     const url = URL.createObjectURL(blob)

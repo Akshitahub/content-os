@@ -85,7 +85,7 @@ export function TrendingNow({ brandId, onNavigate }: TrendingNowProps) {
       {!loading && !apiError && !hasTopics && (
         <div className="rounded-lg border bg-muted/30 p-4 text-center">
           <p className="text-sm text-muted-foreground">
-            No trending discussions found for your niche right now — try again later.
+            No trending discussions found for your niche right now. Try again later.
           </p>
         </div>
       )}

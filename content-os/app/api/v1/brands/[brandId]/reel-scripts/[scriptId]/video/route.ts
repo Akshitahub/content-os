@@ -161,7 +161,7 @@ export async function POST(request: Request, { params }: RouteParams) {
 
     try {
       await reelVideoJobsTable(admin)
-        .update({ status: "generating_images", progress_message: "Generating AI video scenes and voiceover — this can take a few minutes…" })
+        .update({ status: "generating_images", progress_message: "Generating AI video scenes and voiceover, this can take a few minutes…" })
         .eq("id", job.id)
 
       const result = await submitSceneAssetJobs(admin, brandId, scriptId, job.id, scenes, scenePrompts, webhookConfig)

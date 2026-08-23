@@ -464,12 +464,12 @@ export function CalendarEntryPanel({ entry, onClose, onUpdate, brandId }: Calend
                 {entry.status !== "published" && (
                   <p className="text-xs text-muted-foreground pt-1">
                     {!hasPublishPipeline
-                      ? "Copy content and post manually — auto-publishing isn't available for this platform yet."
+                      ? "Copy content and post manually. Auto-publishing isn't available for this platform yet."
                       : !isConnected
                         ? `Copy content and post manually, or connect ${entry.platform} in brand settings to have this publish automatically.`
                         : entry.status === "scheduled"
                           ? `Scheduled to publish automatically on ${entry.scheduled_date}. The copy buttons above are just for your own reference.`
-                          : "This post will publish automatically once scheduled — the copy buttons above are just for your own reference."}
+                          : "This post will publish automatically once scheduled. The copy buttons above are just for your own reference."}
                   </p>
                 )}
               </div>
@@ -504,7 +504,7 @@ export function CalendarEntryPanel({ entry, onClose, onUpdate, brandId }: Calend
                 <div className="space-y-2">
                   <p className="text-xs text-muted-foreground text-center">
                     {isConnected && hasPublishPipeline && entry.status === "scheduled"
-                      ? `This will publish automatically on ${entry.scheduled_date} — no action needed. You can still copy the content below for your own reference.`
+                      ? `This will publish automatically on ${entry.scheduled_date}. No action needed. You can still copy the content below for your own reference.`
                       : "Copy your content, post it manually, then click Published to mark it done."}
                   </p>
                   <div className="flex gap-2">

@@ -195,7 +195,7 @@ export function FullPostGenerator({ brandId, products }: Props) {
     compositeProductCard(imageUrl, hookText, primaryColor, secondaryColor, brandName)
       .then((result) => {
         if (!result.photoLoaded) {
-          setImageError("Couldn't load your product photo into the post — it may be blocking this kind of use. Try a different image, or remove it to use an AI-generated background instead.")
+          setImageError("Couldn't load your product photo into the post. It may be blocking this kind of use. Try a different image, or remove it to use an AI-generated background instead.")
           return
         }
         setPostImageUrl(result.dataUrl)
@@ -328,7 +328,7 @@ export function FullPostGenerator({ brandId, products }: Props) {
             brandId={brandId}
             selected={selectedProduct}
             onSelect={setSelectedProduct}
-            label="Add product photo — composites on your post graphic"
+            label="Add product photo (composites on your post graphic)"
           />
         </div>
 
@@ -386,7 +386,7 @@ export function FullPostGenerator({ brandId, products }: Props) {
           <Label className="text-xs">Additional context (optional)</Label>
           <textarea
             rows={2}
-            placeholder="e.g. 'Weekend flash sale — 20% off' or 'New packaging launch'"
+            placeholder="e.g. 'Weekend flash sale, 20% off' or 'New packaging launch'"
             className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring resize-none"
             value={additionalContext}
             onChange={(e) => setAdditionalContext(e.target.value)}
@@ -427,7 +427,7 @@ export function FullPostGenerator({ brandId, products }: Props) {
         <div className="flex items-center justify-between rounded-lg border border-green-200 bg-green-50 px-4 py-3">
           <div className="flex items-center gap-2 text-green-700">
             <Check className="h-4 w-4 shrink-0" />
-            <span className="text-sm font-medium">✓ Generated successfully — scroll down to see your content</span>
+            <span className="text-sm font-medium">✓ Generated successfully. Scroll down to see your content</span>
           </div>
           <Link
             href={`/brands/${brandId}/library`}
@@ -999,7 +999,7 @@ function FullPostResults({
   const headline = result.hook.hook_text
   const scene = imageSource === "ai" ? caption.image_prompt?.trim() : null
   const postImageAlt = scene
-    ? `${headline} — ${scene}`
+    ? `${headline}: ${scene}`
     : `${imageSource === "ai" ? "AI-generated" : ""} Instagram post image for ${brandName}: ${headline}`.replace(/\s+/g, " ").trim()
 
   return (

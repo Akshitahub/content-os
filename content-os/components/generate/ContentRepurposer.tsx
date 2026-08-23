@@ -90,7 +90,7 @@ export function ContentRepurposer({ brandId }: Props) {
           <span className="rounded-full bg-violet-100 px-2 py-0.5 text-xs font-medium text-violet-700">AI</span>
         </div>
         <p className="mb-4 text-sm text-muted-foreground">
-          Paste any content — a blog post, caption, video transcript, or idea — and AI will turn it into hooks, carousels, reels, tweets, and a LinkedIn post.
+          Paste any content (a blog post, caption, video transcript, or idea) and AI will turn it into hooks, carousels, reels, tweets, and a LinkedIn post.
         </p>
         <textarea
           ref={textareaRef}

@@ -208,7 +208,7 @@ export function ImageGenerator({ brandId, products }: ImageGeneratorProps) {
       {/* 3 Variations */}
       {!isPending && variations.length > 0 && (
         <div className="space-y-3">
-          <p className="text-sm font-medium">3 variations — pick the one you love ↓</p>
+          <p className="text-sm font-medium">3 variations, pick the one you love ↓</p>
           <div className="grid grid-cols-3 gap-3">
             {variations.map((url, i) => (
               <div key={i} className="group relative rounded-lg border bg-card overflow-hidden">

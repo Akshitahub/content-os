@@ -62,7 +62,7 @@ export function CreatePicker({ brandId, onSelect }: CreatePickerProps) {
     <div className="space-y-6">
       <div>
         <h2 className="text-lg font-semibold text-foreground">What do you want to create?</h2>
-        <p className="mt-1 text-sm text-muted-foreground">Pick a format to get started — you can always switch later.</p>
+        <p className="mt-1 text-sm text-muted-foreground">Pick a format to get started. You can always switch later.</p>
       </div>
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">

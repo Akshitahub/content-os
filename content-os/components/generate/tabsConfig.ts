@@ -4,7 +4,7 @@ export type Tab = "ad_maker" | "full_post" | "carousel" | "stories" | "memes" | 
 
 export const TAB_DESCRIPTIONS: Record<Tab, string> = {
   ad_maker:  "Upload your product photo and place it in an AI-generated scene. Perfect for Instagram ads.",
-  full_post: "Generate a complete post — hook, caption, hashtags and visual direction in one click.",
+  full_post: "Generate a complete post: hook, caption, hashtags and visual direction in one click.",
   carousel:  "Create a multi-slide carousel for Instagram or LinkedIn with AI-written content per slide.",
   stories:   "Generate 3-5 connected Instagram stories that tell a narrative arc.",
   memes:     "Create brand-specific memes in popular formats. Memes get 3x more shares.",

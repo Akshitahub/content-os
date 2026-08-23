@@ -13,7 +13,7 @@ interface ThreadsErrorBody {
 function toPublishError(body: ThreadsErrorBody): { message: string; retryable: boolean } {
   const message = body.error_message ?? "Unknown error publishing to Threads."
   if (body.code === 429 || /rate limit/i.test(message)) {
-    return { message: "Threads rate limit reached — will retry later.", retryable: true }
+    return { message: "Threads rate limit reached, will retry later.", retryable: true }
   }
   if (body.code === 190 || /OAuthException/i.test(body.error_type ?? "") || /token/i.test(message)) {
     return {

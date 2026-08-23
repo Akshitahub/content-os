@@ -603,7 +603,7 @@ async function submitAutopilotReel(input: SubmitAutopilotReelInput): Promise<voi
 
   try {
     await jobsTable
-      .update({ status: "generating_images", progress_message: "Generating AI video scenes and voiceover — this can take a few minutes…" })
+      .update({ status: "generating_images", progress_message: "Generating AI video scenes and voiceover, this can take a few minutes…" })
       .eq("id", input.jobId)
 
     const result = await submitSceneAssetJobs(admin, input.brandId, input.scriptId, input.jobId, input.scenes, undefined, webhookConfig)

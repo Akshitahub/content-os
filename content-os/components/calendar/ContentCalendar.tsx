@@ -289,7 +289,7 @@ export function ContentCalendar({ brandId }: ContentCalendarProps) {
                         key={entry.id}
                         className="group relative rounded-md overflow-hidden cursor-pointer"
                         onClick={e => { e.stopPropagation(); setSelectedEntry(entry) }}
-                        title={isMissed ? `${entry.title} — Missed` : entry.title}
+                        title={isMissed ? `${entry.title} (Missed)` : entry.title}
                       >
                         {/* Mini gradient card */}
                         <div className={`bg-gradient-to-r ${grad} px-1.5 py-1 flex items-center gap-1 ${isMissed ? "ring-1 ring-inset ring-red-500" : ""}`}>

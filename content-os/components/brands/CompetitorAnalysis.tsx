@@ -123,7 +123,7 @@ function CompetitorCard({ result }: { result: CompetitorResult }) {
             {metrics.viralPosts.slice(0, 5).map((post) => (
               <li key={post.permalink} className="rounded-md border px-2.5 py-2 text-xs">
                 <div className="flex items-center justify-between gap-2">
-                  <span className="font-medium">{post.multipleOfAverage}x avg — {post.likeCount} likes, {post.commentsCount} comments</span>
+                  <span className="font-medium">{post.multipleOfAverage}x avg ({post.likeCount} likes, {post.commentsCount} comments)</span>
                   {post.permalink && (
                     <a href={post.permalink} target="_blank" rel="noopener noreferrer" className="shrink-0 text-muted-foreground hover:text-foreground">
                       <ExternalLink className="h-3.5 w-3.5" />
@@ -224,7 +224,7 @@ function AutoDiscoverSection({
       </Button>
       {loading && (
         <p className="animate-pulse text-xs text-muted-foreground text-center">
-          Verifying accounts and generating insights — this can take up to a minute.
+          Verifying accounts and generating insights. This can take up to a minute.
         </p>
       )}
       {successMsg && <p className="text-xs font-medium text-green-700">{successMsg}</p>}
@@ -272,7 +272,7 @@ export function CompetitorAnalysis({ brandId }: { brandId: string }) {
       </CardHeader>
       <CardContent className="space-y-4">
         <p className="text-xs text-muted-foreground">
-          Uses Instagram&apos;s public Business Discovery API — real follower counts, posting frequency, and
+          Uses Instagram&apos;s public Business Discovery API: real follower counts, posting frequency, and
           engagement rates for any public Instagram Business/Creator account. Requires Instagram connected above.
         </p>
 
@@ -318,7 +318,7 @@ export function CompetitorAnalysis({ brandId }: { brandId: string }) {
               </div>
             ) : (
               <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-                No baseline data available for your own account yet — comparisons below are competitor-only.
+                No baseline data available for your own account yet. Comparisons below are competitor-only.
               </div>
             )}
 

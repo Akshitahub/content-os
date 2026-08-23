@@ -17,9 +17,9 @@ const geistMono = Geist_Mono({
 const BASE_URL = process.env.NEXT_PUBLIC_APP_URL ?? "https://www.socioposts.com"
 
 export const metadata: Metadata = {
-  title: "SocioPosts — AI Content Generator for Indian D2C Brands & Creators",
+  title: "SocioPosts | AI Content Generator for Indian D2C Brands & Creators",
   description:
-    "Turn your brand's website into 30 days of Instagram content in seconds. AI-powered hooks, captions, carousels, ad creatives and more — built for Indian D2C brands and creators.",
+    "Turn your brand's website into 30 days of Instagram content in seconds. AI-powered hooks, captions, carousels, ad creatives and more, built for Indian D2C brands and creators.",
   keywords: [
     "AI content generator India",
     "Instagram content calendar",
@@ -34,7 +34,7 @@ export const metadata: Metadata = {
     shortcut: "/favicon.svg",
   },
   openGraph: {
-    title: "SocioPosts — AI Content Generator for Indian D2C Brands",
+    title: "SocioPosts | AI Content Generator for Indian D2C Brands",
     description: "Turn your brand's website into 30 days of Instagram content in seconds.",
     url: BASE_URL,
     siteName: "SocioPosts",
@@ -44,7 +44,7 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: "summary_large_image",
-    title: "SocioPosts — AI Content Generator for Indian D2C Brands",
+    title: "SocioPosts | AI Content Generator for Indian D2C Brands",
     description: "Turn your brand's website into 30 days of Instagram content in seconds.",
     images: ["/og-image.png"],
   },

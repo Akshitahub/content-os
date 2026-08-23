@@ -23,7 +23,7 @@ export const POST_TEMPLATES: PostTemplateMeta[] = [
   { id: "product_focus", label: "Product Focus", description: "Clean photo with a solid brand-color CTA band" },
   { id: "quote_card", label: "Quote Card", description: "Moody vignette with a large quote-style headline" },
   { id: "minimal", label: "Minimal", description: "Restrained accent, lots of breathing room" },
-  { id: "blank", label: "Blank / Custom", description: "No overlay — just the generated image" },
+  { id: "blank", label: "Blank / Custom", description: "No overlay, just the generated image" },
 ]
 
 export const POST_TEMPLATE_IDS = POST_TEMPLATES.map((t) => t.id) as [PostTemplateId, ...PostTemplateId[]]

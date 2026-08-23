@@ -47,7 +47,7 @@ function PlatformIcon({ platform }: { platform: string }) {
 }
 
 function formatFollowers(count: number | null): string {
-  if (!count) return "—"
+  if (!count) return "–"
   if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(1)}M`
   if (count >= 1_000) return `${(count / 1_000).toFixed(1)}K`
   return count.toString()
@@ -323,7 +323,7 @@ function OutreachMessageCard({
                   </Button>
                   {openedVia && (
                     <span className="text-xs font-medium text-muted-foreground">
-                      Opened in {openedVia === "mailto" ? "mail app" : "Gmail"} — not confirmed sent
+                      Opened in {openedVia === "mailto" ? "mail app" : "Gmail"}, not confirmed sent
                     </span>
                   )}
                 </>
@@ -332,7 +332,7 @@ function OutreachMessageCard({
 
             {msg.channel === "email" && isBodyTruncated && (
               <p className="text-[10px] text-muted-foreground">
-                Message truncated for the email link — mail apps/browsers cap link length. The full text above is unaffected.
+                Message truncated for the email link. Mail apps/browsers cap link length. The full text above is unaffected.
               </p>
             )}
 
@@ -496,15 +496,15 @@ function PerformanceTab({ brandId, influencerId }: { brandId: string; influencer
             <div className="grid grid-cols-3 gap-4 text-center">
               <div>
                 <p className="text-xs text-muted-foreground">Reach</p>
-                <p className="text-xl font-bold">{p.actual_reach ? formatFollowers(p.actual_reach) : "—"}</p>
+                <p className="text-xl font-bold">{p.actual_reach ? formatFollowers(p.actual_reach) : "–"}</p>
               </div>
               <div>
                 <p className="text-xs text-muted-foreground">Engagement</p>
-                <p className="text-xl font-bold">{p.actual_engagement?.toLocaleString() ?? "—"}</p>
+                <p className="text-xl font-bold">{p.actual_engagement?.toLocaleString() ?? "–"}</p>
               </div>
               <div>
                 <p className="text-xs text-muted-foreground">Conversions</p>
-                <p className="text-xl font-bold">{p.conversions?.toLocaleString() ?? "—"}</p>
+                <p className="text-xl font-bold">{p.conversions?.toLocaleString() ?? "–"}</p>
               </div>
             </div>
             {p.roi_notes && <p className="mt-3 text-sm text-muted-foreground">{p.roi_notes}</p>}

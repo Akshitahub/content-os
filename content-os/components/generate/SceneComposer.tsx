@@ -107,7 +107,7 @@ export function SceneComposer({ brandId: _brandId }: SceneComposerProps) {
           }
           fg.onerror = () => reject(new Error("Failed to load product image"))
         }
-        bg.onerror = () => reject(new Error("Failed to load background — Pollinations may be slow, try again"))
+        bg.onerror = () => reject(new Error("Failed to load background. Pollinations may be slow, try again"))
       })
     } catch (err) {
       setComposeError(err instanceof Error ? err.message : "Composition failed")
@@ -157,7 +157,7 @@ export function SceneComposer({ brandId: _brandId }: SceneComposerProps) {
       <div className="rounded-lg border bg-card p-5 space-y-5">
         {/* Step 1: Upload */}
         <div className="space-y-2">
-          <Label className="text-xs">Step 1 — Upload product photo</Label>
+          <Label className="text-xs">Step 1: Upload product photo</Label>
           {!originalPreview ? (
             <button
               type="button"
@@ -232,7 +232,7 @@ export function SceneComposer({ brandId: _brandId }: SceneComposerProps) {
         {/* Step 2: Scene description */}
         {removedBgDataUrl && (
           <div className="space-y-2">
-            <Label className="text-xs">Step 2 — Describe the scene</Label>
+            <Label className="text-xs">Step 2: Describe the scene</Label>
             <textarea
               rows={2}
               placeholder="e.g. Marble surface with soft morning light, minimalist studio"

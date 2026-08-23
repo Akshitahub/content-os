@@ -24,11 +24,11 @@ const FAQ_CATEGORIES: FaqCategory[] = [
     items: [
       {
         q: "How do I set up my first brand?",
-        a: "During onboarding, enter your website URL and SocioPosts analyzes it to pre-fill your brand profile — audience, tone, products, and more. You can edit anything afterward from your brand's settings.",
+        a: "During onboarding, enter your website URL and SocioPosts analyzes it to pre-fill your brand profile: audience, tone, products, and more. You can edit anything afterward from your brand's settings.",
       },
       {
         q: "What is Autopilot / Fastlane?",
-        a: "Autopilot generates a full 30 days of content in one click — hooks, captions, and visuals — based on your brand profile. You still review everything before it goes out.",
+        a: "Autopilot generates a full 30 days of content in one click (hooks, captions, and visuals) based on your brand profile. You still review everything before it goes out.",
       },
       {
         q: "How do I connect my social accounts?",
@@ -41,7 +41,7 @@ const FAQ_CATEGORIES: FaqCategory[] = [
     items: [
       {
         q: "Why did my generation fail or come back empty?",
-        a: "Most failures are either a generation-credit limit for your plan, or a temporary rate limit from the AI provider. Wait a moment and try again — if it keeps failing, check your remaining credits in Settings.",
+        a: "Most failures are either a generation-credit limit for your plan, or a temporary rate limit from the AI provider. Wait a moment and try again. If it keeps failing, check your remaining credits in Settings.",
       },
       {
         q: "What's the difference between a Reel, Story, and Carousel?",
@@ -49,7 +49,7 @@ const FAQ_CATEGORIES: FaqCategory[] = [
       },
       {
         q: "How does the Meme Maker work?",
-        a: "You pick a topic or template, and SocioPosts generates an AI image with a real, on-image meme caption baked in — not just a caption placed under a stock photo.",
+        a: "You pick a topic or template, and SocioPosts generates an AI image with a real, on-image meme caption baked in, not just a caption placed under a stock photo.",
       },
     ],
   },
@@ -62,11 +62,11 @@ const FAQ_CATEGORIES: FaqCategory[] = [
       },
       {
         q: "How does scheduling work?",
-        a: "Pick a date, time, and platform when you schedule a post — SocioPosts publishes it automatically at that time. Check upcoming and published posts from your Calendar.",
+        a: "Pick a date, time, and platform when you schedule a post, and SocioPosts publishes it automatically at that time. Check upcoming and published posts from your Calendar.",
       },
       {
-        q: "My post didn't publish — what happened?",
-        a: "First check your connection status in the brand's Connections tab — a token may have expired. Some platforms also have quirks, like brief processing delays for video; a failed post is retried automatically a few times before being marked missed.",
+        q: "My post didn't publish, what happened?",
+        a: "First check your connection status in the brand's Connections tab. A token may have expired. Some platforms also have quirks, like brief processing delays for video; a failed post is retried automatically a few times before being marked missed.",
       },
     ],
   },
@@ -75,11 +75,11 @@ const FAQ_CATEGORIES: FaqCategory[] = [
     items: [
       {
         q: "Why does my Analytics Dashboard say \"not enough data\"?",
-        a: "Instagram's own Insights API requires 100+ followers and a few days of history before it returns real numbers — we show that honestly instead of a fake zero. It fills in automatically once your account qualifies.",
+        a: "Instagram's own Insights API requires 100+ followers and a few days of history before it returns real numbers, so we show that honestly instead of a fake zero. It fills in automatically once your account qualifies.",
       },
       {
         q: "How is ROI / time saved calculated?",
-        a: "It's an estimate based on assumed industry-standard benchmarks for how long each content type typically takes to write by hand — not measured from your actual workflow, so actual time saved will vary.",
+        a: "It's an estimate based on assumed industry-standard benchmarks for how long each content type typically takes to write by hand, not measured from your actual workflow, so actual time saved will vary.",
       },
       {
         q: "What's in the monthly PDF report?",
@@ -92,7 +92,7 @@ const FAQ_CATEGORIES: FaqCategory[] = [
     items: [
       {
         q: "What's included in each plan?",
-        a: "Generations, brands, products, and platform access all scale with plan — see the full breakdown on the pricing page.",
+        a: "Generations, brands, products, and platform access all scale with plan. See the full breakdown on the pricing page.",
         link: { href: "/#pricing", label: "View pricing →" },
       },
       {

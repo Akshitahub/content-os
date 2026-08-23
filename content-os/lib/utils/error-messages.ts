@@ -22,7 +22,7 @@ export function getFriendlyError(error: unknown): string {
     return "This took too long. Please try again."
   }
   if (msg.includes("AI_GENERATION_FAILED") || msg.includes("invalid JSON") || msg.includes("Invalid JSON")) {
-    return "Our AI had a hiccup generating this. Just hit try again — it usually works on the second attempt."
+    return "Our AI had a hiccup generating this. Just hit try again, it usually works on the second attempt."
   }
 
   // Doesn't match any known raw-error pattern above and doesn't look like a

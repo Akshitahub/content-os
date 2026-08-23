@@ -54,7 +54,7 @@ export function ProductForm({ onSubmit, onCancel, isLoading }: ProductFormProps)
       <ImportFromUrl<ExtractedProductData>
         label="Import from a product URL"
         placeholder="https://yourbrand.com/products/your-product"
-        helperText="Paste a live product page — we'll pull the name, description, price, and images automatically."
+        helperText="Paste a live product page, and we'll pull the name, description, price, and images automatically."
         useExtractHook={useExtractProductFromUrl}
         onExtracted={(data) => {
           if (data.name) setValue("name", data.name)
@@ -148,7 +148,7 @@ export function ProductForm({ onSubmit, onCancel, isLoading }: ProductFormProps)
                 <img key={src} src={src} alt="" className="h-16 w-16 rounded-md border object-cover" />
               ))}
             </div>
-            <p className="text-xs text-muted-foreground">Saved with this product — used for visual reference in AI image generation.</p>
+            <p className="text-xs text-muted-foreground">Saved with this product for visual reference in AI image generation.</p>
           </div>
         )}
       </div>
