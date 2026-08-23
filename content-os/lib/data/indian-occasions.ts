@@ -205,7 +205,14 @@ export const INDIAN_OCCASIONS: Occasion[] = [
 export function getUpcomingOccasions(startDate: Date, days: number): Occasion[] {
   const start = new Date(startDate)
   start.setHours(0, 0, 0, 0)
-  const upcoming: Occasion[] = []
+  // Paired with its day-offset from `start` so results can be sorted by
+  // actual proximity, not by INDIAN_OCCASIONS' fixed Jan->Dec declaration
+  // order -- without this, any window crossing a Dec->Jan boundary (i.e.
+  // every festive season) surfaces "New Year" ahead of Black
+  // Friday/Cyber Monday/Christmas even though those are chronologically
+  // much sooner, corrupting the content-planning prompt built from this
+  // list (see lib/ai/fastlane.ts).
+  const upcoming: { occ: Occasion; daysUntil: number }[] = []
 
   for (const occ of INDIAN_OCCASIONS) {
     const [month, day] = occ.date.split("-").map(Number)
@@ -213,11 +220,13 @@ export function getUpcomingOccasions(startDate: Date, days: number): Occasion[] 
       const d = new Date(start)
       d.setDate(start.getDate() + i)
       if (d.getMonth() + 1 === month && d.getDate() === day) {
-        upcoming.push(occ)
+        upcoming.push({ occ, daysUntil: i })
         break
       }
     }
   }
 
-  return upcoming
+  upcoming.sort((a, b) => a.daysUntil - b.daysUntil)
+
+  return upcoming.map(({ occ }) => occ)
 }
