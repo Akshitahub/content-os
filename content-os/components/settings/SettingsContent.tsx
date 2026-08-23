@@ -16,8 +16,6 @@ import posthog from "posthog-js"
 import { POSTHOG_KEY } from "@/lib/analytics/posthog"
 import { PLAN_LIMITS } from "@/types/app"
 import { useBrands, useDeleteBrand } from "@/hooks/useBrand"
-import { REELS_ENABLED } from "@/lib/constants"
-import { ComingSoonBadge } from "@/components/shared/ComingSoonBadge"
 
 // ---------------------------------------------------------------------------
 // Types
@@ -81,7 +79,7 @@ const PLAN_FEATURES: { label: string; plans: Plan[] }[] = [
   { label: "Autopilot (30-day content planner)", plans: ["starter", "pro", "agency"] },
   { label: "Influencer outreach tools", plans: ["pro", "agency"] },
   { label: "LinkedIn, YouTube, Twitter/X publishing", plans: ["pro", "agency"] },
-  { label: "AI video reels", plans: ["free", "pro", "agency"] },
+  { label: "AI video reels (from your credit pool)", plans: ["pro", "agency"] },
   { label: "Competitor tracking", plans: ["starter", "pro", "agency"] },
   { label: "Full analytics + demographics + best-time-to-post", plans: ["pro", "agency"] },
   { label: "Monthly PDF reports", plans: ["starter", "pro", "agency"] },
@@ -226,11 +224,6 @@ function PlanSection({ user }: { user: UserProps }) {
   const count = user.generation_count
   const pct = Math.min(100, Math.round((count / limit) * 100))
 
-  const reelsPerWeek = PLAN_LIMITS[user.plan].reelsPerWeek
-  const reelResetAt = user.reel_count_reset_at ? new Date(user.reel_count_reset_at) : null
-  const reelCountNeedsReset = !reelResetAt || reelResetAt <= new Date()
-  const reelCountThisWeek = reelCountNeedsReset ? 0 : user.reel_count_this_week
-
   const [upgradeState, setUpgradeState] = useState<"idle" | "loading">("idle")
   const [billingError, setBillingError] = useState<string | null>(null)
   const [paymentSuccess, setPaymentSuccess] = useState(false)
@@ -338,18 +331,6 @@ function PlanSection({ user }: { user: UserProps }) {
           <span className={`rounded-full px-3 py-0.5 text-xs font-semibold capitalize ${PLAN_COLORS[user.plan]}`}>
             {user.plan}
           </span>
-          {user.plan === "free" && (
-            <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              {user.free_reel_used_at ? "Free reel used" : "1 free AI video reel available"}
-              {!REELS_ENABLED && <ComingSoonBadge />}
-            </span>
-          )}
-          {(user.plan === "pro" || user.plan === "agency") && (
-            <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              {reelCountThisWeek} of {reelsPerWeek} AI video reels used this week
-              {!REELS_ENABLED && <ComingSoonBadge />}
-            </span>
-          )}
         </div>
 
         {/* Generation usage */}

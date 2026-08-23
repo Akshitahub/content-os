@@ -21,34 +21,50 @@ function formatRupees(amount: number): string {
 
 // Credits, not "generations" — different content types now cost different
 // amounts (a Post costs more than a Hook), so a flat generation count
-// would be misleading on its own. `credits` and `brands` are read from
-// PLAN_LIMITS directly (not hand-typed) so those parts can never drift
-// out of sync with the real pool size. The manual-posts figures below
-// are the specific numbers each plan's pool was actually budgeted
-// around (see the PLAN_LIMITS comment in types/app.ts: a posts
-// allowance plus one Autopilot run per brand) — deliberately NOT
-// re-derived by dividing the whole pool by POST, since that would
+// would be misleading on its own. `credits`/`brands`/`autopilot` are read
+// from PLAN_LIMITS directly (not hand-typed) so those parts can never
+// drift out of sync with the real pool size or run cap. The manual-posts
+// figures below are hand-tuned copy targets (a final, approved business
+// decision — see the pricing revision this pairs with in types/app.ts),
+// not re-derived by dividing the whole pool by POST, since that would
 // overstate what's left after also budgeting for Autopilot.
-// Free unchanged from the prior pricing round; starter/pro/agency bumped
-// to the latest approved figures (500/1300/3800 credit pools).
+// Free unchanged (its 100-credit pool didn't change in the latest
+// revision); starter/pro/agency updated to the latest approved figures
+// against the new 450/850/3100 credit pools.
 const MANUAL_POSTS_TARGET: Record<"free" | "starter" | "pro" | "agency", number> = {
   free: 14,
   starter: 40,
-  pro: 110,
-  agency: 300,
+  pro: 75,
+  agency: 100,
+}
+
+// Reels draw from this same shared credit pool once they launch (see
+// lib/usage/credit-costs.ts's REEL weight) rather than the old fixed
+// weekly allowance ("1 reel/week", "3-4 reels/week") this copy used to
+// promise — that promise is gone because the real per-reel cost isn't
+// confirmed yet (REEL there is still a placeholder). Free gets zero
+// reel-related mention at all, per the business decision that Free should
+// have no reel cost exposure; Starter isn't mentioned either, matching
+// PLAN_LIMITS.starter.reelsPerWeek staying 0.
+function reelNote(planId: "free" | "starter" | "pro" | "agency"): string {
+  if (planId === "pro") return " — plus AI video reels from the same credit pool"
+  if (planId === "agency") return " — with generous room for AI video reels too"
+  return ""
 }
 
 function creditsLine(planId: "free" | "starter" | "pro" | "agency"): string {
-  const { generations: credits, brands } = PLAN_LIMITS[planId]
+  const { generations: credits, brands, autopilot } = PLAN_LIMITS[planId]
   const posts = MANUAL_POSTS_TARGET[planId]
+  const runs = autopilot.maxRunsPerMonth
+  // Autopilot is now capped at a fixed number of runs/month, independent
+  // of brand count (see AutopilotTier.maxRunsPerMonth in types/app.ts) —
+  // Agency's 4 runs against its 5 brands is intentional, not a typo, so
+  // this can't say "all N brands" anymore the way the old unlimited-style
+  // copy did.
   const autopilotNote = planId === "free"
     ? "a free Autopilot preview"
-    : `monthly Autopilot for ${brands === 2 ? "both your brands" : `all ${brands} of your brands`}`
-  // Agency's pool has the most headroom left after its posts+Autopilot
-  // budget of any paid tier — worth calling out, matching the approved
-  // copy framing.
-  const spareNote = planId === "agency" ? " — with plenty of room to spare" : ""
-  return `${credits.toLocaleString("en-IN")} credits / month — ~${posts} posts + ${autopilotNote}${spareNote}`
+    : `${runs} Autopilot run${runs === 1 ? "" : "s"} across your ${brands} brand${brands === 1 ? "" : "s"}`
+  return `${credits.toLocaleString("en-IN")} credits / month — ~${posts} posts + ${autopilotNote}${reelNote(planId)}`
 }
 
 // Real annual price from PLAN_LIMITS[id].annualPrice (the same value
@@ -68,7 +84,6 @@ const TIERS: PricingTier[] = [
       "1 brand",
       creditsLine("free"),
       "Post manually to Instagram, Facebook",
-      "1 free AI video reel, on us",
     ],
   },
   {
@@ -93,7 +108,6 @@ const TIERS: PricingTier[] = [
       creditsLine("pro"),
       "+ LinkedIn, YouTube, Twitter/X",
       "Autopilot: generate a month of content in one click",
-      "1 real AI video reel every week",
       "Influencer outreach tools",
       "Competitor tracking (5 competitors)",
       "Full analytics: demographics, best-time-to-post",
@@ -107,7 +121,6 @@ const TIERS: PricingTier[] = [
     features: [
       "5 brands",
       creditsLine("agency"),
-      "3-4 real AI video reels every week",
       "Competitor tracking across multiple brands",
       "Dedicated support",
     ],
