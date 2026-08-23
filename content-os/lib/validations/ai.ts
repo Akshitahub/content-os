@@ -152,6 +152,20 @@ export const generatePostImageSchema = z.object({
 
 export type GeneratePostImageInput = z.infer<typeof generatePostImageSchema>
 
+const adMakerFormatEnum = z.enum(["square", "portrait", "story"])
+
+export const generateAdMakerBackgroundSchema = z.object({
+  scene: z.string().min(1, "Scene is required").max(50, "Scene is too long"),
+  customScene: z
+    .string()
+    .max(300, "Custom scene description must be under 300 characters")
+    .optional()
+    .transform((val) => val?.replace(/<[^>]*>/g, "").trim()),
+  format: adMakerFormatEnum.default("square"),
+})
+
+export type GenerateAdMakerBackgroundInput = z.infer<typeof generateAdMakerBackgroundSchema>
+
 export const generateFullPostSchema = z.object({
   brandId: z.string().uuid("Invalid brand ID"),
   productId: z.string().uuid("Invalid product ID").optional(),

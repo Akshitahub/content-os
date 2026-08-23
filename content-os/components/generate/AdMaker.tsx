@@ -30,20 +30,6 @@ const SCENES = [
   { id: "custom",         Icon: Wand2,       name: "Custom Scene",    desc: "Describe your own" },
 ]
 
-const SCENE_PROMPTS: Record<string, string> = {
-  white_studio: "pure white studio background, soft box lighting, minimal shadows, professional product photography, no props",
-  dark_studio: "dark charcoal studio background, dramatic side lighting, luxury product photography, moody atmosphere",
-  marble_surface: "white marble surface, soft window light, minimal aesthetic, luxury lifestyle photography, elegant",
-  wooden_table: "rustic wooden table, warm morning sunlight, cozy lifestyle photography, natural wood texture",
-  nature_green: "lush green nature background, golden hour sunlight, bokeh effect, organic lifestyle photography",
-  beach_summer: "sandy beach, turquoise water, bright summer day, lifestyle photography, fun and vibrant",
-  urban_street: "urban city street, brick wall background, trendy editorial fashion photography, street art",
-  cozy_cafe: "cozy cafe interior, warm lighting, wooden tables, coffee aesthetic, lifestyle photography",
-  diwali_glow: "Diwali festival decoration, earthen diyas, marigold flowers, warm golden light, Indian festive celebration",
-  christmas: "Christmas decorations, pine branches, fairy lights, warm bokeh, festive gifting photography",
-  party_fun: "colorful party background, balloons, confetti, celebration, fun and energetic",
-}
-
 const LOADING_MSGS = [
   "Generating your scene… 🎨",
   "Placing your product… 📸",
@@ -67,40 +53,9 @@ function loadImage(src: string): Promise<HTMLImageElement> {
   })
 }
 
-// Exponential backoff for failed Pollinations loads: 500ms, 1s, 2s over up
-// to 3 retries, regenerating a fresh seed each attempt rather than failing
-// immediately on the first bad/rate-limited response.
-async function loadBackgroundWithRetry(backgroundUrl: string, initialSeed: number, maxRetries = 3): Promise<HTMLImageElement> {
-  const delays = [500, 1000, 2000]
-  let seed = initialSeed
-  for (let attempt = 0; ; attempt++) {
-    const bgUrl = backgroundUrl.replace(/seed=\d+/, `seed=${seed}`)
-    try {
-      return await loadImage(bgUrl)
-    } catch (err) {
-      if (attempt >= maxRetries) throw err
-      const delay = delays[attempt] ?? delays[delays.length - 1]
-      console.warn(`[AdMaker] Background image load failed, retrying with a new seed in ${delay}ms (attempt ${attempt + 1}/${maxRetries})...`)
-      await new Promise((resolve) => setTimeout(resolve, delay))
-      seed = Math.floor(Math.random() * 99999)
-    }
-  }
-}
-
-function getBackgroundUrl(scene: string, customScene: string, brandNiche: string, format: ImageFormat, seed: number): string {
-  const dims: Record<ImageFormat, string> = {
-    square: "width=1080&height=1080",
-    portrait: "width=1080&height=1350",
-    story: "width=1080&height=1920",
-  }
-  const sceneDesc = scene === "custom" ? customScene : (SCENE_PROMPTS[scene] ?? SCENE_PROMPTS.white_studio)
-  const prompt = `${sceneDesc}, ${brandNiche} brand, no people, no text, no watermarks, no logos, photorealistic, 8K`
-  return `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?${dims[format]}&seed=${seed}&nologo=true&model=flux&enhance=true`
-}
-
 async function compositeAd(
   productDataUrl: string,
-  backgroundUrl: string,
+  backgroundUrls: string[],
   hookText: string,
   showText: boolean,
   textPosition: TextPosition,
@@ -115,20 +70,20 @@ async function compositeAd(
     story: { w: 1080, h: 1920 },
   }
   const { w, h } = sizes[format]
-  const seeds = [
-    Math.floor(Math.random() * 99999),
-    Math.floor(Math.random() * 99999),
-    Math.floor(Math.random() * 99999),
-  ]
   const results: string[] = []
 
-  for (const seed of seeds) {
+  // Each entry is now a distinct server-generated (Storage-hosted)
+  // background -- one real Pollinations/Flux call per variation, run
+  // concurrently server-side (see .../ad-maker/generate/route.ts), instead
+  // of the old per-variation client-side Pollinations fetch with its own
+  // bespoke retry loop.
+  for (const backgroundUrl of backgroundUrls) {
     const canvas = document.createElement("canvas")
     canvas.width = w
     canvas.height = h
     const ctx = canvas.getContext("2d")!
 
-    const bg = await loadBackgroundWithRetry(backgroundUrl, seed)
+    const bg = await loadImage(backgroundUrl)
     ctx.drawImage(bg, 0, 0, w, h)
 
     if (showText && hookText) {
@@ -639,7 +594,11 @@ export function AdMaker({ brandId }: AdMakerProps) {
     // "check credits before generating" order.
     let charged = false
     try {
-      const chargeRes = await fetch(`/api/v1/brands/${brandId}/ai/ad-maker/generate`, { method: "POST" })
+      const chargeRes = await fetch(`/api/v1/brands/${brandId}/ai/ad-maker/generate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ scene, customScene, format }),
+      })
       const chargeJson: unknown = await chargeRes.json()
       if (!chargeRes.ok || isApiError(chargeJson)) {
         setGenError(isApiError(chargeJson) ? chargeJson.error.message : "Couldn't start generation. Please try again.")
@@ -648,12 +607,10 @@ export function AdMaker({ brandId }: AdMakerProps) {
       }
       charged = true
 
-      const niche = brand?.niche ?? "lifestyle brand"
       const brandName = brand?.name ?? "Brand"
       const handle = brand?.instagram_handle ?? ""
-      const bgSeed = Math.floor(Math.random() * 99999)
-      const bgUrl = getBackgroundUrl(scene, customScene, niche, format, bgSeed)
-      const variations = await compositeAd(productDataUrl, bgUrl, hookText, showText, textPosition, textColor, format, brandName, handle)
+      const backgroundUrls = (chargeJson as { data: { background_urls: string[] } }).data.background_urls
+      const variations = await compositeAd(productDataUrl, backgroundUrls, hookText, showText, textPosition, textColor, format, brandName, handle)
       setResults(variations)
       setExpandedIdx(0)
       setShowSuccess(true)
@@ -1012,7 +969,7 @@ export function AdMaker({ brandId }: AdMakerProps) {
                 <ScheduleAction
                   brandId={brandId}
                   imageUrl={scheduleImageUrl}
-                  caption={hookText.trim() || "Check out our latest! ✨"}
+                  caption={hookText.trim()}
                   hashtags={[]}
                 />
               )}
