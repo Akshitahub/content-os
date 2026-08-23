@@ -34,7 +34,6 @@ const BENCHMARKS: { type: string; table: string; label: string; minutesPerItem: 
   { type: "stories", table: "stories", label: "Story sequences", minutesPerItem: 30 },
   { type: "reel_scripts", table: "reel_scripts", label: "Reel scripts", minutesPerItem: 60 },
   { type: "ad_copies", table: "ad_copies", label: "Ad copies", minutesPerItem: 20 },
-  { type: "memes", table: "memes", label: "Memes", minutesPerItem: 15 },
   { type: "product_descriptions", table: "product_descriptions", label: "Product descriptions", minutesPerItem: 10 },
   { type: "generated_images", table: "generated_images", label: "Generated images", minutesPerItem: 20 },
 ]

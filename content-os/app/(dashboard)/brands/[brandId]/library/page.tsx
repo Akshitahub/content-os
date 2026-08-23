@@ -3,12 +3,12 @@
 import { useState, useCallback, useEffect } from "react"
 import { useParams, useSearchParams } from "next/navigation"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
-import { Archive, Copy, Check, Star, Sparkles, BookOpen, ChevronDown, ChevronUp, Film, LayoutGrid, Megaphone, Download, Search, Zap, Laugh, Timer, Newspaper } from "lucide-react"
+import { Archive, Copy, Check, Star, Sparkles, BookOpen, ChevronDown, ChevronUp, Film, LayoutGrid, Megaphone, Download, Search, Zap, Timer, Newspaper } from "lucide-react"
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import Link from "next/link"
 import { GenerateVideoAction } from "@/components/shared/GenerateVideoAction"
-import type { HookRow, CaptionRow, ReelScriptRow, CarouselRow, AdCopyRow, EmailSequenceRow, ProductDescriptionRow, StoryRow, MemeRow, BlogPostRow } from "@/types/database"
+import type { HookRow, CaptionRow, ReelScriptRow, CarouselRow, AdCopyRow, EmailSequenceRow, ProductDescriptionRow, StoryRow, BlogPostRow } from "@/types/database"
 import type { Json } from "@/types/database"
 import { scoreHook, scoreColor, scoreLabel } from "@/lib/utils/content-score"
 
@@ -822,87 +822,6 @@ function ImagesTab({ brandId }: { brandId: string }) {
   )
 }
 
-// ─── Meme card ────────────────────────────────────────────────────────────────
-
-function MemeCard({ meme, brandId }: { meme: MemeRow; brandId: string }) {
-  const qc = useQueryClient()
-  const hashtags = meme.hashtags ?? []
-  const ratingMutation = useMutation({
-    mutationFn: async (rating: number) => {
-      const res = await fetch(`/api/v1/brands/${brandId}/memes/${meme.id}`, {
-        method: "PUT", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ user_rating: rating }),
-      })
-      if (!res.ok) throw new Error("Failed to update rating")
-    },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["library", "memes", brandId] }),
-  })
-  const unsaveMutation = useMutation({
-    mutationFn: async () => {
-      const res = await fetch(`/api/v1/brands/${brandId}/memes/${meme.id}`, {
-        method: "PUT", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ is_saved: false }),
-      })
-      if (!res.ok) throw new Error("Failed to update")
-    },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["library", "memes", brandId] }),
-  })
-  return (
-    <Card className="overflow-hidden transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md">
-      <div className="aspect-square bg-secondary">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={meme.image_url} alt={meme.idea} className="w-full h-full object-cover" />
-      </div>
-      <CardContent className="p-3 space-y-3">
-        <ExpiryBadge lastAccessedAt={meme.last_accessed_at} />
-        {meme.caption && <p className="text-sm leading-relaxed line-clamp-3">{meme.caption}</p>}
-        {hashtags.length > 0 && (
-          <div className="flex flex-wrap gap-1">
-            {hashtags.slice(0, 4).map((tag) => (
-              <span key={tag} className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">#{tag.replace(/^#+/, "")}</span>
-            ))}
-          </div>
-        )}
-        <div className="flex items-center justify-between gap-2 pt-1 border-t">
-          <StarRating value={meme.user_rating} onChange={(r) => ratingMutation.mutate(r)} disabled={ratingMutation.isPending} />
-          <div className="flex gap-1">
-            <CopyButton
-              text={`${meme.caption ?? ""}\n\n${hashtags.map((h) => `#${h.replace(/^#+/, "")}`).join(" ")}`}
-              touchUrl={`/api/v1/brands/${brandId}/memes/${meme.id}`}
-            />
-            <Button variant="ghost" size="sm" onClick={() => unsaveMutation.mutate()} disabled={unsaveMutation.isPending}>
-              Unsave
-            </Button>
-          </div>
-        </div>
-      </CardContent>
-    </Card>
-  )
-}
-
-function MemesTab({ brandId }: { brandId: string }) {
-  const { data: memes = [], isLoading } = useQuery({
-    queryKey: ["library", "memes", brandId],
-    queryFn: async (): Promise<MemeRow[]> => {
-      const res = await fetch(`/api/v1/brands/${brandId}/memes?saved=true`)
-      if (!res.ok) throw new Error("Failed to fetch memes")
-      return ((await res.json()) as { data: MemeRow[] }).data
-    },
-    enabled: !!brandId,
-  })
-  return isLoading ? (
-    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-      {[1, 2, 3].map(i => <div key={i} className="aspect-square animate-pulse rounded-lg bg-secondary" />)}
-    </div>
-  ) : memes.length === 0 ? (
-    <EmptyState label="saved memes" brandId={brandId} />
-  ) : (
-    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-      {memes.map(m => <MemeCard key={m.id} meme={m} brandId={brandId} />)}
-    </div>
-  )
-}
-
 // ─── Blog Post card ───────────────────────────────────────────────────────────
 
 function BlogPostCard({ post, brandId }: { post: BlogPostRow; brandId: string }) {
@@ -967,9 +886,9 @@ function BlogPostsTab({ brandId }: { brandId: string }) {
 
 // ─── Page ──────────────────────────────────────────────────────────────────────
 
-type LibraryTab = "captions" | "scripts" | "carousels" | "stories" | "ad_copy" | "memes" | "blog_posts"
+type LibraryTab = "captions" | "scripts" | "carousels" | "stories" | "ad_copy" | "blog_posts"
 
-const VALID_TABS = new Set<LibraryTab>(["captions", "scripts", "carousels", "stories", "ad_copy", "memes", "blog_posts"])
+const VALID_TABS = new Set<LibraryTab>(["captions", "scripts", "carousels", "stories", "ad_copy", "blog_posts"])
 
 const TABS: { id: LibraryTab; label: string; icon: React.ElementType }[] = [
   { id: "captions", label: "Captions", icon: Archive },
@@ -977,7 +896,6 @@ const TABS: { id: LibraryTab; label: string; icon: React.ElementType }[] = [
   { id: "carousels", label: "Carousels", icon: LayoutGrid },
   { id: "stories", label: "Stories", icon: Zap },
   { id: "ad_copy", label: "Ad Copy", icon: Megaphone },
-  { id: "memes", label: "Memes", icon: Laugh },
   { id: "blog_posts", label: "Blog Posts", icon: Newspaper },
 ]
 
@@ -1048,7 +966,6 @@ export default function LibraryPage() {
       {activeTab === "carousels" && <CarouselsTab brandId={brandId} />}
       {activeTab === "stories" && <StoriesTab brandId={brandId} />}
       {activeTab === "ad_copy" && <AdCopyTab brandId={brandId} />}
-      {activeTab === "memes" && <MemesTab brandId={brandId} />}
       {activeTab === "blog_posts" && <BlogPostsTab brandId={brandId} />}
     </div>
   )

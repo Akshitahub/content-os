@@ -11,7 +11,6 @@ import { ContentRepurposer } from "./ContentRepurposer"
 import { AdMaker } from "./AdMaker"
 import { CarouselBuilder } from "./CarouselBuilder"
 import { StorySequence } from "./StorySequence"
-import { MemeMaker } from "./MemeMaker"
 import { BlogPostGenerator } from "./BlogPostGenerator"
 import { CreatePicker } from "./CreatePicker"
 import { TAB_DESCRIPTIONS, type Tab } from "./tabsConfig"
@@ -111,7 +110,6 @@ export function GenerationPanel({ brandId, products }: GenerationPanelProps) {
       <div style={{ display: activeTab === "full_post" ? undefined : "none" }}><FullPostGenerator brandId={brandId} products={products} /></div>
       <div style={{ display: activeTab === "carousel" ? undefined : "none" }}><CarouselBuilder brandId={brandId} /></div>
       <div style={{ display: activeTab === "stories" ? undefined : "none" }}><StorySequence brandId={brandId} /></div>
-      <div style={{ display: activeTab === "memes" ? undefined : "none" }}><MemeMaker brandId={brandId} /></div>
       <div style={{ display: activeTab === "hooks" ? undefined : "none" }}><HookGenerator brandId={brandId} products={products} /></div>
       <div style={{ display: activeTab === "content" ? undefined : "none" }}><ContentTypeGenerator brandId={brandId} products={products} /></div>
       <div style={{ display: activeTab === "images" ? undefined : "none" }} className="space-y-8">

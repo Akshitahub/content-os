@@ -47,10 +47,6 @@ const FAQ_CATEGORIES: FaqCategory[] = [
         q: "What's the difference between a Reel, Story, and Carousel?",
         a: "A Reel is a scripted short video with AI voiceover. A Story is 3–5 connected full-screen slides. A Carousel is a multi-slide post with its own AI-written copy per slide.",
       },
-      {
-        q: "How does the Meme Maker work?",
-        a: "You pick a topic or template, and SocioPosts generates an AI image with a real, on-image meme caption baked in, not just a caption placed under a stock photo.",
-      },
     ],
   },
   {

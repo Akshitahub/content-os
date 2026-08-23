@@ -41,7 +41,6 @@ const TYPE_EMOJI: Record<string, string> = {
   caption: "📝",
   carousel: "🎠",
   story: "📱",
-  meme: "😂",
   reel_script: "🎬",
   ad_copy: "📣",
 }
@@ -95,7 +94,7 @@ function MiniPreview({
 // ─── Props ────────────────────────────────────────────────────────────────────
 
 export interface PostCardProps {
-  type?: "hook" | "caption" | "carousel" | "story" | "meme" | "reel_script" | "ad_copy"
+  type?: "hook" | "caption" | "carousel" | "story" | "reel_script" | "ad_copy"
   content: string
   platform?: Platform | string
   hookType?: string
