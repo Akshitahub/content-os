@@ -632,10 +632,24 @@ export function buildImagePrompt(
     prompt: string
     style?: string
     product?: ProductRow | null
+    /** Shorter retry-prompt variant for lib/ai/image-generator.ts's
+     * fallback attempt (mirrors post-image-pipeline.ts's simplifyPrompt
+     * pattern: shorten to the core clause, re-add the fixed style/safety
+     * framing, drop the more specific product-name/color-palette detail)
+     * -- built locally here rather than reusing simplifyPrompt directly,
+     * since that one bakes in Post's own PHOTOGRAPHY_STYLE ("shot on a
+     * full-frame DSLR..."), which actively conflicts with some of this
+     * tab's own style choices (e.g. ugc_style explicitly wants a
+     * "handheld phone photography feel"). */
+    simplified?: boolean
   }
 ): string {
-  // User's description ALWAYS comes first
-  const lines: string[] = [options.prompt]
+  // User's description ALWAYS comes first (shortened to its core clause
+  // in simplified mode, same shortening rule as simplifyPrompt).
+  const promptCore = options.simplified
+    ? (options.prompt.split(",")[0]?.trim() || options.prompt.slice(0, 150))
+    : options.prompt
+  const lines: string[] = [promptCore]
 
   if (options.style && IMAGE_STYLE_DESCRIPTIONS[options.style]) {
     lines.push(IMAGE_STYLE_DESCRIPTIONS[options.style])
@@ -643,11 +657,11 @@ export function buildImagePrompt(
 
   if (brand.niche) lines.push(`${brand.niche} brand aesthetic`)
 
-  if (options.product) {
+  if (!options.simplified && options.product) {
     lines.push(`featuring ${options.product.name}`)
   }
 
-  if (brand.color_palette && typeof brand.color_palette === "object") {
+  if (!options.simplified && brand.color_palette && typeof brand.color_palette === "object") {
     const palette = brand.color_palette as Record<string, unknown>
     const colors = Object.values(palette).filter((v) => typeof v === "string")
     if (colors.length) lines.push(`color palette ${colors.join(", ")}`)

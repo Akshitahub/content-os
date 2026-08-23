@@ -5,7 +5,9 @@ import { generateImage } from "@/lib/ai/image-generator"
 import { buildError, ErrorCodes } from "@/types/api"
 import { checkAndIncrementUsage, refundGenerationUsage } from "@/lib/usage/check-and-increment-usage"
 import { IMAGE } from "@/lib/usage/credit-costs"
+import { isInternalUnlimited } from "@/lib/usage/is-internal-unlimited"
 import type { BrandRow, ProductRow } from "@/types/database"
+import type { UserPlan } from "@/types/app"
 
 const BUCKET = "brand-images"
 
@@ -39,20 +41,29 @@ export async function POST(request: Request) {
     product = prod
   }
 
-  const startTime = Date.now()
-  let result: Awaited<ReturnType<typeof generateImage>>
+  // Determines the image provider (Free -> Pollinations, paid -> Flux) —
+  // same lookup app/api/v1/ai/post-image/generate/route.ts already does.
+  const { data: userData } = await supabase.from("users").select("plan").eq("id", user.id).single<{ plan: UserPlan }>()
+  const plan: UserPlan = userData?.plan ?? "free"
 
-  try {
-    result = await generateImage(brand, { prompt, style, aspectRatio, product })
-  } catch (err) {
+  const startTime = Date.now()
+  // generateImage no longer throws (it now wraps fetchBackgroundImage,
+  // which never throws) — check .success instead of try/catch, same
+  // pattern as post-image/generate/route.ts.
+  const result = await generateImage(brand, {
+    prompt, style, aspectRatio, product, plan,
+    isInternalUnlimitedUser: isInternalUnlimited(user.id),
+  })
+
+  if (!result.success) {
     // Full raw error (e.g. Pollinations API error text) stays server-side
     // only — never shown to the user.
-    console.error("[ai/images/generate] generation failed:", err instanceof Error ? err.message : err)
+    console.error("[ai/images/generate] generation failed:", result.error)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await (supabase.from("ai_generation_logs") as any).insert({
-      user_id: user.id, brand_id: brandId, feature: "images", model: "imagen-4.0-generate-001",
+      user_id: user.id, brand_id: brandId, feature: "images", model: "unknown",
       latency_ms: Date.now() - startTime, success: false,
-      error_message: err instanceof Error ? err.message : "Unknown error",
+      error_message: result.error,
     })
     await refundGenerationUsage(supabase, user.id, IMAGE)
     return NextResponse.json(buildError(ErrorCodes.AI_GENERATION_FAILED, "Image generation failed. Please try again."), { status: 500 })
@@ -82,6 +93,10 @@ export async function POST(request: Request) {
   const { data: publicUrlData } = admin.storage.from(BUCKET).getPublicUrl(storagePath)
   const latencyMs = Date.now() - startTime
 
+  // model_used/provider now record the real provider that actually
+  // produced the image — previously hardcoded to "imagen-4.0-generate-001"
+  // regardless of the fact this route only ever called Pollinations, same
+  // fix already applied to post-image/generate/route.ts.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data: savedImage } = await (supabase.from("generated_images") as any).insert({
     brand_id: brandId,
@@ -91,13 +106,14 @@ export async function POST(request: Request) {
     aspect_ratio: aspectRatio,
     storage_path: storagePath,
     public_url: publicUrlData.publicUrl,
-    model_used: "imagen-4.0-generate-001",
+    model_used: result.provider,
+    provider: result.provider,
     is_saved: true,
   }).select().single()
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   await (supabase.from("ai_generation_logs") as any).insert({
-    user_id: user.id, brand_id: brandId, feature: "images", model: "imagen-4.0-generate-001",
+    user_id: user.id, brand_id: brandId, feature: "images", model: result.provider,
     latency_ms: latencyMs, success: true,
   })
 
