@@ -181,24 +181,24 @@ function SlidePreview({
       <div className={`relative z-10 flex h-full flex-col justify-center ${isThumb ? "p-1.5" : "p-8"}`}>
         {slide.type === "cover" && (
           <>
-            <h2 className={`font-extrabold leading-tight ${textColor} ${isThumb ? "text-[8px] line-clamp-2" : "text-3xl"} ${productImage && !isThumb ? "max-w-[55%]" : ""}`}>
+            <h2 className={`font-extrabold leading-tight ${textColor} ${isThumb ? "text-[8px] line-clamp-2" : "text-3xl line-clamp-3"} ${productImage && !isThumb ? "max-w-[55%]" : ""}`}>
               {slide.headline}
             </h2>
             {!isThumb && slide.subtext && (
-              <p className={`mt-3 text-base font-medium ${subtextColor} ${productImage ? "max-w-[55%]" : ""}`}>{slide.subtext}</p>
+              <p className={`mt-3 text-base font-medium line-clamp-2 ${subtextColor} ${productImage ? "max-w-[55%]" : ""}`}>{slide.subtext}</p>
             )}
           </>
         )}
 
         {slide.type === "content" && !isCta && (
           <>
-            <h3 className={`font-bold leading-snug ${textColor} ${isThumb ? "text-[7px] line-clamp-2" : "text-xl mb-4"}`}>
+            <h3 className={`font-bold leading-snug ${textColor} ${isThumb ? "text-[7px] line-clamp-2" : "text-xl mb-4 line-clamp-2"}`}>
               {slide.headline}
             </h3>
             {!isThumb && slide.points?.map((point, i) => (
               <div key={i} className="mb-2 flex items-start gap-2">
                 <span className="mt-0.5 h-1.5 w-1.5 shrink-0 rounded-full bg-violet-400" />
-                <p className={`text-sm leading-relaxed ${subtextColor}`}>{point}</p>
+                <p className={`text-sm leading-relaxed line-clamp-2 ${subtextColor}`}>{point}</p>
               </div>
             ))}
           </>
@@ -206,12 +206,12 @@ function SlidePreview({
 
         {isCta && (
           <>
-            <h2 className={`font-extrabold leading-tight ${textColor} ${isThumb ? "text-[8px] line-clamp-2" : "text-2xl mb-3"} ${productImage && !isThumb ? "mt-[40%]" : ""}`}>
+            <h2 className={`font-extrabold leading-tight ${textColor} ${isThumb ? "text-[8px] line-clamp-2" : "text-2xl mb-3 line-clamp-3"} ${productImage && !isThumb ? "mt-[40%]" : ""}`}>
               {ctaSlide.headline}
             </h2>
             {!isThumb && (
               <>
-                <p className={`text-base font-medium ${subtextColor} mb-2`}>{ctaSlide.cta}</p>
+                <p className={`text-base font-medium line-clamp-2 ${subtextColor} mb-2`}>{ctaSlide.cta}</p>
                 <p className={`text-sm font-bold ${textColor}`}>{ctaSlide.handle}</p>
               </>
             )}

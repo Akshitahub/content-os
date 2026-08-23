@@ -507,9 +507,19 @@ export function generateCarouselHtml(
 </div>`
     }
 
+    // Same length-based breakpoints as carousel-compositor.ts's non-cover
+    // headlineFontSize (the actual publish-time PNG renderer, left
+    // untouched) -- this preview previously hardcoded 68px for every
+    // length via the shared .headline CSS class with no shrink, so a long
+    // headline could overflow into the absolutely-positioned .num/.brand
+    // below. -webkit-line-clamp on .headline/.body (see the shared <style>
+    // block) is the hard ceiling for whatever a long headline still
+    // doesn't fit even at the smallest size.
+    const headlineFontSize = slide.headline.length < 40 ? 68 : slide.headline.length < 80 ? 56 : 44
+
     return `<div class="slide" style="background:${bg}">
   <span class="num" style="color:${numColor}">${slide.slide_number} / ${totalSlides}</span>
-  <p class="headline" style="color:${headlineColor}">${esc(slide.headline)}</p>
+  <p class="headline" style="color:${headlineColor};font-size:${headlineFontSize}px">${esc(slide.headline)}</p>
   <p class="body" style="color:${bodyColor}">${esc(slide.body)}</p>
   <p class="brand" style="color:${brandColor}">${brandName}</p>
 </div>`
@@ -529,8 +539,8 @@ html,body{width:1080px;font-family:'Poppins',sans-serif}
 .cover-inner{flex:1;display:flex;flex-direction:column;justify-content:center}
 .series{font-size:18px;font-weight:600;color:rgba(255,255,255,0.55);letter-spacing:0.15em;text-transform:uppercase;margin-bottom:28px}
 .num{position:absolute;top:48px;right:52px;font-size:22px;font-weight:700;letter-spacing:0.04em}
-.headline{font-size:68px;font-weight:800;text-align:center;line-height:1.2;letter-spacing:-0.02em}
-.body{margin-top:40px;font-size:34px;font-weight:400;text-align:center;line-height:1.55;max-width:840px}
+.headline{font-size:68px;font-weight:800;text-align:center;line-height:1.2;letter-spacing:-0.02em;display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}
+.body{margin-top:40px;font-size:34px;font-weight:400;text-align:center;line-height:1.55;max-width:840px;display:-webkit-box;-webkit-line-clamp:8;-webkit-box-orient:vertical;overflow:hidden}
 .brand{position:absolute;bottom:56px;left:0;right:0;text-align:center;font-size:22px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase}
 </style>
 </head>
