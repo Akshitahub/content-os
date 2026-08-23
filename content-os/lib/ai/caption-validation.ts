@@ -33,6 +33,11 @@ export function findClichePhrases(captionText: string): string[] {
   return CLICHE_PHRASES.filter((phrase) => lower.includes(phrase))
 }
 
+/** Em dashes (—) are a well-known AI writing tell — QUALITY_BAR (prompts.ts) already instructs against them, but this catches whatever slips through, the same way the cliché check backstops its own prompt instruction. */
+export function containsEmDash(captionText: string): boolean {
+  return captionText.includes("—")
+}
+
 export type CaptionChatMessage = { role: "system" | "user" | "assistant"; content: string }
 export type CaptionModelUsage = { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number }
 
@@ -96,6 +101,10 @@ export function validateCaption(parsed: GeneratedCaption, ctaPhrase: string, han
     issues.push(`Your caption_text contains generic AI-sounding phrase(s): ${cliches.map((c) => `"${c}"`).join(", ")} — rewrite that part in specific, natural language about this brand, not a cliché.`)
   }
 
+  if (containsEmDash(parsed.caption_text)) {
+    issues.push(`Your caption_text contains an em dash (—) — rewrite using a comma, period, or natural sentence break instead.`)
+  }
+
   return issues
 }
 
@@ -126,6 +135,14 @@ export function applyLastResortFixes(parsed: GeneratedCaption, brand: BrandRow, 
     }
   }
   if (hashtags.length > MAX_HASHTAGS) hashtags = hashtags.slice(0, MAX_HASHTAGS)
+
+  // Unlike the cliché check above (a multi-word phrase can't be mechanically
+  // stripped without leaving broken grammar), an em dash is a single
+  // punctuation mark — safe to swap for a comma here as a genuine last
+  // resort, since it preserves the sentence's meaning either way.
+  if (containsEmDash(captionText)) {
+    captionText = captionText.replace(/\s*—\s*/g, ", ")
+  }
 
   return { ...parsed, caption_text: captionText, hashtags }
 }
