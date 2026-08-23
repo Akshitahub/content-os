@@ -365,7 +365,7 @@ const PHOTOGRAPHY_STYLE = "professional product photography shot on a full-frame
 
 // Posts-specific quality + negative-artifact language — deliberately NOT
 // lib/ai/prompts.ts's shared IMAGE_QUALITY_SAFETY_BOILERPLATE (also used by
-// the standalone Images tab, out of scope for this fix). Two changes from
+// the standalone Images tab). Two changes from
 // that shared boilerplate: drops the redundant "professional photography"
 // (already covered by PHOTOGRAPHY_STYLE above) and "8K ultra HD, sharp
 // focus" (a generic superlative with nothing for the model to actually aim
@@ -386,7 +386,15 @@ const PHOTOGRAPHY_STYLE = "professional product photography shot on a full-frame
 // "authentic unretouched skin texture... avoid airbrushed or over-smoothed
 // skin"). Scoped to "the main subject" specifically so it doesn't fight
 // PHOTOGRAPHY_STYLE's own deliberate shallow-depth-of-field background blur.
-const POST_IMAGE_QUALITY_AND_NEGATIVE_GUARD = "no text, no watermarks, no logos, no illegible text or symbols, anatomically correct human features if any people are shown, correct number of fingers and limbs, natural hand positioning, authentic unretouched skin texture with natural imperfections, not a 3D render, not CGI, not a digital illustration, not an AI-generated look, avoid airbrushed or over-smoothed skin, avoid plastic or waxy-looking surfaces, avoid unnaturally perfect symmetry, the main subject rendered in crisp sharp focus with clearly resolved fine detail, not soft, hazy, or out of focus"
+// "no social media UI elements, no usernames or @handles, no URLs...,
+// no 'link in bio'..., no fake app interface elements" — the existing
+// "no text, no illegible text or symbols" wasn't specific enough:
+// diffusion models hallucinate UI-like text (fake usernames, "link in
+// bio", fake URLs) noticeably more often in photorealistic product-photo
+// contexts than in the abstract Story/Carousel backgrounds, where the
+// same generic guard already held up fine. Named explicitly here instead
+// of trusting the generic phrase to cover it.
+const POST_IMAGE_QUALITY_AND_NEGATIVE_GUARD = "no text, no watermarks, no logos, no illegible text or symbols, no social media UI elements, no usernames or @handles, no URLs or website addresses, no 'link in bio' or similar caption-style text, no fake app interface elements, anatomically correct human features if any people are shown, correct number of fingers and limbs, natural hand positioning, authentic unretouched skin texture with natural imperfections, not a 3D render, not CGI, not a digital illustration, not an AI-generated look, avoid airbrushed or over-smoothed skin, avoid plastic or waxy-looking surfaces, avoid unnaturally perfect symmetry, the main subject rendered in crisp sharp focus with clearly resolved fine detail, not soft, hazy, or out of focus"
 
 // Now that the target canvas is 4:5 portrait (see PORTRAIT_DIMENSIONS
 // above), Instagram's profile-grid preview crops it further to 3:4 — tighter

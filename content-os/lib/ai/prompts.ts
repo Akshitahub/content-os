@@ -624,7 +624,7 @@ const IMAGE_STYLE_DESCRIPTIONS: Record<string, string> = {
 // standalone Images tab here, and lib/ai/post-image-pipeline.ts for the
 // Create → Full Post flow) — anatomical/hand-rendering correctness and the
 // no-text/no-watermark rules matter regardless of which flow is asking.
-export const IMAGE_QUALITY_SAFETY_BOILERPLATE = "professional photography, no text, no watermarks, no logos, no illegible text or symbols, anatomically correct human features if any people are shown, correct number of fingers and limbs, natural hand positioning, 8K ultra HD, sharp focus"
+export const IMAGE_QUALITY_SAFETY_BOILERPLATE = "professional photography, no text, no watermarks, no logos, no illegible text or symbols, no social media UI elements, no usernames or @handles, no URLs or website addresses, no 'link in bio' or similar caption-style text, no fake app interface elements, anatomically correct human features if any people are shown, correct number of fingers and limbs, natural hand positioning, 8K ultra HD, sharp focus"
 
 export function buildImagePrompt(
   brand: BrandRow,
