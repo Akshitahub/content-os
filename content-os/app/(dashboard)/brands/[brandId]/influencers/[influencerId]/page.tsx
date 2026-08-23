@@ -225,7 +225,11 @@ function OutreachMessageCard({
     const { body } = truncateForEmailLink(msg.message_text)
     const subject = msg.subject ?? ""
     if (action === "mailto") {
-      window.location.href = `mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
+      // The recipient address is the mailto: URI's path, not a query
+      // parameter value -- encodeURIComponent-ing it (as subject/body
+      // correctly are) mangles the @ and turns it into an invalid address
+      // most mail clients silently refuse to open.
+      window.location.href = `mailto:${email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
     } else {
       window.open(
         `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(email)}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`,
