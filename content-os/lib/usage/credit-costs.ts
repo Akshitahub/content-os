@@ -38,6 +38,31 @@ export const CAROUSEL = 9
 // driver as Meme, so weighted the same pending explicit confirmation.
 export const IMAGE = 5
 
+// PLACEHOLDER — not yet wired into any charging call site (REELS_ENABLED
+// is false in lib/constants.ts; no reel-generation route calls
+// checkAndIncrementUsage at all today). This is the credit weight to use
+// once Reels launch — see lib/ai/fastlane.ts's submitAutopilotReel and
+// app/api/v1/brands/[brandId]/reel-scripts/[scriptId]/video/route.ts for
+// the call sites that will need it.
+//
+// Derived from a REAL documented cost, not a guess: lib/video/kling-client.ts's
+// own header comment records PiAPI/Kling's measured price at ~$0.07-0.08/sec
+// of generated video, and lib/ai/prompts.ts's reel script prompt specifies a
+// 15-30s total reel duration. Midpoint: 22.5s x $0.075/sec = ~$1.69/reel =
+// ~₹147 at ~₹87/$ (an assumed FX rate, not verified live). Applying the
+// SAME implied cost-to-credit ratio already used for POST=5 (this file's
+// own comment above cites Flux's real cost at ₹6.70-13.50, midpoint ₹10.10,
+// i.e. ~₹2.02/credit) gives ~147/2.02 = ~73 credits — rounded to 75.
+//
+// NOTE: this is well above the "5-10x a plain post" competitive framing
+// (Predis.ai-style) that motivated adding this weight at all (5-10x POST=5
+// would be 25-50) — 75 sits closer to 15x. Flagged rather than silently
+// rounded down, since underpricing a feature this expensive to actually
+// run is the real risk here, not overpricing it. MUST be corrected using
+// actual PiAPI billing data (not this estimate, and not the "5-10x" framing
+// either) before REELS_ENABLED is ever set to true.
+export const REEL = 75
+
 // Lightweight non-image AI actions, confirmed to stay at the base rate:
 // app/api/v1/ai/repurpose (repurposing existing content into a new
 // format — text-only) and app/api/v1/ai/remove-background (calls the
