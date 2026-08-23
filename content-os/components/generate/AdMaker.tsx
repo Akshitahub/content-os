@@ -173,11 +173,26 @@ async function compositeAd(
 
       const lineH = fontSize * 1.25
       const totalH = lines.length * lineH
+      // "top" and "bottom" are edge-anchored (their Y shouldn't shift with
+      // line count, only "center" needs totalH) -- but the anchor itself
+      // must scale with canvas HEIGHT, not just fontSize (which only
+      // tracks width). Previously fontSize*2.5 depended only on w, so on
+      // the "story" format (1080x1920, the tallest option) top text landed
+      // proportionally far closer to the edge than on square/portrait --
+      // and inside the real safe-zone Instagram's own Stories UI reserves
+      // for the profile/username overlay when this is actually posted as a
+      // Story (same ~250/1920 margin StorySequence.tsx's own safe-zone
+      // constant is based on). Square/portrait feed posts have no such
+      // overlay, so they only need a modest aesthetic top margin.
+      const topSafeZone = format === "story" ? h * (250 / 1920) : h * 0.08
+      // Was a fixed 48px -- scales with h like every other measurement in
+      // this function (h * 0.1 for the product's own bottom margin above).
+      const bottomGap = h * 0.045
       const startY = textPosition === "top"
-        ? fontSize * 2.5
+        ? topSafeZone + fontSize * 0.8
         : textPosition === "center"
         ? (h / 2) - (totalH / 2)
-        : py - totalH - 48
+        : py - totalH - bottomGap
 
       lines.forEach((l, i) => ctx.fillText(l, w / 2, startY + i * lineH))
       ctx.shadowBlur = 0
