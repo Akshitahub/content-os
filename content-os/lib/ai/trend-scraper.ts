@@ -34,6 +34,62 @@ function getNicheSubreddits(niche: string): string[] {
   return NICHE_SUBREDDITS.default
 }
 
+// www.reddit.com/r/{sub}/top.json (unauthenticated) returns 403 as of
+// Reddit's 2023 API policy changes -- confirmed directly against the live
+// endpoint, not a hypothetical. Reddit's real OAuth API (oauth.reddit.com)
+// still works via a free "script" app's client_credentials grant, which
+// doesn't need a logged-in Reddit user, just REDDIT_CLIENT_ID/
+// REDDIT_CLIENT_SECRET. Token cached in-memory (module-level, resets on
+// cold start) until shortly before its ~1hr expiry, so a normal request
+// volume doesn't fetch a fresh token every call.
+let cachedToken: { accessToken: string; expiresAt: number } | null = null
+
+async function getRedditAccessToken(): Promise<string | null> {
+  if (cachedToken && cachedToken.expiresAt > Date.now()) {
+    return cachedToken.accessToken
+  }
+
+  const clientId = process.env.REDDIT_CLIENT_ID
+  const clientSecret = process.env.REDDIT_CLIENT_SECRET
+  if (!clientId || !clientSecret) {
+    console.error("[trend-scraper] REDDIT_CLIENT_ID / REDDIT_CLIENT_SECRET not configured.")
+    return null
+  }
+
+  try {
+    const basicAuth = Buffer.from(`${clientId}:${clientSecret}`).toString("base64")
+    const response = await fetch("https://www.reddit.com/api/v1/access_token", {
+      method: "POST",
+      headers: {
+        "Authorization": `Basic ${basicAuth}`,
+        "Content-Type": "application/x-www-form-urlencoded",
+        "User-Agent": "SocioPosts/1.0 (brand content tool)",
+      },
+      body: "grant_type=client_credentials",
+    })
+
+    if (!response.ok) {
+      console.error(`[trend-scraper] Reddit access_token request failed with status ${response.status}.`)
+      return null
+    }
+
+    const json = await response.json() as { access_token?: string; expires_in?: number }
+    if (!json.access_token) {
+      console.error("[trend-scraper] Reddit access_token response missing access_token.")
+      return null
+    }
+
+    // Refresh 5 minutes early rather than exactly at expiry, so a token
+    // that's about to lapse mid-request never gets reused.
+    const expiresInMs = (json.expires_in ?? 3600) * 1000
+    cachedToken = { accessToken: json.access_token, expiresAt: Date.now() + expiresInMs - 5 * 60 * 1000 }
+    return cachedToken.accessToken
+  } catch (err) {
+    console.error("[trend-scraper] Reddit access_token request threw:", err instanceof Error ? err.message : err)
+    return null
+  }
+}
+
 async function getRedditInsights(niche: string): Promise<{
   top_topics: string[]
   top_questions: string[]
@@ -45,10 +101,16 @@ async function getRedditInsights(niche: string): Promise<{
     const subreddits = getNicheSubreddits(niche)
     const subreddit = subreddits[0]
 
+    const token = await getRedditAccessToken()
+    if (!token) {
+      return { top_topics: [], top_questions: [], scraped_at, success: false }
+    }
+
     const response = await fetch(
-      `https://www.reddit.com/r/${subreddit}/top.json?t=week&limit=10`,
+      `https://oauth.reddit.com/r/${subreddit}/top?t=week&limit=10`,
       {
         headers: {
+          "Authorization": `Bearer ${token}`,
           "User-Agent": "SocioPosts/1.0 (brand content tool)",
         },
       }
