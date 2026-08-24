@@ -55,6 +55,7 @@ type ScheduleActionProps =
        * connected platform the user picks. */
       imageUrl: string
       slideElementIds?: undefined
+      imageUrls?: undefined
       contentFormat?: undefined
       itemLabel?: undefined
     }
@@ -67,20 +68,35 @@ type ScheduleActionProps =
        * (each slide only exists as a rendered element, not a stored URL).
        * Instagram-only — carousels/stories don't publish anywhere else. */
       slideElementIds: string[]
+      imageUrls?: undefined
       contentFormat: "carousel" | "story"
       /** What to call one capture unit in progress/error copy — "slide" or
        * "story". Defaults to contentFormat's own name. */
       itemLabel?: string
     }
+  | {
+      brandId: string
+      caption: string
+      hashtags: string[]
+      imageUrl?: undefined
+      slideElementIds?: undefined
+      /** Already-hosted slide image URLs (e.g. persisted slides read back
+       * from the Library) — scheduled directly, no capture step needed.
+       * Instagram-only, same as the DOM-capture variant. */
+      imageUrls: string[]
+      contentFormat: "carousel" | "story"
+      itemLabel?: string
+    }
 
 export function ScheduleAction(props: ScheduleActionProps) {
   const { brandId, caption, hashtags } = props
-  const isMultiSlide = props.slideElementIds !== undefined
+  const isMultiSlide = props.slideElementIds !== undefined || props.imageUrls !== undefined
   const itemLabel = isMultiSlide ? (props.itemLabel ?? props.contentFormat) : ""
   // Pulled out of the union so the handleConfirm callback below can depend
   // on plain values instead of the whole `props` object.
   const imageUrl = props.imageUrl
   const slideElementIds = props.slideElementIds
+  const preHostedImageUrls = props.imageUrls
   const contentFormat = props.contentFormat
 
   const [open, setOpen] = useState(false)
@@ -149,7 +165,7 @@ export function ScheduleAction(props: ScheduleActionProps) {
       setSubmitState("capturing")
       // Capture every slide as a data URL right before scheduling — each
       // slide only exists as a DOM element, not a stored image URL.
-      const imageUrls: string[] = []
+      const capturedUrls: string[] = []
       for (let i = 0; i < slideElementIds.length; i++) {
         setCaptureProgress({ current: i + 1, total: slideElementIds.length })
         const dataUrl = await captureElementAsDataUrl(slideElementIds[i]!)
@@ -159,10 +175,14 @@ export function ScheduleAction(props: ScheduleActionProps) {
           setCaptureProgress(null)
           return
         }
-        imageUrls.push(dataUrl)
+        capturedUrls.push(dataUrl)
       }
       setCaptureProgress(null)
-      body = { brandId, platform: "instagram", imageUrls, contentFormat, caption, hashtags: hashtags.map((h) => h.replace(/^#+/, "")), scheduledDate: date, scheduledTime: time }
+      body = { brandId, platform: "instagram", imageUrls: capturedUrls, contentFormat, caption, hashtags: hashtags.map((h) => h.replace(/^#+/, "")), scheduledDate: date, scheduledTime: time }
+    } else if (preHostedImageUrls) {
+      // Already hosted (e.g. slides persisted from a saved Library item) —
+      // no capture step needed, straight to scheduling.
+      body = { brandId, platform: "instagram", imageUrls: preHostedImageUrls, contentFormat, caption, hashtags: hashtags.map((h) => h.replace(/^#+/, "")), scheduledDate: date, scheduledTime: time }
     } else {
       body = { brandId, platform, imageUrl, caption, hashtags: hashtags.map((h) => h.replace(/^#+/, "")), scheduledDate: date, scheduledTime: time }
     }
@@ -187,7 +207,7 @@ export function ScheduleAction(props: ScheduleActionProps) {
       setErrorMsg("Network error. Please try again.")
       setSubmitState("error")
     }
-  }, [brandId, isMultiSlide, imageUrl, slideElementIds, contentFormat, itemLabel, platform, caption, hashtags, date, time])
+  }, [brandId, isMultiSlide, imageUrl, slideElementIds, preHostedImageUrls, contentFormat, itemLabel, platform, caption, hashtags, date, time])
 
   const isBusy = submitState === "capturing" || submitState === "loading"
 

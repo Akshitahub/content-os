@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import Link from "next/link"
 import { GenerateVideoAction } from "@/components/shared/GenerateVideoAction"
+import { ContentDetailPanel, type DetailItem } from "@/components/shared/ContentDetailPanel"
 import type { HookRow, CaptionRow, ReelScriptRow, CarouselRow, AdCopyRow, EmailSequenceRow, ProductDescriptionRow, StoryRow, BlogPostRow } from "@/types/database"
 import type { Json } from "@/types/database"
 import { scoreHook, scoreColor, scoreLabel } from "@/lib/utils/content-score"
@@ -218,7 +219,9 @@ function HookCard({ hook, brandId }: { hook: HookRow; brandId: string }) {
 
 // ─── Caption card ─────────────────────────────────────────────────────────────
 
-function CaptionCard({ caption, brandId }: { caption: CaptionRow; brandId: string }) {
+export type CaptionWithImages = CaptionRow & { images: { public_url: string }[] }
+
+function CaptionCard({ caption, brandId, onOpenDetail }: { caption: CaptionWithImages; brandId: string; onOpenDetail: (item: DetailItem) => void }) {
   const [expanded, setExpanded] = useState(false)
   const qc = useQueryClient()
   const ratingMutation = useMutation({
@@ -233,8 +236,31 @@ function CaptionCard({ caption, brandId }: { caption: CaptionRow; brandId: strin
   })
   const isLong = caption.caption_text.length > 200
   const displayText = isLong && !expanded ? caption.caption_text.slice(0, 200) + "…" : caption.caption_text
+  const thumbnail = caption.images[0]?.public_url ?? null
+
+  function openDetail() {
+    onOpenDetail({
+      kind: "caption",
+      title: "Caption",
+      blocks: [{ text: caption.caption_text, imageUrl: thumbnail }],
+      hashtags: caption.hashtags,
+      createdAt: caption.created_at,
+      scheduleCaption: caption.caption_text,
+      scheduleImageUrl: thumbnail,
+    })
+  }
+
   return (
-    <Card className="transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md">
+    <Card
+      onClick={openDetail}
+      className="cursor-pointer transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md"
+    >
+      {thumbnail && (
+        <div className="aspect-square bg-secondary">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={thumbnail} alt="" className="w-full h-full object-cover" />
+        </div>
+      )}
       <CardHeader className="pb-2">
         <div className="flex items-start justify-between gap-2">
           <div className="flex items-center gap-2">
@@ -248,7 +274,10 @@ function CaptionCard({ caption, brandId }: { caption: CaptionRow; brandId: strin
       <CardContent className="space-y-3">
         <p className="text-sm leading-relaxed whitespace-pre-wrap">{displayText}</p>
         {isLong && (
-          <button onClick={() => setExpanded(e => !e)} className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
+          <button
+            onClick={(e) => { e.stopPropagation(); setExpanded(v => !v) }}
+            className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+          >
             {expanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
             {expanded ? "Show less" : "Show more"}
           </button>
@@ -260,7 +289,7 @@ function CaptionCard({ caption, brandId }: { caption: CaptionRow; brandId: strin
             ))}
           </div>
         )}
-        <div className="flex items-center justify-between gap-2 pt-1 border-t">
+        <div className="flex items-center justify-between gap-2 pt-1 border-t" onClick={(e) => e.stopPropagation()}>
           <StarRating value={caption.user_rating} onChange={(r) => ratingMutation.mutate(r)} disabled={ratingMutation.isPending} />
           <CopyButton text={caption.caption_text} touchUrl={`/api/v1/brands/${brandId}/captions/${caption.id}`} />
         </div>
@@ -325,11 +354,11 @@ function ReelScriptCard({ script, brandId }: { script: ReelScriptRow; brandId: s
 
 // ─── Carousel card ────────────────────────────────────────────────────────────
 
-interface SlideShape { headline?: string; body?: string }
+interface SlideShape { headline?: string; body?: string; image_url?: string | null }
 
-function CarouselCard({ carousel, brandId }: { carousel: CarouselRow; brandId: string }) {
+function CarouselCard({ carousel, brandId, onOpenDetail }: { carousel: CarouselRow; brandId: string; onOpenDetail: (item: DetailItem) => void }) {
   const qc = useQueryClient()
-  const slides = (carousel.slides as Json[]) ?? []
+  const slides = (carousel.slides as Json[] as SlideShape[]) ?? []
   const ratingMutation = useMutation({
     mutationFn: async (rating: number) => {
       const res = await fetch(`/api/v1/brands/${brandId}/carousels/${carousel.id}`, {
@@ -340,8 +369,36 @@ function CarouselCard({ carousel, brandId }: { carousel: CarouselRow; brandId: s
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["library", "carousels", brandId] }),
   })
+  const thumbnail = slides.find((s) => s.image_url)?.image_url ?? null
+  const scheduleImages = slides.map((s) => s.image_url).filter((u): u is string => !!u)
+
+  function openDetail() {
+    onOpenDetail({
+      kind: "carousel",
+      title: carousel.title || "Carousel",
+      blocks: slides.map((s, i) => ({
+        label: `Slide ${i + 1}`,
+        text: [s.headline, s.body].filter(Boolean).join("\n"),
+        imageUrl: s.image_url,
+      })),
+      hashtags: carousel.hashtags,
+      createdAt: carousel.created_at,
+      scheduleCaption: carousel.title || slides[0]?.headline || "",
+      scheduleImageUrls: scheduleImages,
+    })
+  }
+
   return (
-    <Card className="transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md">
+    <Card
+      onClick={openDetail}
+      className="cursor-pointer transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md"
+    >
+      {thumbnail && (
+        <div className="aspect-square bg-secondary">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={thumbnail} alt="" className="w-full h-full object-cover" />
+        </div>
+      )}
       <CardHeader className="pb-2">
         <div className="flex items-start justify-between gap-2">
           <div className="flex items-center gap-2">
@@ -355,7 +412,7 @@ function CarouselCard({ carousel, brandId }: { carousel: CarouselRow; brandId: s
         {carousel.title && <p className="text-sm font-semibold line-clamp-2">{carousel.title}</p>}
         <p className="text-xs text-muted-foreground">{slides.length} slide{slides.length !== 1 ? "s" : ""}</p>
         {slides[0] && (
-          <p className="text-xs text-muted-foreground line-clamp-2">Slide 1: {(slides[0] as SlideShape).headline ?? ""}</p>
+          <p className="text-xs text-muted-foreground line-clamp-2">Slide 1: {slides[0].headline ?? ""}</p>
         )}
         {carousel.hashtags.length > 0 && (
           <div className="flex flex-wrap gap-1">
@@ -364,10 +421,10 @@ function CarouselCard({ carousel, brandId }: { carousel: CarouselRow; brandId: s
             ))}
           </div>
         )}
-        <div className="flex items-center justify-between gap-2 pt-1 border-t">
+        <div className="flex items-center justify-between gap-2 pt-1 border-t" onClick={(e) => e.stopPropagation()}>
           <StarRating value={carousel.user_rating} onChange={(r) => ratingMutation.mutate(r)} disabled={ratingMutation.isPending} />
           <CopyButton
-            text={slides.map((s, i) => `Slide ${i + 1}\n${(s as SlideShape).headline ?? ""}\n${(s as SlideShape).body ?? ""}`).join("\n\n")}
+            text={slides.map((s, i) => `Slide ${i + 1}\n${s.headline ?? ""}\n${s.body ?? ""}`).join("\n\n")}
             touchUrl={`/api/v1/brands/${brandId}/carousels/${carousel.id}`}
           />
         </div>
@@ -378,11 +435,11 @@ function CarouselCard({ carousel, brandId }: { carousel: CarouselRow; brandId: s
 
 // ─── Story card ───────────────────────────────────────────────────────────────
 
-interface StorySlideShape { text?: string; subtext?: string; type?: string }
+interface StorySlideShape { text?: string; subtext?: string; type?: string; background_image_url?: string | null }
 
-function StoryCard({ story, brandId }: { story: StoryRow; brandId: string }) {
+function StoryCard({ story, brandId, onOpenDetail }: { story: StoryRow; brandId: string; onOpenDetail: (item: DetailItem) => void }) {
   const qc = useQueryClient()
-  const slides = (story.stories as Json[]) ?? []
+  const slides = (story.stories as Json[] as StorySlideShape[]) ?? []
   const ratingMutation = useMutation({
     mutationFn: async (rating: number) => {
       const res = await fetch(`/api/v1/brands/${brandId}/stories/${story.id}`, {
@@ -393,8 +450,37 @@ function StoryCard({ story, brandId }: { story: StoryRow; brandId: string }) {
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["library", "stories", brandId] }),
   })
+  const thumbnail = slides.find((s) => s.background_image_url)?.background_image_url ?? null
+  const scheduleImages = slides.map((s) => s.background_image_url).filter((u): u is string => !!u)
+
+  function openDetail() {
+    onOpenDetail({
+      kind: "story",
+      title: "Story sequence",
+      subtitle: story.topic,
+      blocks: slides.map((s, i) => ({
+        label: `Story ${i + 1}${s.type ? ` (${s.type})` : ""}`,
+        text: [s.text, s.subtext].filter(Boolean).join("\n"),
+        imageUrl: s.background_image_url,
+      })),
+      hashtags: [],
+      createdAt: story.created_at,
+      scheduleCaption: story.topic || slides[0]?.text || "",
+      scheduleImageUrls: scheduleImages,
+    })
+  }
+
   return (
-    <Card className="transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md">
+    <Card
+      onClick={openDetail}
+      className="cursor-pointer transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md"
+    >
+      {thumbnail && (
+        <div className="aspect-square bg-secondary">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={thumbnail} alt="" className="w-full h-full object-cover" />
+        </div>
+      )}
       <CardHeader className="pb-2">
         <div className="flex items-start justify-between gap-2">
           <div className="flex items-center gap-2">
@@ -408,13 +494,13 @@ function StoryCard({ story, brandId }: { story: StoryRow; brandId: string }) {
         <p className="text-xs text-muted-foreground">{slides.length} stor{slides.length !== 1 ? "ies" : "y"}</p>
         {slides[0] && (
           <p className="text-xs text-muted-foreground line-clamp-2 italic">
-            Story 1: {(slides[0] as StorySlideShape).text ?? ""}
+            Story 1: {slides[0].text ?? ""}
           </p>
         )}
-        <div className="flex items-center justify-between gap-2 pt-1 border-t">
+        <div className="flex items-center justify-between gap-2 pt-1 border-t" onClick={(e) => e.stopPropagation()}>
           <StarRating value={story.user_rating} onChange={(r) => ratingMutation.mutate(r)} disabled={ratingMutation.isPending} />
           <CopyButton
-            text={slides.map((s, i) => `Story ${i + 1} (${(s as StorySlideShape).type ?? ""}):\n${(s as StorySlideShape).text ?? ""}\n${(s as StorySlideShape).subtext ?? ""}`).join("\n\n")}
+            text={slides.map((s, i) => `Story ${i + 1} (${s.type ?? ""}):\n${s.text ?? ""}\n${s.subtext ?? ""}`).join("\n\n")}
             touchUrl={`/api/v1/brands/${brandId}/stories/${story.id}`}
           />
         </div>
@@ -601,17 +687,17 @@ function HooksTab({ brandId }: { brandId: string }) {
   )
 }
 
-function CaptionsTab({ brandId }: { brandId: string }) {
+function CaptionsTab({ brandId, onOpenDetail }: { brandId: string; onOpenDetail: (item: DetailItem) => void }) {
   const [platformFilter, setPlatformFilter] = useState("all")
   const [dateFilter, setDateFilter] = useState("all")
   const { data: captions = [], isLoading } = useQuery({
     queryKey: ["library", "captions", brandId, platformFilter],
-    queryFn: async (): Promise<CaptionRow[]> => {
+    queryFn: async (): Promise<CaptionWithImages[]> => {
       const params = new URLSearchParams({ saved: "true" })
       if (platformFilter !== "all") params.set("platform", platformFilter)
       const res = await fetch(`/api/v1/brands/${brandId}/captions?${params}`)
       if (!res.ok) throw new Error("Failed to fetch captions")
-      return ((await res.json()) as { data: CaptionRow[] }).data
+      return ((await res.json()) as { data: CaptionWithImages[] }).data
     },
     enabled: !!brandId,
   })
@@ -628,7 +714,7 @@ function CaptionsTab({ brandId }: { brandId: string }) {
       </div>
       {isLoading ? <SkeletonGrid /> : filtered.length === 0 ? <EmptyState label="saved captions" brandId={brandId} /> : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {filtered.map(c => <CaptionCard key={c.id} caption={c} brandId={brandId} />)}
+          {filtered.map(c => <CaptionCard key={c.id} caption={c} brandId={brandId} onOpenDetail={onOpenDetail} />)}
         </div>
       )}
     </div>
@@ -652,7 +738,7 @@ function ScriptsTab({ brandId }: { brandId: string }) {
   )
 }
 
-function CarouselsTab({ brandId }: { brandId: string }) {
+function CarouselsTab({ brandId, onOpenDetail }: { brandId: string; onOpenDetail: (item: DetailItem) => void }) {
   const { data: carousels = [], isLoading } = useQuery({
     queryKey: ["library", "carousels", brandId],
     queryFn: async (): Promise<CarouselRow[]> => {
@@ -664,12 +750,12 @@ function CarouselsTab({ brandId }: { brandId: string }) {
   })
   return isLoading ? <SkeletonGrid /> : carousels.length === 0 ? <EmptyState label="saved carousels" brandId={brandId} /> : (
     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-      {carousels.map(c => <CarouselCard key={c.id} carousel={c} brandId={brandId} />)}
+      {carousels.map(c => <CarouselCard key={c.id} carousel={c} brandId={brandId} onOpenDetail={onOpenDetail} />)}
     </div>
   )
 }
 
-function StoriesTab({ brandId }: { brandId: string }) {
+function StoriesTab({ brandId, onOpenDetail }: { brandId: string; onOpenDetail: (item: DetailItem) => void }) {
   const { data: stories = [], isLoading } = useQuery({
     queryKey: ["library", "stories", brandId],
     queryFn: async (): Promise<StoryRow[]> => {
@@ -681,7 +767,7 @@ function StoriesTab({ brandId }: { brandId: string }) {
   })
   return isLoading ? <SkeletonGrid /> : stories.length === 0 ? <EmptyState label="saved story sequences" brandId={brandId} /> : (
     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-      {stories.map(s => <StoryCard key={s.id} story={s} brandId={brandId} />)}
+      {stories.map(s => <StoryCard key={s.id} story={s} brandId={brandId} onOpenDetail={onOpenDetail} />)}
     </div>
   )
 }
@@ -907,6 +993,10 @@ export default function LibraryPage() {
   const [activeTab, setActiveTab] = useState<LibraryTab>(
     tabParam && VALID_TABS.has(tabParam) ? tabParam : "captions"
   )
+  // Caption/Carousel/Story cards open into this instead of being dead ends
+  // (see components/shared/ContentDetailPanel.tsx) — same top-level-state
+  // pattern ContentCalendar.tsx uses for CalendarEntryPanel.
+  const [previewItem, setPreviewItem] = useState<DetailItem | null>(null)
 
   // Sync tab when URL changes (handles soft navigation)
   useEffect(() => {
@@ -961,12 +1051,14 @@ export default function LibraryPage() {
         })}
       </div>
 
-      {activeTab === "captions" && <CaptionsTab brandId={brandId} />}
+      {activeTab === "captions" && <CaptionsTab brandId={brandId} onOpenDetail={setPreviewItem} />}
       {activeTab === "scripts" && <ScriptsTab brandId={brandId} />}
-      {activeTab === "carousels" && <CarouselsTab brandId={brandId} />}
-      {activeTab === "stories" && <StoriesTab brandId={brandId} />}
+      {activeTab === "carousels" && <CarouselsTab brandId={brandId} onOpenDetail={setPreviewItem} />}
+      {activeTab === "stories" && <StoriesTab brandId={brandId} onOpenDetail={setPreviewItem} />}
       {activeTab === "ad_copy" && <AdCopyTab brandId={brandId} />}
       {activeTab === "blog_posts" && <BlogPostsTab brandId={brandId} />}
+
+      <ContentDetailPanel item={previewItem} onClose={() => setPreviewItem(null)} brandId={brandId} />
     </div>
   )
 }
