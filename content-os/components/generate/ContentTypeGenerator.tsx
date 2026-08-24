@@ -337,9 +337,9 @@ export function ContentTypeGenerator({ brandId, products }: ContentTypeGenerator
   return (
     <div className="space-y-6">
       {/* Format picker — collapsed by default since every entry point now
-          arrives with a format already decided (Reel card, Trending Now,
-          etc.); showing the full grid unconditionally made it look like
-          those entry points did nothing. */}
+          arrives with a format already decided (Reel card, occasion
+          suggestion, etc.); showing the full grid unconditionally made it
+          look like those entry points did nothing. */}
       <div className="space-y-2">
         <button
           type="button"

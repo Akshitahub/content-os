@@ -366,7 +366,7 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
     }
   }, [carousel, topic, STORAGE_KEY])
 
-  // Consume a topic handed off from Trending Now, if any
+  // Consume a topic handed off from another generator, if any
   useEffect(() => {
     if (pendingTopic) {
       setTopic(pendingTopic)

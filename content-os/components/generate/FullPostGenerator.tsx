@@ -236,7 +236,7 @@ export function FullPostGenerator({ brandId, products }: Props) {
     if (occasionContext) setAdditionalContext(occasionContext.angle)
   }, [occasionContext])
 
-  // Consume a topic handed off from Trending Now, if any
+  // Consume a topic handed off from another generator, if any
   useEffect(() => {
     if (pendingTopic) {
       setAdditionalContext(pendingTopic)

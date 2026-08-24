@@ -1,9 +1,7 @@
 "use client"
 
-import { useState } from "react"
-import { Film, TrendingUp, ChevronLeft } from "lucide-react"
+import { Film } from "lucide-react"
 import { TABS, type Tab } from "./tabsConfig"
-import { TrendingNow } from "./TrendingNow"
 import { REELS_ENABLED } from "@/lib/constants"
 import { ComingSoonBadge } from "@/components/shared/ComingSoonBadge"
 import { cn } from "@/lib/utils"
@@ -25,7 +23,6 @@ interface CardMeta {
   presetReelScript?: boolean
   /** Platforms this format can actually be scheduled/published to today — omit if no schedule/publish path exists yet. */
   platforms?: string
-  isTrendingNow?: boolean
   comingSoon?: boolean
 }
 
@@ -36,27 +33,9 @@ const PRIMARY_CARDS: CardMeta[] = [
   { tab: "ad_maker",  title: "Ad",        description: "Product photo placed in an AI scene",   icon: iconFor("ad_maker") },
   { tab: "stories",   title: "Stories",   description: "3 to 5 connected story slides",         icon: iconFor("stories"), platforms: "Instagram" },
   { tab: "blog",      title: "Blog Post", description: "SEO article with AI suggestions",       icon: iconFor("blog") },
-  { title: "Trending Now", description: "Real discussions from your niche, turned into content", icon: TrendingUp, isTrendingNow: true },
 ]
 
-export function CreatePicker({ brandId, onSelect }: CreatePickerProps) {
-  const [expandedTrending, setExpandedTrending] = useState(false)
-
-  if (expandedTrending) {
-    return (
-      <div className="space-y-4">
-        <button
-          type="button"
-          onClick={() => setExpandedTrending(false)}
-          className="inline-flex items-center gap-1 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
-        >
-          <ChevronLeft className="h-4 w-4" /> Back to formats
-        </button>
-        <TrendingNow brandId={brandId} onNavigate={onSelect} />
-      </div>
-    )
-  }
-
+export function CreatePicker({ onSelect }: CreatePickerProps) {
   return (
     <div className="space-y-6">
       <div>
@@ -72,13 +51,7 @@ export function CreatePicker({ brandId, onSelect }: CreatePickerProps) {
               key={card.tab ?? card.title}
               type="button"
               disabled={card.comingSoon}
-              onClick={() => {
-                if (card.isTrendingNow) {
-                  setExpandedTrending(true)
-                  return
-                }
-                onSelect(card.tab!, card.presetReelScript ? { presetReelScript: true } : undefined)
-              }}
+              onClick={() => onSelect(card.tab!, card.presetReelScript ? { presetReelScript: true } : undefined)}
               className={cn(
                 "flex flex-col items-start gap-2 rounded-xl border p-5 text-left transition-colors",
                 card.comingSoon ? "cursor-not-allowed opacity-60" : "hover:border-violet-400 hover:bg-violet-50/50"
