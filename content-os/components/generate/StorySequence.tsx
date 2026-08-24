@@ -559,12 +559,13 @@ export function StorySequence({ brandId }: { brandId: string }) {
           imageDescriptions: uploadedImages.map((_, i) => `User provided image ${i + 1}`),
         }),
       })
-      const json = await res.json() as { data?: { stories: StorySlide[]; caption?: StoryCaption }; error?: { code?: string; message?: string } }
+      const json = await res.json() as { data?: { id?: string | null; stories: StorySlide[]; caption?: StoryCaption }; error?: { code?: string; message?: string } }
       if (!res.ok || !json.data?.stories) {
         if (isApiError(json)) throw new ApiResponseError(json.error.code, json.error.message)
         throw new Error(json.error?.message ?? "Generation failed")
       }
       const savedStories = json.data.stories
+      const rowId = json.data.id ?? null
       setStories(savedStories)
       setStoryCaption(json.data.caption ?? null)
       setShowSuccess(true)
@@ -573,21 +574,37 @@ export function StorySequence({ brandId }: { brandId: string }) {
       // Best-effort AI backgrounds for hook/cta slides only (available to
       // every plan, no tiering) — fired after text succeeds so a slow/
       // failed image call never blocks or breaks story generation itself.
-      // Each independently falls back to the flat gradient slide
-      // (fetchSlideBackground resolves to null, never throws). Guarded by
-      // genId so a stale response from a superseded generate() call can't
-      // write onto a newer set of stories.
-      savedStories.forEach((slide, i) => {
-        if (slide.type !== "hook" && slide.type !== "cta") return
-        fetchSlideBackground(brandId, slide.text, slide.type).then((url) => {
-          if (!url || generationIdRef.current !== genId) return
-          setStories((prev) => {
-            if (!prev[i]) return prev
-            const next = [...prev]
-            next[i] = { ...next[i]!, background_image_url: url }
-            return next
-          })
+      // Waits for ALL of them to settle before writing anything back, one
+      // PUT per generation instead of one per slide — fetchSlideBackground
+      // never throws, so Promise.all here always resolves. Guarded by genId
+      // so a stale response from a superseded generate() call can't write
+      // onto a newer set of stories.
+      const bgTargets = savedStories
+        .map((slide, i) => ({ slide, i }))
+        .filter((t): t is { slide: StorySlide & { type: "hook" | "cta" }; i: number } => t.slide.type === "hook" || t.slide.type === "cta")
+
+      Promise.all(bgTargets.map(({ slide }) => fetchSlideBackground(brandId, slide.text, slide.type))).then((urls) => {
+        if (generationIdRef.current !== genId) return
+        if (!urls.some((u) => u)) return
+
+        const updated = [...savedStories]
+        bgTargets.forEach(({ i }, idx) => {
+          const url = urls[idx]
+          if (url) updated[i] = { ...updated[i]!, background_image_url: url }
         })
+        setStories(updated)
+
+        if (rowId) {
+          fetch(`/api/v1/brands/${brandId}/stories/${rowId}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ stories: updated }),
+          }).catch(() => {
+            // Best-effort — the story sequence itself already generated
+            // fine; a failed persist here just means the Library won't
+            // show its images, not a user-facing generation failure.
+          })
+        }
       })
     } catch (e) {
       setApiError(e)

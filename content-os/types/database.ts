@@ -807,6 +807,7 @@ export type Database = {
           is_saved?: boolean
           user_rating?: number | null
           last_accessed_at?: string
+          slides?: Json
         }
       }
       ad_copies: {
@@ -1117,6 +1118,7 @@ export type Database = {
           is_saved?: boolean
           user_rating?: number | null
           last_accessed_at?: string
+          stories?: Json
         }
       }
       memes: {

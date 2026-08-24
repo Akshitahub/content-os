@@ -214,22 +214,30 @@ export async function POST(request: Request) {
 
     // Persist (non-fatal) — matches the pattern used by every other
     // generate route: the generate call itself saves, the client never
-    // needs a separate save request.
+    // needs a separate save request. The id is now returned to the client
+    // (previously discarded) so it can PUT slide image URLs back onto this
+    // same row once they're generated — see the carousels/[carouselId]
+    // PUT route's new `slides` field.
+    let carouselId: string | null = null
     try {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      await (supabase.from("carousels") as any).insert({
-        brand_id: brandId,
-        platform,
-        title: typeof d.title === "string" ? d.title : null,
-        slides: d.slides,
-        hashtags: Array.isArray(d.hashtags) ? d.hashtags : [],
-        is_saved: true,
-      })
+      const { data: saved } = await (supabase.from("carousels") as any)
+        .insert({
+          brand_id: brandId,
+          platform,
+          title: typeof d.title === "string" ? d.title : null,
+          slides: d.slides,
+          hashtags: Array.isArray(d.hashtags) ? d.hashtags : [],
+          is_saved: true,
+        })
+        .select("id")
+        .single() as { data: { id: string } | null }
+      carouselId = saved?.id ?? null
     } catch (persistErr) {
       console.error("[ai/carousel/generate] persist failed (non-fatal):", persistErr)
     }
 
-    return NextResponse.json({ data }, { status: 200 })
+    return NextResponse.json({ data: { ...d, id: carouselId } }, { status: 200 })
   } catch (err) {
     await refundGenerationUsage(supabase, user.id, CAROUSEL)
     const msg = err instanceof Error ? err.message : "Generation failed"

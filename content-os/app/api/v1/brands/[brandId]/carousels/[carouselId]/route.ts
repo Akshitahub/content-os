@@ -6,9 +6,21 @@ import type { CarouselRow } from "@/types/database"
 
 type Params = { params: Promise<{ brandId: string; carouselId: string }> }
 
+// The slide shape CarouselBuilder.tsx actually builds (headline/body text
+// plus, once generated, an imageUrl) — loose rather than a strict object
+// schema since `slides` is a plain Json column with no DB-level shape
+// enforcement, and this route's only job is to persist whatever the client
+// already composited, not re-validate its content.
+const slideSchema = z.record(z.string(), z.unknown())
+
 const updateSchema = z.object({
   user_rating: z.number().int().min(1).max(5).optional(),
   is_saved: z.boolean().optional(),
+  // Previously there was no way to ever persist slide image URLs back to
+  // this row at all -- CarouselBuilder.tsx only ever held them in local
+  // React state, so a "saved" carousel in the Library never actually had
+  // its images in the database to show.
+  slides: z.array(slideSchema).optional(),
 })
 
 export async function PUT(request: Request, { params }: Params) {

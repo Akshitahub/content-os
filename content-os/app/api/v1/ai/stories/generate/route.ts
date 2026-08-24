@@ -245,20 +245,28 @@ ${QUALITY_BAR}`,
 
     // Persist (non-fatal) — matches the pattern used by every other
     // generate route: the generate call itself saves, the client never
-    // needs a separate save request.
+    // needs a separate save request. The id is now returned to the client
+    // (previously discarded) so it can PUT slide background image URLs
+    // back onto this same row once they're generated — see the
+    // stories/[storyId] PUT route's new `stories` field.
+    let storyRowId: string | null = null
     try {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      await (supabase.from("stories") as any).insert({
-        brand_id: brandId,
-        topic,
-        stories: d.stories,
-        is_saved: true,
-      })
+      const { data: saved } = await (supabase.from("stories") as any)
+        .insert({
+          brand_id: brandId,
+          topic,
+          stories: d.stories,
+          is_saved: true,
+        })
+        .select("id")
+        .single() as { data: { id: string } | null }
+      storyRowId = saved?.id ?? null
     } catch (persistErr) {
       console.error("[ai/stories/generate] persist failed (non-fatal):", persistErr)
     }
 
-    return NextResponse.json({ data }, { status: 200 })
+    return NextResponse.json({ data: { ...d, id: storyRowId } }, { status: 200 })
   } catch (err) {
     await refundGenerationUsage(supabase, user.id, STORY)
     const msg = err instanceof Error ? err.message : "Generation failed"

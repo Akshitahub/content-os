@@ -6,9 +6,21 @@ import type { StoryRow } from "@/types/database"
 
 type Params = { params: Promise<{ brandId: string; storyId: string }> }
 
+// The slide shape StorySequence.tsx actually builds (text/subtext/type
+// plus, once generated, a background_image_url) — loose rather than a
+// strict object schema since `stories` is a plain Json column with no
+// DB-level shape enforcement, and this route's only job is to persist
+// whatever the client already has, not re-validate its content.
+const storySlideSchema = z.record(z.string(), z.unknown())
+
 const updateSchema = z.object({
   user_rating: z.number().int().min(1).max(5).optional(),
   is_saved: z.boolean().optional(),
+  // Previously there was no way to ever persist slide background image
+  // URLs back to this row at all -- StorySequence.tsx only ever held them
+  // in local React state, so a "saved" story sequence in the Library
+  // never actually had its images in the database to show.
+  stories: z.array(storySlideSchema).optional(),
 })
 
 export async function PUT(request: Request, { params }: Params) {

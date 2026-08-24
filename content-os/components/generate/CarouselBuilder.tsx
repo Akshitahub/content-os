@@ -30,6 +30,12 @@ interface CarouselSlideRich {
   title?: string
   points?: string[]
   background_style: BackgroundStyle
+  /** AI-generated background, persisted here (hook/CTA slides only) once
+   * fetchSlideBackground resolves — previously only ever held in the
+   * hookBackgroundUrl/ctaBackgroundUrl React state below and never written
+   * back to the carousels row, so a saved carousel in the Library never
+   * actually had its images in the database. */
+  image_url?: string | null
 }
 
 interface CtaSlide {
@@ -39,6 +45,10 @@ interface CtaSlide {
 }
 
 interface GeneratedCarousel {
+  /** The carousels row id this generation persisted to — null if that
+   * insert failed (non-fatal, see the generate route). Needed to PUT
+   * slide image URLs back once they're generated. */
+  id?: string | null
   title: string
   cover_hook: string
   slides: CarouselSlideRich[]
@@ -608,13 +618,38 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
       setHookBackgroundUrl(null)
       setCtaBackgroundUrl(null)
       const hookSlide = merged.slides[0]
-      if (hookSlide) {
-        fetchSlideBackground(brandId, hookSlide.headline, vibe, "hook").then(setHookBackgroundUrl)
-      }
       const ctaSlideEntry = merged.slides[merged.slides.length - 1]
-      if (ctaSlideEntry && merged.slides.length > 1) {
-        fetchSlideBackground(brandId, ctaSlideEntry.headline, vibe, "cta").then(setCtaBackgroundUrl)
-      }
+      const hasCtaSlide = !!ctaSlideEntry && merged.slides.length > 1
+
+      // Waits for BOTH backgrounds to settle before writing anything back —
+      // one PUT per generation instead of one per slide, since both fetches
+      // are already in flight together and there's no user-facing reason to
+      // persist them separately.
+      Promise.all([
+        hookSlide ? fetchSlideBackground(brandId, hookSlide.headline, vibe, "hook") : Promise.resolve(null),
+        hasCtaSlide ? fetchSlideBackground(brandId, ctaSlideEntry.headline, vibe, "cta") : Promise.resolve(null),
+      ]).then(([hookBg, ctaBg]) => {
+        setHookBackgroundUrl(hookBg)
+        setCtaBackgroundUrl(ctaBg)
+        if (!merged.id || (!hookBg && !ctaBg)) return
+
+        const slidesWithImages = merged.slides.map((s, i) => {
+          if (i === 0 && hookBg) return { ...s, image_url: hookBg }
+          if (i === merged.slides.length - 1 && hasCtaSlide && ctaBg) return { ...s, image_url: ctaBg }
+          return s
+        })
+        setCarousel((prev) => (prev && prev.id === merged.id ? { ...prev, slides: slidesWithImages } : prev))
+
+        fetch(`/api/v1/brands/${brandId}/carousels/${merged.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ slides: slidesWithImages }),
+        }).catch(() => {
+          // Best-effort — the carousel itself already generated fine; a
+          // failed persist here just means the Library won't show its
+          // image, not a user-facing generation failure.
+        })
+      })
     } catch (e) {
       setApiError(e)
       if (hadPrevCarousel && prevCarouselRef.current) {
