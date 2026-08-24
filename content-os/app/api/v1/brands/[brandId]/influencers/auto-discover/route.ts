@@ -7,6 +7,16 @@ import { PLAN_LIMITS, type UserPlan } from "@/types/app"
 import { isInternalUnlimited } from "@/lib/usage/is-internal-unlimited"
 import type { BrandRow } from "@/types/database"
 
+// Discovers up to `count` profiles (100 max, see schema below) in throttled
+// batches of 3 with a 500ms pause between batches (lib/ai/influencer-
+// discovery.ts), each involving a real scrape + AI niche-classification
+// call + avatar re-hosting -- easily well over a minute for the default
+// count, and with no override this was running on the platform's default
+// function timeout. 300s matches the same batch-AI-job ceiling already
+// proven to work on this plan for Autopilot (app/api/v1/brands/fastlane/
+// route.ts), which does a comparable amount of per-item external+AI work.
+export const maxDuration = 300
+
 type RouteParams = { params: Promise<{ brandId: string }> }
 
 const autoDiscoverSchema = z.object({

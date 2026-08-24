@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react"
 import { useParams } from "next/navigation"
-import { Search, Plus, Loader2, Users, Video, Camera, Wand2, Sparkles } from "lucide-react"
+import { Search, Plus, Loader2, Users, Video, Camera, Wand2, Sparkles, AlertCircle } from "lucide-react"
 import { FaLinkedin } from "react-icons/fa6"
 import {
   useInfluencers,
@@ -372,29 +372,40 @@ export default function InfluencersPage() {
   const autoDiscover = useAutoDiscoverInfluencers(brandId)
   const hasAutoTriggered = useRef(false)
   const [autoDiscoverMsg, setAutoDiscoverMsg] = useState<string | null>(null)
+  const [autoDiscoverError, setAutoDiscoverError] = useState<string | null>(null)
 
-  // Auto-trigger discovery the first time the page loads with zero saved influencers
+  // Auto-trigger discovery the first time the page loads with zero saved
+  // influencers. Kept to a smaller count than the manual "Discover" button
+  // (10 vs. that button's default of 25) since this fires silently on page
+  // load -- a much lower risk tolerance than something the user explicitly
+  // clicked. sessionStorage remembers a failure per brand so a doomed
+  // discovery (timeout, scraper block, etc.) doesn't silently re-run and
+  // re-burn real scraping/AI cost on every fresh visit within the session;
+  // the manual button stays available either way.
   useEffect(() => {
+    const failedKey = `influencers-auto-discover-failed-${brandId}`
     if (
       !isLoading &&
       influencers !== undefined &&
       influencers.length === 0 &&
-      !hasAutoTriggered.current
+      !hasAutoTriggered.current &&
+      sessionStorage.getItem(failedKey) === null
     ) {
       hasAutoTriggered.current = true
       autoDiscover
-        .mutateAsync({ platform: "instagram", count: 25, discoveryType: "influencer_partner" })
+        .mutateAsync({ platform: "instagram", count: 10, discoveryType: "influencer_partner" })
         .then((result) => {
           setAutoDiscoverMsg(
             `Found ${result.count} influencer${result.count !== 1 ? "s" : ""} who could be a great fit for your brand.`,
           )
         })
         .catch(() => {
-          // non-fatal: user can run manually
+          sessionStorage.setItem(failedKey, "1")
+          setAutoDiscoverError("Couldn't automatically find creators for you — try Discover below.")
         })
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isLoading, influencers])
+  }, [isLoading, influencers, brandId])
 
   if (isLoading) {
     return (
@@ -479,6 +490,13 @@ export default function InfluencersPage() {
       {autoDiscoverMsg && (
         <div className="mb-4 rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm font-medium text-green-800">
           {autoDiscoverMsg}
+        </div>
+      )}
+
+      {autoDiscoverError && (
+        <div className="mb-4 flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800">
+          <AlertCircle className="h-4 w-4 shrink-0" />
+          {autoDiscoverError}
         </div>
       )}
 
