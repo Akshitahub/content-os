@@ -17,12 +17,27 @@ import type { InfluencerRow } from "@/types/database"
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
+// Single source of truth for follower-count tiers, shared by the badge
+// (getTier) and the filter tabs (FILTER_TABS/filterInfluencers) below so
+// they can never drift out of sync. Boundaries reflect realistic budget
+// tiers for a small Indian D2C brand, not generic global influencer-
+// marketing bands -- most affordable collabs for this app's users happen
+// well under 20k followers, so that range gets its own "Micro" tier
+// instead of being lumped in with 100k-follower accounts.
+type TierKey = "nano" | "micro" | "mid" | "macro" | "mega"
+
+const TIER_BANDS: { key: TierKey; label: string; color: string; min: number; max: number }[] = [
+  { key: "nano", label: "Nano", color: "bg-gray-100 text-gray-600", min: 0, max: 5_000 },
+  { key: "micro", label: "Micro", color: "bg-blue-100 text-blue-700", min: 5_000, max: 20_000 },
+  { key: "mid", label: "Mid", color: "bg-teal-100 text-teal-700", min: 20_000, max: 100_000 },
+  { key: "macro", label: "Macro", color: "bg-purple-100 text-purple-700", min: 100_000, max: 1_000_000 },
+  { key: "mega", label: "Mega", color: "bg-orange-100 text-orange-700", min: 1_000_000, max: Infinity },
+]
+
 function getTier(followerCount: number | null): { label: string; color: string } {
   if (!followerCount) return { label: "Unknown", color: "bg-gray-100 text-gray-500" }
-  if (followerCount < 10_000) return { label: "Nano", color: "bg-gray-100 text-gray-600" }
-  if (followerCount < 100_000) return { label: "Micro", color: "bg-blue-100 text-blue-700" }
-  if (followerCount < 1_000_000) return { label: "Macro", color: "bg-purple-100 text-purple-700" }
-  return { label: "Mega", color: "bg-orange-100 text-orange-700" }
+  const band = TIER_BANDS.find((b) => followerCount >= b.min && followerCount < b.max) ?? TIER_BANDS[TIER_BANDS.length - 1]
+  return { label: band.label, color: band.color }
 }
 
 // Normalize: old scores stored as 0-100, new scores as 1-10
@@ -304,15 +319,17 @@ function InfluencerCard({ influencer, brandId }: { influencer: InfluencerRow; br
 
 // ─── Filters + sort ───────────────────────────────────────────────────────────
 
-type FilterTab = "all" | "excellent_fit" | "good_fit" | "micro" | "macro"
+// Skips a "mega" filter tab -- an unlikely tier for this app's actual
+// users, so it's not worth surfacing as a filter even though the badge
+// (getTier, via TIER_BANDS above) still labels a 1M+ card correctly.
+type FilterTab = "all" | "excellent_fit" | "good_fit" | "nano" | "micro" | "mid" | "macro"
 type SortKey = "fit_score" | "followers" | "recent"
 
 const FILTER_TABS: { id: FilterTab; label: string }[] = [
   { id: "all", label: "All" },
   { id: "excellent_fit", label: "Excellent fit (8+)" },
   { id: "good_fit", label: "Good fit (5–7)" },
-  { id: "micro", label: "Micro" },
-  { id: "macro", label: "Macro" },
+  ...TIER_BANDS.filter((b): b is typeof b & { key: Exclude<TierKey, "mega"> } => b.key !== "mega").map((b) => ({ id: b.key, label: b.label })),
 ]
 
 function filterInfluencers(influencers: InfluencerRow[], filter: FilterTab): InfluencerRow[] {
@@ -324,20 +341,14 @@ function filterInfluencers(influencers: InfluencerRow[], filter: FilterTab): Inf
         const s = normalizeScore(i.fit_score)
         return s !== null && s >= 5 && s < 8
       })
-    case "micro":
-      return influencers.filter(
-        (i) =>
-          i.follower_count !== null && i.follower_count >= 10_000 && i.follower_count < 100_000,
-      )
-    case "macro":
-      return influencers.filter(
-        (i) =>
-          i.follower_count !== null &&
-          i.follower_count >= 100_000 &&
-          i.follower_count < 1_000_000,
-      )
-    default:
+    case "all":
       return influencers
+    default: {
+      const band = TIER_BANDS.find((b) => b.key === filter)!
+      return influencers.filter(
+        (i) => i.follower_count !== null && i.follower_count >= band.min && i.follower_count < band.max,
+      )
+    }
   }
 }
 
