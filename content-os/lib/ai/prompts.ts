@@ -621,10 +621,18 @@ const IMAGE_STYLE_DESCRIPTIONS: Record<string, string> = {
 }
 
 // Shared across every AI image prompt built in this codebase (the
-// standalone Images tab here, and lib/ai/post-image-pipeline.ts for the
-// Create → Full Post flow) — anatomical/hand-rendering correctness and the
-// no-text/no-watermark rules matter regardless of which flow is asking.
-export const IMAGE_QUALITY_SAFETY_BOILERPLATE = "professional photography, no text, no watermarks, no logos, no illegible text or symbols, no social media UI elements, no usernames or @handles, no URLs or website addresses, no 'link in bio' or similar caption-style text, no fake app interface elements, anatomically correct human features if any people are shown, correct number of fingers and limbs, natural hand positioning, 8K ultra HD, sharp focus"
+// standalone Images tab here) — no-text/no-watermark rules matter
+// regardless of which flow is asking. Anatomy clause rewritten from vague
+// "anatomically correct... correct number of fingers and limbs" to
+// specific counting language — diffusion models respond far more reliably
+// to concrete counts ("exactly two arms and two hands per person, five
+// fingers per hand") than generic correctness phrasing, which reportedly
+// wasn't enough to reliably prevent extra-limb anomalies (e.g. a woman
+// with three hands). Also adds general surface-cleanliness language this
+// boilerplate previously lacked entirely. Mirrors the same strengthening
+// applied to lib/ai/post-image-pipeline.ts's own
+// POST_IMAGE_QUALITY_AND_NEGATIVE_GUARD.
+export const IMAGE_QUALITY_SAFETY_BOILERPLATE = "professional photography, no text, no watermarks, no logos, no illegible text or symbols, no social media UI elements, no usernames or @handles, no URLs or website addresses, no 'link in bio' or similar caption-style text, no fake app interface elements, if any people are shown: exactly two arms and two hands per person, five fingers per hand, no extra or duplicated limbs, no merged or fused body parts, no distorted or extra fingers, anatomically normal human proportions, natural hand positioning, no blemishes, no visual artifacts, no compression artifacts, no random marks or smudges, no color banding, clean unmarked surface, 8K ultra HD, sharp focus"
 
 export function buildImagePrompt(
   brand: BrandRow,
@@ -668,7 +676,14 @@ export function buildImagePrompt(
   }
 
   lines.push(IMAGE_QUALITY_SAFETY_BOILERPLATE)
-  lines.push("prefer clear product framing or wide/environmental shots over close-up human hand or body detail when the scene allows it")
+  // The single most effective lever against anatomy anomalies: a shot with
+  // no people in it can't have an extra-limb problem at all. Strengthened
+  // from the previous "prefer clear product framing... over close-up human
+  // hand or body detail" (which only nudged away from close-ups, not
+  // people generally) to bias toward excluding people entirely unless the
+  // scene genuinely needs one. Mirrors
+  // lib/ai/post-image-pipeline.ts's NO_PEOPLE_BY_DEFAULT_GUARD.
+  lines.push("prefer product-only or environmental/lifestyle framing with no visible people, unless the product or scene specifically requires a person (e.g. an apparel item worn on a body, a hand actively demonstrating product use) — when a person isn't genuinely needed, exclude people from the frame entirely rather than including one incidentally")
 
   return lines.join(", ")
 }

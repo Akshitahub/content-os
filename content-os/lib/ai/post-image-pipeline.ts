@@ -363,6 +363,16 @@ const TECH_NICHE_KEYWORDS = ["tech", "software", "saas", "app", "digital product
 // docs/research/post-imagery-diagnosis.md, issue 2.
 const PHOTOGRAPHY_STYLE = "professional product photography shot on a full-frame DSLR with an 85mm lens at f/2.8 for natural background blur, soft directional key light from the upper left with gentle fill, premium D2C brand aesthetic, high-detail commercial quality"
 
+// The single most effective lever against anatomy anomalies: a shot with
+// no people in it can't have an extra-limb problem at all. Biases every
+// post image toward product-only or environmental/lifestyle framing by
+// default, only allowing a person into frame when the scene genuinely
+// needs one (worn apparel, a hand demonstrating use, etc.) — the
+// counting-language strengthening of POST_IMAGE_QUALITY_AND_NEGATIVE_GUARD
+// below is the second layer of defense for the cases where a person is
+// still shown, not the only one.
+const NO_PEOPLE_BY_DEFAULT_GUARD = "prefer product-only or environmental/lifestyle framing with no visible people, unless the product or scene specifically requires a person (e.g. an apparel item worn on a body, a hand actively demonstrating product use) — when a person isn't genuinely needed, exclude people from the frame entirely rather than including one incidentally"
+
 // Posts-specific quality + negative-artifact language — deliberately NOT
 // lib/ai/prompts.ts's shared IMAGE_QUALITY_SAFETY_BOILERPLATE (also used by
 // the standalone Images tab). Two changes from
@@ -394,7 +404,14 @@ const PHOTOGRAPHY_STYLE = "professional product photography shot on a full-frame
 // contexts than in the abstract Story/Carousel backgrounds, where the
 // same generic guard already held up fine. Named explicitly here instead
 // of trusting the generic phrase to cover it.
-const POST_IMAGE_QUALITY_AND_NEGATIVE_GUARD = "no text, no watermarks, no logos, no illegible text or symbols, no social media UI elements, no usernames or @handles, no URLs or website addresses, no 'link in bio' or similar caption-style text, no fake app interface elements, anatomically correct human features if any people are shown, correct number of fingers and limbs, natural hand positioning, authentic unretouched skin texture with natural imperfections, not a 3D render, not CGI, not a digital illustration, not an AI-generated look, avoid airbrushed or over-smoothed skin, avoid plastic or waxy-looking surfaces, avoid unnaturally perfect symmetry, the main subject rendered in crisp sharp focus with clearly resolved fine detail, not soft, hazy, or out of focus"
+// Anatomy clause rewritten from vague "anatomically correct... correct
+// number of fingers and limbs" to specific counting language — diffusion
+// models respond far more reliably to concrete counts ("exactly two arms
+// and two hands per person, five fingers per hand") than generic
+// correctness phrasing, which reportedly wasn't enough to reliably prevent
+// extra-limb anomalies (e.g. a woman with three hands). Also adds general
+// surface-cleanliness language the guard previously lacked entirely.
+const POST_IMAGE_QUALITY_AND_NEGATIVE_GUARD = "no text, no watermarks, no logos, no illegible text or symbols, no social media UI elements, no usernames or @handles, no URLs or website addresses, no 'link in bio' or similar caption-style text, no fake app interface elements, if any people are shown: exactly two arms and two hands per person, five fingers per hand, no extra or duplicated limbs, no merged or fused body parts, no distorted or extra fingers, anatomically normal human proportions, natural hand positioning, authentic unretouched skin texture with natural imperfections, not a 3D render, not CGI, not a digital illustration, not an AI-generated look, avoid airbrushed or over-smoothed skin, avoid plastic or waxy-looking surfaces, avoid unnaturally perfect symmetry, no blemishes, no visual artifacts, no compression artifacts, no random marks or smudges, no color banding, clean unmarked surface, the main subject rendered in crisp sharp focus with clearly resolved fine detail, not soft, hazy, or out of focus"
 
 // Now that the target canvas is 4:5 portrait (see PORTRAIT_DIMENSIONS
 // above), Instagram's profile-grid preview crops it further to 3:4 — tighter
@@ -469,6 +486,7 @@ function simplifyPrompt(prompt: string, brandNiche: string | null, hasReferenceI
     brandNiche ? `${brandNiche} brand` : "",
     resolveNicheSetting(brandNiche),
     PHOTOGRAPHY_STYLE,
+    NO_PEOPLE_BY_DEFAULT_GUARD,
     CENTERED_COMPOSITION_GUARD,
     POST_IMAGE_QUALITY_AND_NEGATIVE_GUARD,
   ].filter(Boolean).join(", ")
@@ -613,6 +631,7 @@ export async function generatePostImage(options: GeneratePostImageOptions): Prom
     resolveNicheSetting(options.brandNiche),
     cappedTargetAudience ? `styled to appeal to ${cappedTargetAudience}` : "",
     PHOTOGRAPHY_STYLE,
+    NO_PEOPLE_BY_DEFAULT_GUARD,
     buildNegativeGuard(options.brandNiche),
     "leave the lower third of the frame visually simpler and less busy for a text overlay",
     CENTERED_COMPOSITION_GUARD,
