@@ -511,7 +511,7 @@ function StoryCard({ story, brandId, onOpenDetail }: { story: StoryRow; brandId:
 
 // ─── Ad Copy card ─────────────────────────────────────────────────────────────
 
-function AdCopyCard({ ad, brandId }: { ad: AdCopyRow; brandId: string }) {
+function AdCopyCard({ ad, brandId, onOpenDetail }: { ad: AdCopyRow; brandId: string; onOpenDetail: (item: DetailItem) => void }) {
   const qc = useQueryClient()
   const ratingMutation = useMutation({
     mutationFn: async (rating: number) => {
@@ -523,8 +523,37 @@ function AdCopyCard({ ad, brandId }: { ad: AdCopyRow; brandId: string }) {
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["library", "ad-copies", brandId] }),
   })
+  const fullText = `${ad.headline}\n\n${ad.primary_text}${ad.description ? `\n\n${ad.description}` : ""}${ad.cta_button ? `\n\nCTA: ${ad.cta_button}` : ""}`
+
+  function openDetail() {
+    // No image (Ad Copy never had one) and no scheduleImageUrl/Urls --
+    // ContentDetailPanel skips rendering ScheduleAction entirely when
+    // neither is set, so this is view + copy only, same as the card
+    // itself today. See the task's own note: ad copy is platform-ad-
+    // manager copy (Meta/Google Ads), not necessarily an organic
+    // scheduled post -- not wiring ScheduleAction here pending
+    // confirmation on whether "schedule to calendar" is even the right
+    // action for this content type.
+    onOpenDetail({
+      kind: "ad_copy",
+      title: ad.headline,
+      blocks: [
+        { label: "Headline", text: ad.headline },
+        { label: "Primary text", text: ad.primary_text },
+        ...(ad.description ? [{ label: "Description", text: ad.description }] : []),
+        ...(ad.cta_button ? [{ label: "CTA", text: ad.cta_button }] : []),
+      ],
+      hashtags: [],
+      createdAt: ad.created_at,
+      scheduleCaption: fullText,
+    })
+  }
+
   return (
-    <Card className="transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md">
+    <Card
+      onClick={openDetail}
+      className="cursor-pointer transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md"
+    >
       <CardHeader className="pb-2">
         <div className="flex items-start justify-between gap-2">
           <div className="flex items-center gap-2">
@@ -540,12 +569,9 @@ function AdCopyCard({ ad, brandId }: { ad: AdCopyRow; brandId: string }) {
         {ad.cta_button && (
           <span className="inline-flex items-center rounded-md bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">{ad.cta_button}</span>
         )}
-        <div className="flex items-center justify-between gap-2 pt-1 border-t">
+        <div className="flex items-center justify-between gap-2 pt-1 border-t" onClick={(e) => e.stopPropagation()}>
           <StarRating value={ad.user_rating} onChange={(r) => ratingMutation.mutate(r)} disabled={ratingMutation.isPending} />
-          <CopyButton
-            text={`${ad.headline}\n\n${ad.primary_text}${ad.cta_button ? `\n\nCTA: ${ad.cta_button}` : ""}`}
-            touchUrl={`/api/v1/brands/${brandId}/ad-copies/${ad.id}`}
-          />
+          <CopyButton text={fullText} touchUrl={`/api/v1/brands/${brandId}/ad-copies/${ad.id}`} />
         </div>
       </CardContent>
     </Card>
@@ -772,7 +798,7 @@ function StoriesTab({ brandId, onOpenDetail }: { brandId: string; onOpenDetail: 
   )
 }
 
-function AdCopyTab({ brandId }: { brandId: string }) {
+function AdCopyTab({ brandId, onOpenDetail }: { brandId: string; onOpenDetail: (item: DetailItem) => void }) {
   const { data: ads = [], isLoading } = useQuery({
     queryKey: ["library", "ad-copies", brandId],
     queryFn: async (): Promise<AdCopyRow[]> => {
@@ -784,7 +810,7 @@ function AdCopyTab({ brandId }: { brandId: string }) {
   })
   return isLoading ? <SkeletonGrid /> : ads.length === 0 ? <EmptyState label="saved ad copies" brandId={brandId} /> : (
     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-      {ads.map(a => <AdCopyCard key={a.id} ad={a} brandId={brandId} />)}
+      {ads.map(a => <AdCopyCard key={a.id} ad={a} brandId={brandId} onOpenDetail={onOpenDetail} />)}
     </div>
   )
 }
@@ -1055,7 +1081,7 @@ export default function LibraryPage() {
       {activeTab === "scripts" && <ScriptsTab brandId={brandId} />}
       {activeTab === "carousels" && <CarouselsTab brandId={brandId} onOpenDetail={setPreviewItem} />}
       {activeTab === "stories" && <StoriesTab brandId={brandId} onOpenDetail={setPreviewItem} />}
-      {activeTab === "ad_copy" && <AdCopyTab brandId={brandId} />}
+      {activeTab === "ad_copy" && <AdCopyTab brandId={brandId} onOpenDetail={setPreviewItem} />}
       {activeTab === "blog_posts" && <BlogPostsTab brandId={brandId} />}
 
       <ContentDetailPanel item={previewItem} onClose={() => setPreviewItem(null)} brandId={brandId} />
