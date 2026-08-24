@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { useParams } from "next/navigation"
 import {
   Loader2, CheckCircle2, XCircle, Calendar, BarChart2, AlertTriangle, Trash2, Plane,
@@ -14,7 +14,7 @@ import posthog from "posthog-js"
 import { POSTHOG_KEY } from "@/lib/analytics/posthog"
 import { PLAN_LIMITS } from "@/types/app"
 import type { FastlaneResult } from "@/types/app"
-import type { CalendarEntryRow } from "@/types/database"
+import type { CalendarEntryRow, AutopilotRunStatusRow } from "@/types/database"
 import { useQueryClient } from "@tanstack/react-query"
 import { useUserCredits, userCreditsKeys } from "@/hooks/useUserCredits"
 
@@ -27,6 +27,16 @@ const STATUS_BADGE: Record<string, string> = {
 }
 
 type AutopilotState = "SETUP" | "STRATEGY" | "RUNNING" | "DONE" | "ERROR" | "WARNING" | "UPSELL" | "RUN_CAP"
+
+// How often the RUNNING view polls GET .../fastlane/status for real
+// progress (completed_slots/total_slots), both while this tab's own POST
+// is in flight and when resuming a run found on mount.
+const POLL_INTERVAL_MS = 4500
+// A 'running' row older than this is treated as likely failed/timed out
+// rather than still actively working -- comfortably past the fastlane
+// route's own maxDuration=300s cap, so a genuinely still-running row
+// should never actually reach this age.
+const STALE_THRESHOLD_MS = 10 * 60 * 1000
 
 interface RunCapData {
   message: string
@@ -98,7 +108,18 @@ export default function AutopilotPage() {
   const [warning, setWarning] = useState<WarningData | null>(null)
   const [upsellData, setUpsellData] = useState<UpsellData | null>(null)
   const [runCapData, setRunCapData] = useState<RunCapData | null>(null)
-  const [progress, setProgress] = useState(0)
+  // Real progress from autopilot_run_status, replacing the old cosmetic
+  // setInterval animation -- populated by polling GET .../fastlane/status
+  // (see startPolling below), both while this tab's own run is in flight
+  // and when resuming a run found on mount.
+  const [completedSlots, setCompletedSlots] = useState(0)
+  const [totalSlotsRunning, setTotalSlotsRunning] = useState(0)
+  const [isStale, setIsStale] = useState(false)
+  // Gates the initial render so the mount-time status check (below) can
+  // decide SETUP vs. resuming a RUNNING/DONE/ERROR run before anything
+  // paints, instead of flashing the blank setup screen first.
+  const [initializing, setInitializing] = useState(true)
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const queryClient = useQueryClient()
 
   // Shared with Header/Settings (hooks/useUserCredits.ts) -- previously
@@ -148,16 +169,81 @@ export default function AutopilotPage() {
   const [vibe, setVibe] = useState<string>("educational")
   const [focusAreas, setFocusAreas] = useState<string[]>([])
 
-  useEffect(() => {
-    if (state === "RUNNING") {
-      setProgress(0)
-      const interval = setInterval(() => {
-        setProgress((p) => p < 92 ? p + 3 : p)
-      }, 2000)
-      return () => clearInterval(interval)
+  function stopPolling() {
+    if (pollRef.current) {
+      clearInterval(pollRef.current)
+      pollRef.current = null
     }
-    if (state === "DONE") setProgress(100)
-  }, [state])
+  }
+
+  async function fetchRunStatus(): Promise<AutopilotRunStatusRow | null> {
+    const res = await fetch(`/api/v1/brands/${brandId}/fastlane/status`)
+    if (!res.ok) return null
+    const json = await res.json() as { data: AutopilotRunStatusRow | null }
+    return json.data
+  }
+
+  // Applies one status-row snapshot to the UI. Used both by the mount-time
+  // recovery check and by the recurring poll (below) -- a 'running' row
+  // just updates the real progress numbers; done/error stops polling and
+  // switches the page to that outcome, same as if this tab's own request
+  // had just resolved that way.
+  function applyRunRow(run: AutopilotRunStatusRow) {
+    if (run.status === "running") {
+      setCompletedSlots(run.completed_slots)
+      setTotalSlotsRunning(run.total_slots)
+      setIsStale(Date.now() - new Date(run.started_at).getTime() > STALE_THRESHOLD_MS)
+      setState("RUNNING")
+      return
+    }
+
+    stopPolling()
+    if (run.status === "done") {
+      const recovered = (run.result as unknown as FastlaneResult | null)
+      if (recovered) {
+        setResult(recovered)
+        const createdEntries = recovered.created_entries ?? []
+        setEntries(createdEntries)
+        setSelectedIds(new Set(createdEntries.filter(e => e.status === "content_ready").map(e => e.id)))
+      }
+      setState("DONE")
+    } else if (run.status === "error") {
+      setErrorMsg(run.error_message ?? "Autopilot failed. Please try again.")
+      setState("ERROR")
+    }
+  }
+
+  function startPolling() {
+    stopPolling()
+    pollRef.current = setInterval(async () => {
+      const run = await fetchRunStatus().catch(() => null)
+      if (run) applyRunRow(run)
+    }, POLL_INTERVAL_MS)
+  }
+
+  // Checks for a run already in progress (or just finished) on this brand
+  // before deciding what to render -- this is what makes navigating back
+  // to this page mid-run (or right after) show real status instead of a
+  // blank setup screen with zero indication anything happened.
+  useEffect(() => {
+    let cancelled = false
+    fetchRunStatus()
+      .then((run) => {
+        if (cancelled) return
+        if (run) {
+          applyRunRow(run)
+          if (run.status === "running") startPolling()
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setInitializing(false)
+      })
+    return () => {
+      cancelled = true
+      stopPolling()
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [brandId])
 
   function togglePlatform(id: string) {
     setSelectedPlatforms(prev =>
@@ -220,6 +306,15 @@ export default function AutopilotPage() {
     setSelectedIds(new Set())
     setScheduleSummary(null)
     setScheduleError(null)
+    setCompletedSlots(0)
+    setTotalSlotsRunning(tier.slots)
+    setIsStale(false)
+    // The POST below blocks for the whole run (up to maxDuration=300s) --
+    // this polls the real completed_slots/total_slots the route wrote to
+    // autopilot_run_status as it went, so the progress bar reflects actual
+    // work instead of a simulated animation. Stopped in `finally` once the
+    // POST itself resolves either way.
+    startPolling()
 
     try {
       const res = await fetch("/api/v1/brands/fastlane", {
@@ -311,6 +406,8 @@ export default function AutopilotPage() {
       const msg = err instanceof Error ? err.message : "An unexpected error occurred"
       setErrorMsg(msg)
       setState("ERROR")
+    } finally {
+      stopPolling()
     }
   }
 
@@ -364,6 +461,18 @@ export default function AutopilotPage() {
     } finally {
       setIsScheduling(false)
     }
+  }
+
+  // Checking for a run to resume (see the mount-time useEffect above) —
+  // deliberately shown instead of the setup screen so a run in progress
+  // (or one that just finished) is never briefly mistaken for "nothing
+  // has ever run here."
+  if (initializing) {
+    return (
+      <div className="flex min-h-full flex-col items-center justify-center px-4 py-6 md:p-8">
+        <Loader2 className="h-8 w-8 animate-spin text-violet-400" />
+      </div>
+    )
   }
 
   return (
@@ -627,55 +736,86 @@ export default function AutopilotPage() {
       )}
 
       {/* RUNNING */}
-      {state === "RUNNING" && (
-        <div className="w-full max-w-lg text-center">
-          <div className="mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-600 to-indigo-600 shadow-lg shadow-violet-200">
-            <Loader2 className="h-10 w-10 text-white animate-spin" />
-          </div>
-          <h2 className="text-2xl font-bold">Building your {tier.days}-day plan…</h2>
-          <p className="mt-2 text-muted-foreground">
-            AI is crafting your content strategy and generating all {tier.slots} slots. This takes 1–3 minutes.
-          </p>
+      {state === "RUNNING" && (() => {
+        const effectiveTotal = totalSlotsRunning || tier.slots
+        const pct = effectiveTotal > 0 ? Math.min(100, Math.round((completedSlots / effectiveTotal) * 100)) : 0
+        const strategyDone = completedSlots > 0
+        const slotsDone = effectiveTotal > 0 && completedSlots >= effectiveTotal
 
-          {/* Animated gradient progress bar */}
-          <div className="mt-6">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-xs text-muted-foreground">
-                {progress < 10
-                  ? "Analysing your brand…"
-                  : progress < 20
-                  ? "Building content strategy…"
-                  : progress < 92
-                  ? `Generating slot ${Math.ceil(((progress - 20) / 72) * tier.slots)} of ${tier.slots}…`
-                  : "Saving to calendar…"}
-              </span>
-              <span className="text-xs font-medium text-violet-600">{progress}%</span>
+        return (
+          <div className="w-full max-w-lg text-center">
+            <div className={`mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-2xl shadow-lg ${
+              isStale ? "bg-amber-100 shadow-none" : "bg-gradient-to-br from-violet-600 to-indigo-600 shadow-violet-200"
+            }`}>
+              {isStale
+                ? <AlertTriangle className="h-10 w-10 text-amber-600" />
+                : <Loader2 className="h-10 w-10 text-white animate-spin" />}
             </div>
-            <div className="h-2.5 w-full overflow-hidden rounded-full bg-secondary">
-              <div
-                className="h-full rounded-full bg-gradient-to-r from-violet-500 via-indigo-500 to-violet-600 transition-all duration-1000 ease-out"
-                style={{ width: `${progress}%` }}
-              />
-            </div>
-          </div>
 
-          <div className="mt-6 space-y-2 text-left">
-            {[
-              { text: "Analysing your brand and products", done: progress >= 10 },
-              { text: "Generating personalised content strategy", done: progress >= 20 },
-              { text: `Creating ${tier.slots} content slots (${Math.min(tier.slots, Math.ceil(((progress - 20) / 72) * tier.slots))} / ${tier.slots})`, done: progress >= 92 },
-              { text: "Saving to your calendar", done: progress >= 100 },
-            ].map(({ text, done }, i) => (
-              <div key={i} className="flex items-center gap-3 rounded-lg border bg-card px-4 py-3">
-                {done
-                  ? <CheckCircle2 className="h-4 w-4 shrink-0 text-green-500" />
-                  : <Loader2 className="h-4 w-4 shrink-0 animate-spin text-violet-500" />}
-                <p className={`text-sm ${done ? "text-foreground font-medium" : "text-muted-foreground"}`}>{text}</p>
-              </div>
-            ))}
+            {isStale ? (
+              <>
+                <h2 className="text-2xl font-bold">This run is taking much longer than expected</h2>
+                <p className="mt-2 text-muted-foreground">
+                  It&apos;s likely run into a problem server-side rather than still actively working. Any content it
+                  already finished is still safely on your calendar — check there, or try running Autopilot again.
+                </p>
+                <div className="mt-6 flex flex-col gap-3 sm:flex-row">
+                  <Button asChild className="flex-1">
+                    <Link href={`/brands/${brandId}/calendar`}>
+                      <Calendar className="mr-2 h-4 w-4" />
+                      Check calendar
+                    </Link>
+                  </Button>
+                  <Button variant="outline" className="flex-1" onClick={() => { stopPolling(); setState("SETUP") }}>
+                    Start a new run
+                  </Button>
+                </div>
+              </>
+            ) : (
+              <>
+                <h2 className="text-2xl font-bold">Building your {tier.days}-day plan…</h2>
+                <p className="mt-2 text-muted-foreground">
+                  AI is crafting your content strategy and generating all {effectiveTotal} slots. This takes 1–3 minutes.
+                </p>
+
+                {/* Real progress bar, driven by autopilot_run_status — not a simulated animation */}
+                <div className="mt-6">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs text-muted-foreground">
+                      {!strategyDone
+                        ? "Building content strategy…"
+                        : !slotsDone
+                        ? `Generating slot ${completedSlots} of ${effectiveTotal}…`
+                        : "Wrapping up…"}
+                    </span>
+                    <span className="text-xs font-medium text-violet-600">{pct}%</span>
+                  </div>
+                  <div className="h-2.5 w-full overflow-hidden rounded-full bg-secondary">
+                    <div
+                      className="h-full rounded-full bg-gradient-to-r from-violet-500 via-indigo-500 to-violet-600 transition-all duration-1000 ease-out"
+                      style={{ width: `${pct}%` }}
+                    />
+                  </div>
+                </div>
+
+                <div className="mt-6 space-y-2 text-left">
+                  {[
+                    { text: "Generating personalised content strategy", done: strategyDone },
+                    { text: `Creating ${effectiveTotal} content slots (${completedSlots} / ${effectiveTotal})`, done: slotsDone },
+                  ].map(({ text, done }, i) => (
+                    <div key={i} className="flex items-center gap-3 rounded-lg border bg-card px-4 py-3">
+                      {done
+                        ? <CheckCircle2 className="h-4 w-4 shrink-0 text-green-500" />
+                        : <Loader2 className="h-4 w-4 shrink-0 animate-spin text-violet-500" />}
+                      <p className={`text-sm ${done ? "text-foreground font-medium" : "text-muted-foreground"}`}>{text}</p>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
           </div>
-        </div>
-      )}
+        )
+      })()}
 
       {/* DONE */}
       {state === "DONE" && result && (
