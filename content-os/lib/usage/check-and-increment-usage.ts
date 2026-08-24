@@ -23,11 +23,23 @@ export async function checkAndIncrementUsage(userId: string, cost: number): Prom
 
   const supabase = await createClient()
 
+  // Only `plan` is read here -- generation_count/generation_count_reset_at
+  // are never read into JS as a separate snapshot. They're read AND
+  // written atomically together inside charge_generation_usage (a single
+  // Postgres UPDATE, see supabase/migrations/036_atomic_generation_usage.sql),
+  // which is what actually closes the race the old SELECT-then-UPDATE had:
+  // confirmed live before this fix existed, 10 concurrent 1-credit charges
+  // against the same user landed as generation_count=2, not 10 -- 8 of them
+  // silently overwritten by whichever UPDATE happened to land last. This
+  // is the same access pattern lib/ai/fastlane.ts's executeFastlane() uses
+  // (Promise.allSettled across batches of concurrent slots), which is why
+  // a real Autopilot run's charge didn't stick even though the content it
+  // paid for did.
   const { data: user, error } = await supabase
     .from("users")
-    .select("plan, generation_count, generation_count_reset_at")
+    .select("plan")
     .eq("id", userId)
-    .single<{ plan: UserPlan; generation_count: number; generation_count_reset_at: string | null }>()
+    .single<{ plan: UserPlan }>()
 
   if (error || !user) {
     console.error(
@@ -39,23 +51,39 @@ export async function checkAndIncrementUsage(userId: string, cost: number): Prom
   }
 
   const limit = PLAN_LIMITS[user.plan].generations
-  let count = user.generation_count ?? 0
 
-  const resetAt = user.generation_count_reset_at ? new Date(user.generation_count_reset_at) : null
-  const needsReset = !resetAt || resetAt <= new Date()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: rows, error: rpcError } = await (supabase.rpc as any)("charge_generation_usage", {
+    p_user_id: userId,
+    p_cost: cost,
+    p_limit: limit,
+  }) as { data: { generation_count: number }[] | null; error: { message: string } | null }
 
-  if (needsReset) count = 0
+  if (rpcError) {
+    console.error(`[check-and-increment-usage] charge_generation_usage RPC failed for ${userId}:`, rpcError.message)
+    return { ok: false, status: 500, message: "Could not verify usage limits." }
+  }
 
-  // Was `count >= limit` — correct only when every action cost exactly 1
-  // (so "at the limit" and "can't afford the next action" were the same
-  // thing). Under weighted costs they're not: a user with headroom for a
-  // cheap action but not an expensive one needs `count + cost > limit`,
-  // not just "have I hit the ceiling at all."
-  if (count + cost > limit) {
-    console.error(
-      `[check-and-increment-usage] REJECTED user ${userId}: plan=${user.plan} count=${count} cost=${cost} limit=${limit} needsReset=${needsReset}`
-    )
+  // The function's WHERE guard rejects the update (zero rows, no charge
+  // applied) exactly when this cost would have taken the user over their
+  // plan limit -- the user row was already confirmed to exist just above,
+  // so a miss here can only mean the limit check failed, not a missing
+  // user. Re-reading the count purely for the rejection message below is
+  // read-only (nothing is written from it), so it can't reintroduce the
+  // charge race -- it only ever affects what the error text says, never
+  // whether/how much gets charged.
+  const updated = rows?.[0]
+  if (!updated) {
+    const { data: current } = await supabase
+      .from("users")
+      .select("generation_count")
+      .eq("id", userId)
+      .single<{ generation_count: number }>()
+    const count = current?.generation_count ?? limit
     const remaining = Math.max(0, limit - count)
+    console.error(
+      `[check-and-increment-usage] REJECTED user ${userId}: plan=${user.plan} count=${count} cost=${cost} limit=${limit}`
+    )
     return {
       ok: false,
       status: 429,
@@ -66,23 +94,8 @@ export async function checkAndIncrementUsage(userId: string, cost: number): Prom
   }
 
   console.log(
-    `[check-and-increment-usage] OK user ${userId}: plan=${user.plan} count=${count} cost=${cost} limit=${limit} needsReset=${needsReset} — incrementing to ${count + cost}`
+    `[check-and-increment-usage] OK user ${userId}: plan=${user.plan} cost=${cost} limit=${limit} — new count ${updated.generation_count}`
   )
-
-  const nextResetDate = new Date()
-  nextResetDate.setMonth(nextResetDate.getMonth() + 1)
-
-  if (needsReset) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await (supabase.from("users") as any)
-      .update({ generation_count: count + cost, generation_count_reset_at: nextResetDate.toISOString() })
-      .eq("id", userId)
-  } else {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await (supabase.from("users") as any)
-      .update({ generation_count: count + cost })
-      .eq("id", userId)
-  }
 
   return { ok: true }
 }
@@ -108,19 +121,18 @@ export async function refundGenerationUsage(supabase: SupabaseClient<Database>, 
     return
   }
 
-  const { data: user, error } = await supabase
-    .from("users")
-    .select("generation_count")
-    .eq("id", userId)
-    .single<{ generation_count: number }>()
-
-  if (error || !user) {
-    console.error(`[check-and-increment-usage] refund lookup failed for user ${userId}:`, error?.message)
-    return
-  }
-
+  // Same atomic treatment as charge_generation_usage above and for the
+  // same reason: this used to be a SELECT-then-UPDATE too, and a refund
+  // racing against a fresh concurrent charge is the identical lost-update
+  // bug in the opposite direction (a legitimate charge landing in between
+  // this refund's read and write would get silently wiped out by this
+  // write overwriting it with a stale computed value). A single UPDATE
+  // (supabase/migrations/036_atomic_generation_usage.sql) floors at 0
+  // server-side instead.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  await (supabase.from("users") as any)
-    .update({ generation_count: Math.max(0, (user.generation_count ?? 0) - cost) })
-    .eq("id", userId)
+  const { error } = await (supabase.rpc as any)("refund_generation_usage", { p_user_id: userId, p_cost: cost }) as { error: { message: string } | null }
+
+  if (error) {
+    console.error(`[check-and-increment-usage] refund_generation_usage RPC failed for user ${userId}:`, error.message)
+  }
 }

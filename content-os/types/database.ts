@@ -1211,7 +1211,19 @@ export type Database = {
       }
     }
     Views: Record<string, never>
-    Functions: Record<string, never>
+    Functions: {
+      // Atomic increment with a plan-limit guard, replacing the old
+      // SELECT-then-UPDATE in lib/usage/check-and-increment-usage.ts —
+      // see supabase/migrations/036_atomic_generation_usage.sql for why.
+      charge_generation_usage: {
+        Args: { p_user_id: string; p_cost: number; p_limit: number }
+        Returns: { generation_count: number }[]
+      }
+      refund_generation_usage: {
+        Args: { p_user_id: string; p_cost: number }
+        Returns: { generation_count: number }[]
+      }
+    }
     Enums: Record<string, never>
   }
 }
