@@ -197,9 +197,18 @@ export async function POST(request: Request) {
       }
     }
 
-    // Persist hook
+    // Persist hook. Explicitly checked -- confirmed live against the real
+    // database (not assumed) that Supabase's client does NOT throw for a
+    // genuine Postgres/PostgREST rejection (RLS denial, missing column,
+    // constraint violation, etc.) on a normal .insert(); it resolves with
+    // {data:null, error:{...}}. This used to be a bare, unchecked insert,
+    // so a rejection here was completely invisible while the response
+    // still claimed success. A failure here throws (caught below), which
+    // is deliberately NOT retried -- see the captions note just below for
+    // why: the confirmed failure mode is structural, and retrying a
+    // structurally-doomed insert would just fail identically again.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await (supabase.from("hooks") as any).insert({
+    const { error: hookInsertError } = await (supabase.from("hooks") as any).insert({
       brand_id: brandId,
       product_id: productId ?? null,
       hook_text: hook.hook_text,
@@ -208,50 +217,71 @@ export async function POST(request: Request) {
       model_used: hookResult.model,
       is_saved: true,
     })
+    if (hookInsertError) throw new Error(`Failed to save hook: ${hookInsertError.message}`)
 
-    // Persist content to its table
-    try {
-      if (format === "social_post") {
-        const caption = contentResult.data as GeneratedCaption
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        await (supabase.from("captions") as any).insert({
-          brand_id: brandId, product_id: productId ?? null,
-          content_project_id: contentProjectId,
-          caption_text: caption.caption_text, hashtags: caption.hashtags,
-          cta: caption.cta, character_count: caption.character_count,
-          platform: platform ?? "instagram", model_used: contentResult.model,
-          is_saved: true,
-        })
-      } else if (format === "reel_script") {
-        const script = contentResult.data as ReelScript
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        await (supabase.from("reel_scripts") as any).insert({
-          brand_id: brandId, product_id: productId ?? null,
-          platform: platform ?? null, hook: script.hook,
-          scenes: script.scenes, caption: script.caption ?? null,
-          hashtags: script.hashtags ?? [], is_saved: true,
-        })
-      } else if (format === "carousel") {
-        const carousel = contentResult.data as CarouselContent
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        await (supabase.from("carousels") as any).insert({
-          brand_id: brandId, product_id: productId ?? null,
-          platform: platform ?? null, slides: carousel.slides,
-          hashtags: carousel.hashtags ?? [], is_saved: true,
-        })
-      } else if (format === "ad_copy") {
-        const ad = contentResult.data as AdCopy
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        await (supabase.from("ad_copies") as any).insert({
-          brand_id: brandId, product_id: productId ?? null,
-          platform: platform ?? null, headline: ad.headline,
-          primary_text: ad.primary_text, description: ad.description ?? null,
-          cta_button: ad.cta_button ?? null, is_saved: true,
-        })
-      }
-    } catch (persistErr) {
-      console.error("[ai/fullpost/generate] persist failed (non-fatal):", persistErr)
+    // Persist content to its table. Same explicit-error-check reasoning as
+    // the hook insert above -- confirmed live (2026-08-24) that this was
+    // silently failing 100% of the time for social_post specifically: the
+    // captions insert included `product_id`, a column that has never
+    // existed on public.captions (migrations/001_initial_schema.sql never
+    // added it -- only hooks/reel_scripts/carousels/ad_copies have a real
+    // product_id column, all separately confirmed live to insert fine).
+    // PostgREST rejected every attempt with PGRST204 "Could not find the
+    // 'product_id' column of 'captions' in the schema cache", and since
+    // nothing here ever checked .error, that rejection was invisible: no
+    // log, no thrown exception, and the route still returned 200 with a
+    // complete-looking hook/caption/image response. Removed the erroneous
+    // field (captions' product association already exists via hook_id ->
+    // hooks.product_id and content_project_id -> content_projects.product_id,
+    // so nothing is lost) and made every insert below throw a real error
+    // instead of silently swallowing one -- caught by this function's
+    // existing outer catch, which already refunds usage and returns a
+    // real error response, so the client is never told a post succeeded
+    // when its core content record didn't save.
+    let contentInsertError: { message: string } | null = null
+    if (format === "social_post") {
+      const caption = contentResult.data as GeneratedCaption
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { error } = await (supabase.from("captions") as any).insert({
+        brand_id: brandId,
+        content_project_id: contentProjectId,
+        caption_text: caption.caption_text, hashtags: caption.hashtags,
+        cta: caption.cta, character_count: caption.character_count,
+        platform: platform ?? "instagram", model_used: contentResult.model,
+        is_saved: true,
+      })
+      contentInsertError = error
+    } else if (format === "reel_script") {
+      const script = contentResult.data as ReelScript
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { error } = await (supabase.from("reel_scripts") as any).insert({
+        brand_id: brandId, product_id: productId ?? null,
+        platform: platform ?? null, hook: script.hook,
+        scenes: script.scenes, caption: script.caption ?? null,
+        hashtags: script.hashtags ?? [], is_saved: true,
+      })
+      contentInsertError = error
+    } else if (format === "carousel") {
+      const carousel = contentResult.data as CarouselContent
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { error } = await (supabase.from("carousels") as any).insert({
+        brand_id: brandId, product_id: productId ?? null,
+        platform: platform ?? null, slides: carousel.slides,
+        hashtags: carousel.hashtags ?? [], is_saved: true,
+      })
+      contentInsertError = error
+    } else if (format === "ad_copy") {
+      const ad = contentResult.data as AdCopy
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { error } = await (supabase.from("ad_copies") as any).insert({
+        brand_id: brandId, product_id: productId ?? null,
+        platform: platform ?? null, headline: ad.headline,
+        primary_text: ad.primary_text, description: ad.description ?? null,
+        cta_button: ad.cta_button ?? null, is_saved: true,
+      })
+      contentInsertError = error
     }
+    if (contentInsertError) throw new Error(`Failed to save ${format} content: ${contentInsertError.message}`)
 
     // Pure logging — deferred via after() so it runs once the response has
     // been sent instead of adding its own latency to it. Plain
