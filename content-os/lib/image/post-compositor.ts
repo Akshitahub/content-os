@@ -217,7 +217,7 @@ interface OverlayResult {
   logoBox: { x: number; y: number; size: number } | null
 }
 
-function buildBoldStatement(captionText: string, theme: ColorTheme, font: fontkit.Font): OverlayResult {
+function buildBoldStatement(captionText: string, theme: ColorTheme, font: fontkit.Font, hasLogo: boolean): OverlayResult {
   const { lines, fontSize, lineHeight, blockHeight } = fitText(font, captionText.toUpperCase(), {
     startFontSize: 92,
     minFontSize: MIN_HEADLINE_FONT_SIZE,
@@ -243,12 +243,12 @@ function buildBoldStatement(captionText: string, theme: ColorTheme, font: fontki
     </defs>
     <rect x="0" y="575" width="${CANVAS_WIDTH}" height="${CANVAS_HEIGHT - 575}" fill="url(#scrim)"/>
     ${textSvg}
-    <circle cx="106" cy="106" r="50" fill="#ffffff" fill-opacity="0.92"/>
+    ${hasLogo ? `<circle cx="106" cy="106" r="50" fill="#ffffff" fill-opacity="0.92"/>` : ""}
   `
   return { svg, logoBox: { x: 66, y: 66, size: 80 } }
 }
 
-function buildProductFocus(captionText: string, theme: ColorTheme, font: fontkit.Font): OverlayResult {
+function buildProductFocus(captionText: string, theme: ColorTheme, font: fontkit.Font, hasLogo: boolean): OverlayResult {
   const { lines, fontSize, lineHeight } = fitText(font, captionText.toUpperCase(), {
     startFontSize: 62,
     minFontSize: MIN_HEADLINE_FONT_SIZE,
@@ -278,12 +278,12 @@ function buildProductFocus(captionText: string, theme: ColorTheme, font: fontkit
     ${textSvg}
     <rect x="0" y="${bandTop}" width="${CANVAS_WIDTH}" height="${CANVAS_HEIGHT - bandTop}" fill="${theme.primary}"/>
     <rect x="0" y="${bandTop}" width="${CANVAS_WIDTH}" height="${CANVAS_HEIGHT - bandTop}" fill="#000000" fill-opacity="0.12"/>
-    <circle cx="106" cy="${bandTop + (CANVAS_HEIGHT - bandTop) / 2}" r="42" fill="#ffffff" fill-opacity="0.92"/>
+    ${hasLogo ? `<circle cx="106" cy="${bandTop + (CANVAS_HEIGHT - bandTop) / 2}" r="42" fill="#ffffff" fill-opacity="0.92"/>` : ""}
   `
   return { svg, logoBox: { x: 71, y: bandTop + (CANVAS_HEIGHT - bandTop) / 2 - 35, size: 70 } }
 }
 
-function buildQuoteCard(captionText: string, theme: ColorTheme, font: fontkit.Font): OverlayResult {
+function buildQuoteCard(captionText: string, theme: ColorTheme, font: fontkit.Font, hasLogo: boolean): OverlayResult {
   const { lines, fontSize, lineHeight, blockHeight } = fitText(font, captionText, {
     startFontSize: 72,
     minFontSize: MIN_HEADLINE_FONT_SIZE,
@@ -304,12 +304,12 @@ function buildQuoteCard(captionText: string, theme: ColorTheme, font: fontkit.Fo
     <text x="90" y="${startY - blockHeight - 20}" font-family="PostFont, sans-serif" font-weight="900" font-size="220" fill="${theme.secondary}" fill-opacity="0.5">&#8220;</text>
     ${textSvg}
     <rect x="0" y="${CANVAS_HEIGHT - ctaBarHeight}" width="${CANVAS_WIDTH}" height="${ctaBarHeight}" fill="#000000" fill-opacity="0.3"/>
-    <circle cx="${CANVAS_WIDTH / 2}" cy="${CANVAS_HEIGHT - 65}" r="30" fill="#ffffff" fill-opacity="0.9"/>
+    ${hasLogo ? `<circle cx="${CANVAS_WIDTH / 2}" cy="${CANVAS_HEIGHT - 65}" r="30" fill="#ffffff" fill-opacity="0.9"/>` : ""}
   `
   return { svg, logoBox: { x: CANVAS_WIDTH / 2 - 30, y: CANVAS_HEIGHT - 95, size: 60 } }
 }
 
-function buildMinimal(captionText: string, theme: ColorTheme, font: fontkit.Font): OverlayResult {
+function buildMinimal(captionText: string, theme: ColorTheme, font: fontkit.Font, hasLogo: boolean): OverlayResult {
   const padX = 70
   const { lines, fontSize, lineHeight, blockHeight } = fitText(font, captionText.toUpperCase(), {
     startFontSize: 54,
@@ -340,7 +340,7 @@ function buildMinimal(captionText: string, theme: ColorTheme, font: fontkit.Font
     <rect x="0" y="${boxY}" width="${CANVAS_WIDTH}" height="${boxHeight}" fill="#000000" fill-opacity="0.42"/>
     <rect x="${padX}" y="${boxY + topPad}" width="52" height="${barHeight}" fill="${theme.primary}"/>
     ${textSvg}
-    <rect x="${CANVAS_WIDTH - 130}" y="50" width="70" height="70" rx="12" fill="#ffffff" fill-opacity="0.9"/>
+    ${hasLogo ? `<rect x="${CANVAS_WIDTH - 130}" y="50" width="70" height="70" rx="12" fill="#ffffff" fill-opacity="0.9"/>` : ""}
   `
   return { svg, logoBox: { x: CANVAS_WIDTH - 122, y: 58, size: 54 } }
 }
@@ -394,6 +394,14 @@ export async function compositePostImage(
   }
 
   const captionText = options.captionText.trim()
+  // Known upfront so each builder can skip drawing an empty white circle/
+  // rounded-rect logo backdrop when there's nothing to fill it -- this only
+  // reflects whether a logo URL was provided, not that the later fetch
+  // (fetchLogoBuffer below) will actually succeed. If the fetch fails after
+  // the SVG is already built, the backdrop will have been drawn with
+  // nothing composited on top of it -- a pre-existing, rare edge case left
+  // as-is rather than solved here.
+  const hasLogo = !!options.logoUrl
 
   const builder =
     options.template === "bold_statement" ? buildBoldStatement :
@@ -403,7 +411,7 @@ export async function compositePostImage(
 
   const fontId = options.fontId ?? DEFAULT_FONT_ID
   const font = await getFont(fontId)
-  const { svg: overlaySvg, logoBox } = builder(captionText, options.colorTheme, font)
+  const { svg: overlaySvg, logoBox } = builder(captionText, options.colorTheme, font, hasLogo)
   const svg = `<svg width="${CANVAS_WIDTH}" height="${CANVAS_HEIGHT}" xmlns="http://www.w3.org/2000/svg">${overlaySvg}</svg>`
 
   const fontPath = await getFontPath(fontId)
