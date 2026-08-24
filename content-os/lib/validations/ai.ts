@@ -121,6 +121,10 @@ export const extractFromUrlSchema = z.object({
 export type ExtractFromUrlInput = z.infer<typeof extractFromUrlSchema>
 
 const postTemplateEnum = z.enum(["bold_statement", "product_focus", "quote_card", "minimal", "blank"])
+// Matches lib/design/fonts.ts's CURATED_FONTS ids exactly -- kept as a
+// static literal here rather than importing from lib/design, same
+// convention postTemplateEnum above already follows for lib/design/post-templates.ts.
+const postFontEnum = z.enum(["anton", "inter", "playfair", "quicksand", "caveat"])
 
 export const generatePostImageSchema = z.object({
   brandId: z.string().uuid("Invalid brand ID"),
@@ -143,6 +147,11 @@ export const generatePostImageSchema = z.object({
     .max(150, "Image text must be under 150 characters")
     .optional()
     .transform((val) => val?.replace(/<[^>]*>/g, "").trim()),
+  // Which curated font renders captionText, if any is provided -- optional,
+  // defaults to the pre-existing Anton font server-side (see
+  // lib/design/fonts.ts's DEFAULT_FONT_ID) so omitting this doesn't
+  // silently change behavior for anyone not using the picker yet.
+  fontId: postFontEnum.optional(),
   // Ties this call to the session created by /api/v1/ai/fullpost/generate,
   // so the server (not any client-supplied flag) can determine whether this
   // is the chargeable initial generation, the free first regenerate, or a

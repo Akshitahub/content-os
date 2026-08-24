@@ -70,7 +70,7 @@ export async function POST(request: Request) {
   const parsed = generatePostImageSchema.safeParse(body)
   if (!parsed.success) return NextResponse.json(buildError(ErrorCodes.VALIDATION_ERROR, "Validation failed.", parsed.error.message), { status: 400 })
 
-  const { brandId, productId, imagePrompt, template, colorThemeId, captionText, postSessionId, contentProjectId } = parsed.data
+  const { brandId, productId, imagePrompt, template, colorThemeId, captionText, fontId, postSessionId, contentProjectId } = parsed.data
 
   const sessionCheck = await checkAndIncrementPostImageSession(user.id, postSessionId)
   const shouldCharge = sessionCheck.ok ? sessionCheck.shouldCharge : true
@@ -125,6 +125,7 @@ export async function POST(request: Request) {
     template,
     colorTheme,
     captionText,
+    fontId,
     logoUrl: brand.logo_url,
     plan,
     isInternalUnlimitedUser: isInternalUnlimited(user.id),

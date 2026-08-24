@@ -7,6 +7,7 @@ import { decompress } from "wawoff2"
 import * as fontkit from "fontkit"
 import type { PostTemplateId } from "@/lib/design/post-templates"
 import type { ColorTheme } from "@/lib/design/color-themes"
+import { CURATED_FONTS, DEFAULT_FONT_ID, findFont } from "@/lib/design/fonts"
 
 // Matches lib/ai/post-image-pipeline.ts's PORTRAIT_DIMENSIONS (4:5, the
 // current Instagram feed default) — width unchanged from the old square
@@ -28,39 +29,44 @@ const CANVAS_HEIGHT = 1350
 const MIN_HEADLINE_FONT_SIZE = 28
 
 // Same cached-TTF pattern as lib/image/meme-compositor.ts — resvg-js's font
-// loader only accepts raw TrueType/OpenType, not woff2, so the bundled
-// @fontsource/anton woff2 is decompressed to a TTF once and cached in /tmp
-// across warm serverless invocations. Deliberately reuses the same font as
-// memes rather than adding new font families (see project decision).
-let cachedFontPath: string | null = null
+// loader only accepts raw TrueType/OpenType, not woff2, so each curated
+// @fontsource woff2 is decompressed to a TTF once and cached in /tmp across
+// warm serverless invocations. Keyed by font id (was a single global when
+// Anton was the only option) so all five curated fonts can be cached
+// independently rather than each request evicting the last one.
+const fontPathCache = new Map<string, string>()
 
-async function getFontPath(): Promise<string> {
-  if (cachedFontPath && existsSync(cachedFontPath)) return cachedFontPath
+async function getFontPath(fontId: string): Promise<string> {
+  const cached = fontPathCache.get(fontId)
+  if (cached && existsSync(cached)) return cached
 
-  const woff2Path = join(process.cwd(), "node_modules/@fontsource/anton/files/anton-latin-400-normal.woff2")
+  const font = findFont(CURATED_FONTS, fontId)
+  const woff2Path = join(process.cwd(), `node_modules/@fontsource/${font.packageName}/files/${font.fileName}`)
   const ttfBuffer = await decompress(readFileSync(woff2Path))
 
-  const ttfPath = join(tmpdir(), "post-compositor-anton.ttf")
+  const ttfPath = join(tmpdir(), `post-compositor-${font.id}.ttf`)
   writeFileSync(ttfPath, ttfBuffer)
-  cachedFontPath = ttfPath
+  fontPathCache.set(fontId, ttfPath)
   return ttfPath
 }
 
-// Parsed once and cached alongside the raw TTF path above — resvg needs the
-// file path to rasterize, fitText/measureTextWidth need the parsed font to
-// measure real glyph advance widths (see FIX 1: wrapText used to estimate
-// wrapping via a fixed characters-per-line budget, which had no idea how
-// wide Anton's glyphs actually render and would silently drop whole lines
-// of headline text that didn't fit that guess).
-let cachedFont: fontkit.Font | null = null
+// Parsed once per font and cached alongside the raw TTF path above — resvg
+// needs the file path to rasterize, fitText/measureTextWidth need the
+// parsed font to measure real glyph advance widths (see FIX 1: wrapText
+// used to estimate wrapping via a fixed characters-per-line budget, which
+// had no idea how wide a font's glyphs actually render and would silently
+// drop whole lines of headline text that didn't fit that guess).
+const fontCache = new Map<string, fontkit.Font>()
 
-async function getFont(): Promise<fontkit.Font> {
-  if (cachedFont) return cachedFont
-  const ttfPath = await getFontPath()
-  // @fontsource/anton's file is a plain .ttf, never a collection, so this
-  // is always a single Font, not a FontCollection.
-  cachedFont = fontkit.openSync(ttfPath) as fontkit.Font
-  return cachedFont
+async function getFont(fontId: string): Promise<fontkit.Font> {
+  const cached = fontCache.get(fontId)
+  if (cached) return cached
+  const ttfPath = await getFontPath(fontId)
+  // Every curated @fontsource file here is a plain .ttf, never a
+  // collection, so this is always a single Font, not a FontCollection.
+  const font = fontkit.openSync(ttfPath) as fontkit.Font
+  fontCache.set(fontId, font)
+  return font
 }
 
 function escapeXml(s: string): string {
@@ -360,6 +366,10 @@ export interface CompositePostImageOptions {
    * background image instead). */
   captionText: string
   logoUrl: string | null
+  /** Which curated font (lib/design/fonts.ts) renders captionText — falls
+   * back to DEFAULT_FONT_ID (the pre-existing Anton) when omitted, so
+   * behavior doesn't silently change for any caller not passing this yet. */
+  fontId?: string
 }
 
 /**
@@ -391,11 +401,12 @@ export async function compositePostImage(
     options.template === "quote_card" ? buildQuoteCard :
     buildMinimal
 
-  const font = await getFont()
+  const fontId = options.fontId ?? DEFAULT_FONT_ID
+  const font = await getFont(fontId)
   const { svg: overlaySvg, logoBox } = builder(captionText, options.colorTheme, font)
   const svg = `<svg width="${CANVAS_WIDTH}" height="${CANVAS_HEIGHT}" xmlns="http://www.w3.org/2000/svg">${overlaySvg}</svg>`
 
-  const fontPath = await getFontPath()
+  const fontPath = await getFontPath(fontId)
   const resvg = new Resvg(svg, {
     font: {
       fontFiles: [fontPath],

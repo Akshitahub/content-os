@@ -589,6 +589,9 @@ export interface GeneratePostImageOptions {
    * brand.cta_phrase, nothing generated ever gets stamped on the photo
    * unless the caller explicitly provides this. */
   captionText?: string | null
+  /** Which curated font (lib/design/fonts.ts) renders captionText, if any
+   * is provided — falls back to the pre-existing Anton font when omitted. */
+  fontId?: string
   logoUrl: string | null
   /** Determines the image provider (resolveImageProvider) — Free stays on
    * Pollinations, every paid tier gets Flux. */
@@ -685,6 +688,7 @@ export async function generatePostImage(options: GeneratePostImageOptions): Prom
       colorTheme: options.colorTheme,
       captionText,
       logoUrl: options.logoUrl,
+      fontId: options.fontId,
     })
     console.log(`[post-image-pipeline] composited successfully: ${composited.length} bytes`)
     return { success: true, buffer: composited, mimeType: "image/png", fullPrompt, provider: result.provider, attempts: result.attempts, textComposited: true }
