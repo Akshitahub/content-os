@@ -195,6 +195,12 @@ export function AdMaker({ brandId }: AdMakerProps) {
   // Step 1
   const [step, setStep] = useState<1 | 2 | 3>(1)
   const [originalPreview, setOriginalPreview] = useState<string | null>(null)
+  // The actual File object behind whichever upload path was used (browse,
+  // drag-drop, or paste) — the "Remove Background" button used to read
+  // fileInputRef.current.files directly, which is only ever populated by
+  // the browse path, so pasting or dropping an image left it a silent
+  // no-op (the preview still showed, but clicking the button did nothing).
+  const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [productDataUrl, setProductDataUrl] = useState<string | null>(null)
   const [removingBg, setRemovingBg] = useState(false)
   const [bgError, setBgError] = useState("")
@@ -290,6 +296,7 @@ export function AdMaker({ brandId }: AdMakerProps) {
     }
     setBgError("")
     setProductDataUrl(null)
+    setSelectedFile(file)
     const reader = new FileReader()
     reader.onload = () => setOriginalPreview(reader.result as string)
     reader.readAsDataURL(file)
@@ -454,6 +461,7 @@ export function AdMaker({ brandId }: AdMakerProps) {
   function reset() {
     setStep(1)
     setOriginalPreview(null)
+    setSelectedFile(null)
     setProductDataUrl(null)
     setBgError("")
     setResults([])
@@ -523,8 +531,17 @@ export function AdMaker({ brandId }: AdMakerProps) {
 
               {!productDataUrl && (
                 <button onClick={() => {
-                  if (!fileInputRef.current?.files?.[0]) return
-                  handleRemoveBg(fileInputRef.current.files[0], null)
+                  // fileInputRef.current.files is only ever populated by the
+                  // browse-to-upload path -- paste and drag-drop set
+                  // selectedFile (via processImageFile) instead, and the
+                  // paste-a-URL path only ever has originalPreview (a data
+                  // URL, no File object at all). Try all three rather than
+                  // assuming the file came from the file input.
+                  if (selectedFile) {
+                    handleRemoveBg(selectedFile, null)
+                  } else if (originalPreview) {
+                    handleRemoveBg(null, originalPreview)
+                  }
                 }}
                   disabled={removingBg}
                   className="flex w-full items-center justify-center gap-2 rounded-full bg-violet-600 py-2.5 text-sm font-semibold text-white transition hover:bg-violet-700 disabled:opacity-60">
