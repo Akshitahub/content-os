@@ -68,7 +68,44 @@ export async function GET(request: Request, { params }: RouteParams) {
       return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Failed to fetch captions.", error.message), { status: 500 })
     }
 
-    return NextResponse.json({ data: captions })
+    // Attach each caption's linked AI post image(s), if any -- captions and
+    // generated_images have zero direct relationship of their own, only a
+    // shared content_project_id (see app/api/v1/ai/fullpost/generate/route.ts
+    // and .../post-image/generate/route.ts, which now both set it). A
+    // project can have more than one image (each "Regenerate image" call
+    // inserts a new row rather than updating in place), so this is an array
+    // per caption, not a single image. One batched query, not one per
+    // caption.
+    const projectIds = Array.from(new Set(captions.map((c) => c.content_project_id).filter((id): id is string => !!id)))
+    const imagesByProject = new Map<string, { public_url: string }[]>()
+    if (projectIds.length > 0) {
+      const { data: images, error: imagesError } = await result.supabase!
+        .from("generated_images")
+        .select("content_project_id, public_url")
+        .in("content_project_id", projectIds)
+        .order("created_at", { ascending: false })
+        .returns<{ content_project_id: string | null; public_url: string }[]>()
+
+      if (imagesError) {
+        // Non-fatal — the Library still shows the caption text, just
+        // without its image this one time, rather than failing the whole list.
+        console.error(`[captions/${brandId}] GET linked-images query error (non-fatal):`, imagesError)
+      } else {
+        for (const img of images ?? []) {
+          if (!img.content_project_id) continue
+          const list = imagesByProject.get(img.content_project_id) ?? []
+          list.push({ public_url: img.public_url })
+          imagesByProject.set(img.content_project_id, list)
+        }
+      }
+    }
+
+    const captionsWithImages = captions.map((c) => ({
+      ...c,
+      images: c.content_project_id ? (imagesByProject.get(c.content_project_id) ?? []) : [],
+    }))
+
+    return NextResponse.json({ data: captionsWithImages })
   } catch (err) {
     console.error(`[captions/${brandId}] GET unexpected error:`, err)
     return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Failed to fetch captions."), { status: 500 })
