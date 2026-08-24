@@ -111,6 +111,34 @@ Respond with ONLY this JSON (no markdown, no explanation):
 Make every slide punchy, valuable, and shareable. The cover must stop the scroll immediately.`
 }
 
+// Mirrors CarouselBuilder.tsx's withCtaSlideMerged() -- the AI response's
+// CTA slide is a separate `cta_slide` field, never part of `slides`, and
+// until now the ONLY path that ever wrote it back to the database was the
+// background-image enrichment step in CarouselBuilder.tsx (~line 421-444),
+// which only PUTs the full slides array back if at least one of its two
+// best-effort AI background fetches happens to succeed. If both fail
+// (Free-tier/Pollinations rate-limiting, observed elsewhere in this
+// codebase) or the user navigates away first, the CTA slide never reaches
+// the database at all -- confirmed live as the root cause of Library
+// carousels showing 6 slides instead of 7. Doing the same merge here,
+// server-side, before the insert below, means the row is complete and
+// correct from the moment it's created, independent of that later,
+// optional, best-effort step.
+function mergeCtaSlideIntoSlides(slides: unknown[], ctaSlide: unknown): unknown[] {
+  if (!ctaSlide || typeof ctaSlide !== "object") return slides
+  if (slides.some((s) => s && typeof s === "object" && (s as { type?: unknown }).type === "cta")) return slides
+  const cta = ctaSlide as { headline?: unknown }
+  return [
+    ...slides,
+    {
+      slide_number: slides.length + 1,
+      type: "cta",
+      background_style: "gradient_dark",
+      headline: typeof cta.headline === "string" ? cta.headline : "",
+    },
+  ]
+}
+
 async function generateCarouselWithRetry(
   groq: ReturnType<typeof getGroqClient>,
   prompt: string,
@@ -212,6 +240,11 @@ export async function POST(request: Request) {
       return NextResponse.json(buildError(ErrorCodes.AI_GENERATION_FAILED, "Carousel generation failed. Please try again."), { status: 500 })
     }
 
+    // Complete from the start, not dependent on the later best-effort
+    // background-image enrichment step ever running/succeeding — see
+    // mergeCtaSlideIntoSlides's own comment above.
+    const mergedSlides = mergeCtaSlideIntoSlides(d.slides, d.cta_slide)
+
     // Persist (non-fatal) — matches the pattern used by every other
     // generate route: the generate call itself saves, the client never
     // needs a separate save request. The id is now returned to the client
@@ -226,7 +259,7 @@ export async function POST(request: Request) {
           brand_id: brandId,
           platform,
           title: typeof d.title === "string" ? d.title : null,
-          slides: d.slides,
+          slides: mergedSlides,
           hashtags: Array.isArray(d.hashtags) ? d.hashtags : [],
           is_saved: true,
         })
@@ -237,7 +270,13 @@ export async function POST(request: Request) {
       console.error("[ai/carousel/generate] persist failed (non-fatal):", persistErr)
     }
 
-    return NextResponse.json({ data: { ...d, id: carouselId } }, { status: 200 })
+    // slides returned to the client is the same merged array now saved to
+    // the row -- CarouselBuilder.tsx's own withCtaSlideMerged() sees the
+    // cta-type slide already present and is a no-op (it explicitly checks
+    // for this), so this doesn't change client behavior, just keeps what
+    // the client renders and what's in the database consistent from the
+    // very first response.
+    return NextResponse.json({ data: { ...d, slides: mergedSlides, id: carouselId } }, { status: 200 })
   } catch (err) {
     await refundGenerationUsage(supabase, user.id, CAROUSEL)
     const msg = err instanceof Error ? err.message : "Generation failed"
