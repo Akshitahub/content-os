@@ -103,7 +103,7 @@ const SQUARE_DIMENSIONS: ImageDimensions = { width: CANVAS_SIZE, height: CANVAS_
 const PORTRAIT_DIMENSIONS: ImageDimensions = { width: 1080, height: 1350, aspectRatio: "3:4" }
 
 export type PostImagePipelineResult =
-  | { success: true; buffer: Buffer; mimeType: string; fullPrompt: string; provider: "pollinations" | "flux"; attempts: ImageGenerationAttempt[] }
+  | { success: true; buffer: Buffer; mimeType: string; fullPrompt: string; provider: "pollinations" | "flux"; attempts: ImageGenerationAttempt[]; textComposited: boolean }
   | { success: false; error: string; attempts: ImageGenerationAttempt[] }
 
 // Structured failure classification — distinct from the free-text `error`
@@ -583,8 +583,12 @@ export interface GeneratePostImageOptions {
   targetAudience: string | null
   template: PostTemplateId
   colorTheme: ColorTheme
-  headline: string
-  ctaText: string
+  /** The one piece of user-typed text to composite onto the image — fully
+   * optional. Omitted/empty means no text overlay of any kind: no
+   * auto-filled headline from a picked hook, no auto-filled CTA from
+   * brand.cta_phrase, nothing generated ever gets stamped on the photo
+   * unless the caller explicitly provides this. */
+  captionText?: string | null
   logoUrl: string | null
   /** Determines the image provider (resolveImageProvider) — Free stays on
    * Pollinations, every paid tier gets Flux. */
@@ -624,6 +628,8 @@ export async function generatePostImage(options: GeneratePostImageOptions): Prom
   const cappedImagePrompt = capLength(options.imagePrompt, MAX_IMAGE_PROMPT_CHARS)
   const cappedTargetAudience = options.targetAudience ? capLength(options.targetAudience, MAX_TARGET_AUDIENCE_CHARS) : null
   const hasReferenceImage = !!options.productImageUrl
+  const captionText = options.captionText?.trim() || ""
+  const willCompositeText = !!captionText && options.template !== "blank"
 
   const sceneDescription = [
     cappedImagePrompt,
@@ -633,7 +639,11 @@ export async function generatePostImage(options: GeneratePostImageOptions): Prom
     PHOTOGRAPHY_STYLE,
     NO_PEOPLE_BY_DEFAULT_GUARD,
     buildNegativeGuard(options.brandNiche),
-    "leave the lower third of the frame visually simpler and less busy for a text overlay",
+    // Only relevant when there's actually going to be a text overlay —
+    // biasing every image toward a simpler lower third no longer makes
+    // sense now that a clean, text-free image is the default (Commit 2:
+    // text overlay is opt-in, not auto-injected).
+    willCompositeText ? "leave the lower third of the frame visually simpler and less busy for a text overlay" : "",
     CENTERED_COMPOSITION_GUARD,
     POST_IMAGE_QUALITY_AND_NEGATIVE_GUARD,
   ].filter(Boolean).join(", ")
@@ -649,20 +659,35 @@ export async function generatePostImage(options: GeneratePostImageOptions): Prom
   const result = await fetchBackgroundImage(fullPrompt, retryPrompt, options.plan, options.isInternalUnlimitedUser, undefined, options.productImageUrl)
   if (!result.success) return result
 
+  // No caption text (the new default) — skip compositePostImage entirely
+  // rather than compositing an empty/placeholder overlay. Still needs the
+  // same resize-to-target-canvas normalization compositePostImage's own
+  // sharp call does, so the output is consistent regardless of which path
+  // ran (and regardless of what resolution the provider actually returned).
+  if (!willCompositeText) {
+    console.log(`[post-image-pipeline] no caption text provided -- skipping text compositing, returning plain background`)
+    try {
+      const normalized = await sharp(result.buffer).resize(PORTRAIT_DIMENSIONS.width, PORTRAIT_DIMENSIONS.height, { fit: "cover" }).png().toBuffer()
+      return { success: true, buffer: normalized, mimeType: "image/png", fullPrompt, provider: result.provider, attempts: result.attempts, textComposited: false }
+    } catch (err) {
+      console.error("[post-image-pipeline] normalizing plain background failed:", err instanceof Error ? `${err.name}: ${err.message}` : err)
+      return { success: false, error: "Couldn't finish preparing the generated image. Please try again.", attempts: result.attempts }
+    }
+  }
+
   console.log(
-    `[post-image-pipeline] compositing: template=${options.template} colorTheme=${options.colorTheme.id} logoUrl=${options.logoUrl ? "present" : "none"} headlineLen=${options.headline.length}`
+    `[post-image-pipeline] compositing: template=${options.template} colorTheme=${options.colorTheme.id} logoUrl=${options.logoUrl ? "present" : "none"} captionLen=${captionText.length}`
   )
 
   try {
     const composited = await compositePostImage(result.buffer, {
       template: options.template,
       colorTheme: options.colorTheme,
-      headline: options.headline,
-      ctaText: options.ctaText,
+      captionText,
       logoUrl: options.logoUrl,
     })
     console.log(`[post-image-pipeline] composited successfully: ${composited.length} bytes`)
-    return { success: true, buffer: composited, mimeType: "image/png", fullPrompt, provider: result.provider, attempts: result.attempts }
+    return { success: true, buffer: composited, mimeType: "image/png", fullPrompt, provider: result.provider, attempts: result.attempts, textComposited: true }
   } catch (err) {
     console.error("[post-image-pipeline] compositing failed:", err instanceof Error ? `${err.name}: ${err.message}\n${err.stack}` : err)
     return { success: false, error: "Couldn't finish styling the generated image. Please try again.", attempts: result.attempts }

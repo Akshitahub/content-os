@@ -175,14 +175,20 @@ export async function POST(request: Request, { params }: RouteParams) {
     const existingData = (entry.platform_specific_data ?? {}) as Record<string, unknown>
     const platformData: Record<string, unknown> = { ...existingData }
 
+    // This route regenerates an existing calendar entry (created by
+    // Autopilot or manual scheduling), not the interactive Create -> Full
+    // Post flow this task's "no way to opt out" complaint is about --
+    // preserves the entry's existing visual behavior (text on the image)
+    // by merging the old separate headline/CTA into the pipeline's new
+    // single captionText field, same reasoning as lib/ai/fastlane.ts.
+    const regenCaptionText = [hook.hook_text, caption.cta || brand.cta_phrase || "Shop now"].filter(Boolean).join(" — ")
     const imageResult = await generatePostImage({
       imagePrompt: caption.image_prompt || entry.visual_direction || "professional product photography",
       brandNiche: brand.niche,
       targetAudience: brand.target_audience,
       template: DEFAULT_POST_TEMPLATE_ID,
       colorTheme: resolveColorThemes(brand)[0]!,
-      headline: hook.hook_text,
-      ctaText: caption.cta || brand.cta_phrase || "Shop now",
+      captionText: regenCaptionText,
       logoUrl: brand.logo_url,
       plan,
       isInternalUnlimitedUser,

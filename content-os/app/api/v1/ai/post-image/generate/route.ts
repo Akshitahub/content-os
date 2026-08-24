@@ -70,7 +70,7 @@ export async function POST(request: Request) {
   const parsed = generatePostImageSchema.safeParse(body)
   if (!parsed.success) return NextResponse.json(buildError(ErrorCodes.VALIDATION_ERROR, "Validation failed.", parsed.error.message), { status: 400 })
 
-  const { brandId, productId, imagePrompt, template, colorThemeId, headline, ctaText, postSessionId, contentProjectId } = parsed.data
+  const { brandId, productId, imagePrompt, template, colorThemeId, captionText, postSessionId, contentProjectId } = parsed.data
 
   const sessionCheck = await checkAndIncrementPostImageSession(user.id, postSessionId)
   const shouldCharge = sessionCheck.ok ? sessionCheck.shouldCharge : true
@@ -114,14 +114,17 @@ export async function POST(request: Request) {
   )
 
   const startTime = Date.now()
+  // No auto-fill: captionText comes through exactly as the user typed it
+  // (or didn't) -- no headline picked from the AI-generated hook, no CTA
+  // defaulted from brand.cta_phrase/"Shop now". Empty/omitted means a
+  // clean, text-free image.
   const result = await generatePostImage({
     imagePrompt,
     brandNiche: brand.niche,
     targetAudience: brand.target_audience,
     template,
     colorTheme,
-    headline,
-    ctaText: ctaText || brand.cta_phrase || "Shop now",
+    captionText,
     logoUrl: brand.logo_url,
     plan,
     isInternalUnlimitedUser: isInternalUnlimited(user.id),
@@ -179,7 +182,10 @@ export async function POST(request: Request) {
   // is on the free plan), making it impossible to answer how often the
   // Flux->Pollinations fallback fires. provider is the new structured
   // column; model_used keeps its existing "<what produced this>+resvg-composite"
-  // shape for anything still reading it as a single label.
+  // shape for anything still reading it as a single label -- only appends
+  // "+resvg-composite" when compositing actually ran, since text overlay
+  // is now opt-in (a plain, uncomposited background is the common case).
+  const modelLabel = result.textComposited ? `${result.provider}+resvg-composite` : result.provider
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data: savedImage } = await (supabase.from("generated_images") as any).insert({
     brand_id: brandId,
@@ -190,8 +196,9 @@ export async function POST(request: Request) {
     aspect_ratio: "1:1",
     storage_path: storagePath,
     public_url: publicUrlData.publicUrl,
-    model_used: `${result.provider}+resvg-composite`,
+    model_used: modelLabel,
     provider: result.provider,
+    text_composited: result.textComposited,
     is_saved: true,
   }).select().single()
 
@@ -210,7 +217,7 @@ export async function POST(request: Request) {
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   await (supabase.from("ai_generation_logs") as any).insert({
-    user_id: user.id, brand_id: brandId, feature: FEATURE, model: `${result.provider}+resvg-composite`,
+    user_id: user.id, brand_id: brandId, feature: FEATURE, model: modelLabel,
     latency_ms: latencyMs, success: true,
   })
 

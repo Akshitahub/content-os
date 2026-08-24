@@ -134,13 +134,13 @@ export const generatePostImageSchema = z.object({
     .transform((val) => val.replace(/<[^>]*>/g, "").trim()),
   template: postTemplateEnum,
   colorThemeId: z.string().min(1, "Color theme is required"),
-  headline: z
+  // Fully optional -- replaces the old separate headline/ctaText fields.
+  // Omitted or empty means no text overlay at all: no auto-filled headline
+  // from a picked hook, no auto-filled CTA from brand.cta_phrase. Only
+  // what the user explicitly typed here ever gets composited.
+  captionText: z
     .string()
-    .max(120, "Headline must be under 120 characters")
-    .transform((val) => val.replace(/<[^>]*>/g, "").trim()),
-  ctaText: z
-    .string()
-    .max(60, "CTA text must be under 60 characters")
+    .max(150, "Image text must be under 150 characters")
     .optional()
     .transform((val) => val?.replace(/<[^>]*>/g, "").trim()),
   // Ties this call to the session created by /api/v1/ai/fullpost/generate,

@@ -158,8 +158,12 @@ export function FullPostGenerator({ brandId, products }: Props) {
   const runImageGeneration = useCallback((data: FullPostResult, sessionId: string) => {
     const caption = data.content.content as GeneratedCaption
     const imagePrompt = (caption.image_prompt?.trim() || `${data.hook.hook_text}, ${brand?.niche ?? "brand"} product`).slice(0, 500)
-    const headline = data.hook.hook_text.slice(0, 120)
-    const ctaText = (brand?.cta_phrase ?? "").slice(0, 60) || undefined
+    // Bridge for the post-image/generate route's new single captionText
+    // field (was separate headline/ctaText) -- still auto-filled from the
+    // picked hook + brand CTA for now, matching the exact prior behavior.
+    // Commit 4 replaces this with a real opt-in caption box the user
+    // types into themselves; this call site isn't the final one.
+    const captionText = [data.hook.hook_text.slice(0, 120), (brand?.cta_phrase ?? "").slice(0, 60)].filter(Boolean).join(" — ") || undefined
 
     setImageError(null)
     generatePostImageMutate(
@@ -169,8 +173,7 @@ export function FullPostGenerator({ brandId, products }: Props) {
         imagePrompt,
         template: selectedLayout,
         colorThemeId: effectiveColorThemeId,
-        headline,
-        ctaText,
+        captionText,
         postSessionId: sessionId,
         contentProjectId: data.contentProjectId ?? undefined,
       },

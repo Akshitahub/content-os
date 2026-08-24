@@ -692,6 +692,8 @@ export type Database = {
           model_used: string
           /** Which provider actually produced the base image ("pollinations" | "flux") — see lib/ai/post-image-pipeline.ts's BackgroundImageResult.provider. */
           provider: string | null
+          /** Whether this specific image had user-typed caption text composited onto it — text overlay is opt-in (see lib/ai/post-image-pipeline.ts's generatePostImage), so this can no longer be assumed true. */
+          text_composited: boolean
           is_saved: boolean
           created_at: string
         }
@@ -707,6 +709,7 @@ export type Database = {
           public_url: string
           model_used?: string
           provider?: string | null
+          text_composited?: boolean
           is_saved?: boolean
           created_at?: string
         }

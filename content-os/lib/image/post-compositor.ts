@@ -197,26 +197,6 @@ function fitText(font: fontkit.Font, text: string, opts: FitTextOptions): FitTex
   }
 }
 
-/**
- * CTA text through the exact same real-width-measuring fit logic as
- * headlines (FIX 1) — previously every template either used a
- * character-count heuristic for a pill's width (bold_statement) or had no
- * width bound on CTA text at all (product_focus/quote_card/minimal), so a
- * CTA anywhere near the 60-char input max would overflow the canvas or its
- * own background. `maxLines: 1` keeps it single-line whenever it fits —
- * wrapTextByWidth (inside fitText) will still return a 2nd line rather
- * than overflow if a full 60-char CTA doesn't fit even at the font floor.
- */
-function fitCtaText(font: fontkit.Font, ctaText: string, maxWidthPx: number, startFontSize: number, minFontSize: number): FitTextResult {
-  return fitText(font, ctaText, {
-    startFontSize,
-    minFontSize,
-    lineHeightMultiplier: 1.15,
-    maxWidthPx,
-    maxLines: 1,
-  })
-}
-
 // A thin dark stroke behind white text guarantees legibility regardless of
 // what's directly under it — the scrims below handle the general case, this
 // is the safety net for edge cases (a brand-color band that turns out to be
@@ -231,33 +211,22 @@ interface OverlayResult {
   logoBox: { x: number; y: number; size: number } | null
 }
 
-function buildBoldStatement(headline: string, cta: string, theme: ColorTheme, font: fontkit.Font): OverlayResult {
-  const { lines, fontSize, lineHeight, blockHeight } = fitText(font, headline.toUpperCase(), {
+function buildBoldStatement(captionText: string, theme: ColorTheme, font: fontkit.Font): OverlayResult {
+  const { lines, fontSize, lineHeight, blockHeight } = fitText(font, captionText.toUpperCase(), {
     startFontSize: 92,
     minFontSize: MIN_HEADLINE_FONT_SIZE,
     lineHeightMultiplier: 1.12,
     maxWidthPx: 960,
-    maxLines: 3,
+    maxLines: 4,
   })
   // 950 = 760 * (CANVAS_HEIGHT / 1080) — proportionally rescaled from the
   // original square canvas's tuned anchor (see canvas-height comment above).
+  // Still a sensible center within the scrim zone now that there's no CTA
+  // pill anchored below it (one text block instead of two, per the
+  // "one text box, only what's typed appears" redesign).
   const startY = 950 - blockHeight / 2 + fontSize * 0.8
 
-  const headlineSvg = lines.map((line, i) => textEl("50%", startY + i * lineHeight, "middle", fontSize, line)).join("")
-
-  const ctaCenterY = startY + lines.length * lineHeight + 70
-  const ctaText = cta.toUpperCase()
-  // Inner text budget for a pill capped at 900px total width (90px margin
-  // either side of the 1080px canvas), minus 80px of horizontal padding.
-  const ctaFit = fitCtaText(font, ctaText, 820, 32, 20)
-  const widestCtaLinePx = ctaFit.lines.reduce((max, l) => Math.max(max, measureTextWidth(font, l, ctaFit.fontSize)), 0)
-  const ctaPillWidth = Math.min(900, Math.max(160, widestCtaLinePx + 80))
-  const ctaPillHeight = Math.max(72, ctaFit.blockHeight + 32)
-  const ctaPillTop = ctaCenterY - ctaPillHeight / 2
-  const ctaFirstBaseline = ctaPillTop + (ctaPillHeight - ctaFit.blockHeight) / 2 + ctaFit.fontSize * 0.8
-  const ctaSvg = ctaFit.lines
-    .map((line, i) => textEl("50%", ctaFirstBaseline + i * ctaFit.lineHeight, "middle", ctaFit.fontSize, line))
-    .join("")
+  const textSvg = lines.map((line, i) => textEl("50%", startY + i * lineHeight, "middle", fontSize, line)).join("")
 
   const svg = `
     <defs>
@@ -267,41 +236,31 @@ function buildBoldStatement(headline: string, cta: string, theme: ColorTheme, fo
       </linearGradient>
     </defs>
     <rect x="0" y="575" width="${CANVAS_WIDTH}" height="${CANVAS_HEIGHT - 575}" fill="url(#scrim)"/>
-    ${headlineSvg}
-    <rect x="${CANVAS_WIDTH / 2 - ctaPillWidth / 2}" y="${ctaPillTop}" width="${ctaPillWidth}" height="${ctaPillHeight}" rx="${ctaPillHeight / 2}" fill="${theme.primary}"/>
-    ${ctaSvg}
+    ${textSvg}
     <circle cx="106" cy="106" r="50" fill="#ffffff" fill-opacity="0.92"/>
   `
   return { svg, logoBox: { x: 66, y: 66, size: 80 } }
 }
 
-function buildProductFocus(headline: string, cta: string, theme: ColorTheme, font: fontkit.Font): OverlayResult {
-  const { lines, fontSize, lineHeight } = fitText(font, headline.toUpperCase(), {
+function buildProductFocus(captionText: string, theme: ColorTheme, font: fontkit.Font): OverlayResult {
+  const { lines, fontSize, lineHeight } = fitText(font, captionText.toUpperCase(), {
     startFontSize: 62,
     minFontSize: MIN_HEADLINE_FONT_SIZE,
     lineHeightMultiplier: 1.15,
     maxWidthPx: 960,
-    maxLines: 2,
+    maxLines: 3,
   })
   // 1000 = 800 * (CANVAS_HEIGHT / 1080) — proportionally rescaled from the
   // original square canvas's tuned anchor.
   const bandTop = 1000
-  const headlineY = bandTop - 40 - (lines.length - 1) * lineHeight
+  const textY = bandTop - 40 - (lines.length - 1) * lineHeight
 
-  const headlineSvg = lines.map((line, i) => textEl("50%", headlineY + i * lineHeight, "middle", fontSize, line)).join("")
-  const ctaText = cta.toUpperCase()
+  const textSvg = lines.map((line, i) => textEl("50%", textY + i * lineHeight, "middle", fontSize, line)).join("")
 
-  // Right-anchored zone in the bottom band, leaving room for the logo
-  // circle on the left (centered at x=71, r=42) — real width budget
-  // instead of letting an unbound right-aligned string grow left forever.
-  const ctaMaxWidthPx = 680
-  const ctaFit = fitCtaText(font, ctaText, ctaMaxWidthPx, 34, 18)
-  const ctaAnchorY = bandTop + (CANVAS_HEIGHT - bandTop) / 2 + 12
-  const ctaFirstLineY = ctaAnchorY - (ctaFit.lines.length - 1) * ctaFit.lineHeight
-  const ctaSvg = ctaFit.lines
-    .map((line, i) => textEl(`${CANVAS_WIDTH - 60}`, ctaFirstLineY + i * ctaFit.lineHeight, "end", ctaFit.fontSize, line))
-    .join("")
-
+  // The bottom band + logo circle stay as this template's brand-accent
+  // chrome regardless of caption text — previously also held CTA text
+  // (right-anchored next to the logo), now just the solid color band and
+  // logo, since there's no second text field left to put there.
   const svg = `
     <defs>
       <linearGradient id="scrim" x1="0" y1="0" x2="0" y2="1">
@@ -310,91 +269,71 @@ function buildProductFocus(headline: string, cta: string, theme: ColorTheme, fon
       </linearGradient>
     </defs>
     <rect x="0" y="725" width="${CANVAS_WIDTH}" height="${bandTop - 725}" fill="url(#scrim)"/>
-    ${headlineSvg}
+    ${textSvg}
     <rect x="0" y="${bandTop}" width="${CANVAS_WIDTH}" height="${CANVAS_HEIGHT - bandTop}" fill="${theme.primary}"/>
     <rect x="0" y="${bandTop}" width="${CANVAS_WIDTH}" height="${CANVAS_HEIGHT - bandTop}" fill="#000000" fill-opacity="0.12"/>
     <circle cx="106" cy="${bandTop + (CANVAS_HEIGHT - bandTop) / 2}" r="42" fill="#ffffff" fill-opacity="0.92"/>
-    ${ctaSvg}
   `
   return { svg, logoBox: { x: 71, y: bandTop + (CANVAS_HEIGHT - bandTop) / 2 - 35, size: 70 } }
 }
 
-function buildQuoteCard(headline: string, cta: string, theme: ColorTheme, font: fontkit.Font): OverlayResult {
-  const { lines, fontSize, lineHeight, blockHeight } = fitText(font, headline, {
+function buildQuoteCard(captionText: string, theme: ColorTheme, font: fontkit.Font): OverlayResult {
+  const { lines, fontSize, lineHeight, blockHeight } = fitText(font, captionText, {
     startFontSize: 72,
     minFontSize: MIN_HEADLINE_FONT_SIZE,
     lineHeightMultiplier: 1.2,
     maxWidthPx: 940,
-    maxLines: 3,
+    maxLines: 4,
   })
   const startY = CANVAS_HEIGHT / 2 - blockHeight / 2 + fontSize * 0.75
 
-  const headlineSvg = lines.map((line, i) => textEl("50%", startY + i * lineHeight, "middle", fontSize, line, 700)).join("")
-  const ctaText = cta.toUpperCase()
+  const textSvg = lines.map((line, i) => textEl("50%", startY + i * lineHeight, "middle", fontSize, line, 700)).join("")
 
-  // Narrow zone (start x=560, canvas edge ~1040) is the tightest CTA budget
-  // of any template — real fitting matters most here. Grows upward from
-  // the original anchor (last line stays at the old baseline) rather than
-  // further off the bottom edge if 2 lines are needed, and the bottom bar
-  // grows tall enough to actually contain whatever comes out.
-  const ctaFit = fitCtaText(font, ctaText, 460, 26, 16)
-  const ctaBarHeight = Math.max(130, ctaFit.blockHeight + 60)
-  const ctaBaseY = CANVAS_HEIGHT - 55
-  const ctaSvg = ctaFit.lines
-    .map((line, i) => textEl(`${CANVAS_WIDTH / 2 + 20}`, ctaBaseY - (ctaFit.lines.length - 1 - i) * ctaFit.lineHeight, "start", ctaFit.fontSize, line))
-    .join("")
+  // Bottom bar now only needs to hold the logo circle (no CTA text left to
+  // size it against) — a fixed height comfortably fits the r=30 circle.
+  const ctaBarHeight = 130
 
   const svg = `
     <rect x="0" y="0" width="${CANVAS_WIDTH}" height="${CANVAS_HEIGHT}" fill="#000000" fill-opacity="0.38"/>
     <text x="90" y="${startY - blockHeight - 20}" font-family="PostFont, sans-serif" font-weight="900" font-size="220" fill="${theme.secondary}" fill-opacity="0.5">&#8220;</text>
-    ${headlineSvg}
+    ${textSvg}
     <rect x="0" y="${CANVAS_HEIGHT - ctaBarHeight}" width="${CANVAS_WIDTH}" height="${ctaBarHeight}" fill="#000000" fill-opacity="0.3"/>
-    <circle cx="${CANVAS_WIDTH / 2 - 90}" cy="${CANVAS_HEIGHT - 65}" r="30" fill="#ffffff" fill-opacity="0.9"/>
-    ${ctaSvg}
+    <circle cx="${CANVAS_WIDTH / 2}" cy="${CANVAS_HEIGHT - 65}" r="30" fill="#ffffff" fill-opacity="0.9"/>
   `
-  return { svg, logoBox: { x: CANVAS_WIDTH / 2 - 120, y: CANVAS_HEIGHT - 95, size: 60 } }
+  return { svg, logoBox: { x: CANVAS_WIDTH / 2 - 30, y: CANVAS_HEIGHT - 95, size: 60 } }
 }
 
-function buildMinimal(headline: string, cta: string, theme: ColorTheme, font: fontkit.Font): OverlayResult {
+function buildMinimal(captionText: string, theme: ColorTheme, font: fontkit.Font): OverlayResult {
   const padX = 70
-  const { lines, fontSize, lineHeight, blockHeight } = fitText(font, headline.toUpperCase(), {
+  const { lines, fontSize, lineHeight, blockHeight } = fitText(font, captionText.toUpperCase(), {
     startFontSize: 54,
     minFontSize: MIN_HEADLINE_FONT_SIZE,
     lineHeightMultiplier: 1.15,
     maxWidthPx: CANVAS_WIDTH - padX - 60,
-    maxLines: 2,
+    maxLines: 3,
   })
-  const ctaText = cta.toUpperCase()
-  const ctaFit = fitCtaText(font, ctaText, CANVAS_WIDTH - padX - 60, 24, 16)
 
-  // Box height built up from its actual content (bar, headline block, CTA
-  // block, padding) rather than a fixed guess — avoids the accent bar or
-  // CTA colliding with the headline when line count/font size vary, on
-  // either the headline or (now) the CTA.
+  // Box height built up from its actual content (bar, text block, padding)
+  // rather than a fixed guess — avoids the accent bar colliding with the
+  // text when line count/font size vary.
   const topPad = 40
   const barHeight = 4
-  const gapBarToHeadline = 30
-  const gapHeadlineToCta = 26
+  const gapBarToText = 30
   const bottomPad = 34
 
-  const headlineTop = topPad + barHeight + gapBarToHeadline
-  const headlineFirstBaseline = headlineTop + fontSize * 0.8
-  const ctaFirstBaseline = headlineTop + blockHeight + gapHeadlineToCta + ctaFit.fontSize * 0.8
-  const boxHeight = ctaFirstBaseline + (ctaFit.lines.length - 1) * ctaFit.lineHeight + bottomPad
+  const textTop = topPad + barHeight + gapBarToText
+  const textFirstBaseline = textTop + fontSize * 0.8
+  const boxHeight = textTop + blockHeight + bottomPad
   const boxY = CANVAS_HEIGHT - boxHeight
 
-  const headlineSvg = lines
-    .map((line, i) => textEl(`${padX}`, boxY + headlineFirstBaseline + i * lineHeight, "start", fontSize, line))
-    .join("")
-  const ctaSvg = ctaFit.lines
-    .map((line, i) => textEl(`${padX}`, boxY + ctaFirstBaseline + i * ctaFit.lineHeight, "start", ctaFit.fontSize, line, 700))
+  const textSvg = lines
+    .map((line, i) => textEl(`${padX}`, boxY + textFirstBaseline + i * lineHeight, "start", fontSize, line))
     .join("")
 
   const svg = `
     <rect x="0" y="${boxY}" width="${CANVAS_WIDTH}" height="${boxHeight}" fill="#000000" fill-opacity="0.42"/>
     <rect x="${padX}" y="${boxY + topPad}" width="52" height="${barHeight}" fill="${theme.primary}"/>
-    ${headlineSvg}
-    ${ctaSvg}
+    ${textSvg}
     <rect x="${CANVAS_WIDTH - 130}" y="50" width="70" height="70" rx="12" fill="#ffffff" fill-opacity="0.9"/>
   `
   return { svg, logoBox: { x: CANVAS_WIDTH - 122, y: 58, size: 54 } }
@@ -413,19 +352,26 @@ async function fetchLogoBuffer(logoUrl: string): Promise<Buffer | null> {
 export interface CompositePostImageOptions {
   template: PostTemplateId
   colorTheme: ColorTheme
-  headline: string
-  ctaText: string
+  /** The one piece of user-typed text composited onto the image — no more
+   * separate headline/CTA fields, no auto-generated fallback text.
+   * compositePostImage should only ever be called with this non-empty (see
+   * generatePostImage in lib/ai/post-image-pipeline.ts, which skips calling
+   * this entirely when there's no caption text and returns the plain
+   * background image instead). */
+  captionText: string
   logoUrl: string | null
 }
 
 /**
- * Overlays brand logo, headline, a brand-color accent, and CTA text onto a
- * base (Pollinations-generated) image, per the chosen template's layout.
- * Same pipeline as lib/image/meme-compositor.ts: build an SVG for the
- * vector/text elements, rasterize via resvg, composite over the base image
- * with sharp. `template === "blank"` skips all of this and returns the
- * base image untouched (the "Blank/Custom" option). Logo is composited as
- * its own raster layer rather than embedded in the SVG, to avoid resvg's
+ * Overlays brand logo, a brand-color accent, and the caller's one caption
+ * text onto a base (Pollinations-generated) image, per the chosen
+ * template's layout. Same pipeline as lib/image/meme-compositor.ts: build
+ * an SVG for the vector/text elements, rasterize via resvg, composite over
+ * the base image with sharp. `template === "blank"` skips all of this and
+ * returns the base image untouched (the "Blank/Custom" option) — even if
+ * captionText is non-empty, since "blank" means no overlay chrome of any
+ * kind, same as its pre-existing meaning. Logo is composited as its own
+ * raster layer rather than embedded in the SVG, to avoid resvg's
  * raster-image-in-SVG handling entirely — a plain sharp resize+composite
  * is simpler and more predictable.
  */
@@ -437,8 +383,7 @@ export async function compositePostImage(
     return sharp(baseImageBuffer).png().toBuffer()
   }
 
-  const headline = options.headline.trim()
-  const ctaText = options.ctaText.trim() || "Shop now"
+  const captionText = options.captionText.trim()
 
   const builder =
     options.template === "bold_statement" ? buildBoldStatement :
@@ -447,7 +392,7 @@ export async function compositePostImage(
     buildMinimal
 
   const font = await getFont()
-  const { svg: overlaySvg, logoBox } = builder(headline, ctaText, options.colorTheme, font)
+  const { svg: overlaySvg, logoBox } = builder(captionText, options.colorTheme, font)
   const svg = `<svg width="${CANVAS_WIDTH}" height="${CANVAS_HEIGHT}" xmlns="http://www.w3.org/2000/svg">${overlaySvg}</svg>`
 
   const fontPath = await getFontPath()
