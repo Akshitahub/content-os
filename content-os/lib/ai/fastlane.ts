@@ -645,6 +645,37 @@ export async function executeFastlane(
   userId: string,
   brandId: string,
   params?: AutopilotParams,
+  // Id of the row app/api/v1/brands/fastlane/route.ts already inserted
+  // into autopilot_run_status before calling this -- updated with real
+  // progress after each batch below, and marked done/error at the end, so
+  // a navigation away mid-run doesn't destroy all visibility into it. This
+  // whole function body is wrapped in a try/catch purely to mark that row
+  // 'error' on the way out; every existing throw site (brand not found,
+  // strategy generation failure, etc.) is otherwise untouched and still
+  // propagates to the caller exactly as before.
+  runStatusId?: string,
+): Promise<FastlaneResult> {
+  try {
+    return await executeFastlaneInner(supabase, userId, brandId, params, runStatusId)
+  } catch (err) {
+    if (runStatusId) {
+      const message = err instanceof Error ? err.message : String(err)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await (supabase.from("autopilot_run_status") as any)
+        .update({ status: "error", error_message: message, completed_at: new Date().toISOString() })
+        .eq("id", runStatusId)
+    }
+    throw err
+  }
+}
+
+async function executeFastlaneInner(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: SupabaseClient<any>,
+  userId: string,
+  brandId: string,
+  params: AutopilotParams | undefined,
+  runStatusId: string | undefined,
 ): Promise<FastlaneResult> {
   const errors: string[] = []
 
@@ -1048,9 +1079,21 @@ export async function executeFastlane(
         console.error("[fastlane] slot error:", msg)
       }
     }
+
+    // Real progress, not a simulated animation -- one UPDATE per batch
+    // (not per slot) so this stays cheap next to the actual generation
+    // work. completed_slots counts slots attempted so far (success or
+    // failure), matching slotsPlanned's denominator on the frontend.
+    if (runStatusId) {
+      const completedSoFar = Math.min(i + batch.length, slotsPlanned)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await (supabase.from("autopilot_run_status") as any)
+        .update({ completed_slots: completedSoFar })
+        .eq("id", runStatusId)
+    }
   }
 
-  return {
+  const finalResult: FastlaneResult = {
     brand_id: brandId,
     slots_planned: slotsPlanned,
     slots_generated: slotsGenerated,
@@ -1059,4 +1102,13 @@ export async function executeFastlane(
     errors,
     created_entries: createdEntries,
   }
+
+  if (runStatusId) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await (supabase.from("autopilot_run_status") as any)
+      .update({ status: "done", completed_slots: slotsPlanned, result: finalResult as unknown as Json, completed_at: new Date().toISOString() })
+      .eq("id", runStatusId)
+  }
+
+  return finalResult
 }

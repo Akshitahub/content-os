@@ -742,6 +742,39 @@ export type Database = {
         }
         Update: never
       }
+      autopilot_run_status: {
+        Row: {
+          id: string
+          brand_id: string
+          user_id: string
+          status: "running" | "done" | "error"
+          total_slots: number
+          completed_slots: number
+          result: Json | null
+          error_message: string | null
+          started_at: string
+          completed_at: string | null
+        }
+        Insert: {
+          id?: string
+          brand_id: string
+          user_id: string
+          status: "running" | "done" | "error"
+          total_slots: number
+          completed_slots?: number
+          result?: Json | null
+          error_message?: string | null
+          started_at?: string
+          completed_at?: string | null
+        }
+        Update: {
+          status?: "running" | "done" | "error"
+          completed_slots?: number
+          result?: Json | null
+          error_message?: string | null
+          completed_at?: string | null
+        }
+      }
       reel_scripts: {
         Row: {
           id: string
@@ -1209,6 +1242,7 @@ export type ReelVideoJobSceneRow = Database["public"]["Tables"]["reel_video_job_
 export type StoryRow = Database["public"]["Tables"]["stories"]["Row"]
 export type MemeRow = Database["public"]["Tables"]["memes"]["Row"]
 export type PostImageGenerationSessionRow = Database["public"]["Tables"]["post_image_generation_sessions"]["Row"]
+export type AutopilotRunStatusRow = Database["public"]["Tables"]["autopilot_run_status"]["Row"]
 
 // Insert types
 export type UserInsert = Database["public"]["Tables"]["users"]["Insert"]

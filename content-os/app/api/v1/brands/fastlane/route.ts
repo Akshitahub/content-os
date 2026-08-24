@@ -171,11 +171,23 @@ export async function POST(request: Request) {
       }
     }
 
+    // A durable row this run's progress gets written to as it happens, so
+    // a navigation away (or just closing the tab) doesn't destroy all
+    // visibility into a run that's still going -- or already finished --
+    // server-side with real credits already charged. See
+    // app/api/v1/brands/[brandId]/fastlane/status/route.ts, which is what
+    // the frontend checks on mount to recover this.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data: runStatusRow } = await (supabase.from("autopilot_run_status") as any)
+      .insert({ brand_id: brandId, user_id: user.id, status: "running", total_slots: tier.slots })
+      .select("id")
+      .single() as { data: { id: string } | null }
+
     // Execute autopilot with user preferences, scaled to this plan's tier
     const result = await executeFastlane(supabase, user.id, brandId, {
       frequency, platforms, vibe, focusAreas, totalSlots: tier.slots,
       plan, isInternalUnlimitedUser: isUnlimited,
-    })
+    }, runStatusRow?.id)
 
     // Increment generation count and Autopilot run count
     const { data: currentUser } = await supabase
