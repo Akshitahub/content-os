@@ -11,6 +11,8 @@ import { GeneratingState } from "@/components/shared/GeneratingState"
 import { POST_TEMPLATES, DEFAULT_POST_TEMPLATE_ID } from "@/lib/design/post-templates"
 import type { PostTemplateId } from "@/lib/design/post-templates"
 import { resolveColorThemes } from "@/lib/design/color-themes"
+import { resolveFonts, DEFAULT_FONT_ID } from "@/lib/design/fonts"
+import type { FontId } from "@/lib/design/fonts"
 import { useGenerateFullPost, useGeneratePostImage, ApiResponseError } from "@/hooks/useGeneration"
 import { useGenerationStore } from "@/stores/generationStore"
 import { useBrand } from "@/hooks/useBrand"
@@ -138,12 +140,19 @@ export function FullPostGenerator({ brandId, products }: Props) {
   const brandName = brand?.name ?? "Brand"
 
   const colorThemes = useMemo(() => resolveColorThemes(brand ?? null), [brand])
+  const fonts = useMemo(() => resolveFonts(), [])
 
   const [additionalContext, setAdditionalContext] = useState("")
   const [copied, setCopied] = useState<string | null>(null)
   const [justSaved, setJustSaved] = useState(false)
   const [selectedLayout, setSelectedLayout] = useState<PostTemplateId>(DEFAULT_POST_TEMPLATE_ID)
   const [selectedColorThemeId, setSelectedColorThemeId] = useState<string>("")
+  // Fully opt-in — empty by default produces a clean, text-free image.
+  // Only what's typed here ever gets composited onto the generated photo;
+  // no more auto-filled headline from the picked hook or auto-filled CTA
+  // from brand.cta_phrase.
+  const [imageCaptionText, setImageCaptionText] = useState("")
+  const [selectedFontId, setSelectedFontId] = useState<FontId>(DEFAULT_FONT_ID)
   const [postImageUrl, setPostImageUrl] = useState<string | null>(null)
   const [imageSource, setImageSource] = useState<"ai" | "product_photo" | null>(null)
   const [imageError, setImageError] = useState<string | null>(null)
@@ -158,12 +167,10 @@ export function FullPostGenerator({ brandId, products }: Props) {
   const runImageGeneration = useCallback((data: FullPostResult, sessionId: string) => {
     const caption = data.content.content as GeneratedCaption
     const imagePrompt = (caption.image_prompt?.trim() || `${data.hook.hook_text}, ${brand?.niche ?? "brand"} product`).slice(0, 500)
-    // Bridge for the post-image/generate route's new single captionText
-    // field (was separate headline/ctaText) -- still auto-filled from the
-    // picked hook + brand CTA for now, matching the exact prior behavior.
-    // Commit 4 replaces this with a real opt-in caption box the user
-    // types into themselves; this call site isn't the final one.
-    const captionText = [data.hook.hook_text.slice(0, 120), (brand?.cta_phrase ?? "").slice(0, 60)].filter(Boolean).join(" — ") || undefined
+    // Fully opt-in — no auto-fill from the picked hook or brand.cta_phrase.
+    // Empty means a clean, text-free image; fontId only matters when
+    // there's actually text to render with it.
+    const captionText = imageCaptionText.trim() || undefined
 
     setImageError(null)
     generatePostImageMutate(
@@ -174,6 +181,7 @@ export function FullPostGenerator({ brandId, products }: Props) {
         template: selectedLayout,
         colorThemeId: effectiveColorThemeId,
         captionText,
+        fontId: captionText ? selectedFontId : undefined,
         postSessionId: sessionId,
         contentProjectId: data.contentProjectId ?? undefined,
       },
@@ -187,7 +195,7 @@ export function FullPostGenerator({ brandId, products }: Props) {
         },
       }
     )
-  }, [brand, brandId, selectedProductId, selectedLayout, effectiveColorThemeId, generatePostImageMutate])
+  }, [brand, brandId, selectedProductId, selectedLayout, effectiveColorThemeId, imageCaptionText, selectedFontId, generatePostImageMutate])
 
   // FIX 3: a failed product-photo load (commonly CORS) used to silently
   // fall back to a photo-less gradient card and still report success — the
@@ -382,6 +390,37 @@ export function FullPostGenerator({ brandId, products }: Props) {
               </button>
             ))}
           </div>
+        </div>
+
+        {/* Image caption text — fully opt-in. Empty (the default) produces
+            a clean, text-free image; nothing auto-generated ever gets
+            stamped on it unless typed here. */}
+        <div className="space-y-1.5">
+          <Label className="text-xs">Add text to your image (optional)</Label>
+          <textarea
+            rows={2}
+            maxLength={150}
+            placeholder="Leave blank for a clean, text-free image — or type what you want shown on it"
+            className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring resize-none"
+            value={imageCaptionText}
+            onChange={(e) => setImageCaptionText(e.target.value)}
+          />
+          {imageCaptionText.trim() && (
+            <div className="flex flex-wrap gap-2 pt-1">
+              {fonts.map((font) => (
+                <button
+                  key={font.id}
+                  type="button"
+                  onClick={() => setSelectedFontId(font.id)}
+                  className={`rounded-full border-2 px-2.5 py-1.5 text-xs font-medium transition-all ${
+                    selectedFontId === font.id ? "border-primary shadow-sm" : "border-muted hover:border-primary/40"
+                  }`}
+                >
+                  {font.label}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Additional context */}

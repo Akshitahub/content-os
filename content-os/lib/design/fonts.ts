@@ -3,8 +3,14 @@
 // same system to anyone reading the code — a curated FontOption[] list
 // plus resolveFonts()/findFont() helpers with the same signatures.
 
+// Mirrors lib/validations/ai.ts's postFontEnum exactly — kept as its own
+// literal union here (not imported from validations) the same way
+// PostTemplateId (lib/design/post-templates.ts) and postTemplateEnum stay
+// independently declared today.
+export type FontId = "anton" | "inter" | "playfair" | "quicksand" | "caveat"
+
 export interface FontOption {
-  id: string
+  id: FontId
   label: string
   /** @fontsource package directory under node_modules/@fontsource/ — see
    * lib/image/post-compositor.ts's getFontPath(), which loads
@@ -30,7 +36,7 @@ export const CURATED_FONTS: FontOption[] = [
 // The pre-existing font, before this picker existed — post-image/generate's
 // request schema defaults to this id when none is specified, so a caller
 // that predates the font picker gets byte-identical output to before.
-export const DEFAULT_FONT_ID = "anton"
+export const DEFAULT_FONT_ID: FontId = "anton"
 
 /**
  * v1 is user-selectable only — no AI auto-pick-by-brand-vibe logic yet.
