@@ -38,22 +38,6 @@ interface CollectedPaths {
   brandImages: Set<string>
 }
 
-async function collectMemePaths(admin: AdminClient, brandIds: string[], paths: CollectedPaths): Promise<void> {
-  const { data, error } = await table(admin, "memes")
-    .select("image_url")
-    .in("brand_id", brandIds) as { data: { image_url: string | null }[] | null; error: { message: string } | null }
-
-  if (error) {
-    console.error("[user/account] failed to collect meme storage paths:", error.message)
-    return
-  }
-  for (const row of data ?? []) {
-    if (!row.image_url) continue
-    const path = extractStoragePath(row.image_url, PUBLISHED_MEDIA_BUCKET)
-    if (path) paths.publishedMedia.add(path)
-  }
-}
-
 // generated_images (standalone Images tab + Create -> Full Post's AI image,
 // bucket brand-images) already stores the raw storage_path directly — no
 // URL parsing needed, unlike the other tables here.
@@ -169,7 +153,7 @@ interface StorageCleanupResult {
 
 /**
  * Collects every Supabase Storage object belonging to this user's brands
- * (across memes, generated_images, reel_video_jobs, calendar_entries, plus
+ * (across generated_images, reel_video_jobs, calendar_entries, plus
  * carousel/story AI-background slides and Ad Maker variation uploads, none
  * of which have a DB column of their own — see collectPrefixedPaths) and
  * deletes them. Never throws — a failed removal is reported back in
@@ -198,7 +182,6 @@ async function deleteUserStorageObjects(admin: AdminClient, userId: string): Pro
   const paths: CollectedPaths = { publishedMedia: new Set(), brandImages: new Set() }
 
   await Promise.all([
-    collectMemePaths(admin, brandIds, paths),
     collectGeneratedImagePaths(admin, brandIds, paths),
     collectReelVideoJobPaths(admin, brandIds, paths),
     collectCalendarEntryPaths(admin, brandIds, paths),
@@ -271,7 +254,7 @@ export async function DELETE() {
 
     // Deleting the auth.users row cascades through public.users -> brands
     // -> every content table (captions, reel_scripts, carousels, ad_copies,
-    // stories, blog_posts, memes, generated_images, reel_video_jobs,
+    // stories, blog_posts, generated_images, reel_video_jobs,
     // calendar_entries, etc.) via the ON DELETE CASCADE foreign keys
     // already defined across supabase/migrations/*.sql. This is real,
     // irreversible deletion — not a soft-delete flag — so there is no

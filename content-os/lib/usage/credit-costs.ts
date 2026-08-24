@@ -29,7 +29,6 @@ export const HOOK_OR_CAPTION = 1
 export const BLOG_POST = 1
 export const POST = 5
 export const STORY = 6
-export const MEME = 5
 export const AD_MAKER = 5
 export const CAROUSEL = 9
 // The standalone Images tab (lib/ai/image-generator.ts) — not in the

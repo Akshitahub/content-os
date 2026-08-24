@@ -37,17 +37,6 @@ function table(admin: AdminClient, name: string): any {
   return (admin as any).from(name)
 }
 
-function extractStoragePath(publicUrl: string, bucket: string): string | null {
-  const marker = `/storage/v1/object/public/${bucket}/`
-  const idx = publicUrl.indexOf(marker)
-  if (idx === -1) return null
-  try {
-    return decodeURIComponent(publicUrl.slice(idx + marker.length))
-  } catch {
-    return publicUrl.slice(idx + marker.length)
-  }
-}
-
 /**
  * Captions are the only one of these tables that can be referenced by id
  * elsewhere (calendar_entries.caption_id, set by Autopilot/Fastlane) — the
@@ -143,44 +132,6 @@ async function cleanupAdMakerVariations(admin: AdminClient, cutoff: string): Pro
   return removed?.length ?? stalePaths.length
 }
 
-async function cleanupMemes(admin: AdminClient, cutoff: string): Promise<{ deleted: number; storageFilesRemoved: number }> {
-  const { data: candidates, error: fetchError } = await table(admin, "memes")
-    .select("id, image_url")
-    .lt("last_accessed_at", cutoff) as { data: { id: string; image_url: string | null }[] | null; error: { message: string } | null }
-
-  if (fetchError) {
-    console.error("[cron/cleanup-abandoned-drafts] memes fetch error:", fetchError.message)
-    return { deleted: 0, storageFilesRemoved: 0 }
-  }
-
-  const rows = candidates ?? []
-  if (rows.length === 0) return { deleted: 0, storageFilesRemoved: 0 }
-
-  // Delete the actual stored image before the row — otherwise storage cost
-  // isn't actually reduced, just the database row.
-  const paths = rows
-    .map((r) => (r.image_url ? extractStoragePath(r.image_url, STORAGE_BUCKET) : null))
-    .filter((p): p is string => !!p)
-
-  let storageFilesRemoved = 0
-  if (paths.length > 0) {
-    const { error: removeError, data: removed } = await admin.storage.from(STORAGE_BUCKET).remove(paths)
-    if (removeError) {
-      console.error("[cron/cleanup-abandoned-drafts] meme storage removal error:", removeError.message)
-    } else {
-      storageFilesRemoved = removed?.length ?? paths.length
-    }
-  }
-
-  const { error: deleteError } = await table(admin, "memes").delete().in("id", rows.map((r) => r.id))
-  if (deleteError) {
-    console.error("[cron/cleanup-abandoned-drafts] memes delete error:", deleteError.message)
-    return { deleted: 0, storageFilesRemoved }
-  }
-
-  return { deleted: rows.length, storageFilesRemoved }
-}
-
 export async function GET(request: Request) {
   if (!isAuthorized(request)) {
     console.error("[cron/cleanup-abandoned-drafts] unauthorized request")
@@ -204,15 +155,6 @@ export async function GET(request: Request) {
     } catch (err) {
       console.error(`[cron/cleanup-abandoned-drafts] ${tableName} unexpected error:`, err instanceof Error ? err.message : err)
     }
-  }
-
-  try {
-    const memeResult = await cleanupMemes(admin, cutoff)
-    perTable.memes = memeResult.deleted
-    deleted += memeResult.deleted
-    storageFilesRemoved += memeResult.storageFilesRemoved
-  } catch (err) {
-    console.error("[cron/cleanup-abandoned-drafts] memes unexpected error:", err instanceof Error ? err.message : err)
   }
 
   try {
