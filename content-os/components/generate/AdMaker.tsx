@@ -190,6 +190,13 @@ interface AdMakerProps {
 export function AdMaker({ brandId }: AdMakerProps) {
   const { data: brand } = useBrand(brandId)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  // Every Create tab now stays mounted for the life of the panel, hidden
+  // via CSS when a different tab is active (see GenerationPanel.tsx) — a
+  // document-level paste listener would otherwise fire even while this
+  // tab is the hidden one, silently feeding a pasted image into a step-1
+  // upload the user can't see. Checked at paste time via offsetParent
+  // (null when this subtree — or an ancestor — is display:none).
+  const rootRef = useRef<HTMLDivElement>(null)
   const STORAGE_KEY = `admaker_${brandId}`
 
   // Step 1
@@ -312,7 +319,13 @@ export function AdMaker({ brandId }: AdMakerProps) {
     processImageFile(e.dataTransfer.files?.[0])
   }
 
-  function handlePaste(e: React.ClipboardEvent) {
+  // Native ClipboardEvent, not React.ClipboardEvent — listened for at the
+  // document level (see the useEffect below), not as an element's onPaste,
+  // since the only interactive element in this step is the upload button
+  // itself and clicking it to focus it before pasting would launch the
+  // native file-browse dialog instead of just focusing.
+  function handlePaste(e: ClipboardEvent) {
+    if (rootRef.current && rootRef.current.offsetParent === null) return
     const items = e.clipboardData?.items
     if (!items) return
     for (const item of items) {
@@ -325,6 +338,20 @@ export function AdMaker({ brandId }: AdMakerProps) {
       }
     }
   }
+
+  // Active only while the upload dropzone is actually showing — works
+  // anywhere on the page during that window, not just when the dropzone
+  // itself happens to have focus (which clicking it can never achieve,
+  // since clicking it opens the native file picker instead).
+  useEffect(() => {
+    if (step !== 1 || originalPreview) return
+    document.addEventListener("paste", handlePaste)
+    return () => document.removeEventListener("paste", handlePaste)
+  // handlePaste is a plain (unmemoized) function recreated every render,
+  // like processImageFile/handleDrop elsewhere in this file — its behavior
+  // only meaningfully depends on step/originalPreview, both already listed.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, originalPreview])
 
   const handleRemoveBg = useCallback(async (file: File | null, dataUrl: string | null) => {
     if (!file && !dataUrl) return
@@ -473,7 +500,7 @@ export function AdMaker({ brandId }: AdMakerProps) {
   }
 
   return (
-    <div className="space-y-6">
+    <div ref={rootRef} className="space-y-6">
       {/* Step indicator */}
       <div className="flex items-center gap-0">
         {[1, 2, 3].map(n => <StepDot key={n} n={n} current={step} />)}
@@ -493,11 +520,10 @@ export function AdMaker({ brandId }: AdMakerProps) {
           </div>
 
           {!originalPreview ? (
-            <button type="button" tabIndex={0} onClick={() => fileInputRef.current?.click()}
+            <button type="button" onClick={() => fileInputRef.current?.click()}
               onDragOver={(e) => { e.preventDefault(); setIsDragging(true) }}
               onDragLeave={() => setIsDragging(false)}
               onDrop={handleDrop}
-              onPaste={handlePaste}
               className={`flex w-full flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed py-10 text-center transition-colors ${
                 isDragging ? "border-violet-500 bg-violet-50" : "border-muted-foreground/30 hover:border-violet-400 hover:bg-violet-50/30"
               }`}>

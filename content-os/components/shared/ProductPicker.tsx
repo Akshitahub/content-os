@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useRef } from "react"
+import { useState, useRef, useEffect } from "react"
 import { Image, Upload, X, Loader2, ExternalLink } from "lucide-react"
 import { useProducts } from "@/hooks/useProducts"
 import { useExtractProductFromUrl } from "@/hooks/useExtraction"
@@ -25,6 +25,13 @@ export function ProductPicker({ brandId, selected, onSelect, label = "Product im
   const [urlInput, setUrlInput] = useState("")
   const [urlError, setUrlError] = useState("")
   const fileInputRef = useRef<HTMLInputElement>(null)
+  // Whichever Create tab this picker lives in stays mounted even while a
+  // different tab is active (hidden via CSS — see GenerationPanel.tsx). If
+  // this panel was left open on a tab the user then navigated away from, a
+  // document-level paste listener would otherwise still fire there.
+  // Checked at paste time via offsetParent (null when this subtree — or an
+  // ancestor — is display:none).
+  const panelRef = useRef<HTMLDivElement>(null)
   const extractProduct = useExtractProductFromUrl()
 
   function handleUrlSubmit(e: React.FormEvent) {
@@ -79,7 +86,14 @@ export function ProductPicker({ brandId, selected, onSelect, label = "Product im
     e.target.value = ""
   }
 
-  function handlePaste(e: React.ClipboardEvent) {
+  // Native ClipboardEvent, not React.ClipboardEvent — listened for at the
+  // document level (see the useEffect below), not as this button's onPaste.
+  // The button's onClick already opens the native file picker, so clicking
+  // it to focus it before pasting would launch that dialog instead of just
+  // focusing the element — there's no way to "click to focus, then paste"
+  // on the same element that also opens a file browser on click.
+  function handlePaste(e: ClipboardEvent) {
+    if (panelRef.current && panelRef.current.offsetParent === null) return
     const items = e.clipboardData?.items
     if (!items) return
     for (const item of items) {
@@ -92,6 +106,17 @@ export function ProductPicker({ brandId, selected, onSelect, label = "Product im
       }
     }
   }
+
+  // Active only while the picker panel is open (this upload button is only
+  // ever shown then) — works anywhere on the page during that window.
+  useEffect(() => {
+    if (!open) return
+    document.addEventListener("paste", handlePaste)
+    return () => document.removeEventListener("paste", handlePaste)
+  // handlePaste is a plain (unmemoized) function recreated every render —
+  // its behavior only meaningfully depends on `open`, already listed.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open])
 
   if (selected) {
     return (
@@ -141,7 +166,7 @@ export function ProductPicker({ brandId, selected, onSelect, label = "Product im
   }
 
   return (
-    <div className="rounded-xl border bg-card p-4 space-y-4">
+    <div ref={panelRef} className="rounded-xl border bg-card p-4 space-y-4">
       <div className="flex items-center justify-between">
         <p className="text-xs font-semibold">{label}</p>
         <button type="button" onClick={() => setOpen(false)} className="text-muted-foreground hover:text-foreground">
@@ -205,9 +230,7 @@ export function ProductPicker({ brandId, selected, onSelect, label = "Product im
       <div>
         <button
           type="button"
-          tabIndex={0}
           onClick={() => fileInputRef.current?.click()}
-          onPaste={handlePaste}
           className="flex w-full items-center justify-center gap-2 rounded-lg border-2 border-dashed border-muted-foreground/20 px-3 py-2.5 text-xs text-muted-foreground hover:border-violet-400 hover:text-violet-600 transition-colors"
         >
           <Upload className="h-3.5 w-3.5" /> Upload an image

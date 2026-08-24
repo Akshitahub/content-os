@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useRef, useCallback } from "react"
+import { useState, useRef, useCallback, useEffect } from "react"
 import { Upload, Wand2, Download, Loader2, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
@@ -21,6 +21,12 @@ interface SceneComposerProps {
 export function SceneComposer({ brandId: _brandId }: SceneComposerProps) {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  // This tab stays mounted even while a different Create tab is active
+  // (hidden via CSS — see GenerationPanel.tsx). Checked at paste time via
+  // offsetParent (null when this subtree — or an ancestor — is
+  // display:none) so a document-level paste listener can't silently feed
+  // an image into a hidden upload step.
+  const rootRef = useRef<HTMLDivElement>(null)
 
   const [originalFile, setOriginalFile] = useState<File | null>(null)
   const [originalPreview, setOriginalPreview] = useState<string | null>(null)
@@ -52,7 +58,14 @@ export function SceneComposer({ brandId: _brandId }: SceneComposerProps) {
     processImageFile(e.target.files?.[0])
   }
 
-  function handlePaste(e: React.ClipboardEvent) {
+  // Native ClipboardEvent, not React.ClipboardEvent — listened for at the
+  // document level (see the useEffect below), not as this button's onPaste.
+  // The button's onClick already opens the native file picker, so clicking
+  // it to focus it before pasting would launch that dialog instead of just
+  // focusing the element — there's no way to "click to focus, then paste"
+  // on the same element that also opens a file browser on click.
+  function handlePaste(e: ClipboardEvent) {
+    if (rootRef.current && rootRef.current.offsetParent === null) return
     const items = e.clipboardData?.items
     if (!items) return
     for (const item of items) {
@@ -65,6 +78,19 @@ export function SceneComposer({ brandId: _brandId }: SceneComposerProps) {
       }
     }
   }
+
+  // Active only while the upload step is actually showing — works anywhere
+  // on the page during that window, not just when the dropzone itself
+  // happens to have focus (which clicking it can never achieve, since
+  // clicking it opens the native file picker instead).
+  useEffect(() => {
+    if (originalPreview) return
+    document.addEventListener("paste", handlePaste)
+    return () => document.removeEventListener("paste", handlePaste)
+  // handlePaste is a plain (unmemoized) function recreated every render —
+  // its behavior only meaningfully depends on originalPreview, already listed.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [originalPreview])
 
   const handleRemoveBackground = useCallback(async () => {
     if (!originalFile) return
@@ -156,7 +182,7 @@ export function SceneComposer({ brandId: _brandId }: SceneComposerProps) {
   }
 
   return (
-    <div className="space-y-5">
+    <div ref={rootRef} className="space-y-5">
       <div className="flex items-center justify-between">
         <div>
           <h3 className="text-sm font-semibold">Place your product in a scene</h3>
@@ -181,9 +207,7 @@ export function SceneComposer({ brandId: _brandId }: SceneComposerProps) {
           {!originalPreview ? (
             <button
               type="button"
-              tabIndex={0}
               onClick={() => fileInputRef.current?.click()}
-              onPaste={handlePaste}
               className="flex w-full flex-col items-center justify-center rounded-lg border-2 border-dashed border-muted-foreground/30 py-8 text-center hover:border-primary/40 hover:bg-muted/30 transition-colors"
             >
               <Upload className="h-8 w-8 text-muted-foreground/40 mb-2" />
