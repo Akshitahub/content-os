@@ -188,7 +188,7 @@ export async function POST(request: Request) {
   // is now opt-in (a plain, uncomposited background is the common case).
   const modelLabel = result.textComposited ? `${result.provider}+resvg-composite` : result.provider
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data: savedImage } = await (supabase.from("generated_images") as any).insert({
+  const { data: savedImage, error: saveImageError } = await (supabase.from("generated_images") as any).insert({
     brand_id: brandId,
     product_id: productId ?? null,
     content_project_id: contentProjectId ?? null,
@@ -202,6 +202,24 @@ export async function POST(request: Request) {
     text_composited: result.textComposited,
     is_saved: true,
   }).select().single()
+
+  // Explicitly checked -- this used to only destructure `data`, so a real
+  // Postgres/PostgREST rejection here (RLS denial, missing column,
+  // constraint violation, etc.) resolved as {data:null} and was silently
+  // treated as success: the image was already uploaded to storage above,
+  // so the route still returned 200 with a working public_url, but the
+  // row the Library reads from never existed. Same class of gap already
+  // confirmed live for app/api/v1/ai/fullpost/generate/route.ts's captions
+  // insert, and same fix -- mirrors the uploadError handling immediately
+  // above this block rather than silently continuing.
+  if (saveImageError) {
+    console.error("[ai/post-image/generate] generated_images insert failed:", saveImageError.message)
+    if (shouldCharge) await refundGenerationUsage(supabase, user.id, POST_CREDIT_COST)
+    return NextResponse.json(
+      buildError(ErrorCodes.INTERNAL_ERROR, "Image generated but couldn't be saved to your library.", saveImageError.message),
+      { status: 500 }
+    )
+  }
 
   // Defensive: this insert is already is_saved:true, but a "Regenerate
   // image" call within the same session can leave an EARLIER
