@@ -148,6 +148,12 @@ export const generatePostImageSchema = z.object({
   // is the chargeable initial generation, the free first regenerate, or a
   // chargeable later regenerate — see lib/usage/post-image-regenerate-session.ts.
   postSessionId: z.string().uuid("Invalid session ID"),
+  // Links the resulting generated_images row back to the same
+  // content_projects row its caption was inserted under (fullpost/generate
+  // creates it and returns this id) — optional since not every caller of
+  // this route originates from a fullpost/generate session with a project
+  // to link to.
+  contentProjectId: z.string().uuid("Invalid content project ID").optional(),
 })
 
 export type GeneratePostImageInput = z.infer<typeof generatePostImageSchema>

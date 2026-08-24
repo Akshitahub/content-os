@@ -173,6 +173,7 @@ export function FullPostGenerator({ brandId, products }: Props) {
         headline,
         ctaText,
         postSessionId: sessionId,
+        contentProjectId: data.contentProjectId ?? undefined,
       },
       {
         onSuccess: (imgData) => {

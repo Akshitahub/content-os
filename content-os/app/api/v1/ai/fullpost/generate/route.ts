@@ -164,6 +164,39 @@ export async function POST(request: Request) {
 
     const postCardHtml = generatePostCardHtml(brand, hook, format, platform, contentResult.data)
 
+    // Links this caption to the AI post image generated alongside it
+    // (app/api/v1/ai/post-image/generate/route.ts sets the same id on its
+    // generated_images insert once the client threads it through) — until
+    // now neither insert ever populated content_project_id, so a caption
+    // and its image were two fully disconnected rows with no way for the
+    // Library to find one from the other. content_projects.content_project_id
+    // is a real FK (ON DELETE SET NULL), not a bare uuid column, so this
+    // creates an actual minimal row rather than just generating an id.
+    // Only social_post has a linked AI image at all — every other format
+    // skips this.
+    let contentProjectId: string | null = null
+    if (format === "social_post") {
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const { data: project, error: projectError } = await (supabase.from("content_projects") as any)
+          .insert({
+            brand_id: brandId,
+            product_id: productId ?? null,
+            title: hook.hook_text,
+            platform: platform ?? null,
+            content_type: "post",
+          })
+          .select("id")
+          .single() as { data: { id: string } | null; error: { message: string } | null }
+        if (projectError) throw new Error(projectError.message)
+        contentProjectId = project?.id ?? null
+      } catch (err) {
+        // Non-fatal — the caption/image still generate fine without the
+        // link, they just won't show each other in the Library.
+        console.error("[ai/fullpost/generate] failed to create content_projects row (non-fatal):", err instanceof Error ? err.message : err)
+      }
+    }
+
     // Persist hook
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await (supabase.from("hooks") as any).insert({
@@ -183,6 +216,7 @@ export async function POST(request: Request) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         await (supabase.from("captions") as any).insert({
           brand_id: brandId, product_id: productId ?? null,
+          content_project_id: contentProjectId,
           caption_text: caption.caption_text, hashtags: caption.hashtags,
           cta: caption.cta, character_count: caption.character_count,
           platform: platform ?? "instagram", model_used: contentResult.model,
@@ -244,6 +278,7 @@ export async function POST(request: Request) {
         platform,
         format,
         postSessionId,
+        contentProjectId,
       },
     }, { status: 200 })
   } catch (err) {

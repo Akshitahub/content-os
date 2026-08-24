@@ -40,6 +40,11 @@ export type FullPostResult = {
    * generate/regenerate calls to this post so charging can be decided
    * server-side. See lib/usage/post-image-regenerate-session.ts. */
   postSessionId: string | null
+  /** Only present for format "social_post" — links this caption to its
+   * generated_images row (passed through to post-image/generate, which
+   * sets the same id on its own insert) so the Library can find the image
+   * that belongs to this caption. See content_projects in the schema. */
+  contentProjectId: string | null
 }
 
 type GeneratedHookWithId = GeneratedHook & { id: string | null }

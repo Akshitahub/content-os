@@ -70,7 +70,7 @@ export async function POST(request: Request) {
   const parsed = generatePostImageSchema.safeParse(body)
   if (!parsed.success) return NextResponse.json(buildError(ErrorCodes.VALIDATION_ERROR, "Validation failed.", parsed.error.message), { status: 400 })
 
-  const { brandId, productId, imagePrompt, template, colorThemeId, headline, ctaText, postSessionId } = parsed.data
+  const { brandId, productId, imagePrompt, template, colorThemeId, headline, ctaText, postSessionId, contentProjectId } = parsed.data
 
   const sessionCheck = await checkAndIncrementPostImageSession(user.id, postSessionId)
   const shouldCharge = sessionCheck.ok ? sessionCheck.shouldCharge : true
@@ -184,6 +184,7 @@ export async function POST(request: Request) {
   const { data: savedImage } = await (supabase.from("generated_images") as any).insert({
     brand_id: brandId,
     product_id: productId ?? null,
+    content_project_id: contentProjectId ?? null,
     prompt: result.fullPrompt,
     style: null,
     aspect_ratio: "1:1",
@@ -193,6 +194,19 @@ export async function POST(request: Request) {
     provider: result.provider,
     is_saved: true,
   }).select().single()
+
+  // Defensive: this insert is already is_saved:true, but a "Regenerate
+  // image" call within the same session can leave an EARLIER
+  // generated_images row for this same content_project_id around too (a
+  // new row per regenerate, not an update-in-place) — make sure every
+  // image ever generated for this caption stays saved, not just the
+  // latest one, so none of them get treated as an abandoned draft.
+  if (contentProjectId) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await (supabase.from("generated_images") as any)
+      .update({ is_saved: true })
+      .eq("content_project_id", contentProjectId)
+  }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   await (supabase.from("ai_generation_logs") as any).insert({
