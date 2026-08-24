@@ -6,6 +6,7 @@ import { executeFastlane, estimateAutopilotCreditCost } from "@/lib/ai/fastlane"
 import { PLAN_LIMITS } from "@/types/app"
 import type { UserPlan } from "@/types/app"
 import { isInternalUnlimited } from "@/lib/usage/is-internal-unlimited"
+import { checkAndIncrementUsage, refundGenerationUsage } from "@/lib/usage/check-and-increment-usage"
 
 // Reel-script slots defer video generation into after() callbacks that run
 // once this response is sent — see lib/ai/fastlane.ts's submitAutopilotReel.
@@ -49,6 +50,16 @@ export async function POST(request: Request) {
 
   const { brandId, force, clearAndRegenerate, frequency, platforms, vibe, focusAreas } = parsed.data
 
+  // Tracked outside the try block so the catch block below can undo
+  // exactly what was actually applied on total failure -- both are now
+  // applied upfront, before executeFastlane runs, so a thrown error after
+  // charging needs an explicit revert to keep this route's original
+  // guarantee that a failed run doesn't cost you credits or a monthly
+  // Autopilot run.
+  let chargedCost = 0
+  let runCountIncremented = false
+  const isUnlimited = isInternalUnlimited(user.id)
+
   try {
     // Verify brand ownership
     const { data: brand } = await supabase
@@ -72,7 +83,6 @@ export async function POST(request: Request) {
       .eq("id", user.id)
       .single<{ plan: string; generation_count: number; generation_count_reset_at: string | null; autopilot_run_count: number; autopilot_run_count_reset_at: string | null }>()
 
-    const isUnlimited = isInternalUnlimited(user.id)
     const plan = resolvePlan(userData?.plan)
     // Internal-unlimited accounts get the full run regardless of their
     // actual plan column — starter/pro/agency all share the same (30-day,
@@ -146,29 +156,54 @@ export async function POST(request: Request) {
       }
     }
 
-    // Check usage limits — canonical PLAN_LIMITS[plan].generations (not a
-    // separate hand-rolled table), against this run's real weighted cost.
-    if (userData && !isUnlimited) {
-      const limit = PLAN_LIMITS[plan].generations
-
-      // Reset monthly if needed
-      const now = new Date()
-      const resetAt = userData.generation_count_reset_at ? new Date(userData.generation_count_reset_at) : null
-      const shouldReset = !resetAt || (now.getMonth() !== resetAt.getMonth() || now.getFullYear() !== resetAt.getFullYear())
-
-      const currentCount = shouldReset ? 0 : userData.generation_count
-
-      if (currentCount + estimatedCost > limit) {
+    // Check AND charge in one atomic step, upfront — not a separate
+    // pre-flight peek here followed by a second read-then-write after
+    // executeFastlane finishes (which is what this route used to do, and
+    // exactly why a real charge was silently lost live: that second write
+    // was a plain SELECT-then-UPDATE with no locking, split from the first
+    // read by up to this route's own maxDuration=300s, a huge window for
+    // another concurrent request touching the same user's generation_count
+    // to land in between and get overwritten). checkAndIncrementUsage now
+    // does the reset-check and increment in one atomic Postgres statement
+    // (supabase/migrations/036_atomic_generation_usage.sql) — confirmed
+    // live: 10 concurrent 1-credit charges against the same user landed as
+    // 10, not 2. Charging upfront also matches how every other generation
+    // route in this app already does it (e.g. app/api/v1/ai/fullpost/
+    // generate/route.ts) — this route was the odd one out.
+    if (!isUnlimited) {
+      const usageCheck = await checkAndIncrementUsage(user.id, estimatedCost)
+      if (!usageCheck.ok) {
         return NextResponse.json(
           {
-            error: { code: ErrorCodes.USAGE_LIMIT_EXCEEDED, message: `Autopilot requires ${estimatedCost} credits.` },
-            remaining_credits: Math.max(0, limit - currentCount),
+            error: { code: ErrorCodes.USAGE_LIMIT_EXCEEDED, message: usageCheck.message },
+            remaining_credits: Math.max(0, PLAN_LIMITS[plan].generations - estimatedCost),
             plan,
             credits_needed: estimatedCost,
           },
-          { status: 429 }
+          { status: usageCheck.status }
         )
       }
+      chargedCost = estimatedCost
+    }
+
+    // Run-count isn't part of checkAndIncrementUsage's shared credit pool
+    // (it's Autopilot's own separate monthly cap, see maxRunsPerMonth) so
+    // it doesn't get the same atomic-RPC treatment here -- but moving it
+    // to right after the atomic credit charge, instead of after the whole
+    // (up to 300s) executeFastlane call, closes the vast majority of the
+    // same race window regardless: a stale run_cap_reached miscount is a
+    // far lower-stakes, rare edge case than the credit charge silently
+    // vanishing was, and isn't part of what live QA confirmed broken.
+    if (userData && !isUnlimited) {
+      const now = new Date()
+      const runsResetAt = userData.autopilot_run_count_reset_at ? new Date(userData.autopilot_run_count_reset_at) : null
+      const shouldResetRuns = !runsResetAt || (now.getMonth() !== runsResetAt.getMonth() || now.getFullYear() !== runsResetAt.getFullYear())
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await (supabase.from("users") as any).update({
+        autopilot_run_count: shouldResetRuns ? 1 : userData.autopilot_run_count + 1,
+        autopilot_run_count_reset_at: shouldResetRuns ? now.toISOString() : userData.autopilot_run_count_reset_at,
+      }).eq("id", user.id)
+      runCountIncremented = true
     }
 
     // A durable row this run's progress gets written to as it happens, so
@@ -189,41 +224,37 @@ export async function POST(request: Request) {
       plan, isInternalUnlimitedUser: isUnlimited,
     }, runStatusRow?.id)
 
-    // Increment generation count and Autopilot run count
-    const { data: currentUser } = await supabase
-      .from("users")
-      .select("generation_count, generation_count_reset_at, autopilot_run_count, autopilot_run_count_reset_at")
-      .eq("id", user.id)
-      .single<{ generation_count: number; generation_count_reset_at: string | null; autopilot_run_count: number; autopilot_run_count_reset_at: string | null }>()
-
-    if (currentUser && !isUnlimited) {
-      const now = new Date()
-      const resetAt = currentUser.generation_count_reset_at ? new Date(currentUser.generation_count_reset_at) : null
-      const shouldReset = !resetAt || (now.getMonth() !== resetAt.getMonth() || now.getFullYear() !== resetAt.getFullYear())
-
-      const runsResetAt = currentUser.autopilot_run_count_reset_at ? new Date(currentUser.autopilot_run_count_reset_at) : null
-      const shouldResetRuns = !runsResetAt || (now.getMonth() !== runsResetAt.getMonth() || now.getFullYear() !== runsResetAt.getFullYear())
-
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      await (supabase.from("users") as any).update({
-        generation_count: shouldReset
-          ? estimatedCost
-          : currentUser.generation_count + estimatedCost,
-        generation_count_reset_at: shouldReset ? now.toISOString() : currentUser.generation_count_reset_at,
-        autopilot_run_count: shouldResetRuns ? 1 : currentUser.autopilot_run_count + 1,
-        autopilot_run_count_reset_at: shouldResetRuns ? now.toISOString() : currentUser.autopilot_run_count_reset_at,
-      }).eq("id", user.id)
-    }
-
     // Surfaced back to the Fastlane UI so it can show the real credits this
     // run actually consumed (not just the pre-flight estimate shown before
     // the run started) -- there's no per-slot refund for individual
     // generation failures within a run, so this is always exactly
     // estimatedCost (0 for internal-unlimited accounts, who were never
-    // charged at all).
+    // charged at all). Already charged upfront above, not computed here.
     return NextResponse.json({ data: result, credits_charged: isUnlimited ? 0 : estimatedCost }, { status: 201 })
   } catch (err) {
     console.error("[fastlane] POST unexpected error:", err)
+    // The credit charge (and run-count increment) already happened before
+    // executeFastlane was attempted -- undo both on total failure, same as
+    // this route's original guarantee that a failed run costs nothing
+    // (previously true simply because charging happened strictly after
+    // executeFastlane succeeded; now needs an explicit revert since
+    // charging moved earlier, upfront, to close the race window).
+    if (chargedCost > 0) {
+      await refundGenerationUsage(supabase, user.id, chargedCost).catch(() => {})
+    }
+    if (runCountIncremented) {
+      // Best-effort, not atomic -- acceptable here: this is the rare
+      // total-failure path for a low-stakes secondary counter (a monthly
+      // run cap), not the credit pool live QA confirmed was actually
+      // losing money-equivalent charges.
+      const { data: u } = await supabase.from("users").select("autopilot_run_count").eq("id", user.id).single<{ autopilot_run_count: number }>()
+      if (u) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        await (supabase.from("users") as any)
+          .update({ autopilot_run_count: Math.max(0, u.autopilot_run_count - 1) })
+          .eq("id", user.id)
+      }
+    }
     const message = err instanceof Error ? err.message : "Failed to execute Autopilot."
     return NextResponse.json(buildError(ErrorCodes.AI_GENERATION_FAILED, message), { status: 500 })
   }
