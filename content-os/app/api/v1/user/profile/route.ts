@@ -27,9 +27,19 @@ export async function GET() {
   const rawPlan = userData?.plan
   const plan: UserPlan = rawPlan && rawPlan in PLAN_LIMITS ? (rawPlan as UserPlan) : "free"
   const limit = PLAN_LIMITS[plan].generations
-  const now = new Date()
   const resetAt = userData?.generation_count_reset_at ? new Date(userData.generation_count_reset_at) : null
-  const shouldReset = !resetAt || (now.getMonth() !== resetAt.getMonth() || now.getFullYear() !== resetAt.getFullYear())
+  // Was a raw calendar-month-number comparison (now.getMonth() !==
+  // resetAt.getMonth()), which is wrong: generation_count_reset_at is
+  // always set to "now + 1 month" by charge_generation_usage (see
+  // supabase/migrations/036_atomic_generation_usage.sql), so its month is
+  // essentially always different from the current month regardless of
+  // whether the reset has actually happened yet -- this made "used"
+  // display as 0 immediately after almost every real charge, even though
+  // the real generation_count value (confirmed live: 29 right after a
+  // real Autopilot charge) was correct the whole time. The only correct
+  // question is whether the stored timestamp has actually passed, same
+  // check checkAndIncrementUsage/charge_generation_usage themselves use.
+  const shouldReset = !resetAt || resetAt <= new Date()
   const currentCount = shouldReset ? 0 : (userData?.generation_count ?? 0)
   const remaining = Math.max(0, limit - currentCount)
 

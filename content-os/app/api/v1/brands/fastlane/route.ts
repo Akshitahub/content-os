@@ -137,9 +137,15 @@ export async function POST(request: Request) {
     // (Agency's 4 runs against 5 brands is intentional — the user manually
     // picks which brands to spend runs on, no automatic rotation).
     if (userData && !isUnlimited) {
-      const runsNow = new Date()
       const runsResetAt = userData.autopilot_run_count_reset_at ? new Date(userData.autopilot_run_count_reset_at) : null
-      const shouldResetRuns = !runsResetAt || (runsNow.getMonth() !== runsResetAt.getMonth() || runsNow.getFullYear() !== runsResetAt.getFullYear())
+      // Was a raw calendar-month-number comparison, which is wrong the
+      // same way app/api/v1/user/profile/route.ts's identical pattern
+      // was (see that file's fix for the full explanation): since
+      // autopilot_run_count_reset_at is always set to "now + 1 month"
+      // below, its month essentially never matches the current month,
+      // so this would treat almost every check as "should reset" instead
+      // of only when the stored timestamp has actually passed.
+      const shouldResetRuns = !runsResetAt || runsResetAt <= new Date()
       const currentRunCount = shouldResetRuns ? 0 : userData.autopilot_run_count
 
       if (currentRunCount >= tier.maxRunsPerMonth) {
@@ -197,7 +203,7 @@ export async function POST(request: Request) {
     if (userData && !isUnlimited) {
       const now = new Date()
       const runsResetAt = userData.autopilot_run_count_reset_at ? new Date(userData.autopilot_run_count_reset_at) : null
-      const shouldResetRuns = !runsResetAt || (now.getMonth() !== runsResetAt.getMonth() || now.getFullYear() !== runsResetAt.getFullYear())
+      const shouldResetRuns = !runsResetAt || runsResetAt <= now
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       await (supabase.from("users") as any).update({
         autopilot_run_count: shouldResetRuns ? 1 : userData.autopilot_run_count + 1,
