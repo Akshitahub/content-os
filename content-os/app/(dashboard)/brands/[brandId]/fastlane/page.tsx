@@ -104,6 +104,11 @@ export default function AutopilotPage() {
   const [state, setState] = useState<AutopilotState>("SETUP")
   const [result, setResult] = useState<FastlaneResult | null>(null)
   const [creditsCharged, setCreditsCharged] = useState<number | null>(null)
+  // Flips true only when this run's autopilot_run_status insert failed
+  // server-side (see app/api/v1/brands/fastlane/route.ts) -- the run
+  // itself still completed fine, but progress couldn't have been
+  // recovered had the user navigated away mid-run.
+  const [statusTrackingFailed, setStatusTrackingFailed] = useState(false)
   const [errorMsg, setErrorMsg] = useState<string>("")
   const [warning, setWarning] = useState<WarningData | null>(null)
   const [upsellData, setUpsellData] = useState<UpsellData | null>(null)
@@ -300,6 +305,7 @@ export default function AutopilotPage() {
     setState("RUNNING")
     setResult(null)
     setCreditsCharged(null)
+    setStatusTrackingFailed(false)
     setErrorMsg("")
     setWarning(null)
     setEntries([])
@@ -343,6 +349,7 @@ export default function AutopilotPage() {
         runs_used?: number
         runs_allowed?: number
         credits_charged?: number
+        run_status_tracking?: boolean
       }
 
       // Monthly Autopilot run cap reached — distinct from the credits
@@ -384,6 +391,11 @@ export default function AutopilotPage() {
 
       setResult(json.data ?? null)
       setCreditsCharged(json.credits_charged ?? null)
+      // run_status_tracking is only ever absent on responses from before
+      // this field existed -- treated as "tracking worked" (`!== false`)
+      // rather than defaulting the other way, since a missing field here
+      // must never look like a new failure.
+      setStatusTrackingFailed(json.run_status_tracking === false)
       const createdEntries = json.data?.created_entries ?? []
       setEntries(createdEntries)
       // Select all by default — Autopilot generated these intentionally,
@@ -853,6 +865,21 @@ export default function AutopilotPage() {
             <p className="mt-3 text-center text-xs text-muted-foreground">
               {creditsCharged === 0 ? "No credits charged for this run." : `⚡ ${creditsCharged} credit${creditsCharged === 1 ? "" : "s"} used for this run.`}
             </p>
+          )}
+
+          {/* This run completed and its results below are real -- but the
+              server-side row that would have let this page recover live
+              progress after a navigation-away failed to save (see
+              autopilot_run_status insert in app/api/v1/brands/fastlane/
+              route.ts). Worth surfacing rather than pretending nothing
+              happened, even though it's after the fact for this run. */}
+          {statusTrackingFailed && (
+            <div className="mx-auto mt-3 flex max-w-md items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-left">
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600" />
+              <p className="text-xs text-amber-700">
+                This run finished, but its progress couldn&apos;t be tracked — if you&apos;d navigated away mid-run, you wouldn&apos;t have been able to check back on it.
+              </p>
+            </div>
           )}
 
           {/* Review & approve — nothing here is published or even scheduled

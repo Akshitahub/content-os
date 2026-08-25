@@ -218,11 +218,31 @@ export async function POST(request: Request) {
     // server-side with real credits already charged. See
     // app/api/v1/brands/[brandId]/fastlane/status/route.ts, which is what
     // the frontend checks on mount to recover this.
+    //
+    // Explicitly checked -- this used to only destructure `data`, so a real
+    // Postgres/PostgREST rejection here (RLS denial, missing table, etc.)
+    // resolved as {data:null} and was silently indistinguishable from the
+    // status-tracking feature never having been built: executeFastlane
+    // already treats runStatusRow?.id as optional, so the run itself still
+    // fully completes and real content still gets generated -- but with no
+    // row to poll, the frontend's "recover progress after navigating away"
+    // mechanism (fetchRunStatus/startPolling in the Autopilot page) goes
+    // silently inert, reproducing exactly the "stuck spinner forever, lose
+    // everything on navigation" symptom this table exists to prevent. Same
+    // class of gap already confirmed live for app/api/v1/ai/fullpost/
+    // generate/route.ts's captions insert -- unlike that one, this isn't
+    // core content, so it doesn't abort the run; it proceeds without
+    // tracking and says so in the response instead of pretending nothing
+    // happened.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data: runStatusRow } = await (supabase.from("autopilot_run_status") as any)
+    const { data: runStatusRow, error: runStatusError } = await (supabase.from("autopilot_run_status") as any)
       .insert({ brand_id: brandId, user_id: user.id, status: "running", total_slots: tier.slots })
       .select("id")
-      .single() as { data: { id: string } | null }
+      .single() as { data: { id: string } | null; error: { message: string } | null }
+
+    if (runStatusError) {
+      console.error("[fastlane] autopilot_run_status insert failed (non-fatal, proceeding without progress tracking):", runStatusError.message)
+    }
 
     // Execute autopilot with user preferences, scaled to this plan's tier
     const result = await executeFastlane(supabase, user.id, brandId, {
@@ -236,7 +256,14 @@ export async function POST(request: Request) {
     // generation failures within a run, so this is always exactly
     // estimatedCost (0 for internal-unlimited accounts, who were never
     // charged at all). Already charged upfront above, not computed here.
-    return NextResponse.json({ data: result, credits_charged: isUnlimited ? 0 : estimatedCost }, { status: 201 })
+    return NextResponse.json({
+      data: result,
+      credits_charged: isUnlimited ? 0 : estimatedCost,
+      // Lets the frontend tell the user their run completed but progress
+      // couldn't have been recovered had they navigated away mid-run --
+      // see the runStatusError check above.
+      run_status_tracking: !runStatusError,
+    }, { status: 201 })
   } catch (err) {
     console.error("[fastlane] POST unexpected error:", err)
     // The credit charge (and run-count increment) already happened before

@@ -673,10 +673,20 @@ export async function executeFastlane(
   } catch (err) {
     if (runStatusId) {
       const message = err instanceof Error ? err.message : String(err)
+      // Best-effort -- err is already being rethrown below regardless of
+      // whether this write itself succeeds, so a failure here can't change
+      // the outcome of this run. Still checked and logged (not silently
+      // swallowed): if this update fails, a user who navigated away won't
+      // ever see the row flip to 'error' either -- their poll just finds a
+      // 'running' row forever, so this failure is worth knowing about even
+      // though there's nothing left here to do differently for it.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      await (supabase.from("autopilot_run_status") as any)
+      const { error: statusUpdateError } = await (supabase.from("autopilot_run_status") as any)
         .update({ status: "error", error_message: message, completed_at: new Date().toISOString() })
         .eq("id", runStatusId)
+      if (statusUpdateError) {
+        console.error("[fastlane] autopilot_run_status error-update failed (non-fatal):", statusUpdateError.message)
+      }
     }
     throw err
   }
@@ -1094,10 +1104,19 @@ async function executeFastlaneInner(
     // failure), matching slotsPlanned's denominator on the frontend.
     if (runStatusId) {
       const completedSoFar = Math.min(i + batch.length, slotsPlanned)
+      // Non-fatal -- a failed progress write must never take down actual
+      // content generation, which is already done for this batch by the
+      // time this runs. Checked and logged anyway: silently swallowing it
+      // means a user polling this run sees stale progress with no signal
+      // anything's wrong, the same invisible-failure class this table
+      // exists to prevent.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      await (supabase.from("autopilot_run_status") as any)
+      const { error: progressUpdateError } = await (supabase.from("autopilot_run_status") as any)
         .update({ completed_slots: completedSoFar })
         .eq("id", runStatusId)
+      if (progressUpdateError) {
+        console.error("[fastlane] autopilot_run_status progress update failed (non-fatal):", progressUpdateError.message)
+      }
     }
   }
 
@@ -1112,10 +1131,20 @@ async function executeFastlaneInner(
   }
 
   if (runStatusId) {
+    // Non-fatal -- finalResult is returned below regardless, so the
+    // request that originated this run gets its real result either way.
+    // Checked and logged because this specific write is the one that
+    // matters most for someone who navigated away: if it fails, their
+    // poll never sees the row flip past 'running', reproducing the exact
+    // "stuck spinner forever" symptom this table exists to prevent, even
+    // though the run itself completed successfully.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await (supabase.from("autopilot_run_status") as any)
+    const { error: doneUpdateError } = await (supabase.from("autopilot_run_status") as any)
       .update({ status: "done", completed_slots: slotsPlanned, result: finalResult as unknown as Json, completed_at: new Date().toISOString() })
       .eq("id", runStatusId)
+    if (doneUpdateError) {
+      console.error("[fastlane] autopilot_run_status done-update failed (non-fatal):", doneUpdateError.message)
+    }
   }
 
   return finalResult
