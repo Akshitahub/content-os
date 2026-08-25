@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server"
-import { createClient } from "@/lib/supabase/server"
+import { createClient, createAdminClient } from "@/lib/supabase/server"
 import { buildError, ErrorCodes } from "@/types/api"
 import { z } from "zod"
 import type { StoryRow } from "@/types/database"
@@ -129,7 +129,13 @@ export async function DELETE(request: Request, { params }: Params) {
         .filter((p): p is string => !!p)
 
       if (paths.length > 0) {
-        const { error: removeError } = await supabase.storage.from(MEDIA_BUCKET).remove(paths)
+        // Admin client -- see carousels/[carouselId]/route.ts's DELETE for
+        // why: storage RLS on this bucket doesn't grant this request's
+        // own context delete access, confirmed live (the regular client
+        // silently removed nothing). Brand ownership is already verified
+        // above, so bypassing it here is safe.
+        const admin = await createAdminClient()
+        const { error: removeError } = await admin.storage.from(MEDIA_BUCKET).remove(paths)
         if (removeError) {
           console.error("[brands/stories/:id] slide image removal error (continuing to delete row):", removeError.message)
         }

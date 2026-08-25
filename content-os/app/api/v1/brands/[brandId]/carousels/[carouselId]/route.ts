@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server"
-import { createClient } from "@/lib/supabase/server"
+import { createClient, createAdminClient } from "@/lib/supabase/server"
 import { buildError, ErrorCodes } from "@/types/api"
 import { z } from "zod"
 import type { CarouselRow } from "@/types/database"
@@ -132,7 +132,16 @@ export async function DELETE(request: Request, { params }: Params) {
         .filter((p): p is string => !!p)
 
       if (paths.length > 0) {
-        const { error: removeError } = await supabase.storage.from(MEDIA_BUCKET).remove(paths)
+        // Admin client -- storage RLS on this bucket expects the uploader's
+        // own write/delete context (same reasoning already documented in
+        // app/api/v1/ai/post-image/generate/route.ts's upload step), which
+        // this request doesn't have; brand ownership is already verified
+        // above, so bypassing it here is safe. Confirmed live: using the
+        // regular request-scoped client here silently failed to remove
+        // anything (non-fatal by design, so it looked like success) until
+        // switched to admin.
+        const admin = await createAdminClient()
+        const { error: removeError } = await admin.storage.from(MEDIA_BUCKET).remove(paths)
         if (removeError) {
           console.error("[brands/carousels/:id] slide image removal error (continuing to delete row):", removeError.message)
         }
