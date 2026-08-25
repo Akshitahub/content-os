@@ -15,6 +15,12 @@ import type { BrandRow } from "@/types/database"
 // function timeout. 300s matches the same batch-AI-job ceiling already
 // proven to work on this plan for Autopilot (app/api/v1/brands/fastlane/
 // route.ts), which does a comparable amount of per-item external+AI work.
+//
+// Also now covers a real Apify hashtag-scraping call up front (lib/ai/
+// apify-hashtag-scraper.ts), capped at its own 90s client-side timeout --
+// that actor's real-world duration hasn't been measured live yet (see the
+// Phase 1 evaluation), so watch actual run times against this 300s budget
+// once real usage happens and raise it if a large `count` run gets close.
 export const maxDuration = 300
 
 type RouteParams = { params: Promise<{ brandId: string }> }

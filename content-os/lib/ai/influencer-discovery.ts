@@ -1,5 +1,6 @@
 import { MODELS, getGroqClient, withGroqRateLimitRetry } from "./models"
 import { scrapeInfluencerProfile } from "./scraper"
+import { fetchHashtagPostOwners } from "./apify-hashtag-scraper"
 import { cacheRemoteImage } from "@/lib/storage/upload-media"
 import {
   buildInfluencerFitScoringSystemPrompt,
@@ -24,105 +25,87 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-// Parallel to buildDiscoveryPrompt below, but asks for actual small D2C
-// brand/business accounts (SocioPosts customer prospects) instead of
-// content creators — a founder posting for their own brand from a business
-// handle, not someone with an influencer persona.
-function buildProspectDiscoveryPrompt(niche: string, platform: "instagram" | "tiktok" | "youtube" | "linkedin", count: number): string {
-  return `For the niche "${niche}" on ${platform}, suggest ${count} real handles of SMALL D2C BRAND ACCOUNTS — not influencers or content creators — who are:
-- Based in India
-- Founder-run or small-team-run brand/business accounts selling products in the ${niche} space
-- Actual brand accounts (shop, studio, label, or brand name), NOT a personal/lifestyle influencer or content-creator account built around one person's persona
-- A small, early-stage business — roughly 2,000 to 20,000 followers
-- Likely posting fairly manually and inconsistently, not backed by a large marketing team or agency
-- Handles that are realistic and likely to actually exist
-
-Return ONLY a JSON array of handle strings (without @): ["handle1", "handle2", ...]
-Make the handles realistic and specific, not generic.`
+function slugifyForHashtag(text: string): string {
+  return text.toLowerCase().replace(/[^a-z0-9]+/g, "")
 }
 
-// LinkedIn creators don't fit the same "10K-200K follower micro-influencer"
-// framing as Instagram/TikTok/YouTube — a LinkedIn creator with even a few
-// thousand followers can be a legitimate, high-intent thought leader for a
-// B2B-adjacent D2C brand, and the celebrity-exclusion rules for the other
-// platforms don't really apply either. This gets its own prompt rather than
-// being forced through the generic one.
-function buildDiscoveryPrompt(
-  niche: string,
-  platform: "instagram" | "tiktok" | "youtube" | "linkedin",
-  count: number,
-  discoveryType: DiscoveryType = "influencer_partner",
-): string {
+/**
+ * Deterministic hashtag selection, not LLM-guessed — unlike the old
+ * handle-invention step this replaces, a bad/dead hashtag here just comes
+ * back with zero or few real posts (visible, self-correcting via the
+ * empty-results path below), not a fabricated account, so there's no need
+ * for an LLM's judgment on which hashtags to try.
+ *
+ * The two discovery modes want genuinely different accounts under the
+ * same niche — prospect_customer wants small D2C BRAND accounts (shop/
+ * studio/label), influencer_partner wants content creators/influencers —
+ * so they get different hashtag framings from the same niche string
+ * rather than sharing one set and relying on downstream scoring alone to
+ * tell them apart.
+ */
+function buildHashtags(niche: string, discoveryType: DiscoveryType): string[] {
+  const slug = slugifyForHashtag(niche)
+  if (!slug) {
+    return discoveryType === "prospect_customer"
+      ? ["shopsmall", "smallbusinessindia", "indianbrand"]
+      : ["indiancreator", "contentcreatorindia"]
+  }
+
   if (discoveryType === "prospect_customer") {
-    return buildProspectDiscoveryPrompt(niche, platform, count)
+    return [slug, `${slug}india`, `${slug}brand`, "shopsmall"]
   }
 
-  if (platform === "linkedin") {
-    return `For the niche "${niche}", suggest ${count} LinkedIn handles of professional creators/thought leaders who are:
-- Based in India
-- Actively posting professional, thought-leadership content related to ${niche}
-- Real working professionals, founders, or industry voices — not celebrities
-- Likely to have an engaged, higher-intent (not just large) audience — follower count on LinkedIn varies widely and a smaller, senior audience can matter more than raw reach
-- Handles that are realistic and likely to actually exist
-
-Return ONLY a JSON array of handle strings (without @): ["handle1", "handle2", ...]
-Make the handles realistic and specific, not generic.`
-  }
-
-  return `For the niche "${niche}" on ${platform}, suggest ${count} handles of MICRO-INFLUENCERS (10,000 to 200,000 followers) who are:
-- Based in India
-- Actively posting about ${niche}
-- NOT celebrities (no Bollywood actors, no cricket players, no major TV personalities)
-- Real content creators who work with small D2C brands
-- Handles that are realistic and likely to actually exist
-
-Focus on niches like: food bloggers, lifestyle creators, regional language creators, small business owners who post content, niche hobby creators.
-
-Return ONLY a JSON array of handle strings (without @): ["handle1", "handle2", ...]
-Make the handles realistic and specific, not generic.`
+  return [slug, `${slug}creator`, `${slug}influencer`, "indiancreator"]
 }
 
+/**
+ * Real, currently-active Instagram accounts posting under real hashtags
+ * for this niche — replaces the old approach of asking an LLM to "suggest
+ * real handles" from training memory, which had no live directory to draw
+ * from and confidently invented handles that either didn't exist or
+ * belonged to someone unrelated. See lib/ai/apify-hashtag-scraper.ts.
+ *
+ * Instagram-only for now: the chosen scraping service (Apify's
+ * apidojo/instagram-hashtag-scraper actor, evaluated and confirmed with
+ * the user) only covers Instagram. Every real influencers row in this
+ * app's own data is already Instagram (confirmed live, 358/358 rows) —
+ * rather than leaving tiktok/youtube/linkedin on the same broken
+ * LLM-invention mechanism this task exists to fix, those platforms
+ * return no candidates until a real discovery source exists for them.
+ */
 export async function discoverInfluencersByNiche(
   niche: string,
   platform: "instagram" | "tiktok" | "youtube" | "linkedin",
   count: number = 25,
   discoveryType: DiscoveryType = "influencer_partner",
 ): Promise<string[]> {
-  const groq = getGroqClient()
-  const res = await groq.chat.completions.create({
-    model: MODELS.extraction,
-    temperature: 0.7,
-    max_tokens: 1500,
-    // Handle brainstorming doesn't need deep reasoning — low effort is
-    // faster/cheaper on GPT-OSS models.
-    reasoning_effort: "low",
-    messages: [
-      {
-        role: "system",
-        content: discoveryType === "prospect_customer"
-          ? "You are an expert at identifying small D2C brand accounts on social media. Respond with valid JSON only. No markdown."
-          : "You are an influencer marketing expert specializing in Indian D2C brands. Respond with valid JSON only. No markdown.",
-      },
-      {
-        role: "user",
-        content: buildDiscoveryPrompt(niche, platform, count, discoveryType),
-      },
-    ],
-  })
-
-  const raw = res.choices[0]?.message?.content ?? "[]"
-  let cleaned = sanitizeJsonString(raw)
-  const arrayMatch = cleaned.match(/\[[\s\S]*\]/)
-  if (arrayMatch) cleaned = arrayMatch[0]
-  try {
-    const parsed = JSON.parse(cleaned) as unknown
-    if (Array.isArray(parsed)) {
-      return parsed.filter((h): h is string => typeof h === "string").slice(0, count)
-    }
-  } catch {
-    console.error("[influencer-discovery] handle list parse failed:", cleaned.slice(0, 300))
+  if (platform !== "instagram") {
+    console.error(`[influencer-discovery] real discovery isn't available for ${platform} yet (Instagram-only) -- returning no candidates rather than falling back to LLM-invented handles`)
+    return []
   }
-  return []
+
+  const hashtags = buildHashtags(niche || "", discoveryType)
+  // Overfetch relative to `count`: many posts under a hashtag come from
+  // the same handful of prolific/repeat posters, so the raw post volume
+  // needed to surface `count` UNIQUE accounts is meaningfully higher than
+  // count itself. 5x is a starting multiplier, not a measured ratio (see
+  // the Phase 1 evaluation note on unconfirmed live behavior) — capped so
+  // a large `count` request doesn't runaway the underlying actor's cost
+  // or runtime.
+  const maxItems = Math.min(count * 5, 400)
+
+  const owners = await fetchHashtagPostOwners(hashtags, maxItems)
+
+  const seen = new Set<string>()
+  const handles: string[] = []
+  for (const owner of owners) {
+    const handle = owner.username.toLowerCase()
+    if (seen.has(handle)) continue
+    seen.add(handle)
+    handles.push(owner.username)
+    if (handles.length >= count) break
+  }
+  return handles
 }
 
 export async function autoDiscoverAndScoreInfluencers(
