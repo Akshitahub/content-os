@@ -20,6 +20,25 @@ export const maxDuration = 60
 
 const VARIATION_COUNT = 3
 
+// Confirmed live (2026-08-25), not assumed: firing all 3 variations via a
+// plain Promise.all collided directly with Pollinations' own per-IP
+// concurrency ceiling -- its rejection response literally says "Queue
+// full for IP ...: 1 requests already queued (max: 1)". Across repeated
+// real runs this failed 2 or all 3 of the 3 variations in the same batch
+// almost every time (2/3, 3/3, 3/3 across three consecutive rounds), which
+// is why a feature requiring all three to succeed was failing near-100%
+// of the time. A single Pollinations call itself takes several seconds
+// end to end, so this stagger reduces how many kickoffs land in the exact
+// same instant -- it does NOT eliminate collisions on its own (a later
+// variation can still land while an earlier one is mid-flight), which is
+// exactly why it's paired with the partial-success handling below rather
+// than relied on alone.
+const STAGGER_MS = 400
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
 /**
  * Charges credits and generates Ad Maker's 3 background-image variations
  * server-side via the shared fetchBackgroundImage pipeline (plan-based
@@ -83,16 +102,25 @@ export async function POST(request: Request, { params }: RouteParams) {
     isInternalUnlimitedUser: isInternalUnlimited(user.id),
   }
   const results = await Promise.all(
-    Array.from({ length: VARIATION_COUNT }, () => generateAdMakerBackground(backgroundOptions))
+    Array.from({ length: VARIATION_COUNT }, async (_, i) => {
+      if (i > 0) await sleep(i * STAGGER_MS)
+      return generateAdMakerBackground(backgroundOptions)
+    })
   )
 
-  const failed = results.find((r) => !r.success)
-  if (failed && !failed.success) {
-    console.error(`[ai/ad-maker/generate] background generation failed after ${Date.now() - startTime}ms:`, failed.error)
+  // Partial success is the normal case now, not a failure -- zero usable
+  // output is the only thing that actually justifies failing the whole
+  // request (and refunding). Previously a single failed variation out of
+  // 3 failed everything, even when the other two succeeded fine.
+  const successes = results.filter((r): r is Extract<(typeof results)[number], { success: true }> => r.success)
+
+  if (successes.length === 0) {
+    const firstFailure = results.find((r): r is Extract<(typeof results)[number], { success: false }> => !r.success)
+    console.error(`[ai/ad-maker/generate] all ${VARIATION_COUNT} background variations failed after ${Date.now() - startTime}ms:`, firstFailure?.error)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await (supabase.from("ai_generation_logs") as any).insert({
       user_id: user.id, brand_id: brandId, feature: "ad_maker", model: "unknown",
-      latency_ms: Date.now() - startTime, success: false, error_message: failed.error,
+      latency_ms: Date.now() - startTime, success: false, error_message: firstFailure?.error ?? "All variations failed",
     })
     await refundGenerationUsage(supabase, user.id, AD_MAKER)
     return NextResponse.json(buildError(ErrorCodes.AI_GENERATION_FAILED, "Couldn't generate a background. Please try again."), { status: 500 })
@@ -102,21 +130,24 @@ export async function POST(request: Request, { params }: RouteParams) {
   // with the user's auth uid, admin bypasses RLS safely here since brand
   // ownership is already verified above (same pattern as images/generate).
   const admin = await createAdminClient()
-  const uploads = await Promise.all(
-    results.map(async (result, i) => {
-      if (!result.success) return null
-      const ext = result.mimeType.includes("jpeg") ? "jpg" : "png"
-      const storagePath = `${user.id}/${brandId}/ad-maker-${Date.now()}-${i}-${crypto.randomUUID()}.${ext}`
-      const { error: uploadError } = await admin.storage
-        .from(BUCKET)
-        .upload(storagePath, result.buffer, { contentType: result.mimeType, upsert: false })
-      return uploadError ? null : storagePath
-    })
-  )
+  const uploadedPaths = (
+    await Promise.all(
+      successes.map(async (result, i) => {
+        const ext = result.mimeType.includes("jpeg") ? "jpg" : "png"
+        const storagePath = `${user.id}/${brandId}/ad-maker-${Date.now()}-${i}-${crypto.randomUUID()}.${ext}`
+        const { error: uploadError } = await admin.storage
+          .from(BUCKET)
+          .upload(storagePath, result.buffer, { contentType: result.mimeType, upsert: false })
+        return uploadError ? null : storagePath
+      })
+    )
+  ).filter((path): path is string => !!path)
 
-  if (uploads.some((path) => !path)) {
-    // At least one variation was generated but never actually delivered to
-    // the user -- no usable full set of output, same as a generation failure.
+  if (uploadedPaths.length === 0) {
+    // Same partial-success reasoning as generation above -- a variation
+    // that generated but never actually made it to storage isn't usable
+    // output either. Only fatal if NONE of the successfully-generated
+    // variations could be uploaded.
     await refundGenerationUsage(supabase, user.id, AD_MAKER)
     return NextResponse.json(
       buildError(ErrorCodes.INTERNAL_ERROR, "Backgrounds generated but upload to storage failed."),
@@ -124,9 +155,8 @@ export async function POST(request: Request, { params }: RouteParams) {
     )
   }
 
-  const backgroundUrls = uploads.map((path) => admin.storage.from(BUCKET).getPublicUrl(path as string).data.publicUrl)
-  const firstSuccess = results.find((r) => r.success)
-  const provider = firstSuccess && firstSuccess.success ? firstSuccess.provider : "unknown"
+  const backgroundUrls = uploadedPaths.map((path) => admin.storage.from(BUCKET).getPublicUrl(path).data.publicUrl)
+  const provider = successes[0]!.provider
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   await (supabase.from("ai_generation_logs") as any).insert({
