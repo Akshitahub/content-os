@@ -8,7 +8,7 @@ import { useProducts } from "@/hooks/useProducts"
 import { useBrand } from "@/hooks/useBrand"
 import { useBrandStore } from "@/stores/brandStore"
 import { useGenerationStore } from "@/stores/generationStore"
-import { OCCASIONS } from "@/lib/occasions/occasions-data"
+import { FESTIVAL_CATALOG } from "@/lib/occasions/festival-catalog"
 import { Archive, Copy, Check } from "lucide-react"
 import Link from "next/link"
 import type { HookRow, CaptionRow } from "@/types/database"
@@ -135,8 +135,8 @@ function GenerateContent() {
       setOccasionContext(null)
       return
     }
-    const occasion = OCCASIONS.find((o) => o.id === occasionId)
-    if (!occasion) {
+    const occasion = FESTIVAL_CATALOG.find((o) => o.id === occasionId)
+    if (!occasion || !occasion.suggestedAngle) {
       setOccasionContext(null)
       return
     }

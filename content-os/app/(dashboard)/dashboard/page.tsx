@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server"
 import { OnboardingWizard } from "@/components/onboarding/OnboardingWizard"
 import { DashboardStats } from "@/components/dashboard/DashboardStats"
 import { UpcomingOccasions } from "@/components/dashboard/UpcomingOccasions"
+import { getUpcomingOccasions } from "@/lib/occasions/get-upcoming-occasions"
 import type { UserRow, CalendarEntryRow, HookRow } from "@/types/database"
 
 export default async function DashboardPage() {
@@ -25,6 +26,13 @@ export default async function DashboardPage() {
   if (brandCount === 0) {
     return <OnboardingWizard />
   }
+
+  // Started here (not awaited yet) so it runs concurrently with the big
+  // Promise.all batch below instead of serially blocking the page on a DB
+  // round-trip that has nothing to do with the rest of this page's data --
+  // deferred past the brandCount===0 check above so the onboarding path
+  // never fires this query at all.
+  const occasionsPromise = getUpcomingOccasions(14)
 
   const now = new Date()
   const todayStr = now.toISOString().split("T")[0]!
@@ -202,7 +210,7 @@ export default async function DashboardPage() {
       />
 
       <div className="mt-6">
-        <UpcomingOccasions brandId={firstBrandId} />
+        <UpcomingOccasions brandId={firstBrandId} occasions={await occasionsPromise} />
       </div>
     </div>
   )

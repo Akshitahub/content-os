@@ -5,8 +5,7 @@ import Link from "next/link"
 import { Calendar, Loader2, Copy, Check, Sparkles } from "lucide-react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { getUpcomingOccasions } from "@/lib/occasions/get-upcoming-occasions"
-import type { OccasionCategory } from "@/lib/occasions/occasions-data"
+import type { OccasionCategory, DashboardOccasion } from "@/lib/occasions/get-upcoming-occasions"
 
 const CATEGORY_STYLES: Record<OccasionCategory, string> = {
   festival: "bg-orange-100 text-orange-700",
@@ -58,10 +57,11 @@ function CopyButton({ text, label }: { text: string; label?: string }) {
 
 interface Props {
   brandId?: string | null
+  occasions: DashboardOccasion[]
 }
 
-export function UpcomingOccasions({ brandId }: Props) {
-  const occasions = getUpcomingOccasions(14).slice(0, 3)
+export function UpcomingOccasions({ brandId, occasions: allOccasions }: Props) {
+  const occasions = allOccasions.slice(0, 3)
 
   const [generating, setGenerating] = useState<Record<string, boolean>>({})
   const [generated, setGenerated] = useState<Record<string, GeneratedContent | null>>({})

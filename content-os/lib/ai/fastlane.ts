@@ -1,7 +1,7 @@
 import { after } from "next/server"
 import { MODELS, getGroqClient } from "./models"
 import { generateCarouselHtml } from "@/lib/design/post-card-generator"
-import { getUpcomingOccasions } from "@/lib/data/indian-occasions"
+import { getUpcomingOccasionsForAutopilot } from "@/lib/occasions/get-upcoming-occasions"
 import { generatePostImage } from "@/lib/ai/post-image-pipeline"
 import { DEFAULT_POST_TEMPLATE_ID } from "@/lib/design/post-templates"
 import { resolveColorThemes } from "@/lib/design/color-themes"
@@ -268,12 +268,24 @@ export function estimateAutopilotCreditCost(focusAreas?: string[], totalSlots = 
   return mix.reduce((sum, m) => sum + m.count * (SLOT_CONTENT_TYPE_CREDIT_COST[m.format] ?? 1), 0)
 }
 
-function buildStrategyUserPrompt(brand: BrandRow, products: ProductRow[], params?: AutopilotParams): string {
+/** occurrenceDate is constructed at local midnight (see
+ * getFestivalOccasionsInWindow) -- toISOString() converts to UTC first,
+ * which shifts the date backward by a day in any positive-UTC-offset
+ * timezone (e.g. IST, UTC+5:30: local midnight is 18:30 the *previous* UTC
+ * day). Reading the local date components back out avoids that shift. */
+function formatLocalDate(date: Date): string {
+  const yyyy = date.getFullYear()
+  const mm = String(date.getMonth() + 1).padStart(2, "0")
+  const dd = String(date.getDate()).padStart(2, "0")
+  return `${yyyy}-${mm}-${dd}`
+}
+
+async function buildStrategyUserPrompt(brand: BrandRow, products: ProductRow[], params?: AutopilotParams): Promise<string> {
   const totalSlots = params?.totalSlots ?? 30
   const productNames = products.map(p => p.name).join(", ")
-  const upcomingOccasions = getUpcomingOccasions(new Date(), totalSlots)
+  const upcomingOccasions = await getUpcomingOccasionsForAutopilot(new Date(), totalSlots)
   const occasionsNote = upcomingOccasions.length > 0
-    ? `\nUpcoming occasions in next ${totalSlots} days (plan slots around these):\n${upcomingOccasions.map(o => `- ${o.name} ${o.emoji} (${o.date}): ${o.content_angle} — vibe: ${o.vibe}`).join("\n")}`
+    ? `\nUpcoming occasions in next ${totalSlots} days (plan slots around these):\n${upcomingOccasions.map(o => `- ${o.name} ${o.emoji} (${formatLocalDate(o.occurrenceDate)}): ${o.content_angle} — vibe: ${o.vibe}`).join("\n")}`
     : ""
 
   const mix = buildContentMix(params?.focusAreas, totalSlots)
@@ -408,6 +420,7 @@ Return this exact JSON (exactly 5 slides):
 
 export async function generateContentStrategy(brand: BrandRow, products: ProductRow[], params?: AutopilotParams): Promise<ContentStrategy> {
   const groq = getGroqClient()
+  const userPrompt = await buildStrategyUserPrompt(brand, products, params)
   // GPT-OSS reasoning tokens count against max_tokens. The big 30-day/
   // 30-slot planner -- measured live with a comparable 30-slot test JSON
   // consuming 4685/12000 total tokens (3128 of them reasoning), comfortably
@@ -420,7 +433,7 @@ export async function generateContentStrategy(brand: BrandRow, products: Product
     response_format: { type: "json_object" },
     messages: [
       { role: "system", content: buildStrategySystemPrompt() },
-      { role: "user", content: buildStrategyUserPrompt(brand, products, params) },
+      { role: "user", content: userPrompt },
     ],
   })
 

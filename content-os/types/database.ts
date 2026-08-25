@@ -775,6 +775,29 @@ export type Database = {
           completed_at?: string | null
         }
       }
+      festival_dates: {
+        Row: {
+          id: string
+          festival_id: string
+          year: number
+          occurs_on: string
+          source: "api" | "fallback"
+          fetched_at: string
+        }
+        Insert: {
+          id?: string
+          festival_id: string
+          year: number
+          occurs_on: string
+          source: "api" | "fallback"
+          fetched_at?: string
+        }
+        Update: {
+          occurs_on?: string
+          source?: "api" | "fallback"
+          fetched_at?: string
+        }
+      }
       reel_scripts: {
         Row: {
           id: string
@@ -1255,6 +1278,7 @@ export type StoryRow = Database["public"]["Tables"]["stories"]["Row"]
 export type MemeRow = Database["public"]["Tables"]["memes"]["Row"]
 export type PostImageGenerationSessionRow = Database["public"]["Tables"]["post_image_generation_sessions"]["Row"]
 export type AutopilotRunStatusRow = Database["public"]["Tables"]["autopilot_run_status"]["Row"]
+export type FestivalDateRow = Database["public"]["Tables"]["festival_dates"]["Row"]
 
 // Insert types
 export type UserInsert = Database["public"]["Tables"]["users"]["Insert"]
