@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react"
 import { X, Copy, Check, Download, ExternalLink, RefreshCw } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { PlatformPreviewFrame } from "@/components/shared/PlatformPreviewFrame"
 import type { CalendarEntryRow } from "@/types/database"
 import { isApiError } from "@/types/api"
 
@@ -335,15 +336,17 @@ export function CalendarEntryPanel({ entry, onClose, onUpdate, brandId }: Calend
                           <ExternalLink className="h-3 w-3" /> View full size
                         </a>
                       </div>
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        src={imageUrl}
-                        alt={imageAlt}
-                        width={300}
-                        height={300}
-                        className="rounded-lg border object-cover"
-                        style={{ width: 300, height: 300 }}
-                      />
+                      <PlatformPreviewFrame brandId={brandId} platform={entry.platform} caption={entry.caption_text}>
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={imageUrl}
+                          alt={imageAlt}
+                          width={300}
+                          height={300}
+                          className="object-cover"
+                          style={{ width: 300, height: 300 }}
+                        />
+                      </PlatformPreviewFrame>
                     </div>
                   )
                 }
@@ -369,22 +372,22 @@ export function CalendarEntryPanel({ entry, onClose, onUpdate, brandId }: Calend
                           <Download className="h-3 w-3" /> Download graphic
                         </button>
                       </div>
-                      <div
-                        style={{ width: 300, height: 300, overflow: "hidden", borderRadius: 8, border: "1px solid hsl(var(--border))", flexShrink: 0 }}
-                      >
-                        <iframe
-                          srcDoc={carouselHtml}
-                          sandbox="allow-same-origin"
-                          title="Carousel preview"
-                          style={{
-                            width: 1080,
-                            height: 1080,
-                            border: "none",
-                            transform: "scale(0.278)",
-                            transformOrigin: "top left",
-                          }}
-                        />
-                      </div>
+                      <PlatformPreviewFrame brandId={brandId} platform={entry.platform} caption={entry.caption_text}>
+                        <div style={{ width: 300, height: 300, overflow: "hidden", flexShrink: 0 }}>
+                          <iframe
+                            srcDoc={carouselHtml}
+                            sandbox="allow-same-origin"
+                            title="Carousel preview"
+                            style={{
+                              width: 1080,
+                              height: 1080,
+                              border: "none",
+                              transform: "scale(0.278)",
+                              transformOrigin: "top left",
+                            }}
+                          />
+                        </div>
+                      </PlatformPreviewFrame>
                     </div>
                   )
                 }

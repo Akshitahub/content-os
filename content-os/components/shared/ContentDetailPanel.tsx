@@ -4,6 +4,7 @@ import { X, Copy, Check } from "lucide-react"
 import { useState } from "react"
 import { ScheduleAction } from "@/components/shared/ScheduleAction"
 import { DeleteConfirmButton } from "@/components/shared/DeleteConfirmButton"
+import { PlatformPreviewFrame } from "@/components/shared/PlatformPreviewFrame"
 
 // Modeled on components/calendar/CalendarEntryPanel.tsx's slide-in panel --
 // same backdrop/fixed-panel/header/scrollable-body pattern, generalized to
@@ -25,6 +26,12 @@ export interface DetailItem {
   blocks: DetailBlock[]
   hashtags: string[]
   createdAt: string
+  /** Threaded from the underlying row's own platform column (captions/
+   * carousels/ad_copies all have one) so block image previews can wrap in
+   * the right app chrome -- stories has no platform column of its own
+   * (Instagram-only feature today), so callers pass "instagram" for it
+   * directly rather than this being optional-and-usually-missing. */
+  platform?: string | null
   /** Full-caption text handed to ScheduleAction and the "Copy all" button --
    * usually blocks joined together, but callers can pass something more
    * curated (e.g. a carousel's cover_hook instead of every slide's text). */
@@ -127,13 +134,15 @@ export function ContentDetailPanel({ item, onClose, brandId }: ContentDetailPane
                     <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{block.label}</p>
                   )}
                   {block.imageUrl && (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={block.imageUrl}
-                      alt=""
-                      className="w-full rounded-lg border object-cover"
-                      style={{ maxHeight: 320 }}
-                    />
+                    <PlatformPreviewFrame brandId={brandId} platform={item.platform} caption={item.scheduleCaption}>
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={block.imageUrl}
+                        alt=""
+                        className="w-full object-cover"
+                        style={{ maxHeight: 320 }}
+                      />
+                    </PlatformPreviewFrame>
                   )}
                   <p className="text-sm leading-relaxed whitespace-pre-wrap">{block.text}</p>
                 </div>

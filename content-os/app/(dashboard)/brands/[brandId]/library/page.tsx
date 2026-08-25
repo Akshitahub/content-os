@@ -255,6 +255,7 @@ function CaptionCard({ caption, brandId, onOpenDetail }: { caption: CaptionWithI
       createdAt: caption.created_at,
       scheduleCaption: caption.caption_text,
       scheduleImageUrl: thumbnail,
+      platform: caption.platform,
       onDelete: () => deleteMutation.mutateAsync(),
     })
   }
@@ -404,6 +405,7 @@ function CarouselCard({ carousel, brandId, onOpenDetail }: { carousel: CarouselR
       createdAt: carousel.created_at,
       scheduleCaption: carousel.title || slides[0]?.headline || "",
       scheduleImageUrls: scheduleImages,
+      platform: carousel.platform,
       onDelete: () => deleteMutation.mutateAsync(),
     })
   }
@@ -497,6 +499,10 @@ function StoryCard({ story, brandId, onOpenDetail }: { story: StoryRow; brandId:
       createdAt: story.created_at,
       scheduleCaption: story.topic || slides[0]?.text || "",
       scheduleImageUrls: scheduleImages,
+      // stories has no platform column of its own -- Instagram Stories is
+      // the only thing this feature ever produces (StorySequence.tsx,
+      // ScheduleAction's isMultiSlide path), not a guessed default.
+      platform: "instagram",
       onDelete: () => deleteMutation.mutateAsync(),
     })
   }
@@ -587,6 +593,7 @@ function AdCopyCard({ ad, brandId, onOpenDetail }: { ad: AdCopyRow; brandId: str
       hashtags: [],
       createdAt: ad.created_at,
       scheduleCaption: fullText,
+      platform: ad.platform,
       onDelete: () => deleteMutation.mutateAsync(),
     })
   }
