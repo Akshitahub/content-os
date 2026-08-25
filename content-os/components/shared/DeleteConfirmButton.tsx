@@ -16,13 +16,22 @@ interface DeleteConfirmButtonProps {
    * Schedule/Copy so it can't be mis-clicked (ContentDetailPanel). */
   variant?: "icon" | "text"
   className?: string
+  /** Controlled mode -- when both are provided, the confirm/cancel state
+   * is owned by the parent instead of this component's own internal
+   * state. Lets a separate trigger elsewhere on the same card (e.g. a
+   * quick-actions dropdown's "Delete" item) reveal this exact same
+   * confirmation UI instead of a second one being built for it. */
+  confirming?: boolean
+  onConfirmingChange?: (confirming: boolean) => void
 }
 
 // Same inline "Are you sure? Yes, delete / Cancel" pattern Settings' brand
 // deletion already uses, rather than a native confirm() or a silent
 // one-click delete -- reused here instead of re-invented.
-export function DeleteConfirmButton({ onDelete, variant = "icon", className }: DeleteConfirmButtonProps) {
-  const [confirming, setConfirming] = useState(false)
+export function DeleteConfirmButton({ onDelete, variant = "icon", className, confirming: confirmingProp, onConfirmingChange }: DeleteConfirmButtonProps) {
+  const [confirmingState, setConfirmingState] = useState(false)
+  const confirming = confirmingProp ?? confirmingState
+  const setConfirming = onConfirmingChange ?? setConfirmingState
   const [deleting, setDeleting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 

@@ -3,9 +3,10 @@
 import { useState, useCallback, useEffect } from "react"
 import { useParams, useSearchParams } from "next/navigation"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
-import { Archive, Copy, Check, Star, Sparkles, BookOpen, ChevronDown, ChevronUp, Film, LayoutGrid, Megaphone, Download, Search, Zap, Timer, Newspaper } from "lucide-react"
+import { Archive, Copy, Check, Star, Sparkles, BookOpen, ChevronDown, ChevronUp, Film, LayoutGrid, Megaphone, Download, Search, Zap, Timer, Newspaper, MoreVertical, Eye, CalendarClock, Trash2 } from "lucide-react"
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import Link from "next/link"
 import { GenerateVideoAction } from "@/components/shared/GenerateVideoAction"
 import { ContentDetailPanel, type DetailItem } from "@/components/shared/ContentDetailPanel"
@@ -73,6 +74,72 @@ function CopyButton({ text, className, touchUrl }: { text: string; className?: s
       {copied ? <Check className="h-3.5 w-3.5 text-green-500" /> : <Copy className="h-3.5 w-3.5" />}
       {copied ? "Copied" : "Copy"}
     </Button>
+  )
+}
+
+/**
+ * "⋮" quick-actions trigger for a card's top-right corner -- a faster path
+ * to View/Schedule/Delete/rating than opening the full ContentDetailPanel
+ * first. View and Schedule both just call the card's own openDetail (same
+ * one the card body's onClick already uses) rather than duplicating
+ * ScheduleAction's modal here: Schedule lands the user in the panel where
+ * it already lives, not a second instance of it. Delete sets a lifted
+ * `deleteConfirming` flag the card's own footer DeleteConfirmButton
+ * already renders from (controlled mode) -- same confirmation UI, one
+ * instance, just triggerable from two places. Rating is the real
+ * StarRating component embedded directly, no separate rating UI.
+ *
+ * DropdownMenuContent renders through a portal, so a click inside it still
+ * bubbles through the *React* tree (not the DOM tree) up to the card's own
+ * onClick={openDetail} unless stopped here -- confirmed this is necessary,
+ * not just the trigger button.
+ */
+function CardQuickActions({
+  onView,
+  canSchedule,
+  onRequestDelete,
+  rating,
+  onRatingChange,
+  ratingPending,
+}: {
+  onView: () => void
+  canSchedule: boolean
+  onRequestDelete: () => void
+  rating: number | null
+  onRatingChange: (r: number) => void
+  ratingPending?: boolean
+}) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          onClick={(e) => e.stopPropagation()}
+          className="shrink-0 rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          aria-label="More actions"
+        >
+          <MoreVertical className="h-4 w-4" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-48" onClick={(e) => e.stopPropagation()}>
+        <DropdownMenuItem onSelect={onView}>
+          <Eye className="h-3.5 w-3.5" /> View
+        </DropdownMenuItem>
+        {canSchedule && (
+          <DropdownMenuItem onSelect={onView}>
+            <CalendarClock className="h-3.5 w-3.5" /> Schedule
+          </DropdownMenuItem>
+        )}
+        <DropdownMenuItem onSelect={onRequestDelete} className="text-destructive focus:bg-destructive/10 focus:text-destructive">
+          <Trash2 className="h-3.5 w-3.5" /> Delete
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <div className="px-2 py-1.5">
+          <p className="mb-1.5 text-xs font-medium text-muted-foreground">Edit rating</p>
+          <StarRating value={rating} onChange={onRatingChange} disabled={ratingPending} />
+        </div>
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }
 
@@ -224,6 +291,7 @@ export type CaptionWithImages = CaptionRow & { images: { public_url: string }[] 
 
 function CaptionCard({ caption, brandId, onOpenDetail }: { caption: CaptionWithImages; brandId: string; onOpenDetail: (item: DetailItem) => void }) {
   const [expanded, setExpanded] = useState(false)
+  const [deleteConfirming, setDeleteConfirming] = useState(false)
   const qc = useQueryClient()
   const ratingMutation = useMutation({
     mutationFn: async (rating: number) => {
@@ -278,7 +346,17 @@ function CaptionCard({ caption, brandId, onOpenDetail }: { caption: CaptionWithI
             {caption.character_count !== null && <span className="text-xs text-muted-foreground">{caption.character_count} chars</span>}
             <ExpiryBadge lastAccessedAt={caption.last_accessed_at} />
           </div>
-          <span className="shrink-0 text-xs text-muted-foreground">{new Date(caption.created_at).toLocaleDateString()}</span>
+          <div className="flex shrink-0 items-center gap-1" onClick={(e) => e.stopPropagation()}>
+            <span className="text-xs text-muted-foreground">{new Date(caption.created_at).toLocaleDateString()}</span>
+            <CardQuickActions
+              onView={openDetail}
+              canSchedule
+              onRequestDelete={() => setDeleteConfirming(true)}
+              rating={caption.user_rating}
+              onRatingChange={(r) => ratingMutation.mutate(r)}
+              ratingPending={ratingMutation.isPending}
+            />
+          </div>
         </div>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -303,7 +381,11 @@ function CaptionCard({ caption, brandId, onOpenDetail }: { caption: CaptionWithI
           <StarRating value={caption.user_rating} onChange={(r) => ratingMutation.mutate(r)} disabled={ratingMutation.isPending} />
           <div className="flex items-center gap-1">
             <CopyButton text={caption.caption_text} touchUrl={`/api/v1/brands/${brandId}/captions/${caption.id}`} />
-            <DeleteConfirmButton onDelete={() => deleteMutation.mutateAsync()} />
+            <DeleteConfirmButton
+              onDelete={() => deleteMutation.mutateAsync()}
+              confirming={deleteConfirming}
+              onConfirmingChange={setDeleteConfirming}
+            />
           </div>
         </div>
       </CardContent>
@@ -370,6 +452,7 @@ function ReelScriptCard({ script, brandId }: { script: ReelScriptRow; brandId: s
 interface SlideShape { headline?: string; body?: string; image_url?: string | null }
 
 function CarouselCard({ carousel, brandId, onOpenDetail }: { carousel: CarouselRow; brandId: string; onOpenDetail: (item: DetailItem) => void }) {
+  const [deleteConfirming, setDeleteConfirming] = useState(false)
   const qc = useQueryClient()
   const slides = (carousel.slides as Json[] as SlideShape[]) ?? []
   const ratingMutation = useMutation({
@@ -427,7 +510,17 @@ function CarouselCard({ carousel, brandId, onOpenDetail }: { carousel: CarouselR
             <PlatformBadge platform={carousel.platform} />
             <ExpiryBadge lastAccessedAt={carousel.last_accessed_at} />
           </div>
-          <span className="shrink-0 text-xs text-muted-foreground">{new Date(carousel.created_at).toLocaleDateString()}</span>
+          <div className="flex shrink-0 items-center gap-1" onClick={(e) => e.stopPropagation()}>
+            <span className="text-xs text-muted-foreground">{new Date(carousel.created_at).toLocaleDateString()}</span>
+            <CardQuickActions
+              onView={openDetail}
+              canSchedule
+              onRequestDelete={() => setDeleteConfirming(true)}
+              rating={carousel.user_rating}
+              onRatingChange={(r) => ratingMutation.mutate(r)}
+              ratingPending={ratingMutation.isPending}
+            />
+          </div>
         </div>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -450,7 +543,11 @@ function CarouselCard({ carousel, brandId, onOpenDetail }: { carousel: CarouselR
               text={slides.map((s, i) => `Slide ${i + 1}\n${s.headline ?? ""}\n${s.body ?? ""}`).join("\n\n")}
               touchUrl={`/api/v1/brands/${brandId}/carousels/${carousel.id}`}
             />
-            <DeleteConfirmButton onDelete={() => deleteMutation.mutateAsync()} />
+            <DeleteConfirmButton
+              onDelete={() => deleteMutation.mutateAsync()}
+              confirming={deleteConfirming}
+              onConfirmingChange={setDeleteConfirming}
+            />
           </div>
         </div>
       </CardContent>
@@ -463,6 +560,7 @@ function CarouselCard({ carousel, brandId, onOpenDetail }: { carousel: CarouselR
 interface StorySlideShape { text?: string; subtext?: string; type?: string; background_image_url?: string | null }
 
 function StoryCard({ story, brandId, onOpenDetail }: { story: StoryRow; brandId: string; onOpenDetail: (item: DetailItem) => void }) {
+  const [deleteConfirming, setDeleteConfirming] = useState(false)
   const qc = useQueryClient()
   const slides = (story.stories as Json[] as StorySlideShape[]) ?? []
   const ratingMutation = useMutation({
@@ -524,7 +622,17 @@ function StoryCard({ story, brandId, onOpenDetail }: { story: StoryRow; brandId:
             {story.topic && <p className="text-sm font-medium leading-snug line-clamp-2">{story.topic}</p>}
             <ExpiryBadge lastAccessedAt={story.last_accessed_at} />
           </div>
-          <span className="shrink-0 text-xs text-muted-foreground">{new Date(story.created_at).toLocaleDateString()}</span>
+          <div className="flex shrink-0 items-center gap-1" onClick={(e) => e.stopPropagation()}>
+            <span className="text-xs text-muted-foreground">{new Date(story.created_at).toLocaleDateString()}</span>
+            <CardQuickActions
+              onView={openDetail}
+              canSchedule
+              onRequestDelete={() => setDeleteConfirming(true)}
+              rating={story.user_rating}
+              onRatingChange={(r) => ratingMutation.mutate(r)}
+              ratingPending={ratingMutation.isPending}
+            />
+          </div>
         </div>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -541,7 +649,11 @@ function StoryCard({ story, brandId, onOpenDetail }: { story: StoryRow; brandId:
               text={slides.map((s, i) => `Story ${i + 1} (${s.type ?? ""}):\n${s.text ?? ""}\n${s.subtext ?? ""}`).join("\n\n")}
               touchUrl={`/api/v1/brands/${brandId}/stories/${story.id}`}
             />
-            <DeleteConfirmButton onDelete={() => deleteMutation.mutateAsync()} />
+            <DeleteConfirmButton
+              onDelete={() => deleteMutation.mutateAsync()}
+              confirming={deleteConfirming}
+              onConfirmingChange={setDeleteConfirming}
+            />
           </div>
         </div>
       </CardContent>
@@ -552,6 +664,7 @@ function StoryCard({ story, brandId, onOpenDetail }: { story: StoryRow; brandId:
 // ─── Ad Copy card ─────────────────────────────────────────────────────────────
 
 function AdCopyCard({ ad, brandId, onOpenDetail }: { ad: AdCopyRow; brandId: string; onOpenDetail: (item: DetailItem) => void }) {
+  const [deleteConfirming, setDeleteConfirming] = useState(false)
   const qc = useQueryClient()
   const ratingMutation = useMutation({
     mutationFn: async (rating: number) => {
@@ -609,7 +722,17 @@ function AdCopyCard({ ad, brandId, onOpenDetail }: { ad: AdCopyRow; brandId: str
             <PlatformBadge platform={ad.platform} />
             <ExpiryBadge lastAccessedAt={ad.last_accessed_at} />
           </div>
-          <span className="shrink-0 text-xs text-muted-foreground">{new Date(ad.created_at).toLocaleDateString()}</span>
+          <div className="flex shrink-0 items-center gap-1" onClick={(e) => e.stopPropagation()}>
+            <span className="text-xs text-muted-foreground">{new Date(ad.created_at).toLocaleDateString()}</span>
+            <CardQuickActions
+              onView={openDetail}
+              canSchedule={false}
+              onRequestDelete={() => setDeleteConfirming(true)}
+              rating={ad.user_rating}
+              onRatingChange={(r) => ratingMutation.mutate(r)}
+              ratingPending={ratingMutation.isPending}
+            />
+          </div>
         </div>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -622,7 +745,11 @@ function AdCopyCard({ ad, brandId, onOpenDetail }: { ad: AdCopyRow; brandId: str
           <StarRating value={ad.user_rating} onChange={(r) => ratingMutation.mutate(r)} disabled={ratingMutation.isPending} />
           <div className="flex items-center gap-1">
             <CopyButton text={fullText} touchUrl={`/api/v1/brands/${brandId}/ad-copies/${ad.id}`} />
-            <DeleteConfirmButton onDelete={() => deleteMutation.mutateAsync()} />
+            <DeleteConfirmButton
+              onDelete={() => deleteMutation.mutateAsync()}
+              confirming={deleteConfirming}
+              onConfirmingChange={setDeleteConfirming}
+            />
           </div>
         </div>
       </CardContent>
