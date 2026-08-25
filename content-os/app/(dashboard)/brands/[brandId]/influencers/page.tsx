@@ -224,31 +224,45 @@ function DiscoverForm({ brandId, discoveryType }: { brandId: string; discoveryTy
   }
 
   return (
-    <form onSubmit={handleSubmit} className="flex gap-2">
-      <select
-        value={platform}
-        onChange={(e) => setPlatform(e.target.value as "instagram" | "tiktok" | "youtube" | "linkedin")}
-        className="rounded-md border bg-background px-3 py-2 text-sm"
-      >
-        <option value="instagram">Instagram</option>
-        <option value="tiktok">TikTok</option>
-        <option value="youtube">YouTube</option>
-        <option value="linkedin">LinkedIn</option>
-      </select>
-      <div className="relative flex-1">
-        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-        <Input
-          placeholder="Handle (without @)"
-          value={handle}
-          onChange={(e) => setHandle(e.target.value)}
-          className="pl-9"
-        />
-      </div>
-      <Button type="submit" disabled={discover.isPending || !handle.trim()}>
-        {discover.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
-        Discover
-      </Button>
-    </form>
+    <div className="space-y-2">
+      <form onSubmit={handleSubmit} className="flex gap-2">
+        <select
+          value={platform}
+          onChange={(e) => setPlatform(e.target.value as "instagram" | "tiktok" | "youtube" | "linkedin")}
+          className="rounded-md border bg-background px-3 py-2 text-sm"
+        >
+          <option value="instagram">Instagram</option>
+          <option value="tiktok">TikTok</option>
+          <option value="youtube">YouTube</option>
+          <option value="linkedin">LinkedIn</option>
+        </select>
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            placeholder="Handle (without @)"
+            value={handle}
+            onChange={(e) => setHandle(e.target.value)}
+            className="pl-9"
+          />
+        </div>
+        <Button type="submit" disabled={discover.isPending || !handle.trim()}>
+          {discover.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+          Discover
+        </Button>
+      </form>
+      {/* Mirrors AutoDiscoverForm's error rendering exactly -- this form's
+          discover.mutateAsync failure (the same plan-gate 403, or anything
+          else) previously had no .catch() and nothing here ever read
+          discover.error, so the input just sat there with no feedback at
+          all on failure. */}
+      {discover.error && (
+        <p className="text-xs text-destructive">
+          {discover.error instanceof Error
+            ? discover.error.message
+            : "Discovery failed."}
+        </p>
+      )}
+    </div>
   )
 }
 
