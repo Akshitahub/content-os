@@ -3,6 +3,7 @@
 import { X, Copy, Check } from "lucide-react"
 import { useState } from "react"
 import { ScheduleAction } from "@/components/shared/ScheduleAction"
+import { DeleteConfirmButton } from "@/components/shared/DeleteConfirmButton"
 
 // Modeled on components/calendar/CalendarEntryPanel.tsx's slide-in panel --
 // same backdrop/fixed-panel/header/scrollable-body pattern, generalized to
@@ -34,6 +35,12 @@ export interface DetailItem {
    * story schedules all of its persisted slide images together. */
   scheduleImageUrl?: string | null
   scheduleImageUrls?: string[]
+  /** Present only when this item can actually be deleted (every kind
+   * today) -- throw to signal failure, DeleteConfirmButton shows the
+   * error inline and lets the user retry. On success the panel closes
+   * itself; the caller's own mutation is responsible for making the item
+   * disappear from whatever list opened this panel (query invalidation). */
+  onDelete?: () => Promise<void>
 }
 
 interface ContentDetailPanelProps {
@@ -72,6 +79,12 @@ const KIND_LABEL: Record<DetailItem["kind"], string> = {
 }
 
 export function ContentDetailPanel({ item, onClose, brandId }: ContentDetailPanelProps) {
+  async function handleDelete() {
+    if (!item?.onDelete) return
+    await item.onDelete()
+    onClose()
+  }
+
   return (
     <>
       {item && (
@@ -168,6 +181,11 @@ export function ContentDetailPanel({ item, onClose, brandId }: ContentDetailPane
                   caption={item.scheduleCaption}
                   hashtags={item.hashtags}
                 />
+              )}
+              {item.onDelete && (
+                <div className="border-t pt-3">
+                  <DeleteConfirmButton onDelete={handleDelete} variant="text" />
+                </div>
               )}
             </div>
           </div>

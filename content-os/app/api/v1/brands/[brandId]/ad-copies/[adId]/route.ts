@@ -65,3 +65,44 @@ export async function PUT(request: Request, { params }: Params) {
     return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Update failed."), { status: 500 })
   }
 }
+
+export async function DELETE(request: Request, { params }: Params) {
+  console.log("[brands/ad-copies/:id] DELETE called")
+
+  let supabase
+  try {
+    supabase = await createClient()
+  } catch (err) {
+    console.error("[brands/ad-copies/:id] createClient failed:", err)
+    return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Server error."), { status: 500 })
+  }
+
+  const { data: { user }, error: authError } = await supabase.auth.getUser()
+  if (authError || !user) return NextResponse.json(buildError(ErrorCodes.UNAUTHENTICATED, "You must be logged in."), { status: 401 })
+
+  const { brandId, adId } = await params
+
+  const { data: brand } = await supabase
+    .from("brands")
+    .select("user_id")
+    .eq("id", brandId)
+    .single<{ user_id: string }>()
+
+  if (!brand || brand.user_id !== user.id) {
+    return NextResponse.json(buildError(ErrorCodes.UNAUTHORIZED, "Access denied."), { status: 403 })
+  }
+
+  try {
+    // Ad copy has never had an image of its own (see the Library
+    // content-linking task's diagnosis) — nothing to clean up in storage.
+    const { error } = await supabase.from("ad_copies").delete().eq("id", adId).eq("brand_id", brandId)
+    if (error) {
+      console.error("[brands/ad-copies/:id] delete error:", error)
+      return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Delete failed."), { status: 500 })
+    }
+    return NextResponse.json({ data: { deleted: true } })
+  } catch (err) {
+    console.error("[brands/ad-copies/:id] delete error:", err)
+    return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Delete failed."), { status: 500 })
+  }
+}

@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button"
 import Link from "next/link"
 import { GenerateVideoAction } from "@/components/shared/GenerateVideoAction"
 import { ContentDetailPanel, type DetailItem } from "@/components/shared/ContentDetailPanel"
+import { DeleteConfirmButton } from "@/components/shared/DeleteConfirmButton"
 import type { HookRow, CaptionRow, ReelScriptRow, CarouselRow, AdCopyRow, EmailSequenceRow, ProductDescriptionRow, StoryRow, BlogPostRow } from "@/types/database"
 import type { Json } from "@/types/database"
 import { scoreHook, scoreColor, scoreLabel } from "@/lib/utils/content-score"
@@ -234,6 +235,13 @@ function CaptionCard({ caption, brandId, onOpenDetail }: { caption: CaptionWithI
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["library", "captions", brandId] }),
   })
+  const deleteMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch(`/api/v1/brands/${brandId}/captions/${caption.id}`, { method: "DELETE" })
+      if (!res.ok) throw new Error("Failed to delete caption.")
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["library", "captions", brandId] }),
+  })
   const isLong = caption.caption_text.length > 200
   const displayText = isLong && !expanded ? caption.caption_text.slice(0, 200) + "…" : caption.caption_text
   const thumbnail = caption.images[0]?.public_url ?? null
@@ -247,6 +255,7 @@ function CaptionCard({ caption, brandId, onOpenDetail }: { caption: CaptionWithI
       createdAt: caption.created_at,
       scheduleCaption: caption.caption_text,
       scheduleImageUrl: thumbnail,
+      onDelete: () => deleteMutation.mutateAsync(),
     })
   }
 
@@ -289,9 +298,12 @@ function CaptionCard({ caption, brandId, onOpenDetail }: { caption: CaptionWithI
             ))}
           </div>
         )}
-        <div className="flex items-center justify-between gap-2 pt-1 border-t" onClick={(e) => e.stopPropagation()}>
+        <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t" onClick={(e) => e.stopPropagation()}>
           <StarRating value={caption.user_rating} onChange={(r) => ratingMutation.mutate(r)} disabled={ratingMutation.isPending} />
-          <CopyButton text={caption.caption_text} touchUrl={`/api/v1/brands/${brandId}/captions/${caption.id}`} />
+          <div className="flex items-center gap-1">
+            <CopyButton text={caption.caption_text} touchUrl={`/api/v1/brands/${brandId}/captions/${caption.id}`} />
+            <DeleteConfirmButton onDelete={() => deleteMutation.mutateAsync()} />
+          </div>
         </div>
       </CardContent>
     </Card>
@@ -369,6 +381,13 @@ function CarouselCard({ carousel, brandId, onOpenDetail }: { carousel: CarouselR
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["library", "carousels", brandId] }),
   })
+  const deleteMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch(`/api/v1/brands/${brandId}/carousels/${carousel.id}`, { method: "DELETE" })
+      if (!res.ok) throw new Error("Failed to delete carousel.")
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["library", "carousels", brandId] }),
+  })
   const thumbnail = slides.find((s) => s.image_url)?.image_url ?? null
   const scheduleImages = slides.map((s) => s.image_url).filter((u): u is string => !!u)
 
@@ -385,6 +404,7 @@ function CarouselCard({ carousel, brandId, onOpenDetail }: { carousel: CarouselR
       createdAt: carousel.created_at,
       scheduleCaption: carousel.title || slides[0]?.headline || "",
       scheduleImageUrls: scheduleImages,
+      onDelete: () => deleteMutation.mutateAsync(),
     })
   }
 
@@ -421,12 +441,15 @@ function CarouselCard({ carousel, brandId, onOpenDetail }: { carousel: CarouselR
             ))}
           </div>
         )}
-        <div className="flex items-center justify-between gap-2 pt-1 border-t" onClick={(e) => e.stopPropagation()}>
+        <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t" onClick={(e) => e.stopPropagation()}>
           <StarRating value={carousel.user_rating} onChange={(r) => ratingMutation.mutate(r)} disabled={ratingMutation.isPending} />
-          <CopyButton
-            text={slides.map((s, i) => `Slide ${i + 1}\n${s.headline ?? ""}\n${s.body ?? ""}`).join("\n\n")}
-            touchUrl={`/api/v1/brands/${brandId}/carousels/${carousel.id}`}
-          />
+          <div className="flex items-center gap-1">
+            <CopyButton
+              text={slides.map((s, i) => `Slide ${i + 1}\n${s.headline ?? ""}\n${s.body ?? ""}`).join("\n\n")}
+              touchUrl={`/api/v1/brands/${brandId}/carousels/${carousel.id}`}
+            />
+            <DeleteConfirmButton onDelete={() => deleteMutation.mutateAsync()} />
+          </div>
         </div>
       </CardContent>
     </Card>
@@ -450,6 +473,13 @@ function StoryCard({ story, brandId, onOpenDetail }: { story: StoryRow; brandId:
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["library", "stories", brandId] }),
   })
+  const deleteMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch(`/api/v1/brands/${brandId}/stories/${story.id}`, { method: "DELETE" })
+      if (!res.ok) throw new Error("Failed to delete story.")
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["library", "stories", brandId] }),
+  })
   const thumbnail = slides.find((s) => s.background_image_url)?.background_image_url ?? null
   const scheduleImages = slides.map((s) => s.background_image_url).filter((u): u is string => !!u)
 
@@ -467,6 +497,7 @@ function StoryCard({ story, brandId, onOpenDetail }: { story: StoryRow; brandId:
       createdAt: story.created_at,
       scheduleCaption: story.topic || slides[0]?.text || "",
       scheduleImageUrls: scheduleImages,
+      onDelete: () => deleteMutation.mutateAsync(),
     })
   }
 
@@ -497,12 +528,15 @@ function StoryCard({ story, brandId, onOpenDetail }: { story: StoryRow; brandId:
             Story 1: {slides[0].text ?? ""}
           </p>
         )}
-        <div className="flex items-center justify-between gap-2 pt-1 border-t" onClick={(e) => e.stopPropagation()}>
+        <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t" onClick={(e) => e.stopPropagation()}>
           <StarRating value={story.user_rating} onChange={(r) => ratingMutation.mutate(r)} disabled={ratingMutation.isPending} />
-          <CopyButton
-            text={slides.map((s, i) => `Story ${i + 1} (${s.type ?? ""}):\n${s.text ?? ""}\n${s.subtext ?? ""}`).join("\n\n")}
-            touchUrl={`/api/v1/brands/${brandId}/stories/${story.id}`}
-          />
+          <div className="flex items-center gap-1">
+            <CopyButton
+              text={slides.map((s, i) => `Story ${i + 1} (${s.type ?? ""}):\n${s.text ?? ""}\n${s.subtext ?? ""}`).join("\n\n")}
+              touchUrl={`/api/v1/brands/${brandId}/stories/${story.id}`}
+            />
+            <DeleteConfirmButton onDelete={() => deleteMutation.mutateAsync()} />
+          </div>
         </div>
       </CardContent>
     </Card>
@@ -520,6 +554,13 @@ function AdCopyCard({ ad, brandId, onOpenDetail }: { ad: AdCopyRow; brandId: str
         body: JSON.stringify({ user_rating: rating }),
       })
       if (!res.ok) throw new Error("Failed to update rating")
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["library", "ad-copies", brandId] }),
+  })
+  const deleteMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch(`/api/v1/brands/${brandId}/ad-copies/${ad.id}`, { method: "DELETE" })
+      if (!res.ok) throw new Error("Failed to delete ad copy.")
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["library", "ad-copies", brandId] }),
   })
@@ -546,6 +587,7 @@ function AdCopyCard({ ad, brandId, onOpenDetail }: { ad: AdCopyRow; brandId: str
       hashtags: [],
       createdAt: ad.created_at,
       scheduleCaption: fullText,
+      onDelete: () => deleteMutation.mutateAsync(),
     })
   }
 
@@ -569,9 +611,12 @@ function AdCopyCard({ ad, brandId, onOpenDetail }: { ad: AdCopyRow; brandId: str
         {ad.cta_button && (
           <span className="inline-flex items-center rounded-md bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">{ad.cta_button}</span>
         )}
-        <div className="flex items-center justify-between gap-2 pt-1 border-t" onClick={(e) => e.stopPropagation()}>
+        <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t" onClick={(e) => e.stopPropagation()}>
           <StarRating value={ad.user_rating} onChange={(r) => ratingMutation.mutate(r)} disabled={ratingMutation.isPending} />
-          <CopyButton text={fullText} touchUrl={`/api/v1/brands/${brandId}/ad-copies/${ad.id}`} />
+          <div className="flex items-center gap-1">
+            <CopyButton text={fullText} touchUrl={`/api/v1/brands/${brandId}/ad-copies/${ad.id}`} />
+            <DeleteConfirmButton onDelete={() => deleteMutation.mutateAsync()} />
+          </div>
         </div>
       </CardContent>
     </Card>

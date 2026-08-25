@@ -76,3 +76,55 @@ export async function PUT(request: Request, { params }: RouteParams) {
     return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Failed to update caption."), { status: 500 })
   }
 }
+
+export async function DELETE(request: Request, { params }: RouteParams) {
+  const { brandId, captionId } = await params
+  console.log(`[captions/${brandId}/${captionId}] DELETE called`)
+
+  let supabase
+  try {
+    supabase = await createClient()
+  } catch (err) {
+    console.error(`[captions/${brandId}/${captionId}] createClient failed:`, err)
+    return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Server error."), { status: 500 })
+  }
+
+  const { data: { user }, error: authError } = await supabase.auth.getUser()
+  if (authError || !user) return NextResponse.json(buildError(ErrorCodes.UNAUTHENTICATED, "You must be logged in."), { status: 401 })
+
+  try {
+    const { data: caption } = await supabase
+      .from("captions")
+      .select("id, brand_id")
+      .eq("id", captionId)
+      .single<Pick<CaptionRow, "id" | "brand_id">>()
+
+    if (!caption || caption.brand_id !== brandId) {
+      return NextResponse.json(buildError(ErrorCodes.NOT_FOUND, "Caption not found."), { status: 404 })
+    }
+
+    const { data: brand } = await supabase
+      .from("brands")
+      .select("user_id")
+      .eq("id", brandId)
+      .single<{ user_id: string }>()
+
+    if (!brand || brand.user_id !== user.id) {
+      return NextResponse.json(buildError(ErrorCodes.UNAUTHORIZED, "Access denied."), { status: 403 })
+    }
+
+    // No image of its own to clean up — a caption's linked post image (if
+    // any) lives on a separate generated_images row via content_project_id,
+    // not embedded in this row.
+    const { error } = await supabase.from("captions").delete().eq("id", captionId)
+    if (error) {
+      console.error(`[captions/${brandId}/${captionId}] DELETE error:`, error)
+      return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Failed to delete caption.", error.message), { status: 500 })
+    }
+
+    return NextResponse.json({ data: { deleted: true } })
+  } catch (err) {
+    console.error(`[captions/${brandId}/${captionId}] DELETE unexpected error:`, err)
+    return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Failed to delete caption."), { status: 500 })
+  }
+}

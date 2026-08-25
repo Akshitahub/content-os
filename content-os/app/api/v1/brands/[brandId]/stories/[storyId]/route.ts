@@ -3,6 +3,9 @@ import { createClient } from "@/lib/supabase/server"
 import { buildError, ErrorCodes } from "@/types/api"
 import { z } from "zod"
 import type { StoryRow } from "@/types/database"
+import { extractStoragePath } from "@/lib/storage/extract-storage-path"
+
+const MEDIA_BUCKET = "published-media"
 
 type Params = { params: Promise<{ brandId: string; storyId: string }> }
 
@@ -75,5 +78,72 @@ export async function PUT(request: Request, { params }: Params) {
   } catch (err) {
     console.error("[brands/stories/:id] error:", err)
     return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Update failed."), { status: 500 })
+  }
+}
+
+export async function DELETE(request: Request, { params }: Params) {
+  console.log("[brands/stories/:id] DELETE called")
+
+  let supabase
+  try {
+    supabase = await createClient()
+  } catch (err) {
+    console.error("[brands/stories/:id] createClient failed:", err)
+    return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Server error."), { status: 500 })
+  }
+
+  const { data: { user }, error: authError } = await supabase.auth.getUser()
+  if (authError || !user) return NextResponse.json(buildError(ErrorCodes.UNAUTHENTICATED, "You must be logged in."), { status: 401 })
+
+  const { brandId, storyId } = await params
+
+  const { data: brand } = await supabase
+    .from("brands")
+    .select("user_id")
+    .eq("id", brandId)
+    .single<{ user_id: string }>()
+
+  if (!brand || brand.user_id !== user.id) {
+    return NextResponse.json(buildError(ErrorCodes.UNAUTHORIZED, "Access denied."), { status: 403 })
+  }
+
+  try {
+    // Same reasoning as carousels/[carouselId]/route.ts's DELETE: slide
+    // backgrounds are re-hosted in the published-media bucket, only the
+    // public_url is stored on a slide, so it has to be recovered before
+    // it can be removed. Non-fatal on a removal failure, same as the old
+    // Memes purge cleanup -- a rare orphaned file shouldn't block the
+    // user's actual delete request.
+    const { data: existing } = await supabase
+      .from("stories")
+      .select("stories")
+      .eq("id", storyId)
+      .eq("brand_id", brandId)
+      .single<{ stories: unknown }>()
+
+    if (existing && Array.isArray(existing.stories)) {
+      const paths = existing.stories
+        .map((s) => (s && typeof s === "object" && "background_image_url" in s ? (s as { background_image_url?: unknown }).background_image_url : null))
+        .filter((url): url is string => typeof url === "string" && url.length > 0)
+        .map((url) => extractStoragePath(url, MEDIA_BUCKET))
+        .filter((p): p is string => !!p)
+
+      if (paths.length > 0) {
+        const { error: removeError } = await supabase.storage.from(MEDIA_BUCKET).remove(paths)
+        if (removeError) {
+          console.error("[brands/stories/:id] slide image removal error (continuing to delete row):", removeError.message)
+        }
+      }
+    }
+
+    const { error } = await supabase.from("stories").delete().eq("id", storyId).eq("brand_id", brandId)
+    if (error) {
+      console.error("[brands/stories/:id] delete error:", error)
+      return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Delete failed."), { status: 500 })
+    }
+    return NextResponse.json({ data: { deleted: true } })
+  } catch (err) {
+    console.error("[brands/stories/:id] delete error:", err)
+    return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Delete failed."), { status: 500 })
   }
 }
