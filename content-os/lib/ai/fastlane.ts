@@ -830,23 +830,18 @@ async function executeFastlaneInner(
         let imageUrl: string | null = null
         if (!isReel && !isCarousel) {
           try {
-            // Autopilot has no interactive caption box to opt into text
-            // overlay from -- it's a fully automated batch flow, unlike
-            // Create -> Full Post's interactive generation where a human
-            // picks (or skips) text per image. Merges the old separate
-            // headline/CTA into the pipeline's new single captionText
-            // field, preserving Autopilot's existing visual behavior
-            // (every generated post image keeps its text) rather than
-            // silently going text-free for a flow this task never
-            // described as having the "no way to opt out" complaint.
-            const captionText = [generated.hook || slot.theme, generated.call_to_action || brand.cta_phrase || "Shop now"].filter(Boolean).join(" — ")
+            // Autopilot has no interactive caption box for a human to opt
+            // into text overlay from -- it's a fully automated batch flow,
+            // unlike Create -> Full Post's interactive generation where a
+            // human picks (or skips) text per image. So it always takes the
+            // pipeline's clean-image default (no captionText) rather than
+            // fabricating text on the user's behalf.
             const imageResult = await generatePostImage({
               imagePrompt: generated.visual_direction || "professional product photography",
               brandNiche: brand.niche,
               targetAudience: brand.target_audience,
               template: imageTemplate,
               colorTheme: imageColorTheme,
-              captionText,
               logoUrl: brand.logo_url,
               plan,
               isInternalUnlimitedUser,
