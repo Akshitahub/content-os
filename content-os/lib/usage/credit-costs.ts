@@ -98,3 +98,20 @@ export const CONTENT_FORMAT_CREDIT_COSTS: Record<ContentFormat, number> = {
   blog_post: BLOG_POST,
   ad_copy: HOOK_OR_CAPTION,
 }
+
+// The 7-day no-card trial's credit ceiling (2026-08-26 pricing revision) —
+// a confirmed business number, not derived from anything else, deliberately
+// well below every real plan's monthly `generations` pool (see PLAN_LIMITS
+// in types/app.ts) so the trial samples the product without giving away a
+// full month's value for free. Used in place of PLAN_LIMITS[plan].generations
+// while trialing — see lib/usage/trial-status.ts's resolveGenerationLimit,
+// the single place this and the real plan pool are chosen between.
+//
+// NOTE: this is below Starter's own Autopilot cost (74 credits for its
+// 14-slot tier) — a trial account can fully explore manual generation
+// (hooks, captions, carousels, images, etc.) but can never afford a
+// single Autopilot run before subscribing. That side effect of the
+// confirmed 50-credit number wasn't separately signed off on and is
+// flagged back to the business rather than silently "fixed" here — see
+// the pricing-revision task notes.
+export const TRIAL_CREDIT_CAP = 50

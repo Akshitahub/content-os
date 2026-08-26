@@ -41,8 +41,12 @@ export function Header({ userEmail, userName, onMenuClick }: HeaderProps) {
   // fires for any plan below Agency (Starter/Pro can both still upgrade to
   // a bigger pool); Agency is suppressed since there's nowhere higher to
   // go — same reasoning the Autopilot RUN_CAP state already uses for
-  // hiding its own upgrade CTA on Agency.
-  const showUpgradeNudge = userPlan !== "agency" && limit > 0 && remaining / limit <= 0.2
+  // hiding its own upgrade CTA on Agency. Suppressed while trialing (the
+  // trial countdown below already covers that case with its own copy).
+  const trialing = credits?.trialing ?? false
+  const trialExpired = credits?.trialExpired ?? false
+  const trialDaysLeft = credits?.trialDaysLeft ?? null
+  const showUpgradeNudge = !trialing && userPlan !== "agency" && limit > 0 && remaining / limit <= 0.2
 
   const displayName = userName ?? userEmail ?? "Account"
   const initials = userName
@@ -85,25 +89,34 @@ export function Header({ userEmail, userName, onMenuClick }: HeaderProps) {
       <div className="flex items-center gap-2">
         {/* Usage indicator */}
         <div className="hidden sm:flex items-center gap-2">
-          <div className="flex flex-col items-end gap-0.5">
-            <span className={`text-[10px] font-medium leading-none ${creditColor}`}>
-              {planLabel} &middot; {remaining} credits remaining
-            </span>
-            <div className="h-1 w-20 rounded-full bg-muted overflow-hidden">
-              <div
-                className={`h-full rounded-full transition-all ${barColor}`}
-                style={{ width: `${usagePct}%` }}
-              />
+          {trialExpired ? (
+            <Link
+              href="/settings#plan-usage"
+              className="text-[10px] font-semibold leading-none text-red-600 hover:underline"
+            >
+              Trial ended &middot; Subscribe to continue &rarr;
+            </Link>
+          ) : (
+            <div className="flex flex-col items-end gap-0.5">
+              <span className={`text-[10px] font-medium leading-none ${creditColor}`}>
+                {trialing ? `Trial · ${trialDaysLeft}d left` : planLabel} &middot; {remaining} credits remaining
+              </span>
+              <div className="h-1 w-20 rounded-full bg-muted overflow-hidden">
+                <div
+                  className={`h-full rounded-full transition-all ${barColor}`}
+                  style={{ width: `${usagePct}%` }}
+                />
+              </div>
+              {showUpgradeNudge && (
+                <Link
+                  href="/settings#plan-usage"
+                  className="text-[10px] font-medium leading-none text-violet-600 hover:text-violet-700 hover:underline"
+                >
+                  Low on credits &middot; Upgrade &rarr;
+                </Link>
+              )}
             </div>
-            {showUpgradeNudge && (
-              <Link
-                href="/settings#plan-usage"
-                className="text-[10px] font-medium leading-none text-violet-600 hover:text-violet-700 hover:underline"
-              >
-                Low on credits &middot; Upgrade &rarr;
-              </Link>
-            )}
-          </div>
+          )}
         </div>
 
         {/* Notification bell (placeholder) */}
@@ -139,15 +152,15 @@ export function Header({ userEmail, userName, onMenuClick }: HeaderProps) {
                   <p className="text-[10px] text-muted-foreground truncate">{userEmail}</p>
                 )}
                 <div className="mt-1 flex items-center gap-2">
-                  <span className="inline-block rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary capitalize">
-                    {userPlan} plan
+                  <span className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-medium capitalize ${trialExpired ? "bg-red-100 text-red-700" : trialing ? "bg-amber-100 text-amber-700" : "bg-primary/10 text-primary"}`}>
+                    {trialExpired ? "Trial ended" : trialing ? `Trial · ${trialDaysLeft}d left` : `${userPlan} plan`}
                   </span>
                   <Link
                     href="/settings#plan-usage"
                     onClick={() => setDropdownOpen(false)}
                     className="text-[10px] font-medium text-violet-600 hover:underline"
                   >
-                    {userPlan === "agency" ? "Manage plan" : "Upgrade"}
+                    {trialing || trialExpired ? "Subscribe" : userPlan === "agency" ? "Manage plan" : "Upgrade"}
                   </Link>
                 </div>
               </div>

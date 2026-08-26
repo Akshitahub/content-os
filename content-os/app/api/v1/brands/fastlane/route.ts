@@ -7,6 +7,7 @@ import { PLAN_LIMITS } from "@/types/app"
 import type { UserPlan } from "@/types/app"
 import { isInternalUnlimited } from "@/lib/usage/is-internal-unlimited"
 import { checkAndIncrementUsage, refundGenerationUsage } from "@/lib/usage/check-and-increment-usage"
+import { resolveGenerationLimit } from "@/lib/usage/trial-status"
 
 // Reel-script slots defer video generation into after() callbacks that run
 // once this response is sent — see lib/ai/fastlane.ts's submitAutopilotReel.
@@ -80,9 +81,9 @@ export async function POST(request: Request) {
     // gating.
     const { data: userData } = await supabase
       .from("users")
-      .select("plan, generation_count, generation_count_reset_at, autopilot_run_count, autopilot_run_count_reset_at")
+      .select("plan, generation_count, generation_count_reset_at, autopilot_run_count, autopilot_run_count_reset_at, trial_ends_at, subscribed_at")
       .eq("id", user.id)
-      .single<{ plan: string; generation_count: number; generation_count_reset_at: string | null; autopilot_run_count: number; autopilot_run_count_reset_at: string | null }>()
+      .single<{ plan: string; generation_count: number; generation_count_reset_at: string | null; autopilot_run_count: number; autopilot_run_count_reset_at: string | null; trial_ends_at: string | null; subscribed_at: string | null }>()
 
     const plan = resolvePlan(userData?.plan)
     // Internal-unlimited accounts get the full run regardless of their
@@ -180,10 +181,17 @@ export async function POST(request: Request) {
     if (!isUnlimited) {
       const usageCheck = await checkAndIncrementUsage(user.id, estimatedCost)
       if (!usageCheck.ok) {
+        // trial_expired mirrors run_cap_reached's shape below — a
+        // dedicated discriminator the client checks before falling
+        // through to the generic credits-upsell state, since "your trial
+        // ended" needs its own subscribe-focused copy, not the
+        // "here's how many credits you're short" upsell screen.
+        const effectiveLimit = resolveGenerationLimit(plan, userData ?? { trial_ends_at: null, subscribed_at: null })
         return NextResponse.json(
           {
             error: { code: ErrorCodes.USAGE_LIMIT_EXCEEDED, message: usageCheck.message },
-            remaining_credits: Math.max(0, PLAN_LIMITS[plan].generations - estimatedCost),
+            trial_expired: usageCheck.trialExpired ?? false,
+            remaining_credits: Math.max(0, effectiveLimit - estimatedCost),
             plan,
             credits_needed: estimatedCost,
           },

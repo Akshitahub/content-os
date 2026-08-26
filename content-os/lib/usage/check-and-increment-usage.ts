@@ -1,13 +1,19 @@
 import { createClient } from "@/lib/supabase/server"
-import { PLAN_LIMITS } from "@/types/app"
 import type { UserPlan } from "@/types/app"
 import { isInternalUnlimited } from "./is-internal-unlimited"
+import { isTrialActive, isTrialExpired, resolveGenerationLimit } from "./trial-status"
 import type { SupabaseClient } from "@supabase/supabase-js"
 import type { Database } from "@/types/database"
 
 export type UsageCheckResult =
   | { ok: true }
-  | { ok: false; status: 429 | 500; message: string }
+  // trialExpired distinguishes "your 7-day trial ended, subscribe to
+  // continue" from a normal within-plan/within-trial credit cap — callers
+  // that build their own richer error UI (e.g. app/api/v1/brands/fastlane/
+  // route.ts's RUN_CAP-style states) can check this flag; every other
+  // caller already forwards `message` as-is, so the right copy shows up
+  // everywhere for free.
+  | { ok: false; status: 429 | 500; message: string; trialExpired?: boolean }
 
 /**
  * `cost` is the number of credits this specific action draws from the
@@ -37,9 +43,9 @@ export async function checkAndIncrementUsage(userId: string, cost: number): Prom
   // paid for did.
   const { data: user, error } = await supabase
     .from("users")
-    .select("plan")
+    .select("plan, trial_ends_at, subscribed_at")
     .eq("id", userId)
-    .single<{ plan: UserPlan }>()
+    .single<{ plan: UserPlan; trial_ends_at: string | null; subscribed_at: string | null }>()
 
   if (error || !user) {
     console.error(
@@ -50,7 +56,20 @@ export async function checkAndIncrementUsage(userId: string, cost: number): Prom
     return { ok: false, status: 500, message: "Could not verify usage limits." }
   }
 
-  const limit = PLAN_LIMITS[user.plan].generations
+  // Checked before spending any RPC call: a trial that's run out its 7
+  // days (and never converted to a real subscription) is blocked outright,
+  // independent of how many trial credits happen to be left unused.
+  if (isTrialExpired(user)) {
+    return {
+      ok: false,
+      status: 429,
+      message: "Your 7-day free trial has ended. Subscribe to a plan to keep generating.",
+      trialExpired: true,
+    }
+  }
+
+  const trialing = isTrialActive(user)
+  const limit = resolveGenerationLimit(user.plan, user)
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data: rows, error: rpcError } = await (supabase.rpc as any)("charge_generation_usage", {
@@ -88,8 +107,12 @@ export async function checkAndIncrementUsage(userId: string, cost: number): Prom
       ok: false,
       status: 429,
       message: count >= limit
-        ? `You've used all ${limit} generations this month. Upgrade to continue.`
-        : `This action requires ${cost} credits, but you only have ${remaining} remaining this month. Upgrade to continue.`,
+        ? trialing
+          ? `You've used all ${limit} trial credits. Subscribe to a plan to keep generating.`
+          : `You've used all ${limit} generations this month. Upgrade to continue.`
+        : trialing
+          ? `This action requires ${cost} credits, but you only have ${remaining} left on your trial. Subscribe to a plan to continue.`
+          : `This action requires ${cost} credits, but you only have ${remaining} remaining this month. Upgrade to continue.`,
     }
   }
 

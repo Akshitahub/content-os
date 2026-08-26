@@ -26,7 +26,7 @@ const STATUS_BADGE: Record<string, string> = {
   missed: "bg-red-100 text-red-700",
 }
 
-type AutopilotState = "SETUP" | "STRATEGY" | "RUNNING" | "DONE" | "ERROR" | "WARNING" | "UPSELL" | "RUN_CAP"
+type AutopilotState = "SETUP" | "STRATEGY" | "RUNNING" | "DONE" | "ERROR" | "WARNING" | "UPSELL" | "RUN_CAP" | "TRIAL_EXPIRED"
 
 // How often the RUNNING view polls GET .../fastlane/status for real
 // progress (completed_slots/total_slots), both while this tab's own POST
@@ -348,8 +348,19 @@ export default function AutopilotPage() {
         run_cap_reached?: boolean
         runs_used?: number
         runs_allowed?: number
+        trial_expired?: boolean
         credits_charged?: number
         run_status_tracking?: boolean
+      }
+
+      // 7-day trial ended with no subscription — checked before the
+      // credits upsell below since a trial that's simply out of time (not
+      // out of credits) needs "subscribe" copy, not a credits-shortfall
+      // message. checkAndIncrementUsage sets this even when trial credits
+      // happen to be unspent.
+      if (json.trial_expired) {
+        setState("TRIAL_EXPIRED")
+        return
       }
 
       // Monthly Autopilot run cap reached — distinct from the credits
@@ -1038,6 +1049,26 @@ export default function AutopilotPage() {
 
           <Button className="mt-8 w-full" variant="outline" onClick={() => setState("SETUP")}>
             Try again
+          </Button>
+        </div>
+      )}
+
+      {/* TRIAL_EXPIRED — 7-day trial over, no subscription yet */}
+      {state === "TRIAL_EXPIRED" && (
+        <div className="w-full max-w-lg text-center space-y-4">
+          <div className="text-5xl">⏳</div>
+          <h2 className="text-xl font-bold">Your free trial has ended</h2>
+          <p className="text-muted-foreground text-sm max-w-sm mx-auto">
+            Your 7-day trial is over. Subscribe to a plan to keep using Autopilot and the rest of SocioPosts.
+          </p>
+          <Link
+            href="/settings"
+            className="flex w-full items-center justify-center rounded-full bg-violet-600 py-3 text-sm font-semibold text-white hover:bg-violet-700 transition-colors"
+          >
+            Subscribe now →
+          </Link>
+          <Button variant="ghost" className="w-full text-xs text-muted-foreground" onClick={() => setState("SETUP")}>
+            ← Go back
           </Button>
         </div>
       )}

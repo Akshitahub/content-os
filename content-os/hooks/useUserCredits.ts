@@ -19,6 +19,18 @@ export interface UserCredits {
   limit: number
   used: number
   remaining: number
+  /** True only while genuinely trialing (not subscribed, 7-day window not
+   * yet passed) — see lib/usage/trial-status.ts, the single place this
+   * gets decided server-side. */
+  trialing: boolean
+  /** Not subscribed AND the trial is over — every credit-charging action
+   * blocks until the user subscribes to a real plan. */
+  trialExpired: boolean
+  trialEndsAt: string | null
+  /** Precomputed server-side (not derived from trialEndsAt client-side) —
+   * calling Date.now() during render violates this repo's React purity
+   * lint rule (eslint-plugin-react-hooks). null when not trialing. */
+  trialDaysLeft: number | null
 }
 
 async function fetchUserCredits(): Promise<UserCredits> {

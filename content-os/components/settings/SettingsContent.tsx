@@ -232,6 +232,9 @@ function PlanSection({ user }: { user: UserProps }) {
   const limit = credits?.limit ?? PLAN_LIMITS[user.plan].generations
   const count = credits?.used ?? user.generation_count
   const pct = Math.min(100, Math.round((count / limit) * 100))
+  const trialing = credits?.trialing ?? false
+  const trialExpired = credits?.trialExpired ?? false
+  const trialDaysLeft = credits?.trialDaysLeft ?? null
 
   const [upgradeState, setUpgradeState] = useState<"idle" | "loading">("idle")
   const [billingError, setBillingError] = useState<string | null>(null)
@@ -334,18 +337,36 @@ function PlanSection({ user }: { user: UserProps }) {
         <CardTitle>Plan &amp; usage</CardTitle>
       </CardHeader>
       <CardContent className="space-y-5">
-        {/* Current plan badge */}
+        {/* Current plan badge — a trialing account is gated as "starter"
+            for features/limits, but showing that label here would be
+            misleading (they haven't chosen or paid for Starter at all
+            yet), so trial status takes over the badge entirely while
+            active. */}
         <div className="flex flex-wrap items-center gap-3">
           <span className="text-sm font-medium text-muted-foreground">Current plan</span>
-          <span className={`rounded-full px-3 py-0.5 text-xs font-semibold capitalize ${PLAN_COLORS[plan]}`}>
-            {plan}
-          </span>
+          {trialExpired ? (
+            <span className="rounded-full bg-red-100 px-3 py-0.5 text-xs font-semibold text-red-700">Trial ended</span>
+          ) : trialing ? (
+            <span className="rounded-full bg-amber-100 px-3 py-0.5 text-xs font-semibold text-amber-700">Free trial &middot; {trialDaysLeft}d left</span>
+          ) : (
+            <span className={`rounded-full px-3 py-0.5 text-xs font-semibold capitalize ${PLAN_COLORS[plan]}`}>
+              {plan}
+            </span>
+          )}
         </div>
+
+        {trialExpired && (
+          <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3">
+            <p className="text-sm font-medium text-red-700">
+              Your 7-day free trial has ended. Subscribe to a plan below to keep generating.
+            </p>
+          </div>
+        )}
 
         {/* Generation usage */}
         <div className="space-y-2">
           <p className="text-sm text-muted-foreground">
-            {count} / {limit} credits used this month
+            {trialing ? `${count} / ${limit} trial credits used` : `${count} / ${limit} credits used this month`}
           </p>
           <div className="h-2 w-full overflow-hidden rounded-full bg-secondary">
             <div
@@ -415,11 +436,41 @@ function PlanSection({ user }: { user: UserProps }) {
           </div>
         )}
 
-        {/* Upgrade buttons — the old "free" block offering all three tiers
-            at once was removed along with the Free plan; a trialing
-            account is gated as "starter" (see PLAN_LIMITS in
-            types/app.ts), so it already renders the block below. */}
-        {plan === "starter" && (
+        {/* Upgrade/subscribe buttons. A trialing account is always gated
+            as "starter" for features/limits (see PLAN_LIMITS in
+            types/app.ts) but hasn't actually chosen or paid for any tier
+            yet, so it gets the full 3-button "pick a plan" choice — the
+            same shape the old plan === "free" block offered, just keyed
+            on trial status instead of a plan value that no longer exists.
+            A real (subscribed) Starter customer instead sees only the
+            Pro/Agency upsell, since they've already picked Starter. */}
+        {plan === "starter" && (trialing || trialExpired) && (
+          <div className="flex flex-wrap gap-3">
+            <Button
+              onClick={() => handleUpgrade("starter")}
+              disabled={upgradeState === "loading"}
+              className="bg-violet-600 hover:bg-violet-700 text-white"
+            >
+              {upgradeState === "loading" ? "Loading…" : `Subscribe to Starter (${formatPlanPrice("starter", billingPeriod)})`}
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => handleUpgrade("pro")}
+              disabled={upgradeState === "loading"}
+            >
+              {`Subscribe to Pro (${formatPlanPrice("pro", billingPeriod)})`}
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => handleUpgrade("agency")}
+              disabled={upgradeState === "loading"}
+            >
+              {`Subscribe to Agency (${formatPlanPrice("agency", billingPeriod)})`}
+            </Button>
+          </div>
+        )}
+
+        {plan === "starter" && !trialing && !trialExpired && (
           <div className="flex flex-wrap gap-3">
             <Button
               onClick={() => handleUpgrade("pro")}

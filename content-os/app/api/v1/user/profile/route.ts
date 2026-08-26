@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server"
 import { buildError, ErrorCodes } from "@/types/api"
 import type { UserRow } from "@/types/database"
 import { PLAN_LIMITS, type UserPlan } from "@/types/app"
+import { isTrialActive, isTrialExpired, resolveGenerationLimit } from "@/lib/usage/trial-status"
 import { z } from "zod"
 
 export async function GET() {
@@ -20,9 +21,9 @@ export async function GET() {
 
   const { data: userData } = await supabase
     .from("users")
-    .select("plan, generation_count, generation_count_reset_at")
+    .select("plan, generation_count, generation_count_reset_at, trial_ends_at, subscribed_at")
     .eq("id", user.id)
-    .single<{ plan: string; generation_count: number; generation_count_reset_at: string | null }>()
+    .single<{ plan: string; generation_count: number; generation_count_reset_at: string | null; trial_ends_at: string | null; subscribed_at: string | null }>()
 
   const rawPlan = userData?.plan
   // "starter" is the fail-closed default now that Free is gone (a missing/
@@ -31,7 +32,17 @@ export async function GET() {
   // tier value in this column (see users.trial_ends_at/subscribed_at for
   // trial-vs-subscribed status, tracked orthogonally from `plan`).
   const plan: UserPlan = rawPlan && rawPlan in PLAN_LIMITS ? (rawPlan as UserPlan) : "starter"
-  const limit = PLAN_LIMITS[plan].generations
+  const trialFields = { trial_ends_at: userData?.trial_ends_at ?? null, subscribed_at: userData?.subscribed_at ?? null }
+  const trialing = isTrialActive(trialFields)
+  const trialExpired = isTrialExpired(trialFields)
+  const limit = resolveGenerationLimit(plan, trialFields)
+  // Computed here, not in the client components that display it — Date.now()
+  // is impure and React's purity rules (this repo's eslint-plugin-react-hooks
+  // config) reject calling it during render. A plain API route has no such
+  // restriction, so the day count is precomputed once and shipped as data.
+  const trialDaysLeft = trialFields.trial_ends_at
+    ? Math.max(0, Math.ceil((new Date(trialFields.trial_ends_at).getTime() - Date.now()) / (24 * 60 * 60 * 1000)))
+    : null
   const resetAt = userData?.generation_count_reset_at ? new Date(userData.generation_count_reset_at) : null
   // Was a raw calendar-month-number comparison (now.getMonth() !==
   // resetAt.getMonth()), which is wrong: generation_count_reset_at is
@@ -48,7 +59,18 @@ export async function GET() {
   const currentCount = shouldReset ? 0 : (userData?.generation_count ?? 0)
   const remaining = Math.max(0, limit - currentCount)
 
-  return NextResponse.json({ data: { plan, limit, used: currentCount, remaining } })
+  return NextResponse.json({
+    data: {
+      plan,
+      limit,
+      used: currentCount,
+      remaining,
+      trialing,
+      trialExpired,
+      trialEndsAt: trialFields.trial_ends_at,
+      trialDaysLeft,
+    },
+  })
 }
 
 const updateProfileSchema = z.object({
