@@ -510,7 +510,7 @@ export default function AutopilotPage() {
             </div>
             <h1 className="text-4xl font-bold tracking-tight">Autopilot</h1>
             <p className="mt-3 text-muted-foreground max-w-md mx-auto">
-              {`Generate a complete ${tier.days}-day, ~${tier.slots}-post content calendar tailored to how you create. Set your preferences and let AI do the rest.`}
+              {`Generate a complete ${tier.days}-day, ~${tier.slots}-post content calendar tailored to how you create.`}
             </p>
           </div>
 
@@ -621,7 +621,7 @@ export default function AutopilotPage() {
                 Launch Autopilot
               </Button>
               <p className="text-center text-xs text-muted-foreground">
-                Uses ~{displayCreditCost} credits · Adds {tier.slots} entries to your content calendar
+                Adds {tier.slots} entries to your content calendar
               </p>
             </div>
           </div>

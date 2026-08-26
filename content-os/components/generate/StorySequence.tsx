@@ -446,7 +446,6 @@ export function StorySequence({ brandId }: { brandId: string }) {
       <div className="rounded-xl border bg-card p-5 space-y-4">
         <div>
           <h3 className="text-sm font-semibold">Create a story sequence</h3>
-          <p className="mt-0.5 text-xs text-muted-foreground">Tell a story across multiple connected slides</p>
         </div>
 
         <div className="space-y-1.5">

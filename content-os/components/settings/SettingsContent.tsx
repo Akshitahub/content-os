@@ -15,6 +15,7 @@ import { isApiError } from "@/types/api"
 import posthog from "posthog-js"
 import { POSTHOG_KEY } from "@/lib/analytics/posthog"
 import { PLAN_LIMITS } from "@/types/app"
+import { CREDIT_PACKS, CREDIT_PACK_IDS, type CreditPackId } from "@/lib/usage/credit-packs"
 import { useBrands, useDeleteBrand } from "@/hooks/useBrand"
 import { useUserCredits } from "@/hooks/useUserCredits"
 
@@ -235,11 +236,21 @@ function PlanSection({ user }: { user: UserProps }) {
   const trialing = credits?.trialing ?? false
   const trialExpired = credits?.trialExpired ?? false
   const trialDaysLeft = credits?.trialDaysLeft ?? null
+  const topupBalance = credits?.topupBalance ?? 0
 
   const [upgradeState, setUpgradeState] = useState<"idle" | "loading">("idle")
   const [billingError, setBillingError] = useState<string | null>(null)
   const [paymentSuccess, setPaymentSuccess] = useState(false)
   const [billingPeriod, setBillingPeriod] = useState<BillingPeriod>("monthly")
+
+  // "Buy more credits" — separate state from the plan-upgrade flow above
+  // since a pack purchase can happen alongside (not instead of) a plan
+  // change, and needs its own inline-confirm step per pack (not a native
+  // confirm(), same pattern SocialConnections.tsx's disconnect flow uses).
+  const [topupConfirming, setTopupConfirming] = useState<CreditPackId | null>(null)
+  const [topupState, setTopupState] = useState<"idle" | "loading">("idle")
+  const [topupError, setTopupError] = useState<string | null>(null)
+  const [topupSuccess, setTopupSuccess] = useState<{ credits: number } | null>(null)
 
   // Load the Razorpay checkout script once on mount
   useEffect(() => {
@@ -331,6 +342,80 @@ function PlanSection({ user }: { user: UserProps }) {
     }
   }, [billingPeriod])
 
+  const handleBuyTopup = useCallback(async (packId: CreditPackId) => {
+    const pack = CREDIT_PACKS[packId]
+    setTopupState("loading")
+    setTopupError(null)
+    setTopupSuccess(null)
+    try {
+      const res = await fetch("/api/v1/billing/create-topup-checkout-session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ packId }),
+      })
+      const json = await res.json() as {
+        data?: { orderId: string; amount: number; currency: string; keyId: string }
+        error?: { message: string }
+      }
+      if (!res.ok || !json.data) {
+        setTopupError(json.error?.message ?? "Failed to start checkout.")
+        setTopupState("idle")
+        return
+      }
+
+      const { orderId, amount, currency, keyId } = json.data
+      setTopupState("idle")
+      setTopupConfirming(null)
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const rzp = new (window as any).Razorpay({
+        key: keyId,
+        amount,
+        currency,
+        name: "SocioPosts",
+        description: `${pack.name} (${pack.credits} credits)`,
+        order_id: orderId,
+        handler: async function (response: RazorpayResponse) {
+          try {
+            const verifyRes = await fetch("/api/v1/billing/verify-payment", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                razorpay_order_id: response.razorpay_order_id,
+                razorpay_payment_id: response.razorpay_payment_id,
+                razorpay_signature: response.razorpay_signature,
+              }),
+            })
+            if (verifyRes.ok) {
+              setTopupSuccess({ credits: pack.credits })
+              setTimeout(() => window.location.reload(), 2000)
+            } else {
+              const errJson = await verifyRes.json() as { error?: { message: string } }
+              setTopupError(errJson.error?.message ?? "Payment verification failed. Please contact support.")
+            }
+          } catch {
+            setTopupError("Could not verify payment. Please contact support.")
+          }
+        },
+        modal: {
+          ondismiss: () => {
+            setTopupError("Payment cancelled.")
+          },
+        },
+        theme: { color: "#7c3aed" },
+      })
+
+      rzp.on("payment.failed", function (response: { error?: { description?: string } }) {
+        setTopupError(response.error?.description ?? "Payment failed. Please try again.")
+      })
+
+      rzp.open()
+    } catch {
+      setTopupError("Network error. Please try again.")
+      setTopupState("idle")
+    }
+  }, [])
+
   return (
     <Card id="plan-usage">
       <CardHeader>
@@ -363,7 +448,10 @@ function PlanSection({ user }: { user: UserProps }) {
           </div>
         )}
 
-        {/* Generation usage */}
+        {/* Generation usage — plan/trial pool and purchased top-up balance
+            shown as two distinct lines, not merged into one number, so
+            it's clear the top-up balance doesn't reset monthly the way
+            the pool above it does. */}
         <div className="space-y-2">
           <p className="text-sm text-muted-foreground">
             {trialing ? `${count} / ${limit} trial credits used` : `${count} / ${limit} credits used this month`}
@@ -374,6 +462,10 @@ function PlanSection({ user }: { user: UserProps }) {
               style={{ width: `${pct}%` }}
             />
           </div>
+          <p className="text-sm text-muted-foreground">
+            <span className="font-medium text-foreground">{topupBalance.toLocaleString("en-IN")}</span> top-up credits available
+            {topupBalance > 0 && <span className="text-xs"> · never expire, used once your monthly pool runs out</span>}
+          </p>
         </div>
 
         {/* Feature comparison */}
@@ -504,6 +596,81 @@ function PlanSection({ user }: { user: UserProps }) {
         {billingError && (
           <p className="text-sm text-destructive">{billingError}</p>
         )}
+
+        <Separator />
+
+        {/* Buy more credits — a one-time top-up, independent of the plan
+            upgrade buttons above (works the same whether trialing,
+            Starter, Pro, or Agency). Available even while trialing: it's
+            a real Razorpay charge either way, so there's no "no card on
+            file yet" issue the way there would be for changing a
+            subscription. */}
+        <div className="space-y-3">
+          <div>
+            <p className="text-sm font-medium">Buy more credits</p>
+            <p className="text-xs text-muted-foreground">One-time purchase.</p>
+          </div>
+
+          {topupSuccess && (
+            <div className="rounded-lg border border-green-200 bg-green-50 px-4 py-3">
+              <p className="text-sm font-medium text-green-700">
+                ✓ {topupSuccess.credits} credits added! Refreshing…
+              </p>
+            </div>
+          )}
+
+          <div className="grid gap-3 sm:grid-cols-3">
+            {CREDIT_PACK_IDS.map((packId) => {
+              const pack = CREDIT_PACKS[packId]
+              const isConfirming = topupConfirming === packId
+              return (
+                <div key={packId} className="rounded-lg border p-3 space-y-2">
+                  <div>
+                    <p className="text-sm font-semibold">{pack.name}</p>
+                    <p className="text-xs text-muted-foreground">{pack.credits.toLocaleString("en-IN")} credits</p>
+                  </div>
+                  {!isConfirming ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="w-full"
+                      disabled={topupState === "loading"}
+                      onClick={() => { setTopupConfirming(packId); setTopupError(null) }}
+                    >
+                      {`₹${pack.price.toLocaleString("en-IN")}`}
+                    </Button>
+                  ) : (
+                    <div className="space-y-1.5">
+                      <p className="text-xs text-muted-foreground">Buy {pack.credits} credits for ₹{pack.price.toLocaleString("en-IN")}?</p>
+                      <div className="flex gap-1.5">
+                        <Button
+                          size="sm"
+                          className="flex-1 bg-violet-600 hover:bg-violet-700 text-white"
+                          disabled={topupState === "loading"}
+                          onClick={() => handleBuyTopup(packId)}
+                        >
+                          {topupState === "loading" ? "Loading…" : "Yes, buy"}
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          disabled={topupState === "loading"}
+                          onClick={() => setTopupConfirming(null)}
+                        >
+                          Cancel
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+
+          {topupError && (
+            <p className="text-sm text-destructive">{topupError}</p>
+          )}
+        </div>
       </CardContent>
     </Card>
   )
