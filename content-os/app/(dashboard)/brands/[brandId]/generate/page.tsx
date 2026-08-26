@@ -1,119 +1,13 @@
 "use client"
 
-import { Suspense, useEffect, useState, useCallback } from "react"
+import { Suspense, useEffect } from "react"
 import { useParams, useSearchParams } from "next/navigation"
-import { useQuery } from "@tanstack/react-query"
 import { GenerationPanel } from "@/components/generate/GenerationPanel"
 import { useProducts } from "@/hooks/useProducts"
 import { useBrand } from "@/hooks/useBrand"
 import { useBrandStore } from "@/stores/brandStore"
 import { useGenerationStore } from "@/stores/generationStore"
 import { FESTIVAL_CATALOG } from "@/lib/occasions/festival-catalog"
-import { Archive, Copy, Check } from "lucide-react"
-import Link from "next/link"
-import type { HookRow, CaptionRow } from "@/types/database"
-
-function CopyBtn({ text }: { text: string }) {
-  const [copied, setCopied] = useState(false)
-  const handle = useCallback(async () => {
-    await navigator.clipboard.writeText(text)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 1600)
-  }, [text])
-  return (
-    <button
-      onClick={handle}
-      className="shrink-0 rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
-      title="Copy"
-    >
-      {copied ? <Check className="h-3.5 w-3.5 text-green-500" /> : <Copy className="h-3.5 w-3.5" />}
-    </button>
-  )
-}
-
-function RecentGenerations({ brandId }: { brandId: string }) {
-  const { data: hooks = [] } = useQuery({
-    queryKey: ["recent-hooks", brandId],
-    queryFn: async (): Promise<HookRow[]> => {
-      const res = await fetch(`/api/v1/brands/${brandId}/hooks?saved=false&limit=5`)
-      if (!res.ok) return []
-      const json = await res.json() as { data: HookRow[] }
-      return json.data ?? []
-    },
-    enabled: !!brandId,
-  })
-
-  const { data: captions = [] } = useQuery({
-    queryKey: ["recent-captions", brandId],
-    queryFn: async (): Promise<CaptionRow[]> => {
-      const res = await fetch(`/api/v1/brands/${brandId}/captions?saved=false&limit=5`)
-      if (!res.ok) return []
-      const json = await res.json() as { data: CaptionRow[] }
-      return json.data ?? []
-    },
-    enabled: !!brandId,
-  })
-
-  if (hooks.length === 0 && captions.length === 0) {
-    return (
-      <div className="mt-10 flex flex-col items-center justify-center rounded-lg border border-dashed py-12 text-center">
-        <Archive className="h-10 w-10 text-muted-foreground/30 mb-3" />
-        <p className="text-sm font-medium text-muted-foreground">Your generated content will appear here</p>
-        <p className="mt-1 text-xs text-muted-foreground">Use the panel above to generate your first hook or caption.</p>
-      </div>
-    )
-  }
-
-  return (
-    <div className="mt-10">
-      <div className="mb-4 flex items-center justify-between">
-        <h2 className="text-base font-semibold">Recent generations</h2>
-        <Link
-          href={`/brands/${brandId}/library`}
-          className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
-        >
-          <Archive className="h-3.5 w-3.5" />
-          View My Content
-        </Link>
-      </div>
-
-      <div className="grid gap-6 lg:grid-cols-2">
-        {hooks.length > 0 && (
-          <div>
-            <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Hooks</p>
-            <div className="rounded-xl border overflow-hidden divide-y">
-              {hooks.map((hook, i) => (
-                <div key={hook.id} className="flex items-center gap-3 px-4 py-3 hover:bg-muted/40 transition-colors">
-                  <span className="shrink-0 text-xs font-semibold text-muted-foreground/60 w-5 text-right">#{i + 1}</span>
-                  <p className="flex-1 text-sm text-foreground truncate">{hook.hook_text}</p>
-                  <CopyBtn text={hook.hook_text} />
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {captions.length > 0 && (
-          <div>
-            <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Captions</p>
-            <div className="rounded-xl border overflow-hidden divide-y">
-              {captions.map((caption, i) => (
-                <div key={caption.id} className="flex items-center gap-3 px-4 py-3 hover:bg-muted/40 transition-colors">
-                  <span className="shrink-0 text-xs font-semibold text-muted-foreground/60 w-5 text-right">#{i + 1}</span>
-                  <p className="flex-1 text-sm text-foreground truncate">{caption.caption_text}</p>
-                  <CopyBtn text={caption.caption_text} />
-                </div>
-              ))}
-            </div>
-            <Link href={`/brands/${brandId}/library?tab=captions`} className="mt-2 block text-right text-xs text-muted-foreground hover:text-foreground transition-colors">
-              View all captions →
-            </Link>
-          </div>
-        )}
-      </div>
-    </div>
-  )
-}
 
 function GenerateContent() {
   const params = useParams()
@@ -155,8 +49,6 @@ function GenerateContent() {
       ) : (
         <GenerationPanel brandId={brandId} products={products} />
       )}
-
-      <RecentGenerations brandId={brandId} />
     </>
   )
 }
