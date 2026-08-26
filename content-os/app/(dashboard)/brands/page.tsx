@@ -44,11 +44,11 @@ export default async function BrandsPage() {
           </div>
           <h2 className="text-lg font-semibold">No brands yet</h2>
           <p className="mt-1 max-w-sm text-sm text-muted-foreground">
-            Create your first brand to start generating AI content tailored to
+            Add your first brand to start generating AI content tailored to
             your identity, audience, and tone.
           </p>
           <Button asChild className="mt-6">
-            <Link href="/brands/new">Create your first brand</Link>
+            <Link href="/brands/new">Add your first brand</Link>
           </Button>
         </div>
       ) : (

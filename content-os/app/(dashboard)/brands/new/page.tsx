@@ -37,7 +37,7 @@ export default function NewBrandPage() {
           <ArrowLeft className="h-4 w-4" />
           Back to brands
         </Link>
-        <h1 className="text-3xl font-bold tracking-tight">Create a brand</h1>
+        <h1 className="text-3xl font-bold tracking-tight">Add your Brand</h1>
         <p className="mt-1 text-muted-foreground">
           This is your AI&apos;s creative brief. The more detail you provide, the
           better your generated content will sound.
@@ -46,7 +46,7 @@ export default function NewBrandPage() {
 
       <BrandForm
         onSubmit={handleSubmit}
-        submitLabel="Create brand"
+        submitLabel="Add brand"
         isLoading={createBrand.isPending}
         error={error}
       />

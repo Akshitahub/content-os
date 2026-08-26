@@ -298,7 +298,7 @@ function Step3Fastlane({ brand }: Step3Props) {
         <h1 className="text-2xl font-bold">One more step</h1>
         <p className="mt-2 text-muted-foreground">You&apos;ll need to add a brand before running Fastlane.</p>
         <Button asChild className="mt-6">
-          <Link href="/brands/new">Create your first brand</Link>
+          <Link href="/brands/new">Add your first brand</Link>
         </Button>
         <div className="mt-4">
           <button onClick={handleSkip} className="text-sm text-muted-foreground hover:text-foreground underline">
