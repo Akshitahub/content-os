@@ -42,6 +42,7 @@ export type Database = {
           onboarding_completed: boolean | null
           onboarding_type: string | null
           marketing_emails_opted_out: boolean
+          last_active_at: string | null
           created_at: string
           updated_at: string
         }
@@ -69,6 +70,7 @@ export type Database = {
           onboarding_completed?: boolean | null
           onboarding_type?: string | null
           marketing_emails_opted_out?: boolean
+          last_active_at?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -95,6 +97,7 @@ export type Database = {
           onboarding_completed?: boolean | null
           onboarding_type?: string | null
           marketing_emails_opted_out?: boolean
+          last_active_at?: string | null
           updated_at?: string
         }
       }
