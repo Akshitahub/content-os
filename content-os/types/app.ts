@@ -37,7 +37,7 @@ export type CalendarStatus =
   | "published"
   | "missed"
 
-export type UserPlan = "free" | "starter" | "pro" | "agency"
+export type UserPlan = "starter" | "pro" | "agency"
 
 // Extended types with relations
 export type BrandWithProducts = BrandRow & {
@@ -217,50 +217,40 @@ export interface AutopilotTier {
 // feature (Pro and Agency only). `carouselCtaAiBackground` gates the
 // AI-generated background image on a carousel's closing (CTA) slide —
 // Starter and above; the opening (hook) slide gets one on every plan
-// including Free unconditionally, so it has no flag of its own here.
+// unconditionally, so it has no flag of its own here.
 // `annualPrice` is the full upfront yearly charge (not a monthly rate) —
-// same unit as `price` (whole rupees). Free has no annual option, but
-// carries 0 here anyway so every tier shares one shape rather than making
-// the field optional. ~10% cheaper than 12x the monthly price on every
-// paid tier.
-// autopilot.creditCost below: 29 (free, 5 slots) and 162 (starter/pro/
-// agency, 30 slots) are the real weighted defaults — computed via
-// lib/ai/fastlane.ts's estimateAutopilotCreditCost(undefined, slots)
-// against the default (no focusAreas override) slot mix. Unchanged by
-// the pool resize below — per-feature weights aren't touched here, only
-// how many credits each plan gets to spend against them.
+// same unit as `price` (whole rupees). = monthly x 12 x 0.9 (the same
+// ~10% annual discount used since annual billing launched), rounded down
+// to whole rupees — confirmed: 499x12x0.9=5389.2, 1999x12x0.9=21589.2,
+// 4999x12x0.9=53989.2, matching the values below exactly.
 //
-// autopilot.maxRunsPerMonth: a hard per-user monthly cap on Autopilot RUNS
-// (1/2/3/4 for free/starter/pro/agency), separate from and enforced
-// alongside the creditCost/generations check above — previously there was
-// no run-count cap at all, only the shared credit pool (a user could run
-// Autopilot as many times as their credits allowed). Deliberately not tied
-// to brand count: Agency gets 4 runs/month against its 5 brands, and the
-// user manually picks which brands to spend those runs on — no automatic
-// rotation.
+// autopilot.creditCost: the real weighted default for each tier's slot
+// count — computed via lib/ai/fastlane.ts's estimateAutopilotCreditCost
+// (undefined focusAreas, i.e. the default slot mix), not hand-typed.
+// Starter's 74 is that same function's real output for 14 slots (its mix
+// scales proportionally from the 30-slot base); Pro/Agency's 162 for 30
+// slots is unchanged from before this pricing revision.
 //
-// Free's 5 slots were kept as-is (not reduced) after checking this
-// against its resized 100-credit pool: 29 against 100 leaves 71 credits
-// free for manual generation in the same month — well past the ~50-60
-// target for "the trial tier should let someone try both Autopilot and
-// manual generation, not just one or the other." Reducing to fewer
-// slots wasn't needed to hit that bar, so the preview stays at its full
-// intended scope (3 days, 5 slots) rather than being trimmed further
-// than necessary.
+// autopilot.maxRunsPerMonth: a hard per-user monthly cap on Autopilot
+// RUNS, separate from and enforced alongside the creditCost/generations
+// check above (a user with credits to spare still can't exceed this).
+// Deliberately not tied to brand count: Agency gets 4 runs/month against
+// its 5 brands, and the user manually picks which brands to spend those
+// runs on — no automatic rotation.
 //
-// `price`/`annualPrice`/`generations` below are the latest final, approved
-// business numbers — a pricing revision superseding the prior round
-// (starter/pro/agency prices and credit pools all revised down from the
-// previous 1999/4999/14999 and 500/1300/3800). annualPrice for each paid
-// tier = monthly x 12 x 0.9 (the same ~10% annual discount used since
-// annual billing launched), rounded down to whole rupees — confirmed:
-// 1499x12x0.9=16189.2, 3499x12x0.9=37789.2, 9999x12x0.9=107989.2,
-// matching the given values exactly.
+// Free tier removed entirely (2026-08-26 pricing revision) — every new
+// signup instead starts on a 7-day no-card trial with a separate, much
+// smaller credit cap than any paid tier's `generations` here (see
+// TRIAL_CREDIT_CAP in lib/usage/credit-costs.ts and users.trial_ends_at/
+// subscribed_at) rather than a standing free plan. `plan` itself is never
+// "free" anymore — during a trial it still resolves to "starter" for
+// every gate in this table (brands/products/features), the trial's own
+// reduced credit cap is enforced separately in
+// lib/usage/check-and-increment-usage.ts.
 export const PLAN_LIMITS: Record<UserPlan, { price: number; annualPrice: number; generations: number; brands: number; products: number; zernioSocialPlatforms: boolean; reelsPerWeek: number; autopilot: AutopilotTier; influencerOutreach: boolean; carouselCtaAiBackground: boolean }> = {
-  free:    { price: 0,    annualPrice: 0,      generations: 100,  brands: 1, products: 5,    zernioSocialPlatforms: false, reelsPerWeek: 0, autopilot: { days: 3,  slots: 5,  creditCost: 29,  maxRunsPerMonth: 1 }, influencerOutreach: false, carouselCtaAiBackground: false },
-  starter: { price: 1499, annualPrice: 16189,  generations: 450,  brands: 2, products: 30,   zernioSocialPlatforms: false, reelsPerWeek: 0, autopilot: { days: 30, slots: 30, creditCost: 162, maxRunsPerMonth: 2 }, influencerOutreach: false, carouselCtaAiBackground: true },
-  pro:     { price: 3499, annualPrice: 37789,  generations: 850,  brands: 3, products: 200,  zernioSocialPlatforms: true,  reelsPerWeek: 1, autopilot: { days: 30, slots: 30, creditCost: 162, maxRunsPerMonth: 3 }, influencerOutreach: true,  carouselCtaAiBackground: true },
-  agency:  { price: 9999, annualPrice: 107989, generations: 3100, brands: 5, products: 1000, zernioSocialPlatforms: true,  reelsPerWeek: 4, autopilot: { days: 30, slots: 30, creditCost: 162, maxRunsPerMonth: 4 }, influencerOutreach: true,  carouselCtaAiBackground: true },
+  starter: { price: 499,  annualPrice: 5389,   generations: 150,  brands: 2, products: 30,   zernioSocialPlatforms: false, reelsPerWeek: 0, autopilot: { days: 14, slots: 14, creditCost: 74,  maxRunsPerMonth: 1 }, influencerOutreach: false, carouselCtaAiBackground: true },
+  pro:     { price: 1999, annualPrice: 21589,  generations: 600,  brands: 3, products: 200,  zernioSocialPlatforms: true,  reelsPerWeek: 1, autopilot: { days: 30, slots: 30, creditCost: 162, maxRunsPerMonth: 3 }, influencerOutreach: true,  carouselCtaAiBackground: true },
+  agency:  { price: 4999, annualPrice: 53989,  generations: 1600, brands: 5, products: 1000, zernioSocialPlatforms: true,  reelsPerWeek: 4, autopilot: { days: 30, slots: 30, creditCost: 162, maxRunsPerMonth: 4 }, influencerOutreach: true,  carouselCtaAiBackground: true },
 }
 
 // ─── Trending context ────────────────────────────────────────────────────────

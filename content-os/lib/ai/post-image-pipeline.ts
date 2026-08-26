@@ -299,14 +299,19 @@ async function fetchAndCheckFluxImage(prompt: string, seed: number, dimensions: 
   return { buffer: result.buffer }
 }
 
-/** Free plan stays on Pollinations (already benefits from the
- * brand-grounded prompt this pipeline builds); every paid tier — and the
- * internal owner-bypass, regardless of its nominal plan — gets Flux. The
- * comparison lives here, once, rather than being re-implemented at each
- * call site. */
+/** Starter (the budget tier, and what every trialing — not-yet-paying —
+ * signup is gated as too, see PLAN_LIMITS in types/app.ts) stays on
+ * Pollinations, which already benefits from the brand-grounded prompt this
+ * pipeline builds; Pro and Agency — and the internal owner-bypass,
+ * regardless of its nominal plan — get Flux. This supersedes the old
+ * Free-vs-paid split from before the Free tier was removed: the same
+ * cost-control intent (don't spend a paid-image-model call on an account
+ * that isn't paying a matching price) now falls on the plan boundary one
+ * step up. The comparison lives here, once, rather than being
+ * re-implemented at each call site. */
 function resolveImageProvider(plan: UserPlan, isInternalUnlimitedUser: boolean): "pollinations" | "flux" {
   if (isInternalUnlimitedUser) return "flux"
-  return plan === "free" ? "pollinations" : "flux"
+  return plan === "starter" ? "pollinations" : "flux"
 }
 
 // Deterministic reinforcement layered on top of the LLM-generated
@@ -593,8 +598,8 @@ export interface GeneratePostImageOptions {
    * is provided — falls back to the pre-existing Anton font when omitted. */
   fontId?: string
   logoUrl: string | null
-  /** Determines the image provider (resolveImageProvider) — Free stays on
-   * Pollinations, every paid tier gets Flux. */
+  /** Determines the image provider (resolveImageProvider) — Starter stays
+   * on Pollinations, Pro/Agency get Flux. */
   plan: UserPlan
   /** Internal owner-bypass — always resolves to Flux regardless of `plan`. */
   isInternalUnlimitedUser: boolean
@@ -609,8 +614,8 @@ export interface GeneratePostImageOptions {
 }
 
 /**
- * Generates the base image via Pollinations (Free plan) or Replicate's
- * Flux 2 Pro (every paid tier, and the internal owner-bypass — see
+ * Generates the base image via Pollinations (Starter plan) or Replicate's
+ * Flux 2 Pro (Pro/Agency, and the internal owner-bypass — see
  * resolveImageProvider), retrying once with a simplified prompt and a new
  * seed if the first attempt fails outright or comes back low-quality —
  * capped at 1 auto-retry, 2 attempts total — then composites the chosen

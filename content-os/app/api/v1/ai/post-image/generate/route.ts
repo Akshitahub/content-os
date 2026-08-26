@@ -105,7 +105,7 @@ export async function POST(request: Request) {
   // Determines the image provider (Free -> Pollinations, paid -> Flux) —
   // see lib/ai/post-image-pipeline.ts's resolveImageProvider.
   const { data: userData } = await supabase.from("users").select("plan").eq("id", user.id).single<{ plan: UserPlan }>()
-  const plan: UserPlan = userData?.plan ?? "free"
+  const plan: UserPlan = userData?.plan ?? "starter"
 
   const colorTheme = findColorTheme(resolveColorThemes(brand), colorThemeId)
 

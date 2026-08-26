@@ -21,36 +21,26 @@ export async function checkAndIncrementReelUsage(userId: string): Promise<ReelUs
 
   const { data: user, error } = await supabase
     .from("users")
-    .select("plan, reel_count_this_week, reel_count_reset_at, free_reel_used_at")
+    .select("plan, reel_count_this_week, reel_count_reset_at")
     .eq("id", userId)
     .single<{
       plan: UserPlan
       reel_count_this_week: number
       reel_count_reset_at: string | null
-      free_reel_used_at: string | null
     }>()
 
   if (error || !user) {
     return { ok: false, status: 429, message: "Could not verify usage limits." }
   }
 
-  if (user.plan === "free") {
-    if (user.free_reel_used_at) {
-      return {
-        ok: false,
-        status: 429,
-        message: "You've already used your free reel. Upgrade to Pro for weekly AI video reels.",
-      }
-    }
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await (supabase.from("users") as any)
-      .update({ free_reel_used_at: new Date().toISOString() })
-      .eq("id", userId)
-
-    return { ok: true }
-  }
-
+  // The one-time free reel this used to grant `plan === "free"` accounts
+  // (via the now-unused free_reel_used_at column) doesn't carry over to a
+  // trialing account: a trial is gated as "starter" for every check in
+  // this codebase (see PLAN_LIMITS in types/app.ts), and Starter itself
+  // has never included any reel allowance, free or otherwise — it falls
+  // straight through to the block below, same as a paying Starter
+  // subscriber. Reels stay a Pro/Agency differentiator rather than
+  // something a $0 tier needed a taste of.
   if (user.plan === "starter") {
     return {
       ok: false,
@@ -96,8 +86,8 @@ export async function checkAndIncrementReelUsage(userId: string): Promise<ReelUs
 /**
  * Undoes checkAndIncrementReelUsage's charge — called when a reel video job
  * ends in total failure (no usable scene assets produced at all), so a
- * free user's one-time free reel or a pro/agency user's weekly allowance
- * isn't permanently spent on a video that was never produced. Never call
+ * pro/agency user's weekly allowance isn't permanently spent on a video
+ * that was never produced. Never call
  * this for a partial failure where a video still rendered — only for a
  * complete failure with nothing usable.
  *
@@ -116,14 +106,6 @@ export async function refundReelUsage(supabase: SupabaseClient<Database>, userId
 
   if (error || !user) {
     console.error(`[check-and-increment-reel-usage] refund lookup failed for user ${userId}:`, error?.message)
-    return
-  }
-
-  if (user.plan === "free") {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await (supabase.from("users") as any)
-      .update({ free_reel_used_at: null })
-      .eq("id", userId)
     return
   }
 

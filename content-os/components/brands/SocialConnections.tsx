@@ -43,7 +43,7 @@ export function SocialConnections({ brandId }: { brandId: string }) {
 
   const [status, setStatus] = useState<ConnectionStatus | null>(null)
   const [loading, setLoading] = useState(true)
-  const [plan, setPlan] = useState<UserPlan>("free")
+  const [plan, setPlan] = useState<UserPlan>("starter")
   const [confirmDisconnect, setConfirmDisconnect] = useState(false)
   const [disconnecting, setDisconnecting] = useState(false)
   const [actionError, setActionError] = useState<string | null>(null)
@@ -80,7 +80,9 @@ export function SocialConnections({ brandId }: { brandId: string }) {
           setPlan((json as { data: { plan: UserPlan } }).data.plan)
         }
       } catch {
-        // Leave as "free" — the more conservative default for a gated feature
+        // Leave as "starter" — the most conservative real default for a
+        // gated feature now that Free is gone (Starter doesn't include
+        // Zernio social platforms, same conservative intent as before).
       }
     })()
     return () => { cancelled = true }

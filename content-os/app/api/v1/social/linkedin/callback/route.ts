@@ -57,8 +57,8 @@ export async function GET(request: Request) {
     return NextResponse.redirect(`${appUrl}/dashboard?linkedin_error=server_error`)
   }
 
-  // Same plan gate as the connect route — a free/starter user could still
-  // hit this callback directly (a stale OAuth flow started before
+  // Same plan gate as the connect route — a trialing/Starter user could
+  // still hit this callback directly (a stale OAuth flow started before
   // downgrading, or a replayed/guessed URL), so don't let it silently write
   // a connection row for a plan that shouldn't have one.
   const { data: userData } = await supabase
@@ -67,7 +67,7 @@ export async function GET(request: Request) {
     .eq("id", user.id)
     .single<{ plan: UserPlan }>()
 
-  const plan: UserPlan = userData?.plan ?? "free"
+  const plan: UserPlan = userData?.plan ?? "starter"
   if (!PLAN_LIMITS[plan].zernioSocialPlatforms && !isInternalUnlimited(user.id)) {
     console.error(`[social/linkedin/callback] brand ${brandId}'s plan (${plan}) does not include Zernio social platforms`)
     return redirectToBrand(appUrl, brandId, { linkedin_error: "plan_restricted" })

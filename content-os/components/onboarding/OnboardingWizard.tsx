@@ -373,13 +373,14 @@ function Step3Fastlane({ brand }: Step3Props) {
             <Zap className="h-4 w-4" />
             Run Fastlane for {brand.name} →
           </Button>
-          {/* Onboarding only ever runs for a brand-new signup, always on
-              Free at this point — reads the real Free-tier Autopilot
-              preview cost (see estimateAutopilotCreditCost in
-              lib/ai/fastlane.ts) instead of a hardcoded number, so this
-              can't drift out of sync the way the old flat "30" did once
-              credit weights stopped being 1-per-action. */}
-          <p className="text-center text-xs text-muted-foreground">Uses {PLAN_LIMITS.free.autopilot.creditCost} of your monthly credits.</p>
+          {/* Onboarding only ever runs for a brand-new signup, always
+              gated as Starter during their trial at this point — reads
+              the real Starter Autopilot cost (see
+              estimateAutopilotCreditCost in lib/ai/fastlane.ts) instead
+              of a hardcoded number, so this can't drift out of sync the
+              way the old flat "30" did once credit weights stopped
+              being 1-per-action. */}
+          <p className="text-center text-xs text-muted-foreground">Uses {PLAN_LIMITS.starter.autopilot.creditCost} of your monthly credits.</p>
           <div className="text-center">
             <button onClick={handleSkip} className="text-sm text-muted-foreground hover:text-foreground underline">
               Skip, I&apos;ll do this later

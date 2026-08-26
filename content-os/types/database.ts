@@ -23,8 +23,10 @@ export type Database = {
           email: string
           full_name: string | null
           avatar_url: string | null
-          plan: "free" | "starter" | "pro" | "agency"
+          plan: "starter" | "pro" | "agency"
           plan_billing_period: "monthly" | "annual" | null
+          trial_ends_at: string | null
+          subscribed_at: string | null
           stripe_customer_id: string | null
           generation_count: number
           generation_count_reset_at: string | null
@@ -47,8 +49,10 @@ export type Database = {
           email: string
           full_name?: string | null
           avatar_url?: string | null
-          plan?: "free" | "starter" | "pro" | "agency"
+          plan?: "starter" | "pro" | "agency"
           plan_billing_period?: "monthly" | "annual" | null
+          trial_ends_at?: string | null
+          subscribed_at?: string | null
           stripe_customer_id?: string | null
           generation_count?: number
           generation_count_reset_at?: string | null
@@ -70,8 +74,10 @@ export type Database = {
           email?: string
           full_name?: string | null
           avatar_url?: string | null
-          plan?: "free" | "starter" | "pro" | "agency"
+          plan?: "starter" | "pro" | "agency"
           plan_billing_period?: "monthly" | "annual" | null
+          trial_ends_at?: string | null
+          subscribed_at?: string | null
           stripe_customer_id?: string | null
           generation_count?: number
           generation_count_reset_at?: string | null

@@ -90,7 +90,7 @@ export default function AiContentGeneratorIndiaArticle() {
 
           <h2 className="pt-2 text-xl font-bold text-gray-900">How to Get Started</h2>
           <ol className="list-decimal space-y-2 pl-5">
-            <li>Sign up for SocioPosts (free plan available)</li>
+            <li>Sign up for SocioPosts (7-day free trial, no card required)</li>
             <li>Paste your brand website URL</li>
             <li>SocioPosts reads your brand in 30 seconds</li>
             <li>Choose a content type: caption, carousel, story, ad, or meme</li>
@@ -98,14 +98,13 @@ export default function AiContentGeneratorIndiaArticle() {
           </ol>
 
           <h2 className="pt-2 text-xl font-bold text-gray-900">Pricing</h2>
-          <p>SocioPosts offers four plans:</p>
+          <p>Every plan starts with a 7-day free trial (no card required). SocioPosts offers three plans:</p>
           <ul className="list-disc space-y-2 pl-5">
-            <li><strong>Free</strong>: {PLAN_LIMITS.free.generations} generations/month, {PLAN_LIMITS.free.brands} brand</li>
             <li><strong>Starter (&#8377;{PLAN_LIMITS.starter.price.toLocaleString("en-IN")}/month)</strong>: {PLAN_LIMITS.starter.generations} generations/month, {PLAN_LIMITS.starter.brands} brands, {PLAN_LIMITS.starter.products} products</li>
             <li><strong>Pro (&#8377;{PLAN_LIMITS.pro.price.toLocaleString("en-IN")}/month)</strong>: {PLAN_LIMITS.pro.generations.toLocaleString("en-IN")} generations/month, {PLAN_LIMITS.pro.brands} brands, {PLAN_LIMITS.pro.products} products</li>
             <li><strong>Agency (&#8377;{PLAN_LIMITS.agency.price.toLocaleString("en-IN")}/month)</strong>: {PLAN_LIMITS.agency.generations.toLocaleString("en-IN")} generations/month, {PLAN_LIMITS.agency.brands} brands, {PLAN_LIMITS.agency.products.toLocaleString("en-IN")} products</li>
           </ul>
-          <p>Start free. No credit card required. Upgrade when you need more.</p>
+          <p>Start your free trial. No credit card required. Upgrade when you need more.</p>
         </div>
 
         {/* CTA */}

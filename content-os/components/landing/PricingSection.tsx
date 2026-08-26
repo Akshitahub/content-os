@@ -8,7 +8,7 @@ import { PLAN_LIMITS } from "@/types/app"
 type BillingCycle = "monthly" | "annual"
 
 interface PricingTier {
-  id: "free" | "starter" | "pro" | "agency"
+  id: "starter" | "pro" | "agency"
   name: string
   tagline: string
   features: string[]
@@ -28,12 +28,13 @@ function formatRupees(amount: number): string {
 // decision — see the pricing revision this pairs with in types/app.ts),
 // not re-derived by dividing the whole pool by POST, since that would
 // overstate what's left after also budgeting for Autopilot.
-// Free unchanged (its 100-credit pool didn't change in the latest
-// revision); starter/pro/agency updated to the latest approved figures
-// against the new 450/850/3100 credit pools.
-const MANUAL_POSTS_TARGET: Record<"free" | "starter" | "pro" | "agency", number> = {
-  free: 14,
-  starter: 40,
+// Free tier removed (2026-08-26 pricing revision) — every signup instead
+// gets a 7-day no-card trial (see the banner above the tier grid below).
+// Starter's target dropped from 40 to 13 to match its resized 150-credit
+// pool at roughly the same credits-per-post ratio the old 450-credit/40-post
+// figure implied (450/40 ≈ 11.25 credits/post; 150/13 ≈ 11.5).
+const MANUAL_POSTS_TARGET: Record<"starter" | "pro" | "agency", number> = {
+  starter: 13,
   pro: 75,
   agency: 100,
 }
@@ -42,28 +43,23 @@ const MANUAL_POSTS_TARGET: Record<"free" | "starter" | "pro" | "agency", number>
 // lib/usage/credit-costs.ts's REEL weight) rather than the old fixed
 // weekly allowance ("1 reel/week", "3-4 reels/week") this copy used to
 // promise — that promise is gone because the real per-reel cost isn't
-// confirmed yet (REEL there is still a placeholder). Free gets zero
-// reel-related mention at all, per the business decision that Free should
-// have no reel cost exposure; Starter isn't mentioned either, matching
-// PLAN_LIMITS.starter.reelsPerWeek staying 0.
-function reelNote(planId: "free" | "starter" | "pro" | "agency"): string {
+// confirmed yet (REEL there is still a placeholder). Starter isn't
+// mentioned, matching PLAN_LIMITS.starter.reelsPerWeek staying 0.
+function reelNote(planId: "starter" | "pro" | "agency"): string {
   if (planId === "pro") return ", plus AI video reels from the same credit pool"
   if (planId === "agency") return ", with generous room for AI video reels too"
   return ""
 }
 
-function creditsLine(planId: "free" | "starter" | "pro" | "agency"): string {
+function creditsLine(planId: "starter" | "pro" | "agency"): string {
   const { generations: credits, brands, autopilot } = PLAN_LIMITS[planId]
   const posts = MANUAL_POSTS_TARGET[planId]
   const runs = autopilot.maxRunsPerMonth
-  // Autopilot is now capped at a fixed number of runs/month, independent
-  // of brand count (see AutopilotTier.maxRunsPerMonth in types/app.ts) —
+  // Autopilot is capped at a fixed number of runs/month, independent of
+  // brand count (see AutopilotTier.maxRunsPerMonth in types/app.ts) —
   // Agency's 4 runs against its 5 brands is intentional, not a typo, so
-  // this can't say "all N brands" anymore the way the old unlimited-style
-  // copy did.
-  const autopilotNote = planId === "free"
-    ? "a free Autopilot preview"
-    : `${runs} Autopilot run${runs === 1 ? "" : "s"} across your ${brands} brand${brands === 1 ? "" : "s"}`
+  // this can't say "all N brands" the way old unlimited-style copy did.
+  const autopilotNote = `${runs} Autopilot run${runs === 1 ? "" : "s"} across your ${brands} brand${brands === 1 ? "" : "s"}`
   return `${credits.toLocaleString("en-IN")} credits / month: ~${posts} posts + ${autopilotNote}${reelNote(planId)}`
 }
 
@@ -77,16 +73,6 @@ function annualPricing(annualPrice: number): { monthlyEquivalent: string; billed
 
 const TIERS: PricingTier[] = [
   {
-    id: "free",
-    name: "Free",
-    tagline: "Try it out",
-    features: [
-      "1 brand",
-      creditsLine("free"),
-      "Post manually to Instagram, Facebook",
-    ],
-  },
-  {
     id: "starter",
     name: "Starter",
     tagline: "For getting serious",
@@ -94,7 +80,7 @@ const TIERS: PricingTier[] = [
       "2 brands",
       creditsLine("starter"),
       "Auto-post & schedule to Instagram, Facebook, Threads, Pinterest",
-      "Autopilot: generate a month of content in one click",
+      "Autopilot: generate weeks of content in one click",
       "Basic analytics & ROI tracking",
     ],
   },
@@ -135,6 +121,7 @@ export function PricingSection() {
       <div className="mb-8 text-center">
         <span className="mb-3 inline-block rounded-full bg-violet-50 px-3 py-1 text-xs font-semibold uppercase tracking-widest text-violet-600">Pricing</span>
         <h2 className="text-3xl font-bold tracking-tight text-gray-900 sm:text-4xl">Simple, honest pricing</h2>
+        <p className="mt-2 text-sm font-semibold text-emerald-600">Every plan starts with a 7-day free trial — no card required.</p>
       </div>
 
       {/* Monthly / Annual toggle */}
@@ -164,12 +151,12 @@ export function PricingSection() {
         )}
       </div>
 
-      <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-6 sm:grid-cols-3">
         {TIERS.map((tier) => {
           const monthlyPrice = PLAN_LIMITS[tier.id].price
-          const annual = tier.id !== "free" ? annualPricing(PLAN_LIMITS[tier.id].annualPrice) : null
-          const price = cycle === "annual" && annual ? annual.monthlyEquivalent : formatRupees(monthlyPrice)
-          const subtitle = cycle === "annual" && annual ? annual.billedLabel : tier.tagline
+          const annual = annualPricing(PLAN_LIMITS[tier.id].annualPrice)
+          const price = cycle === "annual" ? annual.monthlyEquivalent : formatRupees(monthlyPrice)
+          const subtitle = cycle === "annual" ? annual.billedLabel : tier.tagline
 
           return (
             <div
@@ -208,7 +195,7 @@ export function PricingSection() {
                     : "border border-gray-200 text-gray-700 hover:bg-gray-50"
                 }`}
               >
-                {tier.id === "free" ? "Get started free" : `Start ${tier.name} plan`}
+                Start free trial
               </Link>
             </div>
           )

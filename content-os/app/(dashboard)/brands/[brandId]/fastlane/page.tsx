@@ -136,11 +136,11 @@ export default function AutopilotPage() {
   const userPlan = credits?.plan ?? null
 
   // Explicit, plan-aware Autopilot tier (PLAN_LIMITS[plan].autopilot) —
-  // defaults to the free tier's numbers while the plan is still loading,
-  // since that's the most conservative assumption (never shows a bigger
-  // promise than what might actually be available).
-  const tier = PLAN_LIMITS[userPlan ?? "free"].autopilot
-  const isFreeTier = (userPlan ?? "free") === "free"
+  // defaults to Starter's numbers (the smallest real tier now that Free
+  // is gone) while the plan is still loading, since that's the most
+  // conservative assumption (never shows a bigger promise than what might
+  // actually be available).
+  const tier = PLAN_LIMITS[userPlan ?? "starter"].autopilot
   const hasEnoughCredits = userCredits === null || userCredits >= tier.creditCost
   // Display-only rounding (nearest 10) -- tier.creditCost's real value
   // (e.g. 162) is the precise output of estimateAutopilotCreditCost's
@@ -362,7 +362,7 @@ export default function AutopilotPage() {
           message: json.error?.message ?? "You've used all your Autopilot runs this month.",
           runsUsed: json.runs_used ?? 0,
           runsAllowed: json.runs_allowed ?? 0,
-          plan: json.plan ?? "free",
+          plan: json.plan ?? "starter",
         })
         setState("RUN_CAP")
         return
@@ -372,7 +372,7 @@ export default function AutopilotPage() {
       if (json.remaining_credits !== undefined) {
         setUpsellData({
           remainingCredits: json.remaining_credits,
-          plan: json.plan ?? "free",
+          plan: json.plan ?? "starter",
           creditsNeeded: json.credits_needed ?? 30,
         })
         setState("UPSELL")
@@ -498,15 +498,8 @@ export default function AutopilotPage() {
               <Plane className="h-10 w-10 text-white" />
             </div>
             <h1 className="text-4xl font-bold tracking-tight">Autopilot</h1>
-            {isFreeTier ? (
-              <span className="mt-2 inline-block rounded-full bg-violet-100 px-3 py-1 text-xs font-semibold text-violet-700">
-                Free preview ({tier.days} days, ~{tier.slots} posts)
-              </span>
-            ) : null}
             <p className="mt-3 text-muted-foreground max-w-md mx-auto">
-              {isFreeTier
-                ? `Get a taste of Autopilot: the same strategy engine, scaled down to a ${tier.days}-day, ~${tier.slots}-post preview. Upgrade for the full 30-day calendar.`
-                : "Generate a complete 30-day content calendar tailored to how you create. Set your preferences and let AI do the rest."}
+              {`Generate a complete ${tier.days}-day, ~${tier.slots}-post content calendar tailored to how you create. Set your preferences and let AI do the rest.`}
             </p>
           </div>
 
@@ -837,9 +830,7 @@ export default function AutopilotPage() {
           </div>
           <h2 className="text-3xl font-bold">You&apos;re on Autopilot!</h2>
           <p className="mt-2 text-muted-foreground">
-            {isFreeTier
-              ? `Your ${tier.days}-day preview is ready and waiting in your calendar. Upgrade for the full 30-day plan.`
-              : `Your ${tier.days}-day content plan is ready and waiting in your calendar.`}
+            {`Your ${tier.days}-day content plan is ready and waiting in your calendar.`}
           </p>
 
           <div className="mt-8 grid gap-4 sm:grid-cols-3">
@@ -1081,9 +1072,7 @@ export default function AutopilotPage() {
           <div className="text-5xl">⚡</div>
           <h2 className="text-xl font-bold">Unlock Autopilot</h2>
           <p className="text-muted-foreground text-sm max-w-sm mx-auto">
-            {isFreeTier
-              ? `Autopilot's free preview needs ${upsellData.creditsNeeded} credits.`
-              : `Autopilot generates ${tier.days} days of content in one click.`}{" "}
+            {`Autopilot generates ${tier.days} days of content in one click.`}{" "}
             You have <strong>{upsellData.remainingCredits}</strong> credits left on your{" "}
             <strong>{upsellData.plan}</strong> plan.
           </p>

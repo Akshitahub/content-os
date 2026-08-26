@@ -40,7 +40,7 @@ export async function POST(request: Request, { params }: RouteParams) {
   if (result.error === "not_found") return NextResponse.json(buildError(ErrorCodes.BRAND_NOT_FOUND, "Brand not found."), { status: 404 })
 
   const { data: userData } = await result.supabase!.from("users").select("plan").eq("id", result.user!.id).single<{ plan: UserPlan }>()
-  const userPlan: UserPlan = userData?.plan ?? "free"
+  const userPlan: UserPlan = userData?.plan ?? "starter"
   if (!PLAN_LIMITS[userPlan].influencerOutreach && !isInternalUnlimited(result.user!.id)) {
     return NextResponse.json(
       buildError(ErrorCodes.USAGE_LIMIT_EXCEEDED, "Influencer outreach tools are available on Pro and Agency plans. Upgrade to use this feature."),

@@ -54,12 +54,14 @@ export async function POST(request: Request) {
   if (!brand) return NextResponse.json(buildError(ErrorCodes.BRAND_NOT_FOUND, "Brand not found."), { status: 404 })
 
   const { data: userData } = await supabase.from("users").select("plan").eq("id", user.id).single<{ plan: UserPlan }>()
-  const plan: UserPlan = userData?.plan ?? "free"
+  const plan: UserPlan = userData?.plan ?? "starter"
   const isUnlimited = isInternalUnlimited(user.id)
 
-  // Hook (first) slide gets an AI background on every plan, including Free
-  // — intentional: it's the first-impression slide meant to showcase
-  // quality and help convert free users. CTA (last) slide is Starter+ only.
+  // Hook (first) slide gets an AI background on every plan — intentional:
+  // it's the first-impression slide meant to showcase quality and help
+  // convert trialing users into subscribers. CTA (last) slide is
+  // Starter+ only (i.e. every real plan now that Free is gone, but the
+  // flag stays for clarity and in case a cheaper tier returns later).
   if (role === "cta" && !PLAN_LIMITS[plan].carouselCtaAiBackground && !isUnlimited) {
     return NextResponse.json(
       buildError(ErrorCodes.USAGE_LIMIT_EXCEEDED, "AI backgrounds on the closing slide are available on Starter and above."),

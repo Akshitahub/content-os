@@ -25,7 +25,12 @@ export async function GET() {
     .single<{ plan: string; generation_count: number; generation_count_reset_at: string | null }>()
 
   const rawPlan = userData?.plan
-  const plan: UserPlan = rawPlan && rawPlan in PLAN_LIMITS ? (rawPlan as UserPlan) : "free"
+  // "starter" is the fail-closed default now that Free is gone (a missing/
+  // unrecognized plan value can't fall back to a tier that no longer
+  // exists) — every user, trialing or subscribed, always has a real paid
+  // tier value in this column (see users.trial_ends_at/subscribed_at for
+  // trial-vs-subscribed status, tracked orthogonally from `plan`).
+  const plan: UserPlan = rawPlan && rawPlan in PLAN_LIMITS ? (rawPlan as UserPlan) : "starter"
   const limit = PLAN_LIMITS[plan].generations
   const resetAt = userData?.generation_count_reset_at ? new Date(userData.generation_count_reset_at) : null
   // Was a raw calendar-month-number comparison (now.getMonth() !==

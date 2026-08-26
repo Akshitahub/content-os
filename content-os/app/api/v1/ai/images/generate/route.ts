@@ -44,7 +44,7 @@ export async function POST(request: Request) {
   // Determines the image provider (Free -> Pollinations, paid -> Flux) —
   // same lookup app/api/v1/ai/post-image/generate/route.ts already does.
   const { data: userData } = await supabase.from("users").select("plan").eq("id", user.id).single<{ plan: UserPlan }>()
-  const plan: UserPlan = userData?.plan ?? "free"
+  const plan: UserPlan = userData?.plan ?? "starter"
 
   const startTime = Date.now()
   // generateImage no longer throws (it now wraps fetchBackgroundImage,

@@ -90,7 +90,7 @@ export async function POST(request: Request, { params }: RouteParams) {
   // Determines the image provider (Free -> Pollinations, paid -> Flux) --
   // same lookup every other generation route uses.
   const { data: userData } = await supabase.from("users").select("plan").eq("id", user.id).single<{ plan: UserPlan }>()
-  const plan: UserPlan = userData?.plan ?? "free"
+  const plan: UserPlan = userData?.plan ?? "starter"
 
   const startTime = Date.now()
   const backgroundOptions = {

@@ -79,12 +79,12 @@ export interface AutopilotParams {
   vibe?: string
   focusAreas?: string[]
   /** How many slots this run should plan for — defaults to 30 (the
-   * existing full Autopilot run). The free plan's scaled preview passes a
+   * existing full Autopilot run). Starter's smaller tier passes a
    * smaller number (see PLAN_LIMITS[plan].autopilot in types/app.ts). */
   totalSlots?: number
   /** User's resolved plan — determines the image provider for every
    * slot's post image (see lib/ai/post-image-pipeline.ts's
-   * resolveImageProvider). Defaults to "free" if omitted. */
+   * resolveImageProvider). Defaults to "starter" if omitted. */
   plan?: UserPlan
   /** Internal owner-bypass — always gets Flux regardless of `plan` (see
    * isInternalUnlimited). Defaults to false if omitted. */
@@ -186,8 +186,8 @@ export async function generateStrategyOverview(brand: BrandRow, params?: Autopil
  * remainder first (so the result still sums exactly to targetTotal).
  * Categories that round down to 0 are dropped entirely, since a "0 slots"
  * line in the prompt's required-mix list only confuses the model. Used for
- * the free plan's scaled Autopilot preview (e.g. 5 slots instead of 30) —
- * a no-op when targetTotal already matches sourceTotal. */
+ * Starter's smaller Autopilot tier (14 slots instead of 30) — a no-op when
+ * targetTotal already matches sourceTotal. */
 function scaleMix(mix: typeof CONTENT_MIX, targetTotal: number): typeof CONTENT_MIX {
   const sourceTotal = mix.reduce((sum, m) => sum + m.count, 0)
   if (sourceTotal === 0 || targetTotal === sourceTotal) return mix
@@ -717,7 +717,7 @@ async function executeFastlaneInner(
   // from the caller-supplied plan/bypass flag rather than re-fetched per
   // slot; app/api/v1/brands/fastlane/route.ts already looked these up for
   // its own usage/credit gating before calling executeFastlane.
-  const plan: UserPlan = params?.plan ?? "free"
+  const plan: UserPlan = params?.plan ?? "starter"
   const isInternalUnlimitedUser = params?.isInternalUnlimitedUser ?? false
 
   const { data: products } = await supabase

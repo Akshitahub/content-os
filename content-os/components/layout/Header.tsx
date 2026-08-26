@@ -26,7 +26,7 @@ export function Header({ userEmail, userName, onMenuClick }: HeaderProps) {
   // hooks/useUserCredits.ts) instead of a server-rendered prop, which
   // never updated after the dashboard shell's own initial render.
   const { data: credits } = useUserCredits()
-  const userPlan: UserPlan = credits?.plan && credits.plan in PLAN_LIMITS ? credits.plan : "free"
+  const userPlan: UserPlan = credits?.plan && credits.plan in PLAN_LIMITS ? credits.plan : "starter"
   const limit = credits?.limit ?? PLAN_LIMITS[userPlan].generations
   const generationCount = credits?.used ?? 0
   const remaining = credits?.remaining ?? Math.max(0, limit - generationCount)
@@ -35,12 +35,14 @@ export function Header({ userEmail, userName, onMenuClick }: HeaderProps) {
   const barColor = remaining === 0 ? "bg-red-500" : remaining < 5 ? "bg-amber-500" : "bg-primary"
   const planLabel = userPlan.charAt(0).toUpperCase() + userPlan.slice(1)
 
-  // Proactive nudge for Free-plan users approaching their monthly cap —
-  // the reactive "you're out of credits" prompt on the Create page only
-  // fires at exactly 0, which is too late to be useful. Free-plan only:
-  // paid tiers already pay, so a generic "upgrade" nudge doesn't apply the
-  // same way there.
-  const showUpgradeNudge = userPlan === "free" && limit > 0 && remaining / limit <= 0.2
+  // Proactive nudge for users approaching their monthly cap — the reactive
+  // "you're out of credits" prompt on the Create page only fires at
+  // exactly 0, which is too late to be useful. Now that Free is gone this
+  // fires for any plan below Agency (Starter/Pro can both still upgrade to
+  // a bigger pool); Agency is suppressed since there's nowhere higher to
+  // go — same reasoning the Autopilot RUN_CAP state already uses for
+  // hiding its own upgrade CTA on Agency.
+  const showUpgradeNudge = userPlan !== "agency" && limit > 0 && remaining / limit <= 0.2
 
   const displayName = userName ?? userEmail ?? "Account"
   const initials = userName

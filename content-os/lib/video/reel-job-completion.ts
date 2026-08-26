@@ -1,7 +1,5 @@
 import { refundReelUsage } from "@/lib/usage/check-and-increment-reel-usage"
-import { captureServerEvent } from "@/lib/analytics/posthog"
 import type { ReelVideoJobRow } from "@/types/database"
-import type { UserPlan } from "@/types/app"
 
 // Shared by app/api/v1/webhooks/kling/route.ts (total scene failure, before
 // a render was ever attempted) and app/api/v1/webhooks/json2video/route.ts
@@ -39,9 +37,10 @@ export async function syncCalendarEntry(admin: any, calendarEntryId: string | nu
 
 /**
  * Marks a reel_video_jobs row as genuinely completed — video rendered,
- * calendar entry (if any) synced, and (free plan only) the
- * free_reel_generated PostHog event fired for the
- * free_reel_generated -> upgraded_within_7_days funnel.
+ * calendar entry (if any) synced. (The free_reel_generated PostHog event
+ * this used to fire for plan === "free" was retired along with the Free
+ * tier — reels are Pro/Agency-only now, and neither of those was ever the
+ * "free" plan, so the event could never fire again anyway.)
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export async function markReelJobCompleted(admin: any, job: ReelVideoJobRow, videoUrl: string): Promise<void> {
@@ -49,15 +48,6 @@ export async function markReelJobCompleted(admin: any, job: ReelVideoJobRow, vid
     .update({ status: "completed", progress_message: null, video_url: videoUrl })
     .eq("id", job.id)
   await syncCalendarEntry(admin, job.calendar_entry_id, "ready", videoUrl, null)
-
-  const { data: brand } = await admin.from("brands").select("user_id").eq("id", job.brand_id).maybeSingle() as { data: { user_id: string } | null }
-  const userId = brand?.user_id
-  if (userId) {
-    const { data: userRow } = await admin.from("users").select("plan").eq("id", userId).maybeSingle() as { data: { plan: UserPlan } | null }
-    if (userRow?.plan === "free") {
-      await captureServerEvent(userId, "free_reel_generated", { user_id: userId, timestamp: new Date().toISOString() })
-    }
-  }
 }
 
 /**

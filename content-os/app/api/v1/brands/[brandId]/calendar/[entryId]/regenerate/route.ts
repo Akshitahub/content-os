@@ -99,7 +99,7 @@ export async function POST(request: Request, { params }: RouteParams) {
   const additionalContext = entry.title || undefined
 
   const { data: userData } = await supabase.from("users").select("plan").eq("id", user.id).single<{ plan: UserPlan }>()
-  const plan: UserPlan = userData?.plan ?? "free"
+  const plan: UserPlan = userData?.plan ?? "starter"
   const isInternalUnlimitedUser = isInternalUnlimited(user.id)
 
   try {

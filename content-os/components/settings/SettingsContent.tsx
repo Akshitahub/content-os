@@ -22,7 +22,7 @@ import { useUserCredits } from "@/hooks/useUserCredits"
 // Types
 // ---------------------------------------------------------------------------
 
-type Plan = "free" | "starter" | "pro" | "agency"
+type Plan = "starter" | "pro" | "agency"
 
 interface UserProps {
   full_name: string | null
@@ -32,7 +32,6 @@ interface UserProps {
   generation_count_reset_at: string | null
   reel_count_this_week: number
   reel_count_reset_at: string | null
-  free_reel_used_at: string | null
 }
 
 interface BrandProps {
@@ -67,15 +66,14 @@ function formatPlanPrice(plan: "starter" | "pro" | "agency", billingPeriod: Bill
 }
 
 const PLAN_COLORS: Record<Plan, string> = {
-  free: "bg-gray-100 text-gray-700",
   starter: "bg-violet-100 text-violet-700",
   pro: "bg-blue-100 text-blue-700",
   agency: "bg-green-100 text-green-700",
 }
 
 const PLAN_FEATURES: { label: string; plans: Plan[] }[] = [
-  { label: "AI content generation", plans: ["free", "starter", "pro", "agency"] },
-  { label: "Brand management", plans: ["free", "starter", "pro", "agency"] },
+  { label: "AI content generation", plans: ["starter", "pro", "agency"] },
+  { label: "Brand management", plans: ["starter", "pro", "agency"] },
   { label: "Auto-post & schedule (Instagram, Facebook, Threads, Pinterest)", plans: ["starter", "pro", "agency"] },
   { label: "Autopilot (30-day content planner)", plans: ["starter", "pro", "agency"] },
   { label: "Influencer outreach tools", plans: ["pro", "agency"] },
@@ -417,33 +415,10 @@ function PlanSection({ user }: { user: UserProps }) {
           </div>
         )}
 
-        {/* Upgrade buttons */}
-        {plan === "free" && (
-          <div className="flex flex-wrap gap-3">
-            <Button
-              onClick={() => handleUpgrade("starter")}
-              disabled={upgradeState === "loading"}
-              className="bg-violet-600 hover:bg-violet-700 text-white"
-            >
-              {upgradeState === "loading" ? "Loading…" : `Upgrade to Starter (${formatPlanPrice("starter", billingPeriod)})`}
-            </Button>
-            <Button
-              variant="outline"
-              onClick={() => handleUpgrade("pro")}
-              disabled={upgradeState === "loading"}
-            >
-              {`Upgrade to Pro (${formatPlanPrice("pro", billingPeriod)})`}
-            </Button>
-            <Button
-              variant="outline"
-              onClick={() => handleUpgrade("agency")}
-              disabled={upgradeState === "loading"}
-            >
-              {`Upgrade to Agency (${formatPlanPrice("agency", billingPeriod)})`}
-            </Button>
-          </div>
-        )}
-
+        {/* Upgrade buttons — the old "free" block offering all three tiers
+            at once was removed along with the Free plan; a trialing
+            account is gated as "starter" (see PLAN_LIMITS in
+            types/app.ts), so it already renders the block below. */}
         {plan === "starter" && (
           <div className="flex flex-wrap gap-3">
             <Button

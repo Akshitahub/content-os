@@ -413,7 +413,7 @@ export default async function RootPage() {
                 {primaryLabel} <ArrowRight className="h-5 w-5" />
               </Link>
             </div>
-            <p className="mt-4 text-sm text-gray-500">Free plan available · No credit card required</p>
+            <p className="mt-4 text-sm text-gray-500">7-day free trial · No credit card required</p>
           </div>
         </section>
 

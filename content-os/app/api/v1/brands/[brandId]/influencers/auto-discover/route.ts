@@ -60,7 +60,7 @@ export async function POST(request: Request, { params }: RouteParams) {
   }
 
   const { data: userData } = await supabase.from("users").select("plan").eq("id", user.id).single<{ plan: UserPlan }>()
-  const plan: UserPlan = userData?.plan ?? "free"
+  const plan: UserPlan = userData?.plan ?? "starter"
   if (!PLAN_LIMITS[plan].influencerOutreach && !isInternalUnlimited(user.id)) {
     return NextResponse.json(
       buildError(ErrorCodes.USAGE_LIMIT_EXCEEDED, "Influencer outreach tools are available on Pro and Agency plans. Upgrade to use this feature."),

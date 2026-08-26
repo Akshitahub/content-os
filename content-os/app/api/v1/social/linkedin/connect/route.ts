@@ -44,15 +44,15 @@ export async function GET(request: Request) {
 
   // LinkedIn/YouTube route through Zernio, a third-party unified API billed
   // per connected account across our whole Zernio account — gate it to
-  // paid plans so free/starter connections don't become pure cost with no
-  // matching revenue.
+  // paid plans so a trialing/Starter connection doesn't become pure cost
+  // with no matching revenue.
   const { data: userData } = await supabase
     .from("users")
     .select("plan")
     .eq("id", user.id)
     .single<{ plan: UserPlan }>()
 
-  const plan: UserPlan = userData?.plan ?? "free"
+  const plan: UserPlan = userData?.plan ?? "starter"
   if (!PLAN_LIMITS[plan].zernioSocialPlatforms && !isInternalUnlimited(user.id)) {
     return NextResponse.json(
       buildError(ErrorCodes.USAGE_LIMIT_EXCEEDED, "LinkedIn and YouTube publishing are available on Pro and Agency plans. Upgrade to connect this platform."),

@@ -19,7 +19,7 @@ import { checkAndIncrementUsage, refundGenerationUsage } from "@/lib/usage/check
 export const maxDuration = 300
 
 function resolvePlan(rawPlan: string | undefined): UserPlan {
-  return rawPlan && rawPlan in PLAN_LIMITS ? (rawPlan as UserPlan) : "free"
+  return rawPlan && rawPlan in PLAN_LIMITS ? (rawPlan as UserPlan) : "starter"
 }
 
 export async function POST(request: Request) {
@@ -75,8 +75,9 @@ export async function POST(request: Request) {
 
     // Explicit plan-based Autopilot tier — resolved from the user's actual
     // plan (PLAN_LIMITS[plan].autopilot), not inferred from credit balance.
-    // A missing/unrecognized plan row fails closed to the free tier rather
-    // than silently skipping gating.
+    // A missing/unrecognized plan row fails closed to Starter (the lowest
+    // real tier now that Free is gone) rather than silently skipping
+    // gating.
     const { data: userData } = await supabase
       .from("users")
       .select("plan, generation_count, generation_count_reset_at, autopilot_run_count, autopilot_run_count_reset_at")
