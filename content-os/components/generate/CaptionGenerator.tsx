@@ -202,7 +202,7 @@ export function CaptionGenerator({ brandId, products }: CaptionGeneratorProps) {
             <span className="text-sm font-medium">Caption saved to My Content</span>
           </div>
           <Link
-            href={`/brands/${brandId}/library?tab=captions`}
+            href={`/brands/${brandId}/library?tab=posts`}
             className="text-xs font-medium text-green-700 underline underline-offset-2 hover:text-green-900 shrink-0"
           >
             View in My Content →

@@ -327,7 +327,7 @@ export function ContentTypeGenerator({ brandId, products }: ContentTypeGenerator
   // table have a valid My Content destination — "story" and "blog_post"
   // aren't saved anywhere, so there's genuinely nothing to view for them.
   const FORMAT_TO_TAB: Partial<Record<ContentFormat, string>> = {
-    social_post: "captions",
+    social_post: "posts",
     reel_script: "scripts",
     carousel: "carousels",
     ad_copy: "ad_copy",

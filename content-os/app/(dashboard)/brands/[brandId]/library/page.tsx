@@ -892,6 +892,10 @@ function HooksTab({ brandId }: { brandId: string }) {
   )
 }
 
+// Renders the "Posts" tab (TABS' id: "posts") -- named CaptionsTab
+// because it queries the real captions table, which is where Create ->
+// Post (Full Post) generations actually land. Not renamed to match the
+// tab, since that would blur what data this is actually reading.
 function CaptionsTab({ brandId, onOpenDetail }: { brandId: string; onOpenDetail: (item: DetailItem) => void }) {
   const [platformFilter, setPlatformFilter] = useState("all")
   const [dateFilter, setDateFilter] = useState("all")
@@ -917,7 +921,7 @@ function CaptionsTab({ brandId, onOpenDetail }: { brandId: string; onOpenDetail:
           {DATE_RANGES.map(d => <option key={d.value} value={d.value}>{d.label}</option>)}
         </select>
       </div>
-      {isLoading ? <SkeletonGrid /> : filtered.length === 0 ? <EmptyState label="saved captions" brandId={brandId} /> : (
+      {isLoading ? <SkeletonGrid /> : filtered.length === 0 ? <EmptyState label="saved posts" brandId={brandId} /> : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {filtered.map(c => <CaptionCard key={c.id} caption={c} brandId={brandId} onOpenDetail={onOpenDetail} />)}
         </div>
@@ -1177,12 +1181,20 @@ function BlogPostsTab({ brandId }: { brandId: string }) {
 
 // ─── Page ──────────────────────────────────────────────────────────────────────
 
-type LibraryTab = "captions" | "scripts" | "carousels" | "stories" | "ad_copy" | "blog_posts"
+// "posts" (not "captions") -- Create -> Post (Full Post) is the app's
+// primary, first-listed content format, and its generations land in the
+// captions table (hook + caption + image, linked via content_project_id
+// -- see the content-linking work this pairs with). The table name stays
+// "captions" (renaming a live table is a much bigger migration for a
+// pure display/naming fix), but every user-facing label and this tab's
+// own identifier now say "Posts", matching what a user actually thinks
+// they made.
+type LibraryTab = "posts" | "scripts" | "carousels" | "stories" | "ad_copy" | "blog_posts"
 
-const VALID_TABS = new Set<LibraryTab>(["captions", "scripts", "carousels", "stories", "ad_copy", "blog_posts"])
+const VALID_TABS = new Set<LibraryTab>(["posts", "scripts", "carousels", "stories", "ad_copy", "blog_posts"])
 
 const TABS: { id: LibraryTab; label: string; icon: React.ElementType }[] = [
-  { id: "captions", label: "Captions", icon: Archive },
+  { id: "posts", label: "Posts", icon: Archive },
   { id: "scripts", label: "Scripts", icon: Film },
   { id: "carousels", label: "Carousels", icon: LayoutGrid },
   { id: "stories", label: "Stories", icon: Zap },
@@ -1196,7 +1208,7 @@ export default function LibraryPage() {
   const brandId = params.brandId as string
   const tabParam = searchParams.get("tab") as LibraryTab | null
   const [activeTab, setActiveTab] = useState<LibraryTab>(
-    tabParam && VALID_TABS.has(tabParam) ? tabParam : "captions"
+    tabParam && VALID_TABS.has(tabParam) ? tabParam : "posts"
   )
   // Caption/Carousel/Story cards open into this instead of being dead ends
   // (see components/shared/ContentDetailPanel.tsx) — same top-level-state
@@ -1255,7 +1267,7 @@ export default function LibraryPage() {
         })}
       </div>
 
-      {activeTab === "captions" && <CaptionsTab brandId={brandId} onOpenDetail={setPreviewItem} />}
+      {activeTab === "posts" && <CaptionsTab brandId={brandId} onOpenDetail={setPreviewItem} />}
       {activeTab === "scripts" && <ScriptsTab brandId={brandId} />}
       {activeTab === "carousels" && <CarouselsTab brandId={brandId} onOpenDetail={setPreviewItem} />}
       {activeTab === "stories" && <StoriesTab brandId={brandId} onOpenDetail={setPreviewItem} />}
