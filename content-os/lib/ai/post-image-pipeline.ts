@@ -480,8 +480,24 @@ function buildNegativeGuard(niche: string | null): string {
 // language. Wraps rather than strips, since that LLM-generated text still
 // carries genuinely useful context (the post's specific message/theme)
 // beyond just what the product looks like.
+//
+// Confirmed live (2026-08-27): this reference-image path — and only this
+// path, matching the "some posts, not every post" report exactly, since
+// it's the one case where productImageUrl is actually set — was
+// intermittently coming back as a split/collage panel (two distinct
+// scenes side by side) instead of one seamless photo. The prior wording
+// ("keep its real appearance... completely unchanged... Place it into
+// this new scene") asks for two things that read as two separate states
+// — "unchanged from the reference" and "placed into a new scene" — a
+// known image-to-image failure mode is rendering both states at once
+// (the reference as shown, plus its new placement) rather than one
+// integrated shot. Rewritten to ask for a single output unambiguously,
+// with explicit negative language against the exact artifact seen,
+// matching how POST_IMAGE_QUALITY_AND_NEGATIVE_GUARD above already
+// pairs a positive target with its specific negative opposite rather
+// than trusting a generic quality phrase to cover it.
 function wrapForReferenceImage(sceneDescription: string): string {
-  return `Using the exact product shown in the attached reference photo, keep its real appearance, shape, color, packaging, and label completely unchanged from the reference — do not redesign or reimagine the product. Place it into this new scene: ${sceneDescription}`
+  return `The attached reference photo shows the real product — replicate its exact appearance (shape, color, packaging, and label) faithfully into a single new photograph of this scene: ${sceneDescription}. Output must be ONE seamless photograph only, photographed once from a single camera angle — not a comparison, not a before/after, not a split image, not a side-by-side, not a collage, not multiple panels or frames; one continuous scene with the product naturally placed in it.`
 }
 
 function simplifyPrompt(prompt: string, brandNiche: string | null, hasReferenceImage: boolean): string {
