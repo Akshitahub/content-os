@@ -1,11 +1,12 @@
 import Link from "next/link"
-import { Globe, Zap, Sparkles, Star, ArrowRight, Check, Gem, Leaf, Shirt, Home } from "lucide-react"
+import { Globe, Zap, Sparkles, Star, ArrowRight, Check, Gem, Leaf, Shirt, Home, Film, LayoutGrid, Mail, Handshake, Plane } from "lucide-react"
 import { createClient } from "@/lib/supabase/server"
 import { ScrollNavHandler } from "@/components/landing/ScrollNavHandler"
 import { LiveDemo } from "@/components/landing/LiveDemo"
 import { FaqAccordion } from "@/components/landing/FaqAccordion"
 import { PricingSection } from "@/components/landing/PricingSection"
 import { LogoIcon } from "@/components/shared/LogoIcon"
+import { REELS_ENABLED } from "@/lib/constants"
 
 export default async function RootPage() {
   let primaryHref = "/signup"
@@ -215,16 +216,26 @@ export default async function RootPage() {
             </div>
             <div className="grid grid-cols-2 gap-4 lg:grid-cols-3">
               {[
-                { title: "Hook Generator", desc: "Scroll-stopping first lines tuned to your brand voice, with the reasoning behind each one.", icon: "⚡" },
-                { title: "Reel Scripts", desc: "Full voiceover scripts with hooks, body, and CTAs, ready to record in 60 seconds.", icon: "🎬" },
-                { title: "Carousels", desc: "Slide-by-slide content plans for educational and product carousels that actually get saved.", icon: "🎠" },
-                { title: "Email Sequences", desc: "Welcome, nurture, and launch sequences written in your brand's tone, not a generic template.", icon: "📧" },
-                { title: "Influencer Outreach", desc: "Personalized DM and email pitches for collaborations, tailored to each creator's niche.", icon: "🤝" },
-                { title: "Autopilot ✈️", desc: "Our flagship: paste your URL, get 30 days of planned, ready-to-post content instantly.", icon: "🚀", highlight: true },
-              ].map(({ title, desc, icon, highlight }) => (
+                { title: "Hook Generator", desc: "Scroll-stopping first lines tuned to your brand voice, with the reasoning behind each one.", Icon: Zap },
+                {
+                  title: "Reel Scripts",
+                  desc: "Full voiceover scripts with hooks, body, and CTAs, ready to record in 60 seconds.",
+                  Icon: Film,
+                  comingSoon: !REELS_ENABLED,
+                },
+                { title: "Carousels", desc: "Slide-by-slide content plans for educational and product carousels that actually get saved.", Icon: LayoutGrid },
+                { title: "Email Sequences", desc: "Welcome, nurture, and launch sequences written in your brand's tone, not a generic template.", Icon: Mail },
+                { title: "Influencer Outreach", desc: "Personalized DM and email pitches for collaborations, tailored to each creator's niche.", Icon: Handshake },
+                { title: "Autopilot ✈️", desc: "Our flagship: paste your URL, get 30 days of planned, ready-to-post content instantly.", Icon: Plane, highlight: true },
+              ].map(({ title, desc, Icon, highlight, comingSoon }) => (
                 <div key={title} className={`rounded-2xl p-6 transition-all hover:scale-[1.01] ${highlight ? "border border-violet-500/30 bg-violet-950/40" : "border border-white/5 bg-white/5"}`}>
-                  <div className="mb-3 text-2xl" aria-hidden="true">{icon}</div>
-                  <h3 className="mb-1.5 font-semibold text-white">{title}</h3>
+                  <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-xl bg-violet-500/10">
+                    <Icon className="h-5 w-5 text-violet-400" />
+                  </div>
+                  <div className="mb-1.5 flex items-center gap-2">
+                    <h3 className="font-semibold text-white">{title}</h3>
+                    {comingSoon && <span className="inline-block shrink-0 rounded-full bg-amber-500/20 px-2 py-0.5 text-[10px] font-semibold text-amber-300">Coming soon</span>}
+                  </div>
                   <p className="text-sm leading-relaxed text-gray-400">{desc}</p>
                   {highlight && <span className="mt-3 inline-block rounded-full bg-violet-600/20 px-2.5 py-0.5 text-xs font-semibold text-violet-300">Flagship</span>}
                 </div>
