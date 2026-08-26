@@ -44,10 +44,10 @@ function CopyBtn({ text }: { text: string }) {
 }
 
 const QUICK_ACTIONS = [
-  { href: "fastlane", label: "Autopilot", sub: "Plan a month in one click", icon: Zap, color: "text-violet-600", bg: "bg-violet-500/10", ring: "hover:border-violet-300" },
-  { href: "generate", label: "Create", sub: "Hooks, posts, carousels & more", icon: Sparkles, color: "text-blue-600", bg: "bg-blue-500/10", ring: "hover:border-blue-300" },
-  { href: "calendar", label: "Calendar", sub: "See what's scheduled", icon: Calendar, color: "text-green-600", bg: "bg-green-500/10", ring: "hover:border-green-300" },
-  { href: "influencers", label: "Creators", sub: "Find & reach out to influencers", icon: Users, color: "text-amber-600", bg: "bg-amber-500/10", ring: "hover:border-amber-300" },
+  { href: "fastlane", label: "Autopilot", sub: "Plan a month in one click", icon: Zap, color: "text-violet-600", bg: "bg-violet-500/10", ring: "hover:border-violet-300", hoverShadow: "hover:shadow-violet-100" },
+  { href: "generate", label: "Create", sub: "Hooks, posts, carousels & more", icon: Sparkles, color: "text-blue-600", bg: "bg-blue-500/10", ring: "hover:border-blue-300", hoverShadow: "hover:shadow-blue-100" },
+  { href: "calendar", label: "Calendar", sub: "See what's scheduled", icon: Calendar, color: "text-green-600", bg: "bg-green-500/10", ring: "hover:border-green-300", hoverShadow: "hover:shadow-green-100" },
+  { href: "influencers", label: "Creators", sub: "Find & reach out to influencers", icon: Users, color: "text-amber-600", bg: "bg-amber-500/10", ring: "hover:border-amber-300", hoverShadow: "hover:shadow-amber-100" },
 ] as const
 
 export function DashboardStats({
@@ -99,6 +99,11 @@ export function DashboardStats({
     ? Math.round(((generationsThisMonth - generationsLastMonth) / generationsLastMonth) * 100)
     : null
 
+  // hoverShadow tints each card's lift-on-hover shadow to match its own
+  // accent (violet/blue/green/amber) rather than one uniform tint --
+  // same "lift + colored shadow" motion Influencers/CreatePicker already
+  // use, just following each card's own hue instead of a single brand
+  // color, since these four cards are deliberately differently-accented.
   const stats = [
     {
       label: "Generated this month",
@@ -107,6 +112,7 @@ export function DashboardStats({
       icon: Zap,
       color: "text-violet-500",
       bg: "bg-violet-500/10",
+      hoverShadow: "hover:shadow-violet-100",
       trend: generationsTrend,
     },
     {
@@ -116,6 +122,7 @@ export function DashboardStats({
       icon: Bookmark,
       color: "text-blue-500",
       bg: "bg-blue-500/10",
+      hoverShadow: "hover:shadow-blue-100",
       trend: null,
     },
     {
@@ -125,6 +132,7 @@ export function DashboardStats({
       icon: Calendar,
       color: "text-green-500",
       bg: "bg-green-500/10",
+      hoverShadow: "hover:shadow-green-100",
       trend: null,
     },
     {
@@ -134,6 +142,7 @@ export function DashboardStats({
       icon: Layers,
       color: "text-amber-500",
       bg: "bg-amber-500/10",
+      hoverShadow: "hover:shadow-amber-100",
       trend: null,
     },
   ]
@@ -240,10 +249,10 @@ export function DashboardStats({
 
       {/* Stat cards — 2x2 on mobile, 4 across on desktop */}
       <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
-        {stats.map(({ label, value, sub, icon: Icon, color, bg, trend }) => (
+        {stats.map(({ label, value, sub, icon: Icon, color, bg, hoverShadow, trend }) => (
           <div
             key={label}
-            className="rounded-xl border bg-card p-5 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md"
+            className={`rounded-xl border bg-card p-5 transition-all duration-200 hover:-translate-y-1 hover:shadow-lg ${hoverShadow}`}
           >
             <div className="flex items-center justify-between mb-3">
               <p className="text-xs font-medium text-muted-foreground">{label}</p>
@@ -271,11 +280,11 @@ export function DashboardStats({
       {/* Quick actions — primary entry points, not an afterthought row */}
       {firstBrandId && (
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-          {QUICK_ACTIONS.map(({ href, label, sub, icon: Icon, color, bg, ring }) => (
+          {QUICK_ACTIONS.map(({ href, label, sub, icon: Icon, color, bg, ring, hoverShadow }) => (
             <Link
               key={href}
               href={`/brands/${firstBrandId}/${href}`}
-              className={`group flex flex-col gap-3 rounded-xl border bg-card p-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md ${ring}`}
+              className={`group flex flex-col gap-3 rounded-xl border bg-card p-4 transition-all duration-200 hover:-translate-y-1 hover:shadow-lg ${ring} ${hoverShadow}`}
             >
               <div className="flex items-center justify-between">
                 <div className={`flex h-10 w-10 items-center justify-center rounded-xl ${bg}`}>
@@ -308,7 +317,7 @@ export function DashboardStats({
             {recentCalendar.slice(0, 4).map((entry) => (
               <div
                 key={entry.id}
-                className="rounded-xl border bg-card p-4 space-y-3 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md"
+                className="rounded-xl border bg-card p-4 space-y-3 transition-all duration-200 hover:-translate-y-1 hover:shadow-lg hover:shadow-violet-100"
               >
                 {/* Platform + date */}
                 <div className="flex items-center justify-between gap-2">

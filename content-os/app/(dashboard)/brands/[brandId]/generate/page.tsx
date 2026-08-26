@@ -2,6 +2,7 @@
 
 import { Suspense, useEffect } from "react"
 import { useParams, useSearchParams } from "next/navigation"
+import { Sparkles } from "lucide-react"
 import { GenerationPanel } from "@/components/generate/GenerationPanel"
 import { useProducts } from "@/hooks/useProducts"
 import { useBrand } from "@/hooks/useBrand"
@@ -57,7 +58,10 @@ export default function GeneratePage() {
   return (
     <div className="px-4 py-6 md:p-8">
       <div className="mb-8">
-        <h1 className="text-2xl font-bold tracking-tight">Create content</h1>
+        <h1 className="flex items-center gap-2 text-3xl font-bold tracking-tight">
+          <Sparkles className="h-7 w-7 text-primary" />
+          Create content
+        </h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Generate scroll-stopping content in your brand voice.
         </p>
