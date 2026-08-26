@@ -17,21 +17,38 @@ interface SidebarProps {
   onClose?: () => void
 }
 
-function SectionLabel({ children }: { children: React.ReactNode }) {
+function SectionLabel({ children, first }: { children: React.ReactNode; first?: boolean }) {
   return (
-    <p className="mb-1 px-3 text-[10px] font-semibold uppercase tracking-widest text-sidebar-foreground/40">
+    <p className={cn(
+      "mb-1.5 px-3 text-[10px] font-semibold uppercase tracking-widest text-sidebar-foreground/40",
+      // A hairline divider reads as real section separation instead of
+      // just a label change floating in the same continuous list --
+      // skipped on the first section since the brand-selector pill
+      // above it already provides that break.
+      !first && "mt-4 border-t border-sidebar-border/60 pt-3"
+    )}>
       {children}
     </p>
   )
 }
 
+/**
+ * Icon chip + left accent bar replaces the old small dot indicator --
+ * matching the icon-in-a-tinted-rounded-box language already established
+ * across Home/Create/Influencers, rather than a separate, quieter style
+ * unique to the sidebar. `chipBg`/`chipColor` give each item its own
+ * resting accent (same per-item hues the old dotColor prop used); the
+ * active item's chip fills solid violet with a white icon and gains the
+ * accent bar, so "where am I" reads unambiguously at a glance.
+ */
 function NavItem({
   href,
   label,
   icon: Icon,
   isActive,
   onClose,
-  dotColor = "bg-muted-foreground/30",
+  chipBg = "bg-muted-foreground/10",
+  chipColor = "text-muted-foreground",
   faded = false,
   id,
 }: {
@@ -40,7 +57,8 @@ function NavItem({
   icon: React.ElementType
   isActive: boolean
   onClose?: () => void
-  dotColor?: string
+  chipBg?: string
+  chipColor?: string
   faded?: boolean
   id?: string
 }) {
@@ -50,20 +68,24 @@ function NavItem({
       href={href}
       onClick={onClose}
       className={cn(
-        "flex items-center gap-2.5 rounded-md px-3 py-2 text-sm transition-all duration-150",
+        "relative flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-sm transition-all duration-150",
         isActive
-          ? "bg-violet-500/10 text-violet-700 dark:bg-violet-500/15 dark:text-violet-300 font-medium"
+          ? "bg-violet-500/10 text-violet-700 dark:bg-violet-500/15 dark:text-violet-300 font-semibold"
           : "text-sidebar-foreground/70 hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
         faded && "opacity-40"
       )}
     >
-      <div
+      {isActive && (
+        <span className="absolute left-0 top-1/2 h-5 w-1 -translate-y-1/2 rounded-r-full bg-violet-600" />
+      )}
+      <span
         className={cn(
-          "h-1.5 w-1.5 rounded-full shrink-0 transition-colors",
-          isActive ? "bg-violet-500" : dotColor
+          "flex h-7 w-7 shrink-0 items-center justify-center rounded-lg transition-colors",
+          isActive ? "bg-violet-600 text-white" : `${chipBg} ${chipColor}`
         )}
-      />
-      <Icon className="h-4 w-4 shrink-0" />
+      >
+        <Icon className="h-3.5 w-3.5" />
+      </span>
       <span className="truncate">{label}</span>
     </Link>
   )
@@ -74,21 +96,24 @@ function NavButton({
   label,
   icon: Icon,
   onClick,
-  dotColor = "bg-muted-foreground/30",
+  chipBg = "bg-muted-foreground/10",
+  chipColor = "text-muted-foreground",
 }: {
   label: string
   icon: React.ElementType
   onClick: () => void
-  dotColor?: string
+  chipBg?: string
+  chipColor?: string
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm text-sidebar-foreground/70 transition-all duration-150 hover:bg-sidebar-accent/60 hover:text-sidebar-foreground"
+      className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-sm text-sidebar-foreground/70 transition-all duration-150 hover:bg-sidebar-accent/60 hover:text-sidebar-foreground"
     >
-      <div className={cn("h-1.5 w-1.5 rounded-full shrink-0 transition-colors", dotColor)} />
-      <Icon className="h-4 w-4 shrink-0" />
+      <span className={cn("flex h-7 w-7 shrink-0 items-center justify-center rounded-lg", chipBg, chipColor)}>
+        <Icon className="h-3.5 w-3.5" />
+      </span>
       <span className="truncate">{label}</span>
     </button>
   )
@@ -170,8 +195,8 @@ export function Sidebar({ isOpen = false, onClose }: SidebarProps) {
         </Link>
 
         {/* WORKSPACE */}
-        <div className="mb-2">
-          <SectionLabel>Workspace</SectionLabel>
+        <div className="mb-1">
+          <SectionLabel first>Workspace</SectionLabel>
           <div className="space-y-0.5">
             <NavItem
               href="/dashboard"
@@ -179,7 +204,8 @@ export function Sidebar({ isOpen = false, onClose }: SidebarProps) {
               icon={Home}
               isActive={pathname === "/dashboard"}
               onClose={onClose}
-              dotColor="bg-blue-400/60"
+              chipBg="bg-blue-500/10"
+              chipColor="text-blue-500"
             />
             <NavItem
               id="tour-create"
@@ -188,7 +214,8 @@ export function Sidebar({ isOpen = false, onClose }: SidebarProps) {
               icon={Sparkles}
               isActive={brandActive("/generate")}
               onClose={onClose}
-              dotColor="bg-violet-400/60"
+              chipBg="bg-violet-500/10"
+              chipColor="text-violet-500"
               faded={!activeBrandId}
             />
             <NavItem
@@ -197,7 +224,8 @@ export function Sidebar({ isOpen = false, onClose }: SidebarProps) {
               icon={Bookmark}
               isActive={brandActive("/library")}
               onClose={onClose}
-              dotColor="bg-pink-400/60"
+              chipBg="bg-pink-500/10"
+              chipColor="text-pink-500"
               faded={!activeBrandId}
             />
             <NavItem
@@ -207,14 +235,15 @@ export function Sidebar({ isOpen = false, onClose }: SidebarProps) {
               icon={Calendar}
               isActive={brandActive("/calendar")}
               onClose={onClose}
-              dotColor="bg-green-400/60"
+              chipBg="bg-green-500/10"
+              chipColor="text-green-500"
               faded={!activeBrandId}
             />
           </div>
         </div>
 
         {/* GROWTH */}
-        <div className="mb-2">
+        <div className="mb-1">
           <SectionLabel>Growth</SectionLabel>
           <div className="space-y-0.5">
             <NavItem
@@ -224,7 +253,8 @@ export function Sidebar({ isOpen = false, onClose }: SidebarProps) {
               icon={Zap}
               isActive={brandActive("/fastlane")}
               onClose={onClose}
-              dotColor="bg-amber-400/60"
+              chipBg="bg-amber-500/10"
+              chipColor="text-amber-500"
               faded={!activeBrandId}
             />
             <NavItem
@@ -233,7 +263,8 @@ export function Sidebar({ isOpen = false, onClose }: SidebarProps) {
               icon={Users}
               isActive={brandActive("/influencers")}
               onClose={onClose}
-              dotColor="bg-teal-400/60"
+              chipBg="bg-teal-500/10"
+              chipColor="text-teal-500"
               faded={!activeBrandId}
             />
             <NavItem
@@ -242,7 +273,8 @@ export function Sidebar({ isOpen = false, onClose }: SidebarProps) {
               icon={Package}
               isActive={brandActive("/products")}
               onClose={onClose}
-              dotColor="bg-orange-400/60"
+              chipBg="bg-orange-500/10"
+              chipColor="text-orange-500"
               faded={!activeBrandId}
             />
           </div>
@@ -260,7 +292,8 @@ export function Sidebar({ isOpen = false, onClose }: SidebarProps) {
                 pathname === "/brands" || pathname.startsWith("/brands/new")
               }
               onClose={onClose}
-              dotColor="bg-indigo-400/60"
+              chipBg="bg-indigo-500/10"
+              chipColor="text-indigo-500"
             />
           </div>
         </div>
@@ -272,7 +305,8 @@ export function Sidebar({ isOpen = false, onClose }: SidebarProps) {
           label="Help"
           icon={HelpCircle}
           onClick={() => setHelpOpen(true)}
-          dotColor="bg-sky-400/60"
+          chipBg="bg-sky-500/10"
+          chipColor="text-sky-500"
         />
         <NavItem
           href="/settings"
@@ -280,6 +314,8 @@ export function Sidebar({ isOpen = false, onClose }: SidebarProps) {
           icon={Settings}
           isActive={pathname.startsWith("/settings")}
           onClose={onClose}
+          chipBg="bg-slate-500/10"
+          chipColor="text-slate-500"
         />
       </div>
     </aside>
