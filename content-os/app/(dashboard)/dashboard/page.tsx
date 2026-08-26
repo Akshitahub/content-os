@@ -4,7 +4,7 @@ import { OnboardingWizard } from "@/components/onboarding/OnboardingWizard"
 import { DashboardStats } from "@/components/dashboard/DashboardStats"
 import { UpcomingOccasions } from "@/components/dashboard/UpcomingOccasions"
 import { getUpcomingOccasions } from "@/lib/occasions/get-upcoming-occasions"
-import type { UserRow, CalendarEntryRow, HookRow } from "@/types/database"
+import type { UserRow, CalendarEntryRow } from "@/types/database"
 
 export default async function DashboardPage() {
   const supabase = await createClient()
@@ -36,7 +36,8 @@ export default async function DashboardPage() {
 
   const now = new Date()
   const todayStr = now.toISOString().split("T")[0]!
-  const firstOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString()
+  const firstOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
+  const firstOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1)
   const dayOfWeek = now.getDay()
   const startOfWeek = new Date(now)
   startOfWeek.setDate(now.getDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1))
@@ -46,20 +47,61 @@ export default async function DashboardPage() {
   const startOfWeekStr = startOfWeek.toISOString().split("T")[0]!
   const endOfWeekStr = endOfWeek.toISOString().split("T")[0]!
 
-  const generationsResult = await supabase
-    .from("ai_generation_logs")
-    .select("*", { count: "exact", head: true })
-    .eq("user_id", user.id)
-    .gte("created_at", firstOfMonth)
+  const ACTIVITY_CHART_DAYS = 14
+  const activityWindowStart = new Date(now)
+  activityWindowStart.setDate(now.getDate() - (ACTIVITY_CHART_DAYS - 1))
+  activityWindowStart.setHours(0, 0, 0, 0)
+
+  // Three cheap, independent user_id-scoped queries run together: the
+  // existing "this month" count, a same-shape "last month" count (just
+  // for the trend arrow on that one stat card -- the only card where a
+  // month-over-month comparison is an honest apples-to-apples number;
+  // see DashboardStats.tsx for why the other three cards skip a trend
+  // rather than fabricating one), and the raw timestamps for the last 14
+  // days (bucketed into a day-by-day chart below) -- still a head-less
+  // select, but bounded to a realistic per-user 2-week volume, not a new
+  // heavy computation.
+  const [generationsResult, generationsLastMonthResult, activityRowsResult] = await Promise.all([
+    supabase
+      .from("ai_generation_logs")
+      .select("*", { count: "exact", head: true })
+      .eq("user_id", user.id)
+      .gte("created_at", firstOfMonth.toISOString()),
+    supabase
+      .from("ai_generation_logs")
+      .select("*", { count: "exact", head: true })
+      .eq("user_id", user.id)
+      .gte("created_at", firstOfLastMonth.toISOString())
+      .lt("created_at", firstOfMonth.toISOString()),
+    supabase
+      .from("ai_generation_logs")
+      .select("created_at")
+      .eq("user_id", user.id)
+      .gte("created_at", activityWindowStart.toISOString())
+      .returns<{ created_at: string }[]>(),
+  ])
 
   const generationsThisMonth = generationsResult.count ?? 0
+  const generationsLastMonth = generationsLastMonthResult.count ?? 0
+
+  const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+  const dailyActivity = Array.from({ length: ACTIVITY_CHART_DAYS }, (_, i) => {
+    const d = new Date(activityWindowStart)
+    d.setDate(activityWindowStart.getDate() + i)
+    return { date: d.toISOString().split("T")[0]!, label: DAY_LABELS[d.getDay()]!, count: 0 }
+  })
+  const dailyActivityIndex = new Map(dailyActivity.map((d, i) => [d.date, i]))
+  for (const row of activityRowsResult.data ?? []) {
+    const day = row.created_at.split("T")[0]!
+    const idx = dailyActivityIndex.get(day)
+    if (idx !== undefined) dailyActivity[idx]!.count++
+  }
 
   type RecentCalendarEntry = Pick<CalendarEntryRow, "id" | "title" | "scheduled_date" | "platform" | "status" | "hook_text" | "caption_text" | "is_ready" | "color">
   type TodayEntry = Pick<CalendarEntryRow, "id" | "title" | "platform" | "scheduled_date" | "status" | "is_ready" | "color">
 
   let calendarEntriesThisWeek = 0
   let recentCalendar: RecentCalendarEntry[] = []
-  let recentHooks: Pick<HookRow, "id" | "hook_text" | "hook_type" | "created_at">[] = []
   let savedContentCount = 0
   let todayEntries: TodayEntry[] = []
 
@@ -68,7 +110,6 @@ export default async function DashboardPage() {
       calendarCountResult,
       recentCalendarResult,
       todayReadyResult,
-      recentHooksResult,
       savedHooksResult,
       savedCaptionsResult,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -102,12 +143,6 @@ export default async function DashboardPage() {
         .eq("scheduled_date", todayStr)
         .eq("is_ready", true)
         .limit(5),
-      supabase
-        .from("hooks")
-        .select("id, hook_text, hook_type, created_at")
-        .in("brand_id", brandIds)
-        .order("created_at", { ascending: false })
-        .limit(3),
       supabase
         .from("hooks")
         .select("*", { count: "exact", head: true })
@@ -148,7 +183,6 @@ export default async function DashboardPage() {
     calendarEntriesThisWeek = calendarCountResult.count ?? 0
     recentCalendar = (recentCalendarResult.data ?? []) as RecentCalendarEntry[]
     todayEntries = (todayReadyResult.data ?? []) as TodayEntry[]
-    recentHooks = (recentHooksResult.data ?? []) as Pick<HookRow, "id" | "hook_text" | "hook_type" | "created_at">[]
 
     savedContentCount =
       (savedHooksResult.count ?? 0) +
@@ -200,13 +234,14 @@ export default async function DashboardPage() {
 
       <DashboardStats
         generationsThisMonth={generationsThisMonth}
+        generationsLastMonth={generationsLastMonth}
         savedContentCount={savedContentCount}
         calendarEntriesThisWeek={calendarEntriesThisWeek}
         activeBrands={activeBrandCount}
         recentCalendar={recentCalendar}
-        recentHooks={recentHooks}
         todayEntries={todayEntries}
         firstBrandId={firstBrandId}
+        dailyActivity={dailyActivity}
       />
 
       <div className="mt-6">
