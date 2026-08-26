@@ -378,6 +378,22 @@ const PHOTOGRAPHY_STYLE = "professional product photography shot on a full-frame
 // still shown, not the only one.
 const NO_PEOPLE_BY_DEFAULT_GUARD = "prefer product-only or environmental/lifestyle framing with no visible people, unless the product or scene specifically requires a person (e.g. an apparel item worn on a body, a hand actively demonstrating product use) — when a person isn't genuinely needed, exclude people from the frame entirely rather than including one incidentally"
 
+// Used instead of NO_PEOPLE_BY_DEFAULT_GUARD on the reference-image path
+// only. Confirmed live (2026-08-26): for a real product whose only
+// reference photo shows it worn on a person (e.g. apparel shot on a
+// model), the blanket no-people bias above forces the model into
+// isolating a worn garment into a standalone flat-lay it has never
+// actually seen — a much harder edit than keeping the person — and it was
+// observed resolving that conflict by dropping the product from the scene
+// entirely rather than attempting the isolation. Copying the real person
+// already in the reference photo carries much lower anatomy-defect risk
+// than NO_PEOPLE_BY_DEFAULT_GUARD's original invented-from-scratch case
+// (see that constant's comment above), since Flux is tracing real
+// proportions from an attached photo rather than hallucinating a person —
+// so relaxing the bias specifically here doesn't reintroduce the problem
+// that guard exists to prevent.
+const REFERENCE_IMAGE_PEOPLE_GUARD = "if the reference photo shows the product being worn, held, or used by a person, you may keep a person wearing or holding it in the new scene to preserve the product's real fit, drape, and appearance — do not try to isolate or extract the product away from a person if that would change how it naturally appears; if the reference photo shows the product on its own with no person, keep the new scene product-only as well"
+
 // Posts-specific quality + negative-artifact language — deliberately NOT
 // lib/ai/prompts.ts's shared IMAGE_QUALITY_SAFETY_BOILERPLATE (also used by
 // the standalone Images tab). Two changes from
@@ -496,8 +512,21 @@ function buildNegativeGuard(niche: string | null): string {
 // matching how POST_IMAGE_QUALITY_AND_NEGATIVE_GUARD above already
 // pairs a positive target with its specific negative opposite rather
 // than trusting a generic quality phrase to cover it.
+//
+// Separately observed (2026-08-26), after the split-panel fix above was
+// verified live: across several generations the reference product itself
+// wasn't always clearly recognizable in the finished scene — the
+// product-fidelity instruction was frontloaded once, then followed by
+// `sceneDescription`'s own large block of unrelated styling/negative-guard
+// text (PHOTOGRAPHY_STYLE, POST_IMAGE_QUALITY_AND_NEGATIVE_GUARD, etc.),
+// diluting how much weight the model gave it. Reinforced the instruction a
+// second time at the end of the prompt (immediately alongside the
+// single-photo language, the other place this function already asks for
+// something the model must not drop), with explicit negative language
+// against the product being omitted, obscured, or swapped — same
+// positive+negative pairing convention as the rest of this file.
 function wrapForReferenceImage(sceneDescription: string): string {
-  return `The attached reference photo shows the real product — replicate its exact appearance (shape, color, packaging, and label) faithfully into a single new photograph of this scene: ${sceneDescription}. Output must be ONE seamless photograph only, photographed once from a single camera angle — not a comparison, not a before/after, not a split image, not a side-by-side, not a collage, not multiple panels or frames; one continuous scene with the product naturally placed in it.`
+  return `The attached reference photo shows the real product — replicate its exact appearance (shape, color, packaging, and label) faithfully into a single new photograph of this scene: ${sceneDescription}. The reference product must be clearly visible, in focus, and recognizable as the central subject — do not omit it, crop it out of frame, obscure it behind other objects, or substitute a different item in its place. Output must be ONE seamless photograph only, photographed once from a single camera angle — not a comparison, not a before/after, not a split image, not a side-by-side, not a collage, not multiple panels or frames; one continuous scene with the exact reference product naturally placed in it and clearly visible.`
 }
 
 function simplifyPrompt(prompt: string, brandNiche: string | null, hasReferenceImage: boolean): string {
@@ -507,7 +536,7 @@ function simplifyPrompt(prompt: string, brandNiche: string | null, hasReferenceI
     brandNiche ? `${brandNiche} brand` : "",
     resolveNicheSetting(brandNiche),
     PHOTOGRAPHY_STYLE,
-    NO_PEOPLE_BY_DEFAULT_GUARD,
+    hasReferenceImage ? REFERENCE_IMAGE_PEOPLE_GUARD : NO_PEOPLE_BY_DEFAULT_GUARD,
     CENTERED_COMPOSITION_GUARD,
     POST_IMAGE_QUALITY_AND_NEGATIVE_GUARD,
   ].filter(Boolean).join(", ")
@@ -661,7 +690,7 @@ export async function generatePostImage(options: GeneratePostImageOptions): Prom
     resolveNicheSetting(options.brandNiche),
     cappedTargetAudience ? `styled to appeal to ${cappedTargetAudience}` : "",
     PHOTOGRAPHY_STYLE,
-    NO_PEOPLE_BY_DEFAULT_GUARD,
+    hasReferenceImage ? REFERENCE_IMAGE_PEOPLE_GUARD : NO_PEOPLE_BY_DEFAULT_GUARD,
     buildNegativeGuard(options.brandNiche),
     // Only relevant when there's actually going to be a text overlay —
     // biasing every image toward a simpler lower third no longer makes
