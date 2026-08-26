@@ -396,11 +396,30 @@ function InfluencerCard({ influencer, brandId }: { influencer: InfluencerRow; br
 type FilterTab = "all" | "excellent_fit" | "good_fit" | "nano" | "micro" | "mid" | "macro"
 type SortKey = "fit_score" | "followers" | "recent"
 
+// Derived straight from a band's own min/max (via formatFollowers, same
+// helper every other follower count on this page uses) rather than
+// hardcoded strings, so a tab's numbers can never drift out of sync with
+// the actual filter boundary the way the badge/filter mismatch this
+// mirrors was already fixed to prevent. The lowest band reads as
+// open-below ("<5K"); the last VISIBLE band (macro -- mega itself is
+// excluded from the tabs below) reads as open-above ("100K+") since
+// there's no next visible tier to bound it against.
+function formatTierRange(band: { min: number; max: number }, isLastVisible: boolean): string {
+  if (band.min === 0) return `<${formatFollowers(band.max)}`
+  if (isLastVisible) return `${formatFollowers(band.min)}+`
+  return `${formatFollowers(band.min)}-${formatFollowers(band.max)}`
+}
+
+const VISIBLE_TIER_BANDS = TIER_BANDS.filter((b): b is typeof b & { key: Exclude<TierKey, "mega"> } => b.key !== "mega")
+
 const FILTER_TABS: { id: FilterTab; label: string }[] = [
   { id: "all", label: "All" },
   { id: "excellent_fit", label: "Excellent fit (8+)" },
   { id: "good_fit", label: "Good fit (5–7)" },
-  ...TIER_BANDS.filter((b): b is typeof b & { key: Exclude<TierKey, "mega"> } => b.key !== "mega").map((b) => ({ id: b.key, label: b.label })),
+  ...VISIBLE_TIER_BANDS.map((b, i) => ({
+    id: b.key,
+    label: `${b.label} (${formatTierRange(b, i === VISIBLE_TIER_BANDS.length - 1)})`,
+  })),
 ]
 
 function filterInfluencers(influencers: InfluencerRow[], filter: FilterTab): InfluencerRow[] {
