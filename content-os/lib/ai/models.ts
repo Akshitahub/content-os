@@ -10,10 +10,22 @@ export const GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 // size max_tokens with real headroom for hidden reasoning tokens — see the
 // per-call-site fixes shipped alongside this change. Never leave
 // reasoning_effort unset on a call using this model.
+// `vision` confirmed live against Groq's actual /v1/models endpoint
+// (2026-08-26), not from documentation -- neither of the commonly-cited
+// meta-llama/llama-4-scout-17b-16e-instruct nor
+// meta-llama/llama-4-maverick-17b-128e-instruct exist on this account at
+// all right now. qwen/qwen3.6-27b is the only model whose live metadata
+// lists "image" in input_modalities. Its reasoning_effort only accepts
+// "none" or "default" (NOT the "low"/"medium"/"high" scale the gpt-oss
+// models use) -- "none" is required, otherwise it burns the whole
+// completion budget on a visible <think> trace before ever writing the
+// actual JSON output. Confirmed live: one real photo, one call, ~1.3s,
+// ~1,400 prompt + ~130 completion tokens (~$0.0012).
 export const MODELS = {
   extraction: "openai/gpt-oss-20b",
   generation: "openai/gpt-oss-120b",
   scoring: "openai/gpt-oss-20b",
+  vision: "qwen/qwen3.6-27b",
 } as const
 
 export type ModelKey = keyof typeof MODELS

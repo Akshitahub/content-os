@@ -19,7 +19,7 @@ import type {
   ContentFormat,
   Platform,
 } from "@/types/app"
-import type { GenerateHooksInput, GenerateCaptionsInput, GenerateImageInput, GenerateContentInput, GenerateFullPostInput, GeneratePostImageInput } from "@/lib/validations/ai"
+import type { GenerateHooksInput, GenerateCaptionsInput, GenerateImageInput, GenerateContentInput, GenerateFullPostInput, GeneratePostImageInput, GenerateFullPostFromPhotoInput } from "@/lib/validations/ai"
 
 // Discriminated union so components can narrow on result.format
 export type ContentResult =
@@ -164,5 +164,37 @@ async function fetchFullPost(input: GenerateFullPostInput): Promise<FullPostResu
 export function useGenerateFullPost() {
   return useMutation({
     mutationFn: fetchFullPost,
+  })
+}
+
+// "Upload your own photo" path — a distinct capability from FullPostResult
+// above: no postSessionId (there's no Flux/Pollinations image to
+// regenerate — the uploaded photo IS the image, unmodified), and imageUrl
+// is populated directly rather than requiring a follow-up post-image/
+// generate call.
+export type FullPostFromPhotoResult = {
+  hook: GeneratedHook
+  content: ContentResult
+  imageUrl: string
+  imageId: string | null
+  contentProjectId: string | null
+  platform: Platform
+  format: ContentFormat
+}
+
+async function fetchFullPostFromPhoto(input: GenerateFullPostFromPhotoInput): Promise<FullPostFromPhotoResult> {
+  const res = await fetch("/api/v1/ai/fullpost/generate-from-photo", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  })
+  const json = await res.json()
+  if (!res.ok || isApiError(json)) throwApiError(json, "Couldn't generate a caption for your photo")
+  return json.data as FullPostFromPhotoResult
+}
+
+export function useGenerateFullPostFromPhoto() {
+  return useMutation({
+    mutationFn: fetchFullPostFromPhoto,
   })
 }

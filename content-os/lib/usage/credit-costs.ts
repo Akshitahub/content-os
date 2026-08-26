@@ -62,6 +62,18 @@ export const IMAGE = 5
 // either) before REELS_ENABLED is ever set to true.
 export const REEL = 75
 
+// Create -> Full Post's "upload your own photo" path (lib/ai/vision.ts +
+// app/api/v1/ai/fullpost/generate-from-photo/route.ts) — deliberately NOT
+// priced like POST above. That 5-credit weight prices in a real Flux/
+// Pollinations image generation; this path skips image generation
+// entirely (the user's own photo IS the image) and costs only one
+// qwen/qwen3.6-27b vision+caption call. Measured live against a real
+// photo (2026-08-26): ~1,400 prompt + ~130 completion tokens, ~$0.0012 —
+// cheaper than a Flux-driven generation and roughly in line with a
+// single text-only HOOK_OR_CAPTION call, so it's priced the same rather
+// than at POST's image-inclusive rate.
+export const PHOTO_CAPTION = HOOK_OR_CAPTION
+
 // Lightweight non-image AI actions, confirmed to stay at the base rate:
 // app/api/v1/ai/repurpose (repurposing existing content into a new
 // format — text-only) and app/api/v1/ai/remove-background (calls the

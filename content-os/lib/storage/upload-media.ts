@@ -30,7 +30,7 @@ export type UploadMediaInput =
   | { kind: "remoteUrl"; url: string }
 
 export type UploadMediaResult =
-  | { publicUrl: string }
+  | { publicUrl: string; storagePath: string }
   | { error: string }
 
 /**
@@ -88,7 +88,15 @@ export async function uploadMediaToStorage(
       return { error: `File too large (max ${MAX_UPLOAD_BYTES / 1024 / 1024}MB).` }
     }
 
+    // webp was already in ALLOWED_MIME_TYPES above but had no case here --
+    // confirmed live (2026-08-26, a real uploaded .webp photo) that every
+    // webp upload fell through to the "bin" default. Still rendered
+    // correctly (Supabase Storage serves the real `contentType` set on
+    // upload below, and browsers use that header, not the URL's
+    // extension, to decide how to display an image) but the stored file's
+    // extension was silently wrong.
     const ext = mimeType.includes("png") ? "png"
+      : mimeType.includes("webp") ? "webp"
       : mimeType.includes("wav") ? "wav"
       : mimeType.includes("mp4") ? "mp4"
       : mimeType.includes("mp3") || mimeType.includes("mpeg") ? "mp3"
@@ -106,7 +114,7 @@ export async function uploadMediaToStorage(
     }
 
     const { data } = admin.storage.from(BUCKET).getPublicUrl(path)
-    return { publicUrl: data.publicUrl }
+    return { publicUrl: data.publicUrl, storagePath: path }
   } catch (err) {
     return { error: err instanceof Error ? err.message : "Upload failed." }
   }

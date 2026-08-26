@@ -195,3 +195,24 @@ export const generateFullPostSchema = z.object({
 })
 
 export type GenerateFullPostInput = z.infer<typeof generateFullPostSchema>
+
+// "Upload your own photo" path — a genuinely different capability from
+// generateFullPostSchema above: no productId (this isn't tied to a saved
+// Product), no AI-generated image at all (the uploaded photo itself is
+// what gets published, see app/api/v1/ai/fullpost/generate-from-photo/route.ts).
+// imageDataUrl's real content-type/size are validated where the bytes are
+// actually decoded (lib/storage/upload-media.ts's ALLOWED_MIME_TYPES/
+// MAX_UPLOAD_BYTES) — this only checks it's shaped like a data: URL so a
+// garbage string fails fast with a clear error instead of reaching that
+// far first.
+export const generateFullPostFromPhotoSchema = z.object({
+  brandId: z.string().uuid("Invalid brand ID"),
+  imageDataUrl: z.string().regex(/^data:image\/[a-zA-Z+.-]+;base64,/, "Invalid image data URL"),
+  additionalContext: z
+    .string()
+    .max(500, "Additional context must be under 500 characters")
+    .optional()
+    .transform((val) => val?.replace(/<[^>]*>/g, "").trim()),
+})
+
+export type GenerateFullPostFromPhotoInput = z.infer<typeof generateFullPostFromPhotoSchema>

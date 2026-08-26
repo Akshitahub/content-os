@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useCallback, useRef, useMemo } from "react"
-import { Sparkles, RefreshCw, Copy, Check, Download, Archive, Loader2, AlertCircle } from "lucide-react"
+import { Sparkles, RefreshCw, Copy, Check, Download, Archive, Loader2, AlertCircle, Upload, X } from "lucide-react"
 import { ProductPicker, type PickedProduct } from "@/components/shared/ProductPicker"
 import { ScheduleAction } from "@/components/shared/ScheduleAction"
 import { Button } from "@/components/ui/button"
@@ -13,7 +13,7 @@ import type { PostTemplateId } from "@/lib/design/post-templates"
 import { resolveColorThemes } from "@/lib/design/color-themes"
 import { resolveFonts, DEFAULT_FONT_ID } from "@/lib/design/fonts"
 import type { FontId } from "@/lib/design/fonts"
-import { useGenerateFullPost, useGeneratePostImage, ApiResponseError } from "@/hooks/useGeneration"
+import { useGenerateFullPost, useGeneratePostImage, useGenerateFullPostFromPhoto, ApiResponseError } from "@/hooks/useGeneration"
 import { useGenerationStore } from "@/stores/generationStore"
 import { useBrand } from "@/hooks/useBrand"
 import type { FullPostResult, ContentResult } from "@/hooks/useGeneration"
@@ -122,6 +122,7 @@ interface Props {
 export function FullPostGenerator({ brandId, products }: Props) {
   const { mutate: generate, isPending, error } = useGenerateFullPost()
   const { mutate: generatePostImageMutate, isPending: imageGenerating } = useGeneratePostImage()
+  const { mutateAsync: generateFromPhotoAsync, isPending: photoGenerating, error: photoError } = useGenerateFullPostFromPhoto()
   const {
     fullPostResult,
     setFullPostResult,
@@ -154,11 +155,26 @@ export function FullPostGenerator({ brandId, products }: Props) {
   const [imageCaptionText, setImageCaptionText] = useState("")
   const [selectedFontId, setSelectedFontId] = useState<FontId>(DEFAULT_FONT_ID)
   const [postImageUrl, setPostImageUrl] = useState<string | null>(null)
-  const [imageSource, setImageSource] = useState<"ai" | "product_photo" | null>(null)
+  const [imageSource, setImageSource] = useState<"ai" | "product_photo" | "user_upload" | null>(null)
   const [imageError, setImageError] = useState<string | null>(null)
   const [postSessionId, setPostSessionId] = useState<string | null>(null)
   const [selectedProduct, setSelectedProduct] = useState<PickedProduct | null>(null)
   const abortControllerRef = useRef<AbortController | null>(null)
+
+  // "Upload your own photo" — a genuinely different path from the Product
+  // picker above (not tied to a saved Product) and from AI image generation
+  // (no Flux/Pollinations background gets generated at all; this exact
+  // photo, unmodified, becomes the post image). Mirrors the file input +
+  // drag-drop + document-level Ctrl+V paste pattern already shipped for
+  // AdMaker/ProductPicker/SceneComposer rather than a fourth variant.
+  const [uploadedPhotoDataUrl, setUploadedPhotoDataUrl] = useState<string | null>(null)
+  const [uploadedPhotoError, setUploadedPhotoError] = useState<string | null>(null)
+  const [isDraggingPhoto, setIsDraggingPhoto] = useState(false)
+  const photoInputRef = useRef<HTMLInputElement>(null)
+  // Checked at paste time via offsetParent (null when this subtree — or an
+  // ancestor, e.g. a hidden Create tab — is display:none), same gating as
+  // ProductPicker/AdMaker's own document-level paste listeners.
+  const photoDropzoneRef = useRef<HTMLDivElement>(null)
 
   // colorThemes only resolves once the brand has loaded — falls back to the
   // first available theme (always non-empty, curated presets included).
@@ -231,6 +247,104 @@ export function FullPostGenerator({ brandId, products }: Props) {
       runImageGeneration(fullPostResult, postSessionId)
     }
   }, [fullPostResult, postSessionId, selectedProduct, runProductCardComposite, runImageGeneration])
+
+  // Shared by file-browse, drag-drop, and clipboard paste — same
+  // one-validation-path convention as AdMaker/ProductPicker's own
+  // processImageFile.
+  function processUploadedPhotoFile(file: File | undefined | null) {
+    if (!file) return
+    if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
+      setUploadedPhotoError("Please use a JPG, PNG, or WEBP image.")
+      return
+    }
+    setUploadedPhotoError(null)
+    const reader = new FileReader()
+    reader.onload = () => setUploadedPhotoDataUrl(reader.result as string)
+    reader.readAsDataURL(file)
+  }
+
+  function handlePhotoFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    processUploadedPhotoFile(e.target.files?.[0])
+    e.target.value = ""
+  }
+
+  function handlePhotoDrop(e: React.DragEvent) {
+    e.preventDefault()
+    setIsDraggingPhoto(false)
+    processUploadedPhotoFile(e.dataTransfer.files?.[0])
+  }
+
+  // Native ClipboardEvent, not React.ClipboardEvent — same reasoning as
+  // AdMaker/ProductPicker: the only interactive element in the empty
+  // dropzone opens the native file browser on click, so there's no element
+  // to "click to focus, then paste" onto.
+  function handlePhotoPaste(e: ClipboardEvent) {
+    if (photoDropzoneRef.current && photoDropzoneRef.current.offsetParent === null) return
+    const items = e.clipboardData?.items
+    if (!items) return
+    for (const item of items) {
+      if (item.type.startsWith("image/")) {
+        const file = item.getAsFile()
+        if (file) {
+          processUploadedPhotoFile(file)
+          break
+        }
+      }
+    }
+  }
+
+  // Active only while the dropzone is actually showing (no photo picked
+  // yet) — same scoping as AdMaker's own paste listener.
+  useEffect(() => {
+    if (uploadedPhotoDataUrl) return
+    document.addEventListener("paste", handlePhotoPaste)
+    return () => document.removeEventListener("paste", handlePhotoPaste)
+  // handlePhotoPaste is a plain (unmemoized) function recreated every
+  // render — its behavior only meaningfully depends on uploadedPhotoDataUrl,
+  // already listed.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [uploadedPhotoDataUrl])
+
+  const handleGenerateFromPhoto = useCallback(async () => {
+    if (!uploadedPhotoDataUrl) return
+    abortControllerRef.current?.abort()
+    abortControllerRef.current = new AbortController()
+    setJustSaved(false)
+    setPostImageUrl(null)
+    setImageSource(null)
+    setImageError(null)
+    setPostSessionId(null)
+
+    try {
+      const data = await generateFromPhotoAsync({
+        brandId,
+        imageDataUrl: uploadedPhotoDataUrl,
+        additionalContext: additionalContext || undefined,
+      })
+      // Reuses the exact same FullPostResult/postImageUrl/imageSource state
+      // (and therefore the exact same FullPostResults/PostImagePreview
+      // rendering) the AI-image and product-photo paths already use —
+      // postSessionId stays null since there's no Flux/Pollinations image
+      // to ever regenerate here, and imageSource "user_upload" already
+      // correctly keeps showRegenerate false (that prop is only true for
+      // "ai") without any new conditional needed downstream.
+      setFullPostResult({
+        hook: data.hook,
+        content: data.content,
+        postCardHtml: null,
+        platform: data.platform,
+        format: data.format,
+        postSessionId: null,
+        contentProjectId: data.contentProjectId,
+      })
+      setPostImageUrl(data.imageUrl)
+      setImageSource("user_upload")
+      setJustSaved(true)
+      setTimeout(() => setJustSaved(false), 5000)
+    } catch {
+      // error surfaced via photoError below
+    }
+  }, [uploadedPhotoDataUrl, brandId, additionalContext, generateFromPhotoAsync, setFullPostResult])
 
   useEffect(() => {
     if (occasionContext) setAdditionalContext(occasionContext.angle)
@@ -309,6 +423,13 @@ export function FullPostGenerator({ brandId, products }: Props) {
     )
   }
 
+  // Whichever path applies right now — a stable local so JSX below can
+  // narrow on it once instead of re-evaluating the same ternary repeatedly
+  // (which TypeScript can't carry null-narrowing across).
+  const activeError = uploadedPhotoDataUrl ? photoError : error
+  const activeIsPending = uploadedPhotoDataUrl ? photoGenerating : isPending
+  const activeGenerate = uploadedPhotoDataUrl ? handleGenerateFromPhoto : handleGenerate
+
   return (
     <div className="space-y-6">
       {/* Controls */}
@@ -332,96 +453,148 @@ export function FullPostGenerator({ brandId, products }: Props) {
           </div>
         )}
 
-        {/* Product image for post graphic */}
-        <div className="space-y-1.5">
-          <Label className="text-xs">Product image for post graphic (optional)</Label>
-          <ProductPicker
-            brandId={brandId}
-            selected={selectedProduct}
-            onSelect={setSelectedProduct}
-            label="Add product photo (composites on your post graphic)"
-          />
-        </div>
-
-        {/* Layout + color theme — two independent choices, not preset combos.
-            Only affect the AI-generated image path below; the product-photo
-            path (compositeProductCard) keeps its own fixed look. */}
-        <div className="space-y-1.5">
-          <Label className="text-xs">Post image layout</Label>
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-            {POST_TEMPLATES.map((t) => (
+        {/* Upload your own photo — mutually exclusive with the Product/
+            AI-image controls below: a genuinely different capability, not
+            a variation of either (not tied to a saved Product, and no
+            Flux/Pollinations image ever gets generated — this exact photo
+            becomes the post image, unmodified). Hiding the other image
+            controls while a photo is uploaded avoids implying they'd
+            somehow combine with it. */}
+        <div ref={photoDropzoneRef} className="space-y-1.5">
+          <Label className="text-xs">Or upload your own photo</Label>
+          <p className="text-[11px] text-muted-foreground">
+            We&apos;ll write your caption based on what&apos;s actually in the photo — no AI-generated image, this exact photo gets used.
+          </p>
+          {!uploadedPhotoDataUrl ? (
+            <button
+              type="button"
+              onClick={() => photoInputRef.current?.click()}
+              onDragOver={(e) => { e.preventDefault(); setIsDraggingPhoto(true) }}
+              onDragLeave={() => setIsDraggingPhoto(false)}
+              onDrop={handlePhotoDrop}
+              className={`flex w-full flex-col items-center justify-center gap-1.5 rounded-xl border-2 border-dashed py-6 text-center transition-colors ${
+                isDraggingPhoto ? "border-violet-500 bg-violet-50" : "border-muted-foreground/30 hover:border-violet-400 hover:bg-violet-50/30"
+              }`}
+            >
+              <Upload className="h-6 w-6 text-muted-foreground/40" />
+              <p className="text-xs font-medium">Drop a photo here or click to browse</p>
+              <p className="text-[10px] text-muted-foreground">or paste from clipboard (Ctrl+V) · JPG, PNG or WEBP</p>
+            </button>
+          ) : (
+            <div className="flex items-center gap-3 rounded-lg border bg-muted/40 p-2">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={uploadedPhotoDataUrl} alt="Your uploaded photo" className="h-14 w-14 shrink-0 rounded-md border object-cover" />
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-medium">Photo ready</p>
+                <p className="text-[11px] text-muted-foreground">This exact photo will be your post image.</p>
+              </div>
               <button
-                key={t.id}
                 type="button"
-                onClick={() => setSelectedLayout(t.id)}
-                className={`relative rounded-lg border-2 p-2.5 text-left transition-all ${
-                  selectedLayout === t.id ? "border-primary bg-primary/5 shadow-sm" : "border-muted hover:border-primary/40"
-                }`}
+                onClick={() => { setUploadedPhotoDataUrl(null); setUploadedPhotoError(null) }}
+                className="flex shrink-0 items-center gap-0.5 text-xs text-destructive hover:underline"
               >
-                <p className="text-xs font-semibold">{t.label}</p>
-                <p className="mt-0.5 text-[10px] leading-snug text-muted-foreground">{t.description}</p>
-                {selectedLayout === t.id && (
-                  <div className="absolute right-1.5 top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-primary">
-                    <Check className="h-2.5 w-2.5 text-white" />
-                  </div>
-                )}
+                <X className="h-3 w-3" /> Remove
               </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="space-y-1.5">
-          <Label className="text-xs">Color theme</Label>
-          <div className="flex flex-wrap gap-2">
-            {colorThemes.map((theme) => (
-              <button
-                key={theme.id}
-                type="button"
-                onClick={() => setSelectedColorThemeId(theme.id)}
-                className={`flex items-center gap-1.5 rounded-full border-2 px-2.5 py-1.5 text-xs font-medium transition-all ${
-                  effectiveColorThemeId === theme.id ? "border-primary shadow-sm" : "border-muted hover:border-primary/40"
-                }`}
-              >
-                <span
-                  className="h-4 w-4 shrink-0 rounded-full border border-black/10"
-                  style={{ background: `linear-gradient(135deg, ${theme.primary}, ${theme.secondary})` }}
-                />
-                {theme.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Image caption text — fully opt-in. Empty (the default) produces
-            a clean, text-free image; nothing auto-generated ever gets
-            stamped on it unless typed here. */}
-        <div className="space-y-1.5">
-          <Label className="text-xs">Add text to your image (optional)</Label>
-          <textarea
-            rows={2}
-            maxLength={150}
-            placeholder="Leave blank for a clean, text-free image — or type what you want shown on it"
-            className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring resize-none"
-            value={imageCaptionText}
-            onChange={(e) => setImageCaptionText(e.target.value)}
-          />
-          {imageCaptionText.trim() && (
-            <div className="flex flex-wrap gap-2 pt-1">
-              {fonts.map((font) => (
-                <button
-                  key={font.id}
-                  type="button"
-                  onClick={() => setSelectedFontId(font.id)}
-                  className={`rounded-full border-2 px-2.5 py-1.5 text-xs font-medium transition-all ${
-                    selectedFontId === font.id ? "border-primary shadow-sm" : "border-muted hover:border-primary/40"
-                  }`}
-                >
-                  {font.label}
-                </button>
-              ))}
             </div>
           )}
+          <input ref={photoInputRef} type="file" accept="image/*" className="hidden" onChange={handlePhotoFileChange} />
+          {uploadedPhotoError && <p className="text-[11px] text-destructive">{uploadedPhotoError}</p>}
         </div>
+
+        {!uploadedPhotoDataUrl && (
+          <>
+            {/* Product image for post graphic */}
+            <div className="space-y-1.5">
+              <Label className="text-xs">Product image for post graphic (optional)</Label>
+              <ProductPicker
+                brandId={brandId}
+                selected={selectedProduct}
+                onSelect={setSelectedProduct}
+                label="Add product photo (composites on your post graphic)"
+              />
+            </div>
+
+            {/* Layout + color theme — two independent choices, not preset combos.
+                Only affect the AI-generated image path below; the product-photo
+                path (compositeProductCard) keeps its own fixed look. */}
+            <div className="space-y-1.5">
+              <Label className="text-xs">Post image layout</Label>
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                {POST_TEMPLATES.map((t) => (
+                  <button
+                    key={t.id}
+                    type="button"
+                    onClick={() => setSelectedLayout(t.id)}
+                    className={`relative rounded-lg border-2 p-2.5 text-left transition-all ${
+                      selectedLayout === t.id ? "border-primary bg-primary/5 shadow-sm" : "border-muted hover:border-primary/40"
+                    }`}
+                  >
+                    <p className="text-xs font-semibold">{t.label}</p>
+                    <p className="mt-0.5 text-[10px] leading-snug text-muted-foreground">{t.description}</p>
+                    {selectedLayout === t.id && (
+                      <div className="absolute right-1.5 top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-primary">
+                        <Check className="h-2.5 w-2.5 text-white" />
+                      </div>
+                    )}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-xs">Color theme</Label>
+              <div className="flex flex-wrap gap-2">
+                {colorThemes.map((theme) => (
+                  <button
+                    key={theme.id}
+                    type="button"
+                    onClick={() => setSelectedColorThemeId(theme.id)}
+                    className={`flex items-center gap-1.5 rounded-full border-2 px-2.5 py-1.5 text-xs font-medium transition-all ${
+                      effectiveColorThemeId === theme.id ? "border-primary shadow-sm" : "border-muted hover:border-primary/40"
+                    }`}
+                  >
+                    <span
+                      className="h-4 w-4 shrink-0 rounded-full border border-black/10"
+                      style={{ background: `linear-gradient(135deg, ${theme.primary}, ${theme.secondary})` }}
+                    />
+                    {theme.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Image caption text — fully opt-in. Empty (the default) produces
+                a clean, text-free image; nothing auto-generated ever gets
+                stamped on it unless typed here. */}
+            <div className="space-y-1.5">
+              <Label className="text-xs">Add text to your image (optional)</Label>
+              <textarea
+                rows={2}
+                maxLength={150}
+                placeholder="Leave blank for a clean, text-free image — or type what you want shown on it"
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring resize-none"
+                value={imageCaptionText}
+                onChange={(e) => setImageCaptionText(e.target.value)}
+              />
+              {imageCaptionText.trim() && (
+                <div className="flex flex-wrap gap-2 pt-1">
+                  {fonts.map((font) => (
+                    <button
+                      key={font.id}
+                      type="button"
+                      onClick={() => setSelectedFontId(font.id)}
+                      className={`rounded-full border-2 px-2.5 py-1.5 text-xs font-medium transition-all ${
+                        selectedFontId === font.id ? "border-primary shadow-sm" : "border-muted hover:border-primary/40"
+                      }`}
+                    >
+                      {font.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </>
+        )}
 
         {/* Additional context */}
         <div className="space-y-1.5">
@@ -435,26 +608,26 @@ export function FullPostGenerator({ brandId, products }: Props) {
           />
         </div>
 
-        <Button className="w-full" onClick={handleGenerate} disabled={isPending}>
-          {isPending ? (
-            <><RefreshCw className="h-4 w-4 mr-2 animate-spin" /> Generating full post…</>
+        <Button className="w-full" onClick={activeGenerate} disabled={activeIsPending}>
+          {activeIsPending ? (
+            <><RefreshCw className="h-4 w-4 mr-2 animate-spin" /> {uploadedPhotoDataUrl ? "Writing your caption…" : "Generating full post…"}</>
           ) : (
-            <><Sparkles className="h-4 w-4 mr-2" /> Generate full post</>
+            <><Sparkles className="h-4 w-4 mr-2" /> {uploadedPhotoDataUrl ? "Generate caption for this photo" : "Generate full post"}</>
           )}
         </Button>
 
-        {error && (
-          error instanceof ApiResponseError && error.code === "USAGE_LIMIT_EXCEEDED" ? (
+        {activeError && (
+          activeError instanceof ApiResponseError && activeError.code === "USAGE_LIMIT_EXCEEDED" ? (
             <div className="rounded-lg border border-amber-500/30 bg-amber-50 p-3 text-center space-y-0.5">
-              <p className="text-sm font-semibold text-amber-900">{error.message}</p>
+              <p className="text-sm font-semibold text-amber-900">{activeError.message}</p>
               <p className="text-xs text-amber-700">Upgrade your plan to keep creating.</p>
             </div>
           ) : (
             <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 flex items-start gap-3">
               <AlertCircle className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
               <div className="flex-1">
-                <p className="text-sm text-amber-900 font-medium">{error.message}</p>
-                <button onClick={handleGenerate} className="mt-2 flex items-center gap-1.5 text-xs font-semibold text-amber-700 hover:text-amber-900">
+                <p className="text-sm text-amber-900 font-medium">{activeError.message}</p>
+                <button onClick={activeGenerate} className="mt-2 flex items-center gap-1.5 text-xs font-semibold text-amber-700 hover:text-amber-900">
                   🔄 Try again
                 </button>
               </div>
@@ -463,7 +636,9 @@ export function FullPostGenerator({ brandId, products }: Props) {
         )}
       </div>
 
-      {isPending && <GeneratingState message="Writing your full post…" />}
+      {activeIsPending && (
+        <GeneratingState message={uploadedPhotoDataUrl ? "Looking at your photo and writing a caption…" : "Writing your full post…"} />
+      )}
 
       {justSaved && (
         <div className="flex items-center justify-between rounded-lg border border-green-200 bg-green-50 px-4 py-3">
@@ -814,7 +989,7 @@ function FullPostResults({
   postImageUrl: string | null
   imageGenerating: boolean
   imageError: string | null
-  imageSource: "ai" | "product_photo" | null
+  imageSource: "ai" | "product_photo" | "user_upload" | null
   onRegenerateImage: () => void
 }) {
   const scheduleCaption = getScheduleCaption(result)
