@@ -21,9 +21,9 @@ export async function GET() {
 
   const { data: userData } = await supabase
     .from("users")
-    .select("plan, generation_count, generation_count_reset_at, trial_ends_at, subscribed_at")
+    .select("plan, generation_count, generation_count_reset_at, trial_ends_at, subscribed_at, topup_credits_balance")
     .eq("id", user.id)
-    .single<{ plan: string; generation_count: number; generation_count_reset_at: string | null; trial_ends_at: string | null; subscribed_at: string | null }>()
+    .single<{ plan: string; generation_count: number; generation_count_reset_at: string | null; trial_ends_at: string | null; subscribed_at: string | null; topup_credits_balance: number | null }>()
 
   const rawPlan = userData?.plan
   // "starter" is the fail-closed default now that Free is gone (a missing/
@@ -57,7 +57,16 @@ export async function GET() {
   // check checkAndIncrementUsage/charge_generation_usage themselves use.
   const shouldReset = !resetAt || resetAt <= new Date()
   const currentCount = shouldReset ? 0 : (userData?.generation_count ?? 0)
-  const remaining = Math.max(0, limit - currentCount)
+  const topupBalance = userData?.topup_credits_balance ?? 0
+  const planRemaining = Math.max(0, limit - currentCount)
+  // Total spendable across both pools -- the plan/trial pool is drawn
+  // down first and resets monthly, topup_credits_balance never expires
+  // and is only touched once the plan pool runs out (see
+  // supabase/migrations/040_credit_topups.sql's charge_generation_usage).
+  // Every existing consumer of `remaining` (e.g. Header's low-credit
+  // nudge threshold) should read the real total a user can still spend,
+  // not just the monthly-pool slice of it.
+  const remaining = planRemaining + topupBalance
 
   return NextResponse.json({
     data: {
@@ -65,6 +74,8 @@ export async function GET() {
       limit,
       used: currentCount,
       remaining,
+      planRemaining,
+      topupBalance,
       trialing,
       trialExpired,
       trialEndsAt: trialFields.trial_ends_at,

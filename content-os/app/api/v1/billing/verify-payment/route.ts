@@ -3,6 +3,8 @@ import Razorpay from "razorpay"
 import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import { applyPlanUpgrade } from "@/lib/billing/apply-plan-upgrade"
+import { applyCreditTopup } from "@/lib/billing/apply-credit-topup"
+import { CREDIT_PACKS, type CreditPackId } from "@/lib/usage/credit-packs"
 import { buildError, ErrorCodes } from "@/types/api"
 import { z } from "zod"
 
@@ -66,20 +68,45 @@ export async function POST(request: Request) {
   }
 
   const orderUserId = order.notes?.user_id
+  if (orderUserId !== user.id) {
+    return NextResponse.json(buildError(ErrorCodes.VALIDATION_ERROR, "This order does not belong to your account."), { status: 400 })
+  }
+  if (order.status !== "paid") {
+    return NextResponse.json(buildError(ErrorCodes.VALIDATION_ERROR, "This payment hasn't been confirmed as paid yet."), { status: 400 })
+  }
+
+  // Two order shapes share this one Razorpay flow — the purchase_type note
+  // (set at order-creation time) tells them apart. See
+  // create-topup-checkout-session/route.ts vs create-checkout-session/route.ts.
+  if (order.notes?.purchase_type === "credit_topup") {
+    const packId = order.notes?.pack_id
+    if (!packId || !(packId in CREDIT_PACKS)) {
+      return NextResponse.json(buildError(ErrorCodes.VALIDATION_ERROR, "Invalid credit pack."), { status: 400 })
+    }
+
+    const { error: topupError } = await applyCreditTopup(
+      supabase,
+      user.id,
+      packId as CreditPackId,
+      razorpay_payment_id,
+      Number(order.amount) / 100
+    )
+
+    if (topupError) {
+      return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Failed to credit your account."), { status: 500 })
+    }
+
+    return NextResponse.json({ data: { success: true, packId, credits: CREDIT_PACKS[packId as CreditPackId].credits } })
+  }
+
   const orderPlan = order.notes?.plan
   // Absent on any order created before this field existed — defaults to
   // "monthly" rather than rejecting the order, same fallback the checkout
   // session route itself uses when the client omits billingPeriod.
   const billingPeriod = order.notes?.billing_period === "annual" ? "annual" : "monthly"
 
-  if (orderUserId !== user.id) {
-    return NextResponse.json(buildError(ErrorCodes.VALIDATION_ERROR, "This order does not belong to your account."), { status: 400 })
-  }
   if (orderPlan !== "starter" && orderPlan !== "pro" && orderPlan !== "agency") {
     return NextResponse.json(buildError(ErrorCodes.VALIDATION_ERROR, "Invalid plan."), { status: 400 })
-  }
-  if (order.status !== "paid") {
-    return NextResponse.json(buildError(ErrorCodes.VALIDATION_ERROR, "This payment hasn't been confirmed as paid yet."), { status: 400 })
   }
 
   const plan = orderPlan

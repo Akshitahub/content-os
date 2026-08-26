@@ -3,6 +3,8 @@ import Razorpay from "razorpay"
 import { NextResponse } from "next/server"
 import { createAdminClient } from "@/lib/supabase/server"
 import { applyPlanUpgrade } from "@/lib/billing/apply-plan-upgrade"
+import { applyCreditTopup } from "@/lib/billing/apply-credit-topup"
+import { CREDIT_PACKS, type CreditPackId } from "@/lib/usage/credit-packs"
 import { sendPaymentConfirmationEmail } from "@/lib/email/resend"
 import { buildError, ErrorCodes } from "@/types/api"
 
@@ -11,6 +13,7 @@ interface RazorpayWebhookPayload {
   payload?: {
     payment?: {
       entity?: {
+        id?: string
         order_id?: string
         status?: string
       }
@@ -76,8 +79,9 @@ export async function POST(request: Request) {
   }
 
   const orderId = event.payload?.payment?.entity?.order_id
-  if (!orderId) {
-    return NextResponse.json(buildError(ErrorCodes.VALIDATION_ERROR, "Missing order_id in payload."), { status: 400 })
+  const paymentId = event.payload?.payment?.entity?.id
+  if (!orderId || !paymentId) {
+    return NextResponse.json(buildError(ErrorCodes.VALIDATION_ERROR, "Missing order_id/payment id in payload."), { status: 400 })
   }
 
   const razorpay = new Razorpay({
@@ -94,14 +98,8 @@ export async function POST(request: Request) {
   }
 
   const orderUserId = order.notes?.user_id
-  const orderPlan = order.notes?.plan
-  // Absent on any order created before this field existed — defaults to
-  // "monthly" rather than rejecting the order, same fallback the checkout
-  // session route itself uses when the client omits billingPeriod.
-  const billingPeriod = order.notes?.billing_period === "annual" ? "annual" : "monthly"
-
-  if (!orderUserId || (orderPlan !== "starter" && orderPlan !== "pro" && orderPlan !== "agency")) {
-    console.error("[billing/webhook] order missing expected notes:", orderId)
+  if (!orderUserId) {
+    console.error("[billing/webhook] order missing user_id note:", orderId)
     return NextResponse.json(buildError(ErrorCodes.VALIDATION_ERROR, "Order missing required metadata."), { status: 400 })
   }
   if (order.status !== "paid") {
@@ -110,6 +108,43 @@ export async function POST(request: Request) {
   }
 
   const admin = await createAdminClient()
+
+  // Two order shapes share this one webhook — same purchase_type branch as
+  // /verify-payment. See create-topup-checkout-session/route.ts.
+  if (order.notes?.purchase_type === "credit_topup") {
+    const packId = order.notes?.pack_id
+    if (!packId || !(packId in CREDIT_PACKS)) {
+      console.error("[billing/webhook] top-up order missing/invalid pack_id:", orderId)
+      return NextResponse.json(buildError(ErrorCodes.VALIDATION_ERROR, "Order missing required metadata."), { status: 400 })
+    }
+
+    const { error: topupError } = await applyCreditTopup(
+      admin,
+      String(orderUserId),
+      packId as CreditPackId,
+      paymentId,
+      Number(order.amount) / 100
+    )
+
+    if (topupError) {
+      console.error("[billing/webhook] credit top-up failed:", topupError)
+      return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Failed to credit top-up."), { status: 500 })
+    }
+
+    return NextResponse.json({ data: { received: true } }, { status: 200 })
+  }
+
+  const orderPlan = order.notes?.plan
+  // Absent on any order created before this field existed — defaults to
+  // "monthly" rather than rejecting the order, same fallback the checkout
+  // session route itself uses when the client omits billingPeriod.
+  const billingPeriod = order.notes?.billing_period === "annual" ? "annual" : "monthly"
+
+  if (orderPlan !== "starter" && orderPlan !== "pro" && orderPlan !== "agency") {
+    console.error("[billing/webhook] order missing expected notes:", orderId)
+    return NextResponse.json(buildError(ErrorCodes.VALIDATION_ERROR, "Order missing required metadata."), { status: 400 })
+  }
+
   const { error } = await applyPlanUpgrade(admin, String(orderUserId), orderPlan, billingPeriod)
 
   if (error) {

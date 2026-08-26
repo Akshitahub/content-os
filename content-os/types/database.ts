@@ -41,6 +41,7 @@ export type Database = {
           outreach_email_count_reset_at: string | null
           onboarding_completed: boolean | null
           onboarding_type: string | null
+          topup_credits_balance: number
           marketing_emails_opted_out: boolean
           last_active_at: string | null
           no_brand_nudge_sent_at: string | null
@@ -71,6 +72,7 @@ export type Database = {
           outreach_email_count_reset_at?: string | null
           onboarding_completed?: boolean | null
           onboarding_type?: string | null
+          topup_credits_balance?: number
           marketing_emails_opted_out?: boolean
           last_active_at?: string | null
           no_brand_nudge_sent_at?: string | null
@@ -100,11 +102,39 @@ export type Database = {
           outreach_email_count_reset_at?: string | null
           onboarding_completed?: boolean | null
           onboarding_type?: string | null
+          topup_credits_balance?: number
           marketing_emails_opted_out?: boolean
           last_active_at?: string | null
           no_brand_nudge_sent_at?: string | null
           inactivity_nudge_sent_at?: string | null
           updated_at?: string
+        }
+      }
+      credit_purchases: {
+        Row: {
+          id: string
+          user_id: string
+          pack_id: string
+          credits: number
+          amount_paid: number
+          razorpay_payment_id: string
+          purchased_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          pack_id: string
+          credits: number
+          amount_paid: number
+          razorpay_payment_id: string
+          purchased_at?: string
+        }
+        Update: {
+          pack_id?: string
+          credits?: number
+          amount_paid?: number
+          razorpay_payment_id?: string
+          purchased_at?: string
         }
       }
       brands: {
@@ -1297,6 +1327,7 @@ export type MemeRow = Database["public"]["Tables"]["memes"]["Row"]
 export type PostImageGenerationSessionRow = Database["public"]["Tables"]["post_image_generation_sessions"]["Row"]
 export type AutopilotRunStatusRow = Database["public"]["Tables"]["autopilot_run_status"]["Row"]
 export type FestivalDateRow = Database["public"]["Tables"]["festival_dates"]["Row"]
+export type CreditPurchaseRow = Database["public"]["Tables"]["credit_purchases"]["Row"]
 
 // Insert types
 export type UserInsert = Database["public"]["Tables"]["users"]["Insert"]

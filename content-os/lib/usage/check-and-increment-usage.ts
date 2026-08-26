@@ -71,12 +71,16 @@ export async function checkAndIncrementUsage(userId: string, cost: number): Prom
   const trialing = isTrialActive(user)
   const limit = resolveGenerationLimit(user.plan, user)
 
+  // Draws from the plan/trial pool first, then falls back to any
+  // purchased top-up balance for the overage — see supabase/migrations/
+  // 040_credit_topups.sql's charge_generation_usage for exactly how the
+  // two pools are combined in one atomic UPDATE.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data: rows, error: rpcError } = await (supabase.rpc as any)("charge_generation_usage", {
     p_user_id: userId,
     p_cost: cost,
     p_limit: limit,
-  }) as { data: { generation_count: number }[] | null; error: { message: string } | null }
+  }) as { data: { generation_count: number; topup_credits_balance: number }[] | null; error: { message: string } | null }
 
   if (rpcError) {
     console.error(`[check-and-increment-usage] charge_generation_usage RPC failed for ${userId}:`, rpcError.message)
@@ -84,40 +88,41 @@ export async function checkAndIncrementUsage(userId: string, cost: number): Prom
   }
 
   // The function's WHERE guard rejects the update (zero rows, no charge
-  // applied) exactly when this cost would have taken the user over their
-  // plan limit -- the user row was already confirmed to exist just above,
-  // so a miss here can only mean the limit check failed, not a missing
-  // user. Re-reading the count purely for the rejection message below is
-  // read-only (nothing is written from it), so it can't reintroduce the
-  // charge race -- it only ever affects what the error text says, never
-  // whether/how much gets charged.
+  // applied) exactly when this cost would have exceeded BOTH the plan/
+  // trial pool and any top-up balance combined -- the user row was
+  // already confirmed to exist just above, so a miss here can only mean
+  // the combined-limit check failed, not a missing user. Re-reading for
+  // the rejection message below is read-only (nothing is written from
+  // it), so it can't reintroduce the charge race -- it only ever affects
+  // what the error text says, never whether/how much gets charged.
   const updated = rows?.[0]
   if (!updated) {
     const { data: current } = await supabase
       .from("users")
-      .select("generation_count")
+      .select("generation_count, topup_credits_balance")
       .eq("id", userId)
-      .single<{ generation_count: number }>()
+      .single<{ generation_count: number; topup_credits_balance: number }>()
     const count = current?.generation_count ?? limit
-    const remaining = Math.max(0, limit - count)
+    const topupBalance = current?.topup_credits_balance ?? 0
+    const remaining = Math.max(0, limit - count) + topupBalance
     console.error(
-      `[check-and-increment-usage] REJECTED user ${userId}: plan=${user.plan} count=${count} cost=${cost} limit=${limit}`
+      `[check-and-increment-usage] REJECTED user ${userId}: plan=${user.plan} count=${count} cost=${cost} limit=${limit} topupBalance=${topupBalance}`
     )
     return {
       ok: false,
       status: 429,
-      message: count >= limit
+      message: remaining <= 0
         ? trialing
           ? `You've used all ${limit} trial credits. Subscribe to a plan to keep generating.`
-          : `You've used all ${limit} generations this month. Upgrade to continue.`
+          : `You've used all your credits this month. Buy more credits or upgrade to continue.`
         : trialing
           ? `This action requires ${cost} credits, but you only have ${remaining} left on your trial. Subscribe to a plan to continue.`
-          : `This action requires ${cost} credits, but you only have ${remaining} remaining this month. Upgrade to continue.`,
+          : `This action requires ${cost} credits, but you only have ${remaining} remaining. Buy more credits or upgrade to continue.`,
     }
   }
 
   console.log(
-    `[check-and-increment-usage] OK user ${userId}: plan=${user.plan} cost=${cost} limit=${limit} — new count ${updated.generation_count}`
+    `[check-and-increment-usage] OK user ${userId}: plan=${user.plan} cost=${cost} limit=${limit} — new count ${updated.generation_count}, topup balance ${updated.topup_credits_balance}`
   )
 
   return { ok: true }

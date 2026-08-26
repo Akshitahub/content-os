@@ -46,6 +46,7 @@ export function Header({ userEmail, userName, onMenuClick }: HeaderProps) {
   const trialing = credits?.trialing ?? false
   const trialExpired = credits?.trialExpired ?? false
   const trialDaysLeft = credits?.trialDaysLeft ?? null
+  const topupBalance = credits?.topupBalance ?? 0
   const showUpgradeNudge = !trialing && userPlan !== "agency" && limit > 0 && remaining / limit <= 0.2
 
   const displayName = userName ?? userEmail ?? "Account"
@@ -100,6 +101,7 @@ export function Header({ userEmail, userName, onMenuClick }: HeaderProps) {
             <div className="flex flex-col items-end gap-0.5">
               <span className={`text-[10px] font-medium leading-none ${creditColor}`}>
                 {trialing ? `Trial · ${trialDaysLeft}d left` : planLabel} &middot; {remaining} credits remaining
+                {topupBalance > 0 && ` (${topupBalance} top-up)`}
               </span>
               <div className="h-1 w-20 rounded-full bg-muted overflow-hidden">
                 <div

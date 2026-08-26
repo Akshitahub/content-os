@@ -18,7 +18,17 @@ export interface UserCredits {
   plan: UserPlan
   limit: number
   used: number
+  /** Total spendable across both pools: the plan/trial pool's remainder
+   * plus topupBalance. Use this for any "how many credits do I have
+   * left" display or threshold check. */
   remaining: number
+  /** Just the monthly plan/trial pool's own remainder (limit - used),
+   * with no top-up credits mixed in — for UI that wants to show the two
+   * pools separately (Settings' Plan & usage). */
+  planRemaining: number
+  /** Purchased top-up credits, never expiring, spent only once
+   * planRemaining hits 0. */
+  topupBalance: number
   /** True only while genuinely trialing (not subscribed, 7-day window not
    * yet passed) — see lib/usage/trial-status.ts, the single place this
    * gets decided server-side. */
