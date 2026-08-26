@@ -1,8 +1,8 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useLayoutEffect, useRef } from "react"
 import { useParams } from "next/navigation"
-import { Search, Plus, Loader2, Users, Video, Camera, Wand2, Sparkles, AlertCircle, Trash2 } from "lucide-react"
+import { Search, Plus, Loader2, Users, Video, Camera, Wand2, Sparkles, AlertCircle, Trash2, TrendingUp, Star, UserPlus } from "lucide-react"
 import { FaLinkedin } from "react-icons/fa6"
 import {
   useInfluencers,
@@ -27,18 +27,18 @@ import type { InfluencerRow } from "@/types/database"
 // instead of being lumped in with 100k-follower accounts.
 type TierKey = "nano" | "micro" | "mid" | "macro" | "mega"
 
-const TIER_BANDS: { key: TierKey; label: string; color: string; min: number; max: number }[] = [
-  { key: "nano", label: "Nano", color: "bg-gray-100 text-gray-600", min: 0, max: 5_000 },
-  { key: "micro", label: "Micro", color: "bg-blue-100 text-blue-700", min: 5_000, max: 20_000 },
-  { key: "mid", label: "Mid", color: "bg-teal-100 text-teal-700", min: 20_000, max: 100_000 },
-  { key: "macro", label: "Macro", color: "bg-purple-100 text-purple-700", min: 100_000, max: 1_000_000 },
-  { key: "mega", label: "Mega", color: "bg-orange-100 text-orange-700", min: 1_000_000, max: Infinity },
+const TIER_BANDS: { key: TierKey; label: string; color: string; dot: string; min: number; max: number }[] = [
+  { key: "nano", label: "Nano", color: "bg-gray-100 text-gray-600", dot: "bg-gray-400", min: 0, max: 5_000 },
+  { key: "micro", label: "Micro", color: "bg-blue-100 text-blue-700", dot: "bg-blue-500", min: 5_000, max: 20_000 },
+  { key: "mid", label: "Mid", color: "bg-teal-100 text-teal-700", dot: "bg-teal-500", min: 20_000, max: 100_000 },
+  { key: "macro", label: "Macro", color: "bg-purple-100 text-purple-700", dot: "bg-purple-500", min: 100_000, max: 1_000_000 },
+  { key: "mega", label: "Mega", color: "bg-orange-100 text-orange-700", dot: "bg-orange-500", min: 1_000_000, max: Infinity },
 ]
 
-function getTier(followerCount: number | null): { label: string; color: string } {
-  if (!followerCount) return { label: "Unknown", color: "bg-gray-100 text-gray-500" }
+function getTier(followerCount: number | null): { label: string; color: string; dot: string } {
+  if (!followerCount) return { label: "Unknown", color: "bg-gray-100 text-gray-500", dot: "bg-gray-300" }
   const band = TIER_BANDS.find((b) => followerCount >= b.min && followerCount < b.max) ?? TIER_BANDS[TIER_BANDS.length - 1]
-  return { label: band.label, color: band.color }
+  return { label: band.label, color: band.color, dot: band.dot }
 }
 
 // Normalize: old scores stored as 0-100, new scores as 1-10
@@ -57,7 +57,7 @@ function FitScoreBadge({ score }: { score: number | null }) {
       ? { label: "Good fit", color: "bg-yellow-100 text-yellow-700 border-yellow-200" }
       : { label: "Possible fit", color: "bg-gray-100 text-gray-500 border-gray-200" }
   return (
-    <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-semibold ${color}`}>
+    <span className={`inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-semibold ${color}`}>
       <span>{normalized}/10</span>
       <span className="font-normal opacity-75">· {label}</span>
     </span>
@@ -74,11 +74,16 @@ function TierBadge({ followerCount }: { followerCount: number | null }) {
 }
 
 function PlatformIcon({ platform }: { platform: string }) {
-  if (platform === "instagram") return <Camera className="h-3.5 w-3.5" />
-  if (platform === "youtube") return <Video className="h-3.5 w-3.5" />
-  if (platform === "linkedin") return <FaLinkedin className="h-3.5 w-3.5" style={{ color: "#0A66C2" }} />
-  return <span className="text-xs font-medium uppercase">{platform.slice(0, 2)}</span>
+  if (platform === "instagram") return <Camera className="h-3 w-3" />
+  if (platform === "youtube") return <Video className="h-3 w-3" />
+  if (platform === "linkedin") return <FaLinkedin className="h-3 w-3" style={{ color: "#0A66C2" }} />
+  return <span className="text-[10px] font-medium uppercase">{platform.slice(0, 2)}</span>
 }
+
+// Instagram's real brand gradient -- reused for the platform badge and the
+// small avatar-corner platform dot on each card, so "this came from
+// Instagram" reads as a recognizable mark rather than a generic camera icon.
+const INSTAGRAM_GRADIENT = "linear-gradient(45deg, #f09433, #e6683c, #dc2743, #cc2366, #bc1888)"
 
 // Instagram is the only platform real discovery covers today (Apify
 // hashtag scraping, lib/ai/apify-hashtag-scraper.ts) -- both discovery
@@ -89,8 +94,8 @@ function PlatformIcon({ platform }: { platform: string }) {
 function InstagramPlatformBadge() {
   return (
     <div
-      className="flex shrink-0 items-center gap-2 rounded-md px-3 py-2 text-sm font-semibold text-white"
-      style={{ background: "linear-gradient(45deg, #f09433, #e6683c, #dc2743, #cc2366, #bc1888)" }}
+      className="flex shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold text-white shadow-sm"
+      style={{ background: INSTAGRAM_GRADIENT }}
     >
       <Camera className="h-4 w-4" />
       Instagram
@@ -105,34 +110,91 @@ function formatFollowers(count: number | null): string {
   return count.toString()
 }
 
+// ─── Sliding tabs (shared by the mode toggle + tier filter row) ───────────────
+
+// One reusable sliding-indicator control for every tab-like choice on this
+// page -- the mode toggle (Find Influencers / Find Customers) and the tier
+// filter row both used to be flat color-swap buttons with no sense of
+// motion or weight behind the active choice. Measures the active button's
+// own box (not a hardcoded width) so labels of any length still get a
+// pixel-accurate pill under them, and re-measures on resize since this
+// page's tab labels wrap on narrow viewports.
+function SlidingTabs<T extends string>({
+  tabs,
+  active,
+  onChange,
+  variant = "filter",
+}: {
+  tabs: { id: T; label: string }[]
+  active: T
+  onChange: (id: T) => void
+  /** "filter" = compact muted/foreground tabs (the tier filter row).
+   * "segmented" = a boxed track with a solid pill (the mode toggle). */
+  variant?: "filter" | "segmented"
+}) {
+  const containerRef = useRef<HTMLDivElement>(null)
+  const btnRefs = useRef<Map<string, HTMLButtonElement>>(new Map())
+  const [indicator, setIndicator] = useState<{ left: number; top: number; width: number; height: number } | null>(null)
+
+  useLayoutEffect(() => {
+    function measure() {
+      const btn = btnRefs.current.get(active)
+      const container = containerRef.current
+      if (!btn || !container) return
+      const c = container.getBoundingClientRect()
+      const b = btn.getBoundingClientRect()
+      setIndicator({ left: b.left - c.left, top: b.top - c.top, width: b.width, height: b.height })
+    }
+    measure()
+    window.addEventListener("resize", measure)
+    return () => window.removeEventListener("resize", measure)
+  }, [active, tabs.length])
+
+  return (
+    <div
+      ref={containerRef}
+      className={`relative flex flex-wrap gap-1 ${variant === "segmented" ? "rounded-full border bg-muted/60 p-1" : ""}`}
+    >
+      {indicator && (
+        <div
+          className={`absolute rounded-full bg-violet-600 shadow-sm transition-[left,top,width,height] duration-200 ease-out ${
+            variant === "segmented" ? "" : "shadow-violet-200"
+          }`}
+          style={{ left: indicator.left, top: indicator.top, width: indicator.width, height: indicator.height }}
+        />
+      )}
+      {tabs.map((tab) => (
+        <button
+          key={tab.id}
+          ref={(el) => {
+            if (el) btnRefs.current.set(tab.id, el)
+          }}
+          type="button"
+          onClick={() => onChange(tab.id)}
+          className={`relative z-10 rounded-full px-3 py-1.5 text-xs font-medium transition-colors duration-150 ${
+            active === tab.id ? "text-white" : "text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          {tab.label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
 // ─── Auto-discover form ───────────────────────────────────────────────────────
 
 type DiscoveryMode = "influencer_partner" | "prospect_customer"
 
-function DiscoveryTypeToggle({ value, onChange }: { value: DiscoveryMode; onChange: (v: DiscoveryMode) => void }) {
-  return (
-    <div className="mb-3 inline-flex rounded-md border bg-background p-0.5">
-      <button
-        type="button"
-        onClick={() => onChange("influencer_partner")}
-        className={`rounded px-3 py-1.5 text-xs font-medium transition-colors ${
-          value === "influencer_partner" ? "bg-violet-600 text-white" : "text-muted-foreground hover:text-foreground"
-        }`}
-      >
-        Find Influencers
-      </button>
-      <button
-        type="button"
-        onClick={() => onChange("prospect_customer")}
-        className={`rounded px-3 py-1.5 text-xs font-medium transition-colors ${
-          value === "prospect_customer" ? "bg-violet-600 text-white" : "text-muted-foreground hover:text-foreground"
-        }`}
-      >
-        Find Customers
-      </button>
-    </div>
-  )
+const MODE_META: Record<DiscoveryMode, { label: string; accentBar: string; chip: string; chipIcon: typeof Star }> = {
+  influencer_partner: { label: "Creator", accentBar: "bg-gradient-to-r from-violet-500 to-fuchsia-500", chip: "bg-violet-50 text-violet-700", chipIcon: Star },
+  prospect_customer: { label: "Prospect", accentBar: "bg-gradient-to-r from-emerald-500 to-teal-500", chip: "bg-emerald-50 text-emerald-700", chipIcon: UserPlus },
 }
+
+const DISCOVERY_MODE_TABS: { id: DiscoveryMode; label: string }[] = [
+  { id: "influencer_partner", label: "Find Influencers" },
+  { id: "prospect_customer", label: "Find Customers" },
+]
 
 // Inline "Are you sure? Yes, clear it / Cancel" confirmation, same pattern
 // as components/shared/DeleteConfirmButton.tsx -- not reused directly
@@ -155,7 +217,7 @@ function ClearListButton({ brandId, discoveryType }: { brandId: string; discover
 
   if (confirming) {
     return (
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2 duration-150 animate-in fade-in">
         <span className="text-xs text-muted-foreground">
           Clear your whole {discoveryType === "prospect_customer" ? "customers" : "influencers"} list?
         </span>
@@ -212,25 +274,30 @@ function AutoDiscoverForm({
   }
 
   return (
-    <Card className="mb-4 border-violet-200 bg-violet-50/30">
-      <CardHeader className="pb-3">
+    <Card className="relative mb-4 overflow-hidden rounded-xl border-violet-200/70 bg-gradient-to-br from-violet-50 via-white to-fuchsia-50/40 shadow-sm">
+      {/* Decorative watermark -- purely visual, gives the flagship action on
+          this page a "designed" backdrop instead of a bare white card. */}
+      <Wand2 className="pointer-events-none absolute -right-4 -top-4 h-28 w-28 rotate-12 text-violet-600/[0.06]" />
+      <CardHeader className="relative pb-3">
         <CardTitle className="flex items-center gap-2 text-sm">
-          <Wand2 className="h-4 w-4 text-violet-600" />
+          <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-violet-600 text-white shadow-sm">
+            <Wand2 className="h-4 w-4" />
+          </span>
           Auto-discover influencers
         </CardTitle>
         <p className="text-xs text-muted-foreground">
           We&apos;ll find relevant creators in your niche automatically
         </p>
       </CardHeader>
-      <CardContent className="space-y-3">
-        <DiscoveryTypeToggle value={discoveryType} onChange={onDiscoveryTypeChange} />
-        <div className="flex flex-wrap gap-2">
+      <CardContent className="relative space-y-3">
+        <SlidingTabs tabs={DISCOVERY_MODE_TABS} active={discoveryType} onChange={onDiscoveryTypeChange} variant="segmented" />
+        <div className="flex flex-wrap items-center gap-2">
           <InstagramPlatformBadge />
           <select
             value={count}
             onChange={(e) => setCount(Number(e.target.value))}
             disabled={autoDiscover.isPending}
-            className="rounded-md border bg-background px-3 py-2 text-sm"
+            className="h-[42px] rounded-lg border bg-background px-3 text-sm shadow-sm transition-shadow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <option value={10}>10 influencers</option>
             <option value={25}>25 influencers</option>
@@ -240,29 +307,32 @@ function AutoDiscoverForm({
           <Button
             onClick={handleAutoDiscover}
             disabled={autoDiscover.isPending}
-            className="bg-violet-600 hover:bg-violet-700"
+            className="gap-2 bg-gradient-to-r from-violet-600 to-fuchsia-600 shadow-sm shadow-violet-200 transition-all hover:from-violet-700 hover:to-fuchsia-700 hover:shadow-md"
           >
             {autoDiscover.isPending ? (
               <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                <Loader2 className="h-4 w-4 animate-spin" />
                 Searching…
               </>
             ) : (
               <>
-                <Wand2 className="mr-2 h-4 w-4" />
+                <Wand2 className="h-4 w-4" />
                 Find influencers for me →
               </>
             )}
           </Button>
         </div>
         {autoDiscover.isPending && (
-          <p className="animate-pulse text-xs text-muted-foreground">
+          <p className="flex items-center gap-1.5 text-xs text-muted-foreground duration-150 animate-in fade-in">
+            <Loader2 className="h-3 w-3 animate-spin" />
             Searching for creators on Instagram… This takes 30-60 seconds
           </p>
         )}
-        {successMsg && <p className="text-xs font-medium text-green-700">{successMsg}</p>}
+        {successMsg && (
+          <p className="text-xs font-medium text-green-700 duration-200 animate-in fade-in slide-in-from-top-1">{successMsg}</p>
+        )}
         {autoDiscover.error && (
-          <p className="text-xs text-destructive">
+          <p className="text-xs text-destructive duration-200 animate-in fade-in slide-in-from-top-1">
             {autoDiscover.error instanceof Error
               ? autoDiscover.error.message
               : "Auto-discovery failed."}
@@ -290,69 +360,134 @@ function DiscoverForm({ brandId, discoveryType }: { brandId: string; discoveryTy
   }
 
   return (
-    <div className="space-y-2">
-      <form onSubmit={handleSubmit} className="flex gap-2">
-        <InstagramPlatformBadge />
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            placeholder="Handle (without @)"
-            value={handle}
-            onChange={(e) => setHandle(e.target.value)}
-            className="pl-9"
-          />
-        </div>
-        <Button type="submit" disabled={discover.isPending || !handle.trim()}>
-          {discover.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
-          Discover
-        </Button>
-      </form>
-      {/* Mirrors AutoDiscoverForm's error rendering exactly -- this form's
-          discover.mutateAsync failure (the same plan-gate 403, or anything
-          else) previously had no .catch() and nothing here ever read
-          discover.error, so the input just sat there with no feedback at
-          all on failure. */}
-      {discover.error && (
-        <p className="text-xs text-destructive">
-          {discover.error instanceof Error
-            ? discover.error.message
-            : "Discovery failed."}
-        </p>
-      )}
+    <Card className="mb-6 rounded-xl shadow-sm">
+      <CardHeader className="pb-3">
+        <CardTitle className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Search className="h-4 w-4" />
+          Or discover manually
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <form onSubmit={handleSubmit} className="flex gap-2">
+          <InstagramPlatformBadge />
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              placeholder="Handle (without @)"
+              value={handle}
+              onChange={(e) => setHandle(e.target.value)}
+              className="h-[42px] pl-9 shadow-sm"
+            />
+          </div>
+          <Button type="submit" disabled={discover.isPending || !handle.trim()} className="h-[42px] gap-1.5">
+            {discover.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+            Discover
+          </Button>
+        </form>
+        {/* Mirrors AutoDiscoverForm's error rendering exactly -- this form's
+            discover.mutateAsync failure (the same plan-gate 403, or anything
+            else) previously had no .catch() and nothing here ever read
+            discover.error, so the input just sat there with no feedback at
+            all on failure. */}
+        {discover.error && (
+          <p className="mt-2 text-xs text-destructive duration-200 animate-in fade-in slide-in-from-top-1">
+            {discover.error instanceof Error
+              ? discover.error.message
+              : "Discovery failed."}
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+// ─── Stats strip ──────────────────────────────────────────────────────────────
+
+// Compact "here's what you've built so far" summary above the list --
+// scoped to whichever mode is active (matches what's actually on screen
+// below it) rather than a global total that wouldn't line up with the
+// tier breakdown shown alongside it.
+function StatsStrip({ scoped, discoveryType }: { scoped: InfluencerRow[]; discoveryType: DiscoveryMode }) {
+  if (scoped.length === 0) return null
+
+  const excellentCount = scoped.filter((i) => (normalizeScore(i.fit_score) ?? 0) >= 8).length
+  const avgFollowers =
+    scoped.length > 0
+      ? Math.round(scoped.reduce((sum, i) => sum + (i.follower_count ?? 0), 0) / scoped.length)
+      : null
+
+  const meta = MODE_META[discoveryType]
+  const ModeIcon = meta.chipIcon
+
+  const stats: { label: string; value: string; icon: typeof Users; tint: string }[] = [
+    { label: discoveryType === "prospect_customer" ? "Prospects found" : "Creators found", value: String(scoped.length), icon: ModeIcon, tint: "text-violet-600" },
+    { label: "Excellent fit", value: String(excellentCount), icon: Sparkles, tint: "text-green-600" },
+    { label: "Avg. followers", value: formatFollowers(avgFollowers), icon: TrendingUp, tint: "text-blue-600" },
+  ]
+
+  return (
+    <div className="mb-4 grid grid-cols-3 gap-3 duration-300 animate-in fade-in slide-in-from-top-1">
+      {stats.map(({ label, value, icon: Icon, tint }) => (
+        <Card key={label} className="rounded-xl border-none bg-muted/40 shadow-none">
+          <CardContent className="flex items-center gap-3 p-3.5">
+            <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-background shadow-sm ${tint}`}>
+              <Icon className="h-4 w-4" />
+            </span>
+            <div className="min-w-0">
+              <p className="text-lg font-bold leading-none tracking-tight">{value}</p>
+              <p className="mt-1 truncate text-[11px] text-muted-foreground">{label}</p>
+            </div>
+          </CardContent>
+        </Card>
+      ))}
     </div>
   )
 }
 
 // ─── Influencer card ──────────────────────────────────────────────────────────
 
-function InfluencerCard({ influencer, brandId }: { influencer: InfluencerRow; brandId: string }) {
+function InfluencerCard({ influencer, brandId, discoveryType }: { influencer: InfluencerRow; brandId: string; discoveryType: DiscoveryMode }) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const niche = (influencer as any).niche as string | null | undefined
+  const { dot: tierDot } = getTier(influencer.follower_count)
+  const meta = MODE_META[discoveryType]
+
   return (
     <Link href={`/brands/${brandId}/influencers/${influencer.id}`} className="block">
-      <Card className="h-full cursor-pointer transition-all hover:-translate-y-0.5 hover:shadow-md">
+      <Card className="group h-full overflow-hidden rounded-xl border-border/70 shadow-sm transition-all duration-200 hover:-translate-y-1 hover:border-violet-200 hover:shadow-lg hover:shadow-violet-100">
+        {/* Mode accent -- the same list only ever shows one discoveryType at
+            a time, but this keeps "creator vs. prospect" legible at a
+            glance while scrolling, and reinforces which search produced
+            this card. */}
+        <div className={`h-1 w-full ${meta.accentBar}`} />
         <CardHeader className="pb-2">
           <div className="flex items-start justify-between gap-2">
-            <div className="flex items-center gap-2">
-              {influencer.avatar_url ? (
-                // eslint-disable-next-line @next/next-app/no-img-element
-                <img
-                  src={influencer.avatar_url}
-                  alt={influencer.handle}
-                  className="h-10 w-10 rounded-full object-cover"
-                />
-              ) : (
-                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-sm font-bold text-primary">
-                  {influencer.handle.slice(0, 2).toUpperCase()}
-                </div>
-              )}
-              <div>
-                <div className="flex items-center gap-1.5 text-sm font-medium">
+            <div className="flex items-center gap-3">
+              <div className="relative shrink-0">
+                {influencer.avatar_url ? (
+                  // eslint-disable-next-line @next/next-app/no-img-element
+                  <img
+                    src={influencer.avatar_url}
+                    alt={influencer.handle}
+                    className="h-11 w-11 rounded-full object-cover ring-2 ring-violet-100 ring-offset-2 ring-offset-background"
+                  />
+                ) : (
+                  <div className="flex h-11 w-11 items-center justify-center rounded-full bg-primary/10 text-sm font-bold text-primary ring-2 ring-violet-100 ring-offset-2 ring-offset-background">
+                    {influencer.handle.slice(0, 2).toUpperCase()}
+                  </div>
+                )}
+                <span
+                  className="absolute -bottom-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full text-white shadow"
+                  style={{ background: INSTAGRAM_GRADIENT }}
+                >
                   <PlatformIcon platform={influencer.platform} />
-                  @{influencer.handle}
-                </div>
+                </span>
+                <span className={`absolute -left-0.5 -top-0.5 h-2.5 w-2.5 rounded-full ring-2 ring-card ${tierDot}`} />
+              </div>
+              <div className="min-w-0">
+                <div className="truncate text-sm font-semibold">@{influencer.handle}</div>
                 {influencer.full_name && (
-                  <p className="text-xs text-muted-foreground">{influencer.full_name}</p>
+                  <p className="truncate text-xs text-muted-foreground">{influencer.full_name}</p>
                 )}
               </div>
             </div>
@@ -364,13 +499,13 @@ function InfluencerCard({ influencer, brandId }: { influencer: InfluencerRow; br
             <p className="line-clamp-2 text-xs text-muted-foreground">{influencer.bio}</p>
           )}
           {influencer.fit_reasoning && (
-            <p className="text-xs text-foreground/80 line-clamp-2">
+            <p className="line-clamp-2 rounded-md bg-muted/50 px-2 py-1.5 text-xs text-foreground/80">
               <span className="font-medium text-violet-700">Why this could work: </span>
               {influencer.fit_reasoning}
             </p>
           )}
-          <div className="flex items-center justify-between gap-2 pt-1">
-            <div className="flex items-center gap-1.5">
+          <div className="flex items-center justify-between gap-2 pt-1.5">
+            <div className="flex flex-wrap items-center gap-1.5">
               <TierBadge followerCount={influencer.follower_count} />
               {niche && (
                 <span className="rounded-full bg-muted px-2 py-0.5 text-xs capitalize text-muted-foreground">
@@ -378,11 +513,17 @@ function InfluencerCard({ influencer, brandId }: { influencer: InfluencerRow; br
                 </span>
               )}
             </div>
-            <span className="text-xs text-muted-foreground">
+            <span className="shrink-0 text-xs font-medium text-muted-foreground">
               {formatFollowers(influencer.follower_count)}
             </span>
           </div>
         </CardContent>
+        {/* Only visible on hover -- a lightweight affordance that this card
+            is clickable without adding a permanent, always-on footer row
+            every card would otherwise carry. */}
+        <div className="flex items-center justify-end gap-1 border-t px-4 py-1.5 text-[11px] font-medium text-violet-600 opacity-0 transition-opacity duration-150 group-hover:opacity-100">
+          View profile →
+        </div>
       </Card>
     </Link>
   )
@@ -450,6 +591,66 @@ function sortInfluencers(influencers: InfluencerRow[], sort: SortKey): Influence
   })
 }
 
+// ─── Loading / empty states ────────────────────────────────────────────────────
+
+function InfluencersPageSkeleton() {
+  return (
+    <div className="animate-pulse px-4 py-6 md:p-8">
+      <div className="mb-8 h-8 w-40 rounded-lg bg-muted" />
+      <div className="mb-4 grid grid-cols-3 gap-3">
+        {[1, 2, 3].map((i) => (
+          <div key={i} className="h-[62px] rounded-xl bg-muted/60" />
+        ))}
+      </div>
+      <div className="mb-4 h-44 rounded-xl bg-muted" />
+      <div className="mb-6 h-24 rounded-xl bg-muted" />
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {[1, 2, 3, 4, 5, 6].map((i) => (
+          <div key={i} className="space-y-3 rounded-xl border bg-card p-5">
+            <div className="flex items-center gap-3">
+              <div className="h-11 w-11 shrink-0 rounded-full bg-muted" />
+              <div className="flex-1 space-y-1.5">
+                <div className="h-3.5 w-28 rounded bg-muted" />
+                <div className="h-3 w-20 rounded bg-muted" />
+              </div>
+            </div>
+            <div className="h-3 w-full rounded bg-muted" />
+            <div className="h-3 w-2/3 rounded bg-muted" />
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function EmptyState({ filter, discoveryType }: { filter: FilterTab; discoveryType: DiscoveryMode }) {
+  const modeLabel = discoveryType === "prospect_customer" ? "prospects" : "influencers"
+  return (
+    <div className="flex h-64 flex-col items-center justify-center rounded-xl border border-dashed bg-muted/20 text-center duration-300 animate-in fade-in">
+      <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-100 to-fuchsia-100">
+        <Users className="h-8 w-8 text-violet-500" />
+      </div>
+      <p className="text-sm font-semibold">
+        {filter === "all" ? `No ${modeLabel} yet` : `No ${filter.replace("_", " ")} results`}
+      </p>
+      <p className="mx-auto mt-1 max-w-xs text-xs text-muted-foreground">
+        {filter === "all"
+          ? `Auto-discover will scan real Instagram accounts for you, or enter a handle you already know.`
+          : "Try a different tier or fit filter -- your full list is still there."}
+      </p>
+      {filter === "all" && (
+        <button
+          type="button"
+          onClick={() => document.getElementById("discover-section")?.scrollIntoView({ behavior: "smooth", block: "center" })}
+          className="mt-4 text-xs font-semibold text-violet-600 transition-colors hover:text-violet-700"
+        >
+          ↑ Jump to auto-discover
+        </button>
+      )}
+    </div>
+  )
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function InfluencersPage() {
@@ -498,34 +699,14 @@ export default function InfluencersPage() {
   }, [isLoading, influencers, brandId])
 
   if (isLoading) {
-    return (
-      <div className="animate-pulse px-4 py-6 md:p-8">
-        <div className="mb-8 h-8 w-40 rounded-lg bg-muted" />
-        <div className="mb-4 h-36 rounded-lg bg-muted" />
-        <div className="mb-6 h-16 rounded-lg bg-muted" />
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {[1, 2, 3, 4, 5, 6].map((i) => (
-            <div key={i} className="space-y-3 rounded-lg border bg-card p-5">
-              <div className="flex items-center gap-3">
-                <div className="h-10 w-10 shrink-0 rounded-full bg-muted" />
-                <div className="flex-1 space-y-1.5">
-                  <div className="h-3.5 w-28 rounded bg-muted" />
-                  <div className="h-3 w-20 rounded bg-muted" />
-                </div>
-              </div>
-              <div className="h-3 w-full rounded bg-muted" />
-              <div className="h-3 w-2/3 rounded bg-muted" />
-            </div>
-          ))}
-        </div>
-      </div>
-    )
+    return <InfluencersPageSkeleton />
   }
 
   if (error) {
     return (
-      <div className="p-8 text-center text-destructive">
-        <p>Failed to load influencers.</p>
+      <div className="flex flex-col items-center gap-2 p-8 text-center text-destructive">
+        <AlertCircle className="h-8 w-8" />
+        <p className="font-medium">Failed to load influencers.</p>
       </div>
     )
   }
@@ -549,7 +730,7 @@ export default function InfluencersPage() {
 
   return (
     <div className="px-4 py-6 md:p-8">
-      <div className="mb-8 flex items-center justify-between">
+      <div className="mb-6 flex items-center justify-between">
         <div>
           <h1 className="flex items-center gap-2 text-3xl font-bold tracking-tight">
             <Users className="h-7 w-7 text-primary" />
@@ -561,9 +742,11 @@ export default function InfluencersPage() {
         </div>
       </div>
 
+      <StatsStrip scoped={scoped} discoveryType={discoveryType} />
+
       {/* Auto-discovery in-progress banner (shown when triggered automatically) */}
       {autoDiscover.isPending && (influencers ?? []).length === 0 && (
-        <div className="mb-4 flex items-center gap-3 rounded-xl border border-violet-200 bg-violet-50 px-4 py-3">
+        <div className="mb-4 flex items-center gap-3 rounded-xl border border-violet-200 bg-violet-50 px-4 py-3 duration-200 animate-in fade-in">
           <Sparkles className="h-5 w-5 shrink-0 animate-pulse text-violet-600" />
           <div>
             <p className="text-sm font-medium text-violet-900">
@@ -578,55 +761,36 @@ export default function InfluencersPage() {
       )}
 
       {autoDiscoverMsg && (
-        <div className="mb-4 rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm font-medium text-green-800">
+        <div className="mb-4 rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm font-medium text-green-800 duration-200 animate-in fade-in slide-in-from-top-1">
           {autoDiscoverMsg}
         </div>
       )}
 
       {autoDiscoverError && (
-        <div className="mb-4 flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800">
+        <div className="mb-4 flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800 duration-200 animate-in fade-in slide-in-from-top-1">
           <AlertCircle className="h-4 w-4 shrink-0" />
           {autoDiscoverError}
         </div>
       )}
 
-      <AutoDiscoverForm
-        brandId={brandId}
-        discoveryType={discoveryType}
-        onDiscoveryTypeChange={setDiscoveryType}
-        hasExistingList={scoped.length > 0}
-      />
+      <div id="discover-section" className="scroll-mt-6">
+        <AutoDiscoverForm
+          brandId={brandId}
+          discoveryType={discoveryType}
+          onDiscoveryTypeChange={setDiscoveryType}
+          hasExistingList={scoped.length > 0}
+        />
 
-      <Card className="mb-6">
-        <CardHeader>
-          <CardTitle className="text-sm text-muted-foreground">Or discover manually</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <DiscoverForm brandId={brandId} discoveryType={discoveryType} />
-        </CardContent>
-      </Card>
+        <DiscoverForm brandId={brandId} discoveryType={discoveryType} />
+      </div>
 
       {influencers && influencers.length > 0 && (
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-wrap gap-1">
-            {FILTER_TABS.map((tab) => (
-              <button
-                key={tab.id}
-                onClick={() => setFilter(tab.id)}
-                className={`rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
-                  filter === tab.id
-                    ? "bg-primary text-primary-foreground"
-                    : "bg-muted text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                {tab.label}
-              </button>
-            ))}
-          </div>
+          <SlidingTabs tabs={FILTER_TABS} active={filter} onChange={setFilter} variant="filter" />
           <select
             value={sort}
             onChange={(e) => setSort(e.target.value as SortKey)}
-            className="rounded-md border bg-background px-3 py-1.5 text-xs"
+            className="rounded-md border bg-background px-3 py-1.5 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <option value="fit_score">Sort: Fit Score</option>
             <option value="followers">Sort: Followers</option>
@@ -636,21 +800,13 @@ export default function InfluencersPage() {
       )}
 
       {sorted.length === 0 ? (
-        <div className="flex h-48 flex-col items-center justify-center rounded-lg border border-dashed text-center">
-          <Users className="mb-3 h-10 w-10 text-muted-foreground/30" />
-          <p className="text-sm font-medium">
-            {filter === "all" ? "No influencers yet" : `No ${filter.replace("_", " ")} influencers`}
-          </p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            {filter === "all"
-              ? "Use auto-discover or enter a handle above."
-              : "Try a different filter."}
-          </p>
-        </div>
+        <EmptyState filter={filter} discoveryType={discoveryType} />
       ) : (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {sorted.map((inf) => (
-            <InfluencerCard key={inf.id} influencer={inf} brandId={brandId} />
+        <div key={`${filter}-${sort}`} className="grid gap-4 duration-200 animate-in fade-in slide-in-from-bottom-1 sm:grid-cols-2 lg:grid-cols-3">
+          {sorted.map((inf, i) => (
+            <div key={inf.id} className="duration-300 animate-in fade-in slide-in-from-bottom-1" style={{ animationDelay: `${Math.min(i * 25, 250)}ms`, animationFillMode: "backwards" }}>
+              <InfluencerCard influencer={inf} brandId={brandId} discoveryType={discoveryType} />
+            </div>
           ))}
         </div>
       )}
