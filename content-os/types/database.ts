@@ -43,6 +43,8 @@ export type Database = {
           onboarding_type: string | null
           marketing_emails_opted_out: boolean
           last_active_at: string | null
+          no_brand_nudge_sent_at: string | null
+          inactivity_nudge_sent_at: string | null
           created_at: string
           updated_at: string
         }
@@ -71,6 +73,8 @@ export type Database = {
           onboarding_type?: string | null
           marketing_emails_opted_out?: boolean
           last_active_at?: string | null
+          no_brand_nudge_sent_at?: string | null
+          inactivity_nudge_sent_at?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -98,6 +102,8 @@ export type Database = {
           onboarding_type?: string | null
           marketing_emails_opted_out?: boolean
           last_active_at?: string | null
+          no_brand_nudge_sent_at?: string | null
+          inactivity_nudge_sent_at?: string | null
           updated_at?: string
         }
       }

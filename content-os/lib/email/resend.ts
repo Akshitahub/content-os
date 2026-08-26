@@ -269,3 +269,158 @@ export async function sendOutreachEmail(
     return { success: false, error: err instanceof Error ? err.message : "Failed to send email." }
   }
 }
+
+/**
+ * Lifecycle nudge #1: sent once, 24-48h after signup, to anyone who
+ * hasn't imported a brand yet (see app/api/v1/cron/send-lifecycle-emails/
+ * route.ts for the exact trigger query and the sent-tracking column that
+ * keeps this from firing twice). Matches sendWelcomeEmail's template
+ * (header/footer/CTA-button shape, same tone) on purpose — same product
+ * speaking, not a different, more salesy voice.
+ */
+export async function sendNoBrandNudgeEmail(userId: string, to: string, name?: string): Promise<void> {
+  if (!process.env.RESEND_API_KEY) return
+  if (await isOptedOutOfMarketingEmails(userId)) return
+
+  const resend = new Resend(process.env.RESEND_API_KEY)
+
+  const firstName = name?.split(" ")[0] ?? "there"
+  const brandImportUrl = `${APP_URL}/brands/new`
+
+  const html = `
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#f9fafb;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f9fafb;padding:40px 20px;">
+    <tr><td align="center">
+      <table width="560" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.08);">
+        <!-- Header -->
+        <tr><td style="background:#0f0f0f;padding:32px 40px;">
+          <p style="margin:0;font-size:20px;font-weight:700;color:#ffffff;letter-spacing:-0.3px;">⚡ SocioPosts</p>
+        </td></tr>
+        <!-- Body -->
+        <tr><td style="padding:40px;">
+          <h1 style="margin:0 0 12px;font-size:26px;font-weight:700;color:#0f0f0f;letter-spacing:-0.5px;">You're one step away</h1>
+          <p style="margin:0 0 24px;font-size:15px;color:#6b7280;line-height:1.6;">
+            Hi ${firstName}, your account's all set — the only thing left is your brand. Paste your website URL and SocioPosts learns your voice, products, and audience in under a minute, then you're ready to generate.
+          </p>
+          <!-- CTA -->
+          <table cellpadding="0" cellspacing="0" style="margin:0 0 32px;">
+            <tr><td style="background:#7c3aed;border-radius:8px;">
+              <a href="${brandImportUrl}" style="display:inline-block;padding:14px 28px;font-size:15px;font-weight:600;color:#ffffff;text-decoration:none;">
+                Import your brand →
+              </a>
+            </td></tr>
+          </table>
+          <p style="margin:0;font-size:13px;color:#9ca3af;">
+            Have questions? Just reply to this email — we read every one.
+          </p>
+        </td></tr>
+        <!-- Footer -->
+        <tr><td style="padding:24px 40px;border-top:1px solid #f3f4f6;">
+          <p style="margin:0;font-size:12px;color:#9ca3af;">
+            You received this because you signed up for SocioPosts.
+            <a href="${unsubscribeUrl(userId)}" style="color:#9ca3af;">Unsubscribe</a> at any time.
+          </p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`.trim()
+
+  try {
+    await resend.emails.send({
+      from: FROM,
+      to,
+      subject: "You're one step away from your first post",
+      html,
+    })
+  } catch (err) {
+    console.error("[email/no-brand-nudge] Failed to send no-brand nudge email:", err)
+  }
+}
+
+/**
+ * Lifecycle nudge #2: sent once EVER, the first time last_active_at is
+ * 14+ days in the past (see the cron route for the trigger query and why
+ * this is intentionally send-once rather than per inactivity period —
+ * flagged there as worth revisiting). `lastContentTitle` — the title of
+ * the most recent content_projects row across the user's brands, looked
+ * up by the cron — lets this reference something real and specific
+ * instead of a generic "we miss you"; falls back to generic copy when
+ * there's nothing to reference (an account that went quiet without ever
+ * generating anything).
+ */
+export async function sendInactivityNudgeEmail(
+  userId: string,
+  to: string,
+  name: string | undefined,
+  lastContentTitle: string | null
+): Promise<void> {
+  if (!process.env.RESEND_API_KEY) return
+  if (await isOptedOutOfMarketingEmails(userId)) return
+
+  const resend = new Resend(process.env.RESEND_API_KEY)
+
+  const firstName = name?.split(" ")[0] ?? "there"
+  const dashboardUrl = `${APP_URL}/dashboard`
+  const bodyCopy = lastContentTitle
+    ? `Last time you were here, you were working on "${lastContentTitle}". Your brand voice and everything you built are exactly where you left them — ready whenever you want to pick back up.`
+    : `Your brand and account are exactly where you left them, all set up and ready to go whenever you want to pick back up.`
+
+  const html = `
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#f9fafb;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f9fafb;padding:40px 20px;">
+    <tr><td align="center">
+      <table width="560" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.08);">
+        <!-- Header -->
+        <tr><td style="background:#0f0f0f;padding:32px 40px;">
+          <p style="margin:0;font-size:20px;font-weight:700;color:#ffffff;letter-spacing:-0.3px;">⚡ SocioPosts</p>
+        </td></tr>
+        <!-- Body -->
+        <tr><td style="padding:40px;">
+          <h1 style="margin:0 0 12px;font-size:26px;font-weight:700;color:#0f0f0f;letter-spacing:-0.5px;">Your seat's still warm</h1>
+          <p style="margin:0 0 24px;font-size:15px;color:#6b7280;line-height:1.6;">
+            Hi ${firstName}, ${bodyCopy}
+          </p>
+          <!-- CTA -->
+          <table cellpadding="0" cellspacing="0" style="margin:0 0 32px;">
+            <tr><td style="background:#7c3aed;border-radius:8px;">
+              <a href="${dashboardUrl}" style="display:inline-block;padding:14px 28px;font-size:15px;font-weight:600;color:#ffffff;text-decoration:none;">
+                Back to your dashboard →
+              </a>
+            </td></tr>
+          </table>
+          <p style="margin:0;font-size:13px;color:#9ca3af;">
+            Have questions? Just reply to this email — we read every one.
+          </p>
+        </td></tr>
+        <!-- Footer -->
+        <tr><td style="padding:24px 40px;border-top:1px solid #f3f4f6;">
+          <p style="margin:0;font-size:12px;color:#9ca3af;">
+            You received this because you signed up for SocioPosts.
+            <a href="${unsubscribeUrl(userId)}" style="color:#9ca3af;">Unsubscribe</a> at any time.
+          </p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`.trim()
+
+  try {
+    await resend.emails.send({
+      from: FROM,
+      to,
+      subject: "Your seat's still warm at SocioPosts",
+      html,
+    })
+  } catch (err) {
+    console.error("[email/inactivity-nudge] Failed to send inactivity nudge email:", err)
+  }
+}
