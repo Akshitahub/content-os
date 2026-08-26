@@ -158,9 +158,6 @@ function AutoDiscoverForm({
             className="rounded-md border bg-background px-3 py-2 text-sm"
           >
             <option value="instagram">Instagram</option>
-            <option value="tiktok">TikTok</option>
-            <option value="youtube">YouTube</option>
-            <option value="linkedin">LinkedIn</option>
           </select>
           <select
             value={count}
@@ -232,9 +229,6 @@ function DiscoverForm({ brandId, discoveryType }: { brandId: string; discoveryTy
           className="rounded-md border bg-background px-3 py-2 text-sm"
         >
           <option value="instagram">Instagram</option>
-          <option value="tiktok">TikTok</option>
-          <option value="youtube">YouTube</option>
-          <option value="linkedin">LinkedIn</option>
         </select>
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
