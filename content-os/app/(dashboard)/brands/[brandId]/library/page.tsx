@@ -11,6 +11,7 @@ import Link from "next/link"
 import { GenerateVideoAction } from "@/components/shared/GenerateVideoAction"
 import { ContentDetailPanel, type DetailItem } from "@/components/shared/ContentDetailPanel"
 import { DeleteConfirmButton } from "@/components/shared/DeleteConfirmButton"
+import { SlidingTabs } from "@/components/shared/SlidingTabs"
 import type { HookRow, CaptionRow, ReelScriptRow, CarouselRow, AdCopyRow, EmailSequenceRow, ProductDescriptionRow, StoryRow, BlogPostRow } from "@/types/database"
 import type { Json } from "@/types/database"
 import { scoreHook, scoreColor, scoreLabel } from "@/lib/utils/content-score"
@@ -26,6 +27,11 @@ const DATE_RANGES = [
 
 const HOOK_TYPES = ["all", "question", "bold_statement", "story", "statistic", "controversial", "how_to"] as const
 const PLATFORMS = ["all", "instagram", "tiktok", "youtube", "facebook", "linkedin", "twitter"] as const
+
+// Pill-shaped, matching the app's other filter/select controls rather
+// than a bare native <select> box -- the one styling these dropdowns
+// shared before this pass.
+const FILTER_SELECT_CLASS = "rounded-full border bg-background px-3.5 py-1.5 text-xs font-medium shadow-sm transition-shadow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
 
 function inDateRange(dateStr: string, days: string): boolean {
   if (days === "all") return true
@@ -331,12 +337,16 @@ function CaptionCard({ caption, brandId, onOpenDetail }: { caption: CaptionWithI
   return (
     <Card
       onClick={openDetail}
-      className="cursor-pointer transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md"
+      className="group cursor-pointer overflow-hidden transition-all duration-200 hover:-translate-y-1 hover:shadow-lg hover:shadow-violet-100"
     >
-      {thumbnail && (
-        <div className="aspect-square bg-secondary">
+      {thumbnail ? (
+        <div className="aspect-square overflow-hidden bg-secondary">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={thumbnail} alt="" className="w-full h-full object-cover" />
+          <img src={thumbnail} alt="" className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105" />
+        </div>
+      ) : (
+        <div className="flex aspect-square items-center justify-center bg-gradient-to-br from-violet-50 to-fuchsia-50">
+          <Archive className="h-10 w-10 text-violet-300" />
         </div>
       )}
       <CardHeader className="pb-2">
@@ -415,6 +425,9 @@ function ReelScriptCard({ script, brandId }: { script: ReelScriptRow; brandId: s
       <CardHeader className="pb-2">
         <div className="flex items-start justify-between gap-2">
           <div className="flex items-center gap-2">
+            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-slate-100 text-slate-500">
+              <Film className="h-3.5 w-3.5" />
+            </span>
             <PlatformBadge platform={script.platform} />
             <ExpiryBadge lastAccessedAt={script.last_accessed_at} />
           </div>
@@ -496,12 +509,16 @@ function CarouselCard({ carousel, brandId, onOpenDetail }: { carousel: CarouselR
   return (
     <Card
       onClick={openDetail}
-      className="cursor-pointer transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md"
+      className="group cursor-pointer overflow-hidden transition-all duration-200 hover:-translate-y-1 hover:shadow-lg hover:shadow-violet-100"
     >
-      {thumbnail && (
-        <div className="aspect-square bg-secondary">
+      {thumbnail ? (
+        <div className="aspect-square overflow-hidden bg-secondary">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={thumbnail} alt="" className="w-full h-full object-cover" />
+          <img src={thumbnail} alt="" className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105" />
+        </div>
+      ) : (
+        <div className="flex aspect-square items-center justify-center bg-gradient-to-br from-violet-50 to-fuchsia-50">
+          <LayoutGrid className="h-10 w-10 text-violet-300" />
         </div>
       )}
       <CardHeader className="pb-2">
@@ -608,12 +625,16 @@ function StoryCard({ story, brandId, onOpenDetail }: { story: StoryRow; brandId:
   return (
     <Card
       onClick={openDetail}
-      className="cursor-pointer transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md"
+      className="group cursor-pointer overflow-hidden transition-all duration-200 hover:-translate-y-1 hover:shadow-lg hover:shadow-violet-100"
     >
-      {thumbnail && (
-        <div className="aspect-square bg-secondary">
+      {thumbnail ? (
+        <div className="aspect-square overflow-hidden bg-secondary">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={thumbnail} alt="" className="w-full h-full object-cover" />
+          <img src={thumbnail} alt="" className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105" />
+        </div>
+      ) : (
+        <div className="flex aspect-square items-center justify-center bg-gradient-to-br from-violet-50 to-fuchsia-50">
+          <Zap className="h-10 w-10 text-violet-300" />
         </div>
       )}
       <CardHeader className="pb-2">
@@ -719,6 +740,9 @@ function AdCopyCard({ ad, brandId, onOpenDetail }: { ad: AdCopyRow; brandId: str
       <CardHeader className="pb-2">
         <div className="flex items-start justify-between gap-2">
           <div className="flex items-center gap-2">
+            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-slate-100 text-slate-500">
+              <Megaphone className="h-3.5 w-3.5" />
+            </span>
             <PlatformBadge platform={ad.platform} />
             <ExpiryBadge lastAccessedAt={ad.last_accessed_at} />
           </div>
@@ -914,10 +938,10 @@ function CaptionsTab({ brandId, onOpenDetail }: { brandId: string; onOpenDetail:
   return (
     <div>
       <div className="mb-4 flex flex-wrap gap-2">
-        <select value={platformFilter} onChange={e => setPlatformFilter(e.target.value)} className="rounded-md border bg-background px-3 py-1.5 text-sm">
+        <select value={platformFilter} onChange={e => setPlatformFilter(e.target.value)} className={FILTER_SELECT_CLASS}>
           {PLATFORMS.map(p => <option key={p} value={p}>{p === "all" ? "All platforms" : p.charAt(0).toUpperCase() + p.slice(1)}</option>)}
         </select>
-        <select value={dateFilter} onChange={e => setDateFilter(e.target.value)} className="rounded-md border bg-background px-3 py-1.5 text-sm">
+        <select value={dateFilter} onChange={e => setDateFilter(e.target.value)} className={FILTER_SELECT_CLASS}>
           {DATE_RANGES.map(d => <option key={d.value} value={d.value}>{d.label}</option>)}
         </select>
       </div>
@@ -1136,7 +1160,12 @@ function BlogPostCard({ post, brandId }: { post: BlogPostRow; brandId: string })
     <Card className="transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md">
       <CardHeader className="pb-2">
         <div className="flex items-start justify-between gap-2">
-          <ExpiryBadge lastAccessedAt={post.last_accessed_at} />
+          <div className="flex items-center gap-2">
+            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-slate-100 text-slate-500">
+              <Newspaper className="h-3.5 w-3.5" />
+            </span>
+            <ExpiryBadge lastAccessedAt={post.last_accessed_at} />
+          </div>
           <span className="shrink-0 ml-auto text-xs text-muted-foreground">{new Date(post.created_at).toLocaleDateString()}</span>
         </div>
       </CardHeader>
@@ -1239,32 +1268,19 @@ export default function LibraryPage() {
 
       {/* Persistent expiry warning — intentionally not dismissible, reappears
           on every load, matching ClickCast's "expires after 48 hours" banner. */}
-      <div className="mb-6 flex items-center gap-3 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3">
-        <Timer className="h-5 w-5 shrink-0 text-amber-600" />
+      <div className="mb-6 flex items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-amber-100">
+          <Timer className="h-4 w-4 text-amber-600" />
+        </span>
         <p className="text-sm font-medium text-amber-900">
           Unused drafts are automatically removed after 45 days of inactivity. Open, copy, or rate a draft to keep it.
         </p>
       </div>
 
-      {/* Tabs */}
-      <div className="mb-6 flex gap-0.5 overflow-x-auto border-b pb-px">
-        {TABS.map(tab => {
-          const Icon = tab.icon
-          return (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`flex shrink-0 items-center gap-1.5 px-3 py-2 text-sm font-medium transition-colors ${
-                activeTab === tab.id
-                  ? "border-b-2 border-primary text-foreground"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              <Icon className="h-3.5 w-3.5" />
-              {tab.label}
-            </button>
-          )
-        })}
+      {/* Tabs — same sliding-pill pattern as the Influencers page's filter
+          row, instead of a plain underline. */}
+      <div className="mb-6 overflow-x-auto border-b pb-4">
+        <SlidingTabs tabs={TABS} active={activeTab} onChange={setActiveTab} variant="filter" />
       </div>
 
       {activeTab === "posts" && <CaptionsTab brandId={brandId} onOpenDetail={setPreviewItem} />}

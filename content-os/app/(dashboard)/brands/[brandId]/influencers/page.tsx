@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useLayoutEffect, useRef } from "react"
+import { useState, useEffect, useRef } from "react"
 import { useParams } from "next/navigation"
 import { Search, Plus, Loader2, Users, Video, Camera, Wand2, Sparkles, AlertCircle, Trash2, TrendingUp, Star, UserPlus } from "lucide-react"
 import { FaLinkedin } from "react-icons/fa6"
@@ -13,6 +13,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { SlidingTabs } from "@/components/shared/SlidingTabs"
 import Link from "next/link"
 import type { InfluencerRow } from "@/types/database"
 
@@ -108,78 +109,6 @@ function formatFollowers(count: number | null): string {
   if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(1)}M`
   if (count >= 1_000) return `${(count / 1_000).toFixed(1)}K`
   return count.toString()
-}
-
-// ─── Sliding tabs (shared by the mode toggle + tier filter row) ───────────────
-
-// One reusable sliding-indicator control for every tab-like choice on this
-// page -- the mode toggle (Find Influencers / Find Customers) and the tier
-// filter row both used to be flat color-swap buttons with no sense of
-// motion or weight behind the active choice. Measures the active button's
-// own box (not a hardcoded width) so labels of any length still get a
-// pixel-accurate pill under them, and re-measures on resize since this
-// page's tab labels wrap on narrow viewports.
-function SlidingTabs<T extends string>({
-  tabs,
-  active,
-  onChange,
-  variant = "filter",
-}: {
-  tabs: { id: T; label: string }[]
-  active: T
-  onChange: (id: T) => void
-  /** "filter" = compact muted/foreground tabs (the tier filter row).
-   * "segmented" = a boxed track with a solid pill (the mode toggle). */
-  variant?: "filter" | "segmented"
-}) {
-  const containerRef = useRef<HTMLDivElement>(null)
-  const btnRefs = useRef<Map<string, HTMLButtonElement>>(new Map())
-  const [indicator, setIndicator] = useState<{ left: number; top: number; width: number; height: number } | null>(null)
-
-  useLayoutEffect(() => {
-    function measure() {
-      const btn = btnRefs.current.get(active)
-      const container = containerRef.current
-      if (!btn || !container) return
-      const c = container.getBoundingClientRect()
-      const b = btn.getBoundingClientRect()
-      setIndicator({ left: b.left - c.left, top: b.top - c.top, width: b.width, height: b.height })
-    }
-    measure()
-    window.addEventListener("resize", measure)
-    return () => window.removeEventListener("resize", measure)
-  }, [active, tabs.length])
-
-  return (
-    <div
-      ref={containerRef}
-      className={`relative flex flex-wrap gap-1 ${variant === "segmented" ? "rounded-full border bg-muted/60 p-1" : ""}`}
-    >
-      {indicator && (
-        <div
-          className={`absolute rounded-full bg-violet-600 shadow-sm transition-[left,top,width,height] duration-200 ease-out ${
-            variant === "segmented" ? "" : "shadow-violet-200"
-          }`}
-          style={{ left: indicator.left, top: indicator.top, width: indicator.width, height: indicator.height }}
-        />
-      )}
-      {tabs.map((tab) => (
-        <button
-          key={tab.id}
-          ref={(el) => {
-            if (el) btnRefs.current.set(tab.id, el)
-          }}
-          type="button"
-          onClick={() => onChange(tab.id)}
-          className={`relative z-10 rounded-full px-3 py-1.5 text-xs font-medium transition-colors duration-150 ${
-            active === tab.id ? "text-white" : "text-muted-foreground hover:text-foreground"
-          }`}
-        >
-          {tab.label}
-        </button>
-      ))}
-    </div>
-  )
 }
 
 // ─── Auto-discover form ───────────────────────────────────────────────────────
