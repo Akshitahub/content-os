@@ -41,6 +41,7 @@ export type Database = {
           outreach_email_count_reset_at: string | null
           onboarding_completed: boolean | null
           onboarding_type: string | null
+          marketing_emails_opted_out: boolean
           created_at: string
           updated_at: string
         }
@@ -67,6 +68,7 @@ export type Database = {
           outreach_email_count_reset_at?: string | null
           onboarding_completed?: boolean | null
           onboarding_type?: string | null
+          marketing_emails_opted_out?: boolean
           created_at?: string
           updated_at?: string
         }
@@ -92,6 +94,7 @@ export type Database = {
           outreach_email_count_reset_at?: string | null
           onboarding_completed?: boolean | null
           onboarding_type?: string | null
+          marketing_emails_opted_out?: boolean
           updated_at?: string
         }
       }

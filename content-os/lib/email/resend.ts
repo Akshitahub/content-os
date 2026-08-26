@@ -1,10 +1,49 @@
 import { Resend } from "resend"
+import { createAdminClient } from "@/lib/supabase/server"
+import { generateUnsubscribeToken } from "@/lib/email/unsubscribe-token"
 
 const FROM = "SocioPosts <hello@socioposts.com>"
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"
 
-export async function sendWelcomeEmail(to: string, name?: string): Promise<void> {
+/**
+ * Gate for every non-transactional (marketing/lifecycle) email-sending
+ * function below — checked first, before any send is attempted. Payment
+ * confirmations are exempt (transactional/required, not marketing — see
+ * sendPaymentConfirmationEmail, which does not call this).
+ *
+ * Fails closed: if the opt-out status can't be verified for any reason
+ * (DB error, missing row), this returns true (treat as opted out) rather
+ * than false — a skipped send is a minor inconvenience, an unwanted send
+ * to someone who opted out is the actual compliance problem this exists
+ * to prevent.
+ */
+async function isOptedOutOfMarketingEmails(userId: string): Promise<boolean> {
+  try {
+    const admin = await createAdminClient()
+    const { data, error } = await admin
+      .from("users")
+      .select("marketing_emails_opted_out")
+      .eq("id", userId)
+      .single<{ marketing_emails_opted_out: boolean }>()
+
+    if (error || !data) {
+      console.error(`[email] could not verify opt-out status for user ${userId}, skipping send to be safe:`, error?.message)
+      return true
+    }
+    return data.marketing_emails_opted_out
+  } catch (err) {
+    console.error(`[email] could not verify opt-out status for user ${userId}, skipping send to be safe:`, err instanceof Error ? err.message : err)
+    return true
+  }
+}
+
+function unsubscribeUrl(userId: string): string {
+  return `${APP_URL}/api/v1/email/unsubscribe?token=${generateUnsubscribeToken(userId)}`
+}
+
+export async function sendWelcomeEmail(userId: string, to: string, name?: string): Promise<void> {
   if (!process.env.RESEND_API_KEY) return
+  if (await isOptedOutOfMarketingEmails(userId)) return
 
   const resend = new Resend(process.env.RESEND_API_KEY)
 
@@ -51,7 +90,7 @@ export async function sendWelcomeEmail(to: string, name?: string): Promise<void>
         <tr><td style="padding:24px 40px;border-top:1px solid #f3f4f6;">
           <p style="margin:0;font-size:12px;color:#9ca3af;">
             You received this because you signed up for SocioPosts.
-            <a href="${APP_URL}" style="color:#9ca3af;">Unsubscribe</a> at any time.
+            <a href="${unsubscribeUrl(userId)}" style="color:#9ca3af;">Unsubscribe</a> at any time.
           </p>
         </td></tr>
       </table>
