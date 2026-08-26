@@ -92,3 +92,47 @@ export async function POST(request: Request, { params }: RouteParams) {
 
   return NextResponse.json({ data: influencer }, { status: 201 })
 }
+
+// Clears every discovered influencer for one discovery mode (Find
+// Influencers vs. Find Customers), scoped by the required discoveryType
+// query param -- never both modes at once, since the page shows one at a
+// time and a user asking to "clear this list and redo the search" almost
+// certainly doesn't mean the other tab too. Lets the frontend offer a
+// clean "start over" instead of manually deleting rows one by one.
+export async function DELETE(request: Request, { params }: RouteParams) {
+  const { brandId } = await params
+  console.log("[influencers] DELETE called")
+
+  const result = await getAuthorizedBrand(brandId)
+  if (result.error === "server_error") return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Server error."), { status: 500 })
+  if (result.error === "unauthenticated") return NextResponse.json(buildError(ErrorCodes.UNAUTHENTICATED, "You must be logged in."), { status: 401 })
+  if (result.error === "not_found") return NextResponse.json(buildError(ErrorCodes.BRAND_NOT_FOUND, "Brand not found."), { status: 404 })
+
+  const { searchParams } = new URL(request.url)
+  const discoveryType = searchParams.get("discoveryType")
+  if (discoveryType !== "influencer_partner" && discoveryType !== "prospect_customer") {
+    return NextResponse.json(buildError(ErrorCodes.VALIDATION_ERROR, "discoveryType query param is required (influencer_partner or prospect_customer)."), { status: 400 })
+  }
+
+  try {
+    // Rows inserted before discovery_type existed have it NULL, and the
+    // page's own display logic already treats a NULL row as
+    // influencer_partner (see InfluencersPage's `scoped` filter) -- match
+    // that exact fallback here so "clear my Find Influencers list" doesn't
+    // leave old NULL-typed rows behind, silently reappearing after the
+    // "empty" state.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let query = (result.supabase!.from("influencers") as any).delete({ count: "exact" }).eq("brand_id", brandId)
+    query = discoveryType === "influencer_partner"
+      ? query.or("discovery_type.eq.influencer_partner,discovery_type.is.null")
+      : query.eq("discovery_type", discoveryType)
+
+    const { error, count } = await query as { error: { message: string } | null; count: number | null }
+    if (error) return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Failed to clear influencers.", error.message), { status: 500 })
+
+    return NextResponse.json({ data: { deleted: count ?? 0 } })
+  } catch (err) {
+    console.error("[influencers] DELETE failed:", err)
+    return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Failed to clear influencers."), { status: 500 })
+  }
+}

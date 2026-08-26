@@ -95,6 +95,24 @@ export function useDiscoverInfluencer(brandId: string) {
   })
 }
 
+// ─── Clear list (bulk delete, one discovery mode) ─────────────────────────────
+
+export function useClearInfluencers(brandId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (discoveryType: "influencer_partner" | "prospect_customer"): Promise<{ deleted: number }> => {
+      const res = await fetch(`/api/v1/brands/${brandId}/influencers?discoveryType=${discoveryType}`, { method: "DELETE" })
+      if (!res.ok) {
+        const err = await res.json() as { error?: { message?: string } }
+        throw new Error(err.error?.message ?? "Failed to clear list")
+      }
+      const json = await res.json() as { data: { deleted: number } }
+      return json.data
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: influencerKeys.all(brandId) }),
+  })
+}
+
 // ─── Create manually ───────────────────────────────────────────────────────────
 
 export function useCreateInfluencer(brandId: string) {

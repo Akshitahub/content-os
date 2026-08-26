@@ -2,12 +2,13 @@
 
 import { useState, useEffect, useRef } from "react"
 import { useParams } from "next/navigation"
-import { Search, Plus, Loader2, Users, Video, Camera, Wand2, Sparkles, AlertCircle } from "lucide-react"
+import { Search, Plus, Loader2, Users, Video, Camera, Wand2, Sparkles, AlertCircle, Trash2 } from "lucide-react"
 import { FaLinkedin } from "react-icons/fa6"
 import {
   useInfluencers,
   useDiscoverInfluencer,
   useAutoDiscoverInfluencers,
+  useClearInfluencers,
 } from "@/hooks/useInfluencers"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -79,6 +80,24 @@ function PlatformIcon({ platform }: { platform: string }) {
   return <span className="text-xs font-medium uppercase">{platform.slice(0, 2)}</span>
 }
 
+// Instagram is the only platform real discovery covers today (Apify
+// hashtag scraping, lib/ai/apify-hashtag-scraper.ts) -- both discovery
+// forms used to offer a platform <select>, but with a single option left
+// in it a dropdown just adds a pointless click. This replaces it with a
+// static, Instagram-branded badge instead, which also makes clear this
+// isn't a live, changeable choice.
+function InstagramPlatformBadge() {
+  return (
+    <div
+      className="flex shrink-0 items-center gap-2 rounded-md px-3 py-2 text-sm font-semibold text-white"
+      style={{ background: "linear-gradient(45deg, #f09433, #e6683c, #dc2743, #cc2366, #bc1888)" }}
+    >
+      <Camera className="h-4 w-4" />
+      Instagram
+    </div>
+  )
+}
+
 function formatFollowers(count: number | null): string {
   if (!count) return "–"
   if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(1)}M`
@@ -115,23 +134,78 @@ function DiscoveryTypeToggle({ value, onChange }: { value: DiscoveryMode; onChan
   )
 }
 
+// Inline "Are you sure? Yes, clear it / Cancel" confirmation, same pattern
+// as components/shared/DeleteConfirmButton.tsx -- not reused directly
+// since this needs its own copy ("clear your list" is a bulk action on a
+// whole discovery mode, not one row) rather than that component's fixed
+// "Delete" wording.
+function ClearListButton({ brandId, discoveryType }: { brandId: string; discoveryType: DiscoveryMode }) {
+  const [confirming, setConfirming] = useState(false)
+  const clearInfluencers = useClearInfluencers(brandId)
+
+  async function handleConfirm() {
+    try {
+      await clearInfluencers.mutateAsync(discoveryType)
+      setConfirming(false)
+    } catch {
+      // error surfaced below via clearInfluencers.error; stay in the
+      // confirming state so retrying doesn't require re-clicking "Clear list"
+    }
+  }
+
+  if (confirming) {
+    return (
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-xs text-muted-foreground">
+          Clear your whole {discoveryType === "prospect_customer" ? "customers" : "influencers"} list?
+        </span>
+        <Button variant="destructive" size="sm" disabled={clearInfluencers.isPending} onClick={handleConfirm}>
+          {clearInfluencers.isPending ? "Clearing…" : "Yes, clear it"}
+        </Button>
+        <Button variant="ghost" size="sm" disabled={clearInfluencers.isPending} onClick={() => setConfirming(false)}>
+          Cancel
+        </Button>
+        {clearInfluencers.error && (
+          <p className="w-full text-xs text-destructive">
+            {clearInfluencers.error instanceof Error ? clearInfluencers.error.message : "Failed to clear list."}
+          </p>
+        )}
+      </div>
+    )
+  }
+
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      size="sm"
+      onClick={() => setConfirming(true)}
+      className="gap-1.5 text-muted-foreground hover:text-destructive"
+    >
+      <Trash2 className="h-3.5 w-3.5" />
+      Clear list &amp; search again
+    </Button>
+  )
+}
+
 function AutoDiscoverForm({
   brandId,
   discoveryType,
   onDiscoveryTypeChange,
+  hasExistingList,
 }: {
   brandId: string
   discoveryType: DiscoveryMode
   onDiscoveryTypeChange: (v: DiscoveryMode) => void
+  hasExistingList: boolean
 }) {
-  const [platform, setPlatform] = useState<"instagram" | "tiktok" | "youtube" | "linkedin">("instagram")
   const [count, setCount] = useState(25)
   const [successMsg, setSuccessMsg] = useState<string | null>(null)
   const autoDiscover = useAutoDiscoverInfluencers(brandId)
 
   async function handleAutoDiscover() {
     setSuccessMsg(null)
-    const result = await autoDiscover.mutateAsync({ platform, count, discoveryType })
+    const result = await autoDiscover.mutateAsync({ platform: "instagram", count, discoveryType })
     setSuccessMsg(
       `Found ${result.count} influencer${result.count !== 1 ? "s" : ""} and added them to your list.`,
     )
@@ -151,14 +225,7 @@ function AutoDiscoverForm({
       <CardContent className="space-y-3">
         <DiscoveryTypeToggle value={discoveryType} onChange={onDiscoveryTypeChange} />
         <div className="flex flex-wrap gap-2">
-          <select
-            value={platform}
-            onChange={(e) => setPlatform(e.target.value as "instagram" | "tiktok" | "youtube" | "linkedin")}
-            disabled={autoDiscover.isPending}
-            className="rounded-md border bg-background px-3 py-2 text-sm"
-          >
-            <option value="instagram">Instagram</option>
-          </select>
+          <InstagramPlatformBadge />
           <select
             value={count}
             onChange={(e) => setCount(Number(e.target.value))}
@@ -190,7 +257,7 @@ function AutoDiscoverForm({
         </div>
         {autoDiscover.isPending && (
           <p className="animate-pulse text-xs text-muted-foreground">
-            Searching for creators on {platform}… This takes 30-60 seconds
+            Searching for creators on Instagram… This takes 30-60 seconds
           </p>
         )}
         {successMsg && <p className="text-xs font-medium text-green-700">{successMsg}</p>}
@@ -201,6 +268,9 @@ function AutoDiscoverForm({
               : "Auto-discovery failed."}
           </p>
         )}
+        {hasExistingList && !autoDiscover.isPending && (
+          <ClearListButton brandId={brandId} discoveryType={discoveryType} />
+        )}
       </CardContent>
     </Card>
   )
@@ -210,26 +280,19 @@ function AutoDiscoverForm({
 
 function DiscoverForm({ brandId, discoveryType }: { brandId: string; discoveryType: DiscoveryMode }) {
   const [handle, setHandle] = useState("")
-  const [platform, setPlatform] = useState<"instagram" | "tiktok" | "youtube" | "linkedin">("instagram")
   const discover = useDiscoverInfluencer(brandId)
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!handle.trim()) return
-    await discover.mutateAsync({ handle: handle.trim(), platform, discoveryType })
+    await discover.mutateAsync({ handle: handle.trim(), platform: "instagram", discoveryType })
     setHandle("")
   }
 
   return (
     <div className="space-y-2">
       <form onSubmit={handleSubmit} className="flex gap-2">
-        <select
-          value={platform}
-          onChange={(e) => setPlatform(e.target.value as "instagram" | "tiktok" | "youtube" | "linkedin")}
-          className="rounded-md border bg-background px-3 py-2 text-sm"
-        >
-          <option value="instagram">Instagram</option>
-        </select>
+        <InstagramPlatformBadge />
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
@@ -508,7 +571,12 @@ export default function InfluencersPage() {
         </div>
       )}
 
-      <AutoDiscoverForm brandId={brandId} discoveryType={discoveryType} onDiscoveryTypeChange={setDiscoveryType} />
+      <AutoDiscoverForm
+        brandId={brandId}
+        discoveryType={discoveryType}
+        onDiscoveryTypeChange={setDiscoveryType}
+        hasExistingList={scoped.length > 0}
+      />
 
       <Card className="mb-6">
         <CardHeader>
