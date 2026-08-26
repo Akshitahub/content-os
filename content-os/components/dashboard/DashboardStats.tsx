@@ -99,6 +99,12 @@ export function DashboardStats({
     ? Math.round(((generationsThisMonth - generationsLastMonth) / generationsLastMonth) * 100)
     : null
 
+  // Same brand-scoped-with-/brands-fallback pattern as Sidebar.tsx's
+  // brandHref: when there's no brand yet, send the user to pick/create one
+  // rather than building a broken /brands/undefined/... URL.
+  const libraryHref = firstBrandId ? `/brands/${firstBrandId}/library` : "/brands"
+  const calendarThisWeekHref = firstBrandId ? `/brands/${firstBrandId}/calendar?view=week` : "/brands"
+
   // hoverShadow tints each card's lift-on-hover shadow to match its own
   // accent (violet/blue/green/amber) rather than one uniform tint --
   // same "lift + colored shadow" motion Influencers/CreatePicker already
@@ -114,6 +120,11 @@ export function DashboardStats({
       bg: "bg-violet-500/10",
       hoverShadow: "hover:shadow-violet-100",
       trend: generationsTrend,
+      // Same destination as "Saved content" below — both metrics live in
+      // the same place (My Content/Library), and there's no real "recent
+      // vs. all" distinction in the underlying data to justify two
+      // different query params here.
+      href: libraryHref,
     },
     {
       label: "Saved content",
@@ -124,6 +135,7 @@ export function DashboardStats({
       bg: "bg-blue-500/10",
       hoverShadow: "hover:shadow-blue-100",
       trend: null,
+      href: libraryHref,
     },
     {
       label: "Calendar this week",
@@ -134,6 +146,7 @@ export function DashboardStats({
       bg: "bg-green-500/10",
       hoverShadow: "hover:shadow-green-100",
       trend: null,
+      href: calendarThisWeekHref,
     },
     {
       label: "Active brands",
@@ -144,6 +157,7 @@ export function DashboardStats({
       bg: "bg-amber-500/10",
       hoverShadow: "hover:shadow-amber-100",
       trend: null,
+      href: "/brands",
     },
   ]
 
@@ -249,10 +263,11 @@ export function DashboardStats({
 
       {/* Stat cards — 2x2 on mobile, 4 across on desktop */}
       <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
-        {stats.map(({ label, value, sub, icon: Icon, color, bg, hoverShadow, trend }) => (
-          <div
+        {stats.map(({ label, value, sub, icon: Icon, color, bg, hoverShadow, trend, href }) => (
+          <Link
             key={label}
-            className={`rounded-xl border bg-card p-5 transition-all duration-200 hover:-translate-y-1 hover:shadow-lg ${hoverShadow}`}
+            href={href}
+            className={`block cursor-pointer rounded-xl border bg-card p-5 transition-all duration-200 hover:-translate-y-1 hover:shadow-lg ${hoverShadow}`}
           >
             <div className="flex items-center justify-between mb-3">
               <p className="text-xs font-medium text-muted-foreground">{label}</p>
@@ -270,7 +285,7 @@ export function DashboardStats({
               )}
             </div>
             <p className="mt-1 text-[10px] text-muted-foreground/70">{sub}</p>
-          </div>
+          </Link>
         ))}
       </div>
 

@@ -1,6 +1,6 @@
 "use client"
 
-import { useParams } from "next/navigation"
+import { useParams, useSearchParams } from "next/navigation"
 import { ContentCalendar } from "@/components/calendar/ContentCalendar"
 import { useBrand } from "@/hooks/useBrand"
 import { useBrandStore } from "@/stores/brandStore"
@@ -9,6 +9,8 @@ import { useEffect } from "react"
 export default function CalendarPage() {
   const params = useParams()
   const brandId = params.brandId as string
+  const searchParams = useSearchParams()
+  const defaultView = searchParams.get("view") === "week" ? "week" : "month"
   const { data: brand } = useBrand(brandId)
   const { setActiveBrand } = useBrandStore()
 
@@ -32,7 +34,7 @@ export default function CalendarPage() {
           ✈️ Run Autopilot
         </a>
       </div>
-      <ContentCalendar brandId={brandId} />
+      <ContentCalendar brandId={brandId} defaultView={defaultView} />
     </div>
   )
 }

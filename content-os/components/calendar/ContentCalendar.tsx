@@ -46,6 +46,10 @@ const PLATFORM_EMOJIS: Record<string, string> = {
 
 interface ContentCalendarProps {
   brandId: string
+  /** Initial view mode — lets callers (e.g. the "Calendar this week" dashboard
+   * stat card, linking with ?view=week) land directly on the week view
+   * instead of always defaulting to month. */
+  defaultView?: "month" | "week"
 }
 
 interface NewEntryForm {
@@ -57,14 +61,14 @@ interface NewEntryForm {
   status: string
 }
 
-export function ContentCalendar({ brandId }: ContentCalendarProps) {
+export function ContentCalendar({ brandId, defaultView = "month" }: ContentCalendarProps) {
   const [currentDate, setCurrentDate] = useState(new Date())
   const [entries, setEntries] = useState<CalendarEntryRow[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [showNewEntryModal, setShowNewEntryModal] = useState(false)
   const [selectedEntry, setSelectedEntry] = useState<CalendarEntryRow | null>(null)
   const [isSaving, setIsSaving] = useState(false)
-  const [viewMode, setViewMode] = useState<"month" | "week">("month")
+  const [viewMode, setViewMode] = useState<"month" | "week">(defaultView)
   const [form, setForm] = useState<NewEntryForm>({
     title: "", scheduled_date: "", platform: "instagram",
     content_type: "reel", notes: "", status: "planned",
