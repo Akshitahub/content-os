@@ -1,8 +1,10 @@
 import Link from "next/link"
+import { Calendar } from "lucide-react"
 import { createClient } from "@/lib/supabase/server"
 import { OnboardingWizard } from "@/components/onboarding/OnboardingWizard"
 import { DashboardStats } from "@/components/dashboard/DashboardStats"
 import { UpcomingOccasions } from "@/components/dashboard/UpcomingOccasions"
+import { PlatformIcon } from "@/components/shared/PlatformIcon"
 import { getUpcomingOccasions } from "@/lib/occasions/get-upcoming-occasions"
 import type { UserRow, CalendarEntryRow } from "@/types/database"
 
@@ -202,34 +204,70 @@ export default async function DashboardPage() {
   const firstName = profile?.full_name?.split(" ")[0] ?? "there"
   const hour = now.getHours()
   const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening"
+  const dateLabel = now.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })
 
   return (
     <div className="px-4 py-6 md:p-8">
-      <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">
-            {greeting}, {firstName} 👋
-          </h1>
-          <p className="mt-1 text-muted-foreground">
-            Here&apos;s what&apos;s happening with your content today.
-          </p>
-        </div>
-        <div className="flex items-center gap-2 shrink-0">
-          <Link
-            href="/brands/new"
-            className="inline-flex h-9 items-center gap-1.5 rounded-md border border-input bg-background px-3 text-sm font-medium transition-colors hover:bg-secondary"
-          >
-            + Add brand
-          </Link>
-          {firstBrandId && (
+      {/* Hero — greeting + today's-posts banner live in ONE gradient card so
+       * they read as a single considered unit instead of two stacked,
+       * disconnected boxes. The "today ready" panel below is a translucent
+       * inset on the same gradient rather than its own bordered card. */}
+      <div className="relative mb-6 overflow-hidden rounded-2xl border border-violet-200/60 bg-gradient-to-br from-violet-50 via-white to-blue-50 p-6 dark:border-violet-800/30 dark:from-violet-950/40 dark:via-background dark:to-blue-950/20 md:p-8">
+        <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-violet-600 dark:text-violet-400">
+              {dateLabel}
+            </p>
+            <h1 className="mt-1 text-3xl font-bold tracking-tight md:text-4xl">
+              {greeting}, {firstName} 👋
+            </h1>
+            <p className="mt-1.5 text-muted-foreground">
+              Here&apos;s what&apos;s happening with your content today.
+            </p>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
             <Link
-              href={`/brands/${firstBrandId}/fastlane`}
-              className="inline-flex h-9 items-center gap-1.5 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+              href="/brands/new"
+              className="inline-flex h-9 items-center gap-1.5 rounded-md border border-violet-200/70 bg-white/90 px-3 text-sm font-medium backdrop-blur-sm transition-colors hover:bg-white dark:border-violet-800/40 dark:bg-white/5 dark:hover:bg-white/10"
             >
-              ✈️ Run Autopilot
+              + Add brand
             </Link>
-          )}
+            {firstBrandId && (
+              <Link
+                href={`/brands/${firstBrandId}/fastlane`}
+                className="inline-flex h-9 items-center gap-1.5 rounded-md bg-gradient-to-r from-violet-600 to-fuchsia-600 px-3 text-sm font-medium text-white shadow-sm shadow-violet-500/30 transition-colors hover:from-violet-700 hover:to-fuchsia-700"
+              >
+                ✈️ Run Autopilot
+              </Link>
+            )}
+          </div>
         </div>
+
+        {todayEntries.length > 0 && firstBrandId && (
+          <div className="mt-6 flex items-center justify-between gap-4 rounded-xl border border-violet-200/70 bg-white/70 px-4 py-3 backdrop-blur-sm dark:border-violet-800/40 dark:bg-black/20">
+            <div className="flex items-center gap-3">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-violet-600 text-white">
+                <Calendar className="h-4 w-4" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-violet-900 dark:text-violet-200">
+                  {todayEntries.length} post{todayEntries.length !== 1 ? "s" : ""} ready for today
+                </p>
+                <div className="mt-1 flex items-center gap-1.5">
+                  {todayEntries.map((e) => e.platform && (
+                    <PlatformIcon key={e.id} platform={e.platform} className="h-3.5 w-3.5" />
+                  ))}
+                </div>
+              </div>
+            </div>
+            <Link
+              href={`/brands/${firstBrandId}/calendar`}
+              className="shrink-0 text-xs font-medium text-violet-700 hover:text-violet-900 dark:text-violet-300 dark:hover:text-violet-100 transition-colors"
+            >
+              View posts →
+            </Link>
+          </div>
+        )}
       </div>
 
       <DashboardStats
@@ -239,7 +277,6 @@ export default async function DashboardPage() {
         calendarEntriesThisWeek={calendarEntriesThisWeek}
         activeBrands={activeBrandCount}
         recentCalendar={recentCalendar}
-        todayEntries={todayEntries}
         firstBrandId={firstBrandId}
         dailyActivity={dailyActivity}
       />

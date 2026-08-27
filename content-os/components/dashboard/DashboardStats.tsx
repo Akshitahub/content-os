@@ -11,7 +11,6 @@ import { ActivityChart, type DailyActivityPoint } from "@/components/dashboard/A
 const ONBOARDING_KEY = "contentos_onboarding"
 
 type RecentCalendarEntry = Pick<CalendarEntryRow, "id" | "title" | "scheduled_date" | "platform" | "status" | "hook_text" | "caption_text" | "is_ready" | "color">
-type TodayEntry = Pick<CalendarEntryRow, "id" | "title" | "platform" | "scheduled_date" | "status" | "is_ready" | "color">
 
 interface DashboardStatsProps {
   generationsThisMonth: number
@@ -20,7 +19,6 @@ interface DashboardStatsProps {
   calendarEntriesThisWeek: number
   activeBrands: number
   recentCalendar: RecentCalendarEntry[]
-  todayEntries: TodayEntry[]
   firstBrandId: string | null
   dailyActivity: DailyActivityPoint[]
 }
@@ -57,7 +55,6 @@ export function DashboardStats({
   calendarEntriesThisWeek,
   activeBrands,
   recentCalendar,
-  todayEntries,
   firstBrandId,
   dailyActivity,
 }: DashboardStatsProps) {
@@ -233,31 +230,6 @@ export function DashboardStats({
           {allDone && (
             <p className="mt-3 text-xs text-green-600 font-medium">All done! You&apos;re a content pro. 🎉</p>
           )}
-        </div>
-      )}
-
-      {/* Today's banner */}
-      {todayEntries.length > 0 && firstBrandId && (
-        <div
-          className="flex items-start justify-between gap-4 rounded-xl border border-violet-200/60 dark:border-violet-800/30 px-5 py-4"
-          style={{ background: "rgba(99,102,241,0.06)" }}
-        >
-          <div>
-            <p className="font-semibold text-violet-900 dark:text-violet-200">
-              📅 {todayEntries.length} post{todayEntries.length !== 1 ? "s" : ""} ready for today
-            </p>
-            <div className="mt-1 flex items-center gap-2">
-              {todayEntries.map((e) => e.platform && (
-                <PlatformIcon key={e.id} platform={e.platform} className="h-3.5 w-3.5" />
-              ))}
-            </div>
-          </div>
-          <Link
-            href={`/brands/${firstBrandId}/calendar`}
-            className="shrink-0 text-xs font-medium text-violet-700 dark:text-violet-300 hover:text-violet-900 dark:hover:text-violet-100 transition-colors"
-          >
-            View posts →
-          </Link>
         </div>
       )}
 
