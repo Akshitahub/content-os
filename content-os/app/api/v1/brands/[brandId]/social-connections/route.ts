@@ -72,16 +72,18 @@ export async function GET(_request: Request, { params }: RouteParams) {
     return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Failed to fetch connection status."), { status: 500 })
   }
 
-  // Threads is a separate connection row (its own OAuth credentials/token),
-  // unlike Facebook which shares the Instagram row's Page token. A failure
-  // here is non-fatal to the IG/FB status — just reported as not connected.
+  // Threads is a separate connection row, now connected via Zernio (like
+  // LinkedIn/YouTube/Twitter below) — identified by zernio_account_id.
+  // threads_user_id is kept in the select for backward compatibility with
+  // connections made before the Zernio migration. A failure here is
+  // non-fatal to the Instagram status above — just reported as not connected.
   const { data: threadsData, error: threadsError } = await socialConnectionsTable(result.supabase!)
-    .select("threads_user_id, threads_username")
+    .select("threads_user_id, zernio_account_id, threads_username")
     .eq("brand_id", brandId)
     .eq("platform", "threads")
     .eq("is_active", true)
     .maybeSingle() as {
-      data: { threads_user_id: string | null; threads_username: string | null } | null
+      data: { threads_user_id: string | null; zernio_account_id: string | null; threads_username: string | null } | null
       error: { message: string } | null
     }
 
@@ -89,18 +91,19 @@ export async function GET(_request: Request, { params }: RouteParams) {
     console.error(`[brands/${brandId}/social-connections] GET threads error:`, threadsError)
   }
 
-  const threads_connected = Boolean(threadsData?.threads_user_id)
+  const threads_connected = Boolean(threadsData?.zernio_account_id || threadsData?.threads_user_id)
   const threads_username = threadsData?.threads_username ?? null
 
-  // Pinterest is also a separate connection row (its own OAuth
-  // credentials/token). Same non-fatal treatment as Threads above.
+  // Pinterest is also a separate connection row, now connected via Zernio.
+  // pinterest_user_id is kept in the select for the same backward-
+  // compatibility reason as threads_user_id above.
   const { data: pinterestData, error: pinterestError } = await socialConnectionsTable(result.supabase!)
-    .select("pinterest_user_id, pinterest_username")
+    .select("pinterest_user_id, zernio_account_id, pinterest_username")
     .eq("brand_id", brandId)
     .eq("platform", "pinterest")
     .eq("is_active", true)
     .maybeSingle() as {
-      data: { pinterest_user_id: string | null; pinterest_username: string | null } | null
+      data: { pinterest_user_id: string | null; zernio_account_id: string | null; pinterest_username: string | null } | null
       error: { message: string } | null
     }
 
@@ -108,7 +111,7 @@ export async function GET(_request: Request, { params }: RouteParams) {
     console.error(`[brands/${brandId}/social-connections] GET pinterest error:`, pinterestError)
   }
 
-  const pinterest_connected = Boolean(pinterestData?.pinterest_user_id)
+  const pinterest_connected = Boolean(pinterestData?.zernio_account_id || pinterestData?.pinterest_user_id)
   const pinterest_username = pinterestData?.pinterest_username ?? null
 
   // LinkedIn and YouTube are both connected via Zernio — a separate

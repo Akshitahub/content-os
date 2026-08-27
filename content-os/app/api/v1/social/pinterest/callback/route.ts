@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
-import { redactTokenFields } from "@/lib/social/oauth-log-safe"
+import { getZernioPinterestBoards } from "@/lib/social/zernio-client"
+import { PLAN_LIMITS, type UserPlan } from "@/types/app"
+import { isInternalUnlimited } from "@/lib/usage/is-internal-unlimited"
 import type { SupabaseClient } from "@supabase/supabase-js"
 import type { Database, SocialConnectionInsert } from "@/types/database"
-
-const TOKEN_TTL_ESTIMATE_SECONDS = 30 * 24 * 60 * 60
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function socialConnectionsTable(supabase: SupabaseClient<Database>): any {
@@ -25,17 +25,21 @@ export async function GET(request: Request) {
 
   const { searchParams, origin } = new URL(request.url)
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? origin
-  const code = searchParams.get("code")
-  const state = searchParams.get("state")
-  const oauthError = searchParams.get("error")
+  const brandId = searchParams.get("brandId")
+  const connected = searchParams.get("connected")
+  const profileIdParam = searchParams.get("profileId")
+  const accountId = searchParams.get("accountId")
+  const username = searchParams.get("username")
 
-  if (oauthError || !code || !state) {
-    console.error("[social/pinterest/callback] missing code/state or OAuth error:", oauthError)
-    if (state) return redirectToBrand(appUrl, state, { pinterest_error: "oauth_denied" })
-    return NextResponse.redirect(`${appUrl}/dashboard?pinterest_error=oauth_denied`)
+  if (!brandId) {
+    console.error("[social/pinterest/callback] missing brandId")
+    return NextResponse.redirect(`${appUrl}/dashboard?pinterest_error=server_error`)
   }
 
-  const brandId = state
+  if (connected !== "pinterest" || !accountId) {
+    console.error("[social/pinterest/callback] connection did not complete:", { connected, accountId })
+    return redirectToBrand(appUrl, brandId, { pinterest_error: "oauth_denied" })
+  }
 
   const supabase = await createClient()
   const { data: { user }, error: authError } = await supabase.auth.getUser()
@@ -54,81 +58,71 @@ export async function GET(request: Request) {
     return NextResponse.redirect(`${appUrl}/dashboard?pinterest_error=server_error`)
   }
 
-  const pinterestAppId = process.env.PINTEREST_APP_ID
-  const pinterestAppSecret = process.env.PINTEREST_APP_SECRET
-  if (!pinterestAppId || !pinterestAppSecret) {
-    console.error("[social/pinterest/callback] PINTEREST_APP_ID/PINTEREST_APP_SECRET not configured")
+  // Same plan gate as the connect route — a trialing/Starter user could
+  // still hit this callback directly (a stale OAuth flow started before
+  // downgrading, or a replayed/guessed URL), so don't let it silently write
+  // a connection row for a plan that shouldn't have one.
+  const { data: userData } = await supabase
+    .from("users")
+    .select("plan")
+    .eq("id", user.id)
+    .single<{ plan: UserPlan }>()
+
+  const plan: UserPlan = userData?.plan ?? "starter"
+  if (!PLAN_LIMITS[plan].zernioSocialPlatforms && !isInternalUnlimited(user.id)) {
+    console.error(`[social/pinterest/callback] brand ${brandId}'s plan (${plan}) does not include Zernio social platforms`)
+    return redirectToBrand(appUrl, brandId, { pinterest_error: "plan_restricted" })
+  }
+
+  const cookieProfileId = request.headers.get("cookie")?.match(/zernio_profile_id=([^;]+)/)?.[1]
+  const profileId = profileIdParam ?? cookieProfileId
+
+  if (!profileId) {
+    console.error("[social/pinterest/callback] no profileId available from redirect or cookie")
     return redirectToBrand(appUrl, brandId, { pinterest_error: "server_error" })
   }
 
-  const redirectUri = `${appUrl}/api/v1/social/pinterest/callback`
-  const basicAuth = Buffer.from(`${pinterestAppId}:${pinterestAppSecret}`).toString("base64")
-
+  // Board selection isn't part of Zernio's OAuth connect step (boardId is
+  // only needed at publish time), so auto-pick the first board here — same
+  // "no board picker UI" behavior the old direct-OAuth flow had.
+  let boardId: string | null = null
+  let boardName: string | null = null
   try {
-    const tokenRes = await fetch("https://api.pinterest.com/v5/oauth/token", {
-      method: "POST",
-      headers: {
-        "Authorization": `Basic ${basicAuth}`,
-        "Content-Type": "application/x-www-form-urlencoded",
-      },
-      body: new URLSearchParams({
-        grant_type: "authorization_code",
-        code,
-        redirect_uri: redirectUri,
-      }),
-    })
-    const tokenJson = await tokenRes.json()
-    if (!tokenRes.ok || !tokenJson.access_token) {
-      console.error("[social/pinterest/callback] token exchange failed:", redactTokenFields(tokenJson))
-      return redirectToBrand(appUrl, brandId, { pinterest_error: "token_exchange_failed" })
-    }
-    const accessToken: string = tokenJson.access_token
-    const refreshToken: string | null = tokenJson.refresh_token ?? null
-
-    const userRes = await fetch("https://api.pinterest.com/v5/user_account", {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    })
-    const userJson = await userRes.json()
-    const pinterestUsername: string | null = userRes.ok ? (userJson.username ?? null) : null
-
-    const boardsRes = await fetch("https://api.pinterest.com/v5/boards", {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    })
-    const boardsJson = await boardsRes.json()
-    const firstBoard = Array.isArray(boardsJson.items) ? boardsJson.items[0] : null
-
-    if (!firstBoard) {
-      console.error("[social/pinterest/callback] user has no boards:", boardsJson)
+    const boards = await getZernioPinterestBoards(accountId)
+    if (boards.length === 0) {
+      console.error(`[social/pinterest/callback] account ${accountId} has no Pinterest boards`)
       return redirectToBrand(appUrl, brandId, { pinterest_error: "no_boards" })
     }
-
-    const tokenExpiresAt = new Date(Date.now() + TOKEN_TTL_ESTIMATE_SECONDS * 1000).toISOString()
-
-    const connectionData: SocialConnectionInsert = {
-      brand_id: brandId,
-      platform: "pinterest",
-      pinterest_user_id: userJson.id ?? null,
-      pinterest_username: pinterestUsername,
-      pinterest_board_id: firstBoard.id,
-      pinterest_board_name: firstBoard.name ?? null,
-      access_token: accessToken,
-      refresh_token: refreshToken,
-      token_expires_at: tokenExpiresAt,
-      last_refreshed_at: new Date().toISOString(),
-      is_active: true,
-    }
-
-    const { error: upsertError } = await socialConnectionsTable(supabase)
-      .upsert(connectionData, { onConflict: "brand_id,platform" })
-
-    if (upsertError) {
-      console.error("[social/pinterest/callback] failed to save connection:", upsertError)
-      return redirectToBrand(appUrl, brandId, { pinterest_error: "server_error" })
-    }
-
-    return redirectToBrand(appUrl, brandId, { pinterest_success: "1" })
+    boardId = boards[0]!.id
+    boardName = boards[0]!.name
   } catch (err) {
-    console.error("[social/pinterest/callback] unexpected error:", err)
+    console.error("[social/pinterest/callback] failed to fetch Pinterest boards:", err instanceof Error ? err.message : err)
     return redirectToBrand(appUrl, brandId, { pinterest_error: "server_error" })
   }
+
+  const connectionData: SocialConnectionInsert = {
+    brand_id: brandId,
+    platform: "pinterest",
+    zernio_profile_id: profileId,
+    zernio_account_id: accountId,
+    pinterest_username: username,
+    pinterest_board_id: boardId,
+    pinterest_board_name: boardName,
+    access_token: null,
+    token_expires_at: null,
+    last_refreshed_at: new Date().toISOString(),
+    is_active: true,
+  }
+
+  const { error: upsertError } = await socialConnectionsTable(supabase)
+    .upsert(connectionData, { onConflict: "brand_id,platform" })
+
+  if (upsertError) {
+    console.error("[social/pinterest/callback] failed to save connection:", upsertError)
+    return redirectToBrand(appUrl, brandId, { pinterest_error: "server_error" })
+  }
+
+  const response = redirectToBrand(appUrl, brandId, { pinterest_success: "1" })
+  response.cookies.delete("zernio_profile_id")
+  return response
 }

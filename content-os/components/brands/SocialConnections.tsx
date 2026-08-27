@@ -296,6 +296,21 @@ export function SocialConnections({ brandId }: { brandId: string }) {
                 Connected
               </span>
             </div>
+          ) : !hasZernioAccess ? (
+            <div className="flex items-center justify-between rounded-md border border-amber-200 bg-amber-50 px-4 py-3">
+              <div>
+                <div className="flex items-center gap-2">
+                  <p className="text-sm font-medium text-amber-900">Not connected</p>
+                  <span className="rounded-full bg-amber-200 px-2 py-0.5 text-xs font-semibold text-amber-800">Pro</span>
+                </div>
+                <p className="text-xs text-amber-700">
+                  Threads publishing is available on Pro and Agency plans.
+                </p>
+              </div>
+              <Button size="sm" variant="outline" asChild>
+                <Link href="/settings?tab=billing">Upgrade</Link>
+              </Button>
+            </div>
           ) : (
             <div className="flex items-center justify-between rounded-md border px-4 py-3">
               <div>
@@ -327,6 +342,21 @@ export function SocialConnections({ brandId }: { brandId: string }) {
               <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-semibold text-green-700">
                 Connected
               </span>
+            </div>
+          ) : !hasZernioAccess ? (
+            <div className="flex items-center justify-between rounded-md border border-amber-200 bg-amber-50 px-4 py-3">
+              <div>
+                <div className="flex items-center gap-2">
+                  <p className="text-sm font-medium text-amber-900">Not connected</p>
+                  <span className="rounded-full bg-amber-200 px-2 py-0.5 text-xs font-semibold text-amber-800">Pro</span>
+                </div>
+                <p className="text-xs text-amber-700">
+                  Pinterest publishing is available on Pro and Agency plans.
+                </p>
+              </div>
+              <Button size="sm" variant="outline" asChild>
+                <Link href="/settings?tab=billing">Upgrade</Link>
+              </Button>
             </div>
           ) : (
             <div className="flex items-center justify-between rounded-md border px-4 py-3">
