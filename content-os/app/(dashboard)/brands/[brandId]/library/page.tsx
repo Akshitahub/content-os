@@ -15,6 +15,7 @@ import { SlidingTabs } from "@/components/shared/SlidingTabs"
 import type { HookRow, CaptionRow, ReelScriptRow, CarouselRow, AdCopyRow, EmailSequenceRow, ProductDescriptionRow, StoryRow, BlogPostRow } from "@/types/database"
 import type { Json } from "@/types/database"
 import { scoreHook, scoreColor, scoreLabel } from "@/lib/utils/content-score"
+import { cssBackgroundFromColors } from "@/components/shared/ColorWheelPicker"
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -468,7 +469,7 @@ function ReelScriptCard({ script, brandId }: { script: ReelScriptRow; brandId: s
 // `s.body` here always resolved to undefined, silently dropping every
 // body slide's actual substantive text (not just its background) from
 // the Library's detail view. `subtext` is cover-only.
-interface SlideShape { headline?: string; subtext?: string; points?: string[]; image_url?: string | null; background_style?: string | null }
+interface SlideShape { headline?: string; subtext?: string; points?: string[]; image_url?: string | null; background_style?: string | null; custom_background_colors?: string[] | null }
 
 function CarouselCard({ carousel, brandId, onOpenDetail }: { carousel: CarouselRow; brandId: string; onOpenDetail: (item: DetailItem) => void }) {
   const [deleteConfirming, setDeleteConfirming] = useState(false)
@@ -492,6 +493,11 @@ function CarouselCard({ carousel, brandId, onOpenDetail }: { carousel: CarouselR
     onSuccess: () => qc.invalidateQueries({ queryKey: ["library", "carousels", brandId] }),
   })
   const thumbnail = slides.find((s) => s.image_url)?.image_url ?? null
+  // Custom color mode (see ColorWheelPicker) skips AI backgrounds for
+  // every slide, so a custom-color carousel has no real image_url at all
+  // to find here -- same gap as the body-slide fix above, just at the
+  // card-thumbnail level instead of the detail panel.
+  const thumbnailColors = !thumbnail ? slides.find((s) => s.custom_background_colors?.length)?.custom_background_colors : null
   const scheduleImages = slides.map((s) => s.image_url).filter((u): u is string => !!u)
 
   function openDetail() {
@@ -503,6 +509,7 @@ function CarouselCard({ carousel, brandId, onOpenDetail }: { carousel: CarouselR
         text: [s.headline, s.subtext, ...(s.points ?? [])].filter(Boolean).join("\n"),
         imageUrl: s.image_url,
         backgroundStyle: s.background_style,
+        customBackgroundColors: s.custom_background_colors,
       })),
       hashtags: carousel.hashtags,
       createdAt: carousel.created_at,
@@ -523,6 +530,8 @@ function CarouselCard({ carousel, brandId, onOpenDetail }: { carousel: CarouselR
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={thumbnail} alt="" className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105" />
         </div>
+      ) : thumbnailColors && thumbnailColors.length > 0 ? (
+        <div className="aspect-square overflow-hidden" style={{ background: cssBackgroundFromColors(thumbnailColors) }} />
       ) : (
         <div className="flex aspect-square items-center justify-center bg-gradient-to-br from-violet-50 to-fuchsia-50">
           <LayoutGrid className="h-10 w-10 text-violet-300" />

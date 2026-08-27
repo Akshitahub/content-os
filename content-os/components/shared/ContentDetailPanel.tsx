@@ -6,6 +6,7 @@ import { ScheduleAction } from "@/components/shared/ScheduleAction"
 import { DeleteConfirmButton } from "@/components/shared/DeleteConfirmButton"
 import { PlatformPreviewFrame } from "@/components/shared/PlatformPreviewFrame"
 import { resolveCarouselBgStyle } from "@/lib/design/carousel-slide-styles"
+import { cssBackgroundFromColors } from "@/components/shared/ColorWheelPicker"
 
 // Modeled on components/calendar/CalendarEntryPanel.tsx's slide-in panel --
 // same backdrop/fixed-panel/header/scrollable-body pattern, generalized to
@@ -27,6 +28,13 @@ export interface DetailBlock {
    * set, the same flat treatment is reconstructed via
    * lib/design/carousel-slide-styles.ts's shared mapping. */
   backgroundStyle?: string | null
+  /** Carousel or story slides using the "Custom color" mode (see
+   * VibePicker/ColorWheelPicker) -- an exact user-picked flat/gradient,
+   * genuinely different from backgroundStyle's named enum. Takes priority
+   * over backgroundStyle when both happen to be present (only backgroundStyle
+   * ever gets a real value automatically at generation time; this is only
+   * ever set by an explicit user choice, so it wins). */
+  customBackgroundColors?: string[] | null
 }
 
 export interface DetailItem {
@@ -96,14 +104,28 @@ function CopyButton({ getText, label }: { getText: () => string; label?: string 
 // height of a real slide image right below (w-full + max-height: 320,
 // object-cover) so blocks with and without a real image sit at the same
 // size in the same list.
-function CarouselFlatSlidePreview({ text, backgroundStyle }: { text: string; backgroundStyle: string | null | undefined }) {
+function CarouselFlatSlidePreview({
+  text,
+  backgroundStyle,
+  customColors,
+}: {
+  text: string
+  backgroundStyle: string | null | undefined
+  /** "Custom color" mode (see ColorWheelPicker) -- an exact user pick,
+   * takes priority over backgroundStyle's named enum when present. */
+  customColors?: string[] | null
+}) {
+  const customBg = cssBackgroundFromColors(customColors)
   const s = resolveCarouselBgStyle(backgroundStyle)
   const [headline, ...rest] = text.split("\n")
   const body = rest.join("\n").trim()
   return (
-    <div className={`flex w-full flex-col justify-center overflow-hidden p-6 ${s.bg}`} style={{ height: 320 }}>
-      {headline && <p className={`text-lg font-bold leading-snug line-clamp-3 ${s.text}`}>{headline}</p>}
-      {body && <p className={`mt-2 text-sm leading-relaxed line-clamp-4 ${s.subtext}`}>{body}</p>}
+    <div
+      className={`flex w-full flex-col justify-center overflow-hidden p-6 ${customBg ? "" : s.bg}`}
+      style={{ height: 320, background: customBg }}
+    >
+      {headline && <p className={`text-lg font-bold leading-snug line-clamp-3 ${customBg ? "text-white" : s.text}`}>{headline}</p>}
+      {body && <p className={`mt-2 text-sm leading-relaxed line-clamp-4 ${customBg ? "text-white/70" : s.subtext}`}>{body}</p>}
     </div>
   )
 }
@@ -173,9 +195,9 @@ export function ContentDetailPanel({ item, onClose, brandId }: ContentDetailPane
                         style={{ maxHeight: 320 }}
                       />
                     </PlatformPreviewFrame>
-                  ) : block.backgroundStyle ? (
+                  ) : block.backgroundStyle || (block.customBackgroundColors && block.customBackgroundColors.length > 0) ? (
                     <PlatformPreviewFrame brandId={brandId} platform={item.platform} caption={item.scheduleCaption}>
-                      <CarouselFlatSlidePreview text={block.text} backgroundStyle={block.backgroundStyle} />
+                      <CarouselFlatSlidePreview text={block.text} backgroundStyle={block.backgroundStyle} customColors={block.customBackgroundColors} />
                     </PlatformPreviewFrame>
                   ) : null}
                   <p className="text-sm leading-relaxed whitespace-pre-wrap">{block.text}</p>

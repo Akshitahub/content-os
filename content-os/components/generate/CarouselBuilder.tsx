@@ -15,6 +15,7 @@ import { ApiResponseError } from "@/hooks/useGeneration"
 import { useGenerationStore } from "@/stores/generationStore"
 import { CAROUSEL as CAROUSEL_CREDIT_COST } from "@/lib/usage/credit-costs"
 import { CAROUSEL_BG_STYLES, type CarouselBackgroundStyle } from "@/lib/design/carousel-slide-styles"
+import { cssBackgroundFromColors } from "@/components/shared/ColorWheelPicker"
 import Link from "next/link"
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
@@ -36,6 +37,15 @@ interface CarouselSlideRich {
    * back to the carousels row, so a saved carousel in the Library never
    * actually had its images in the database. */
   image_url?: string | null
+  /** Set when this slide (or, from the "Custom color" Vibe option, every
+   * slide in the carousel at once) uses an exact user-picked flat/gradient
+   * color instead of an AI-generated image or a named background_style --
+   * a genuinely different rendering path (a real CSS gradient/color, not
+   * an image URL or an enum key), so it gets its own field rather than
+   * overloading background_style's existing enum. 1 hex = solid, 2 = a
+   * gradient (see ColorWheelPicker). Takes rendering priority over both
+   * image_url and background_style wherever slides are shown. */
+  custom_background_colors?: string[] | null
 }
 
 interface CtaSlide {
@@ -120,16 +130,25 @@ function SlidePreview({
   const isThumb = size === "thumb"
   const isCta = slide.type === "cta" && isLastSlide && ctaSlide
   const hasBg = !!backgroundImageUrl
-  // A photo background's own contrast can't be predicted the way the flat
-  // BG_STYLES swatches can, so text always goes white-on-scrim instead of
-  // following the slide's normal light/dark text pairing.
-  const textColor = hasBg ? "text-white" : s.text
-  const subtextColor = hasBg ? "text-white/70" : s.subtext
+  // Custom color takes priority over the named background_style (but
+  // never over a real AI photo, which can't happen alongside custom
+  // color today anyway -- picking "Custom color" skips AI generation
+  // entirely for every slide, see generate()) -- see
+  // CarouselSlideRich.custom_background_colors's own comment for why this
+  // is a separate field/rendering path rather than routed through
+  // background_style.
+  const customBg = !hasBg ? cssBackgroundFromColors(slide.custom_background_colors) : undefined
+  // A photo or custom-color background's own contrast can't be predicted
+  // the way the flat BG_STYLES swatches can, so text always goes
+  // white-on-scrim instead of following the slide's normal light/dark
+  // text pairing.
+  const textColor = hasBg || customBg ? "text-white" : s.text
+  const subtextColor = hasBg || customBg ? "text-white/70" : s.subtext
 
   return (
     <div
       id={elementId}
-      className={`relative flex flex-col overflow-hidden rounded-xl bg-cover bg-center ${hasBg ? "" : s.bg} ${
+      className={`relative flex flex-col overflow-hidden rounded-xl bg-cover bg-center ${hasBg || customBg ? "" : s.bg} ${
         // 4:5 (1080x1350) — matches PORTRAIT_DIMENSIONS in
         // lib/ai/carousel-slide-background.ts, so the full generated
         // background is actually shown, not cropped to a square. One
@@ -138,10 +157,13 @@ function SlidePreview({
         // carousel stay visually uniform at the same ratio.
         isThumb ? "h-20 w-14 shrink-0" : "aspect-[4/5] w-full max-w-md"
       }`}
-      style={hasBg ? { backgroundImage: `url(${backgroundImageUrl})` } : undefined}
+      style={hasBg ? { backgroundImage: `url(${backgroundImageUrl})` } : customBg ? { background: customBg } : undefined}
     >
-      {/* Dark scrim so text stays readable over an AI-generated background */}
-      {hasBg && (
+      {/* Dark scrim so text stays readable over an AI-generated or custom
+       * color/gradient background -- same treatment for both, since a
+       * light custom pick (e.g. a pastel gradient) needs it just as much
+       * as a photo does for the white text both use. */}
+      {(hasBg || customBg) && (
         <div className="absolute inset-0 z-0 bg-gradient-to-t from-black/75 via-black/25 to-black/45" />
       )}
 
@@ -306,6 +328,9 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
   const [topic, setTopic] = useState("")
   const [slideCount, setSlideCount] = useState(7)
   const [vibe, setVibe] = useState<Vibe | undefined>()
+  // Only meaningful when vibe === "custom_color" -- see VibePicker's
+  // customColors prop and CarouselSlideRich.custom_background_colors.
+  const [customColors, setCustomColors] = useState<string[]>([])
   const [selectedProduct, setSelectedProduct] = useState<PickedProduct | null>(null)
   const productImage = selectedProduct?.imageUrl ?? null
 
@@ -422,11 +447,16 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
     setShowStaleCue(false)
     setCarousel(null)
     setActiveSlide(0)
+    // "custom_color" is a client-only rendering mode, never a real vibe
+    // the text-generation prompt should see (it would show up as the
+    // nonsensical "Visual Vibe: custom_color" line) -- omitted from the
+    // request entirely in that case rather than sent literally.
+    const isCustomColorMode = vibe === "custom_color"
     try {
       const res = await fetch("/api/v1/ai/carousel/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ brandId, topic: topic.trim(), slideCount, platform: "instagram", vibe }),
+        body: JSON.stringify({ brandId, topic: topic.trim(), slideCount, platform: "instagram", vibe: isCustomColorMode ? undefined : vibe }),
       })
       const json = await res.json() as { data?: GeneratedCarousel; error?: { code?: string; message?: string } }
       if (!res.ok || !json.data) {
@@ -455,39 +485,52 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
       const ctaSlideEntry = merged.slides[merged.slides.length - 1]
       const hasCtaSlide = !!ctaSlideEntry && merged.slides.length > 1
 
-      // Waits for BOTH backgrounds to settle before writing anything back —
-      // one PUT per generation instead of one per slide, since both fetches
-      // are already in flight together and there's no user-facing reason to
-      // persist them separately.
-      Promise.all([
-        hookSlide ? fetchSlideBackground(brandId, hookSlide.headline, vibe, "hook") : Promise.resolve(null),
-        hasCtaSlide ? fetchSlideBackground(brandId, ctaSlideEntry.headline, vibe, "cta") : Promise.resolve(null),
-      ]).then(([hookBg, ctaBg]) => {
-        setHookBackgroundUrl(hookBg)
-        setCtaBackgroundUrl(ctaBg)
-        if (!merged.id || (!hookBg && !ctaBg)) return
+      if (isCustomColorMode) {
+        // The whole point of Custom color is an instant, zero-AI-cost
+        // background -- applied uniformly to every slide (hook, body, and
+        // cta alike), not just hook/cta the way AI backgrounds are.
+        // Deliberately does NOT update lastPersistedSlidesRef: these
+        // colors were never sent to /api/v1/ai/carousel/generate (the
+        // route has no idea about them), so the debounced autosave effect
+        // above needs to see this as a real, unsaved change and persist
+        // it on its own -- no separate PUT needed here.
+        const coloredSlides = merged.slides.map((s) => ({ ...s, custom_background_colors: customColors }))
+        setCarousel((prev) => (prev && prev.id === merged.id ? { ...prev, slides: coloredSlides } : prev))
+      } else {
+        // Waits for BOTH backgrounds to settle before writing anything back —
+        // one PUT per generation instead of one per slide, since both fetches
+        // are already in flight together and there's no user-facing reason to
+        // persist them separately.
+        Promise.all([
+          hookSlide ? fetchSlideBackground(brandId, hookSlide.headline, vibe, "hook") : Promise.resolve(null),
+          hasCtaSlide ? fetchSlideBackground(brandId, ctaSlideEntry.headline, vibe, "cta") : Promise.resolve(null),
+        ]).then(([hookBg, ctaBg]) => {
+          setHookBackgroundUrl(hookBg)
+          setCtaBackgroundUrl(ctaBg)
+          if (!merged.id || (!hookBg && !ctaBg)) return
 
-        const slidesWithImages = merged.slides.map((s, i) => {
-          if (i === 0 && hookBg) return { ...s, image_url: hookBg }
-          if (i === merged.slides.length - 1 && hasCtaSlide && ctaBg) return { ...s, image_url: ctaBg }
-          return s
-        })
-        setCarousel((prev) => (prev && prev.id === merged.id ? { ...prev, slides: slidesWithImages } : prev))
-        // Same reasoning as the generation-time assignment above -- this
-        // PUT is about to persist exactly this slides array, so the
-        // autosave effect shouldn't treat it as an unsaved edit too.
-        lastPersistedSlidesRef.current = JSON.stringify(slidesWithImages)
+          const slidesWithImages = merged.slides.map((s, i) => {
+            if (i === 0 && hookBg) return { ...s, image_url: hookBg }
+            if (i === merged.slides.length - 1 && hasCtaSlide && ctaBg) return { ...s, image_url: ctaBg }
+            return s
+          })
+          setCarousel((prev) => (prev && prev.id === merged.id ? { ...prev, slides: slidesWithImages } : prev))
+          // Same reasoning as the generation-time assignment above -- this
+          // PUT is about to persist exactly this slides array, so the
+          // autosave effect shouldn't treat it as an unsaved edit too.
+          lastPersistedSlidesRef.current = JSON.stringify(slidesWithImages)
 
-        fetch(`/api/v1/brands/${brandId}/carousels/${merged.id}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ slides: slidesWithImages }),
-        }).catch(() => {
-          // Best-effort — the carousel itself already generated fine; a
-          // failed persist here just means the Library won't show its
-          // image, not a user-facing generation failure.
+          fetch(`/api/v1/brands/${brandId}/carousels/${merged.id}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ slides: slidesWithImages }),
+          }).catch(() => {
+            // Best-effort — the carousel itself already generated fine; a
+            // failed persist here just means the Library won't show its
+            // image, not a user-facing generation failure.
+          })
         })
-      })
+      }
     } catch (e) {
       setApiError(e)
       if (hadPrevCarousel && prevCarouselRef.current) {
@@ -595,7 +638,13 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
 
             <div className="space-y-1.5">
               <label className="text-xs font-medium">Vibe</label>
-              <VibePicker selected={vibe} onSelect={setVibe} compact />
+              <VibePicker
+                selected={vibe}
+                onSelect={setVibe}
+                compact
+                customColors={customColors}
+                onCustomColorsChange={setCustomColors}
+              />
             </div>
 
             <div className="space-y-1.5">
