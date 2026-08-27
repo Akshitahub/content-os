@@ -376,14 +376,26 @@ export async function GET(request: Request) {
 
   const admin = await createAdminClient()
   const now = new Date()
-  const todayStr = now.toISOString().split("T")[0]
+
+  // scheduled_date/scheduled_time are written straight from <input type="date">
+  // /<input type="time"> in the scheduling UI — plain IST wall-clock values,
+  // no timezone attached (this app is IST-only; see the same "Asia/Kolkata"
+  // assumption in zernio-client.ts's publishViaZernio). Vercel's serverless
+  // functions run in UTC, so bucketing "today" by UTC's own current date can
+  // undercount: IST's calendar date is up to 5.5h ahead of UTC's (e.g. 01:00
+  // IST on the 28th is still 19:30 UTC on the 27th), so an entry dated
+  // "tomorrow" in UTC terms can already be due in IST. Widen the coarse
+  // pre-filter to include UTC-tomorrow too — the precise per-entry due-time
+  // check below (which does account for the IST offset) is what actually
+  // decides what's due, this just has to not exclude real candidates first.
+  const tomorrowStr = new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString().split("T")[0]
 
   const { data: candidates, error: fetchError } = await admin
     .from("calendar_entries")
     .select("*")
     .eq("status", "scheduled")
     .in("platform", ["instagram", "facebook", "threads", "pinterest", "linkedin", "youtube", "twitter"])
-    .lte("scheduled_date", todayStr)
+    .lte("scheduled_date", tomorrowStr)
     .order("scheduled_date", { ascending: true })
     .returns<CalendarEntryRow[]>()
 
@@ -393,7 +405,11 @@ export async function GET(request: Request) {
   }
 
   const dueEntries = (candidates ?? []).filter(entry => {
-    const dueAt = new Date(`${entry.scheduled_date}T${entry.scheduled_time ?? "00:00:00"}`)
+    // +05:30 makes the stored IST wall-clock value parse as the correct UTC
+    // instant, regardless of the runtime's own timezone — without it, Node
+    // reads a timezone-less string as UTC, so a post meant for 17:20 IST
+    // wouldn't be considered due until 17:20 UTC (22:50 IST), 5.5h late.
+    const dueAt = new Date(`${entry.scheduled_date}T${entry.scheduled_time ?? "00:00:00"}+05:30`)
     return dueAt.getTime() <= now.getTime()
   })
 
