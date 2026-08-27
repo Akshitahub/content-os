@@ -462,7 +462,13 @@ function ReelScriptCard({ script, brandId }: { script: ReelScriptRow; brandId: s
 
 // ─── Carousel card ────────────────────────────────────────────────────────────
 
-interface SlideShape { headline?: string; body?: string; image_url?: string | null }
+// Confirmed against a real persisted carousels row (not assumed from the
+// generation prompt alone): content slides carry their bullet points
+// under `points` (a string array), never a `body` string field -- reading
+// `s.body` here always resolved to undefined, silently dropping every
+// body slide's actual substantive text (not just its background) from
+// the Library's detail view. `subtext` is cover-only.
+interface SlideShape { headline?: string; subtext?: string; points?: string[]; image_url?: string | null; background_style?: string | null }
 
 function CarouselCard({ carousel, brandId, onOpenDetail }: { carousel: CarouselRow; brandId: string; onOpenDetail: (item: DetailItem) => void }) {
   const [deleteConfirming, setDeleteConfirming] = useState(false)
@@ -494,8 +500,9 @@ function CarouselCard({ carousel, brandId, onOpenDetail }: { carousel: CarouselR
       title: carousel.title || "Carousel",
       blocks: slides.map((s, i) => ({
         label: `Slide ${i + 1}`,
-        text: [s.headline, s.body].filter(Boolean).join("\n"),
+        text: [s.headline, s.subtext, ...(s.points ?? [])].filter(Boolean).join("\n"),
         imageUrl: s.image_url,
+        backgroundStyle: s.background_style,
       })),
       hashtags: carousel.hashtags,
       createdAt: carousel.created_at,
@@ -557,7 +564,7 @@ function CarouselCard({ carousel, brandId, onOpenDetail }: { carousel: CarouselR
           <StarRating value={carousel.user_rating} onChange={(r) => ratingMutation.mutate(r)} disabled={ratingMutation.isPending} />
           <div className="flex items-center gap-1">
             <CopyButton
-              text={slides.map((s, i) => `Slide ${i + 1}\n${s.headline ?? ""}\n${s.body ?? ""}`).join("\n\n")}
+              text={slides.map((s, i) => [`Slide ${i + 1}`, s.headline, s.subtext, ...(s.points ?? [])].filter(Boolean).join("\n")).join("\n\n")}
               touchUrl={`/api/v1/brands/${brandId}/carousels/${carousel.id}`}
             />
             <DeleteConfirmButton

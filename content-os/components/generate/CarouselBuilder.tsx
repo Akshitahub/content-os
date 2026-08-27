@@ -14,12 +14,13 @@ import { isApiError } from "@/types/api"
 import { ApiResponseError } from "@/hooks/useGeneration"
 import { useGenerationStore } from "@/stores/generationStore"
 import { CAROUSEL as CAROUSEL_CREDIT_COST } from "@/lib/usage/credit-costs"
+import { CAROUSEL_BG_STYLES, type CarouselBackgroundStyle } from "@/lib/design/carousel-slide-styles"
 import Link from "next/link"
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
 type SlideType = "cover" | "content" | "cta"
-type BackgroundStyle = "gradient_dark" | "gradient_light" | "white_violet" | "dark_navy"
+type BackgroundStyle = CarouselBackgroundStyle
 
 interface CarouselSlideRich {
   slide_number: number
@@ -90,15 +91,6 @@ async function fetchSlideBackground(brandId: string, headline: string, vibe: Vib
   }
 }
 
-// ─── Slide background styles ───────────────────────────────────────────────────
-
-const BG_STYLES: Record<BackgroundStyle, { bg: string; text: string; subtext: string }> = {
-  gradient_dark:  { bg: "bg-gradient-to-br from-violet-900 via-purple-900 to-indigo-950", text: "text-white", subtext: "text-white/70" },
-  gradient_light: { bg: "bg-gradient-to-br from-violet-50 via-indigo-50 to-white", text: "text-gray-900", subtext: "text-gray-500" },
-  white_violet:   { bg: "bg-white border border-violet-100", text: "text-gray-900", subtext: "text-gray-500" },
-  dark_navy:      { bg: "bg-gradient-to-br from-gray-900 via-slate-900 to-black", text: "text-white", subtext: "text-white/60" },
-}
-
 // ─── Slide renderer ────────────────────────────────────────────────────────────
 
 function SlidePreview({
@@ -124,7 +116,7 @@ function SlidePreview({
    * middle slide that never gets one). */
   backgroundImageUrl?: string | null
 }) {
-  const s = BG_STYLES[slide.background_style] ?? BG_STYLES.gradient_dark
+  const s = CAROUSEL_BG_STYLES[slide.background_style] ?? CAROUSEL_BG_STYLES.gradient_dark
   const isThumb = size === "thumb"
   const isCta = slide.type === "cta" && isLastSlide && ctaSlide
   const hasBg = !!backgroundImageUrl

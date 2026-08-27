@@ -5,6 +5,7 @@ import { useState } from "react"
 import { ScheduleAction } from "@/components/shared/ScheduleAction"
 import { DeleteConfirmButton } from "@/components/shared/DeleteConfirmButton"
 import { PlatformPreviewFrame } from "@/components/shared/PlatformPreviewFrame"
+import { resolveCarouselBgStyle } from "@/lib/design/carousel-slide-styles"
 
 // Modeled on components/calendar/CalendarEntryPanel.tsx's slide-in panel --
 // same backdrop/fixed-panel/header/scrollable-body pattern, generalized to
@@ -16,6 +17,16 @@ export interface DetailBlock {
   label?: string
   text: string
   imageUrl?: string | null
+  /** Carousel body slides only -- only the hook/cta slides of a carousel
+   * ever get a real AI-generated imageUrl (lib/ai/carousel-slide-background.ts
+   * is never called for body slides by original design); everything else
+   * gets a flat color/gradient background_style instead, which
+   * CarouselBuilder.tsx renders live during editing but was previously
+   * lost entirely once viewed again here (imageUrl falsy meant no visual
+   * at all -- bare floating text). When imageUrl is absent and this is
+   * set, the same flat treatment is reconstructed via
+   * lib/design/carousel-slide-styles.ts's shared mapping. */
+  backgroundStyle?: string | null
 }
 
 export interface DetailItem {
@@ -78,6 +89,25 @@ function CopyButton({ getText, label }: { getText: () => string; label?: string 
   )
 }
 
+// Reconstructs the flat color/gradient a carousel body slide shows live
+// during editing (CarouselBuilder.tsx's SlidePreview) for the case that
+// component never has to handle itself: no real AI-generated image at
+// all. Fixed height (not aspect-ratio) matches the effective rendered
+// height of a real slide image right below (w-full + max-height: 320,
+// object-cover) so blocks with and without a real image sit at the same
+// size in the same list.
+function CarouselFlatSlidePreview({ text, backgroundStyle }: { text: string; backgroundStyle: string | null | undefined }) {
+  const s = resolveCarouselBgStyle(backgroundStyle)
+  const [headline, ...rest] = text.split("\n")
+  const body = rest.join("\n").trim()
+  return (
+    <div className={`flex w-full flex-col justify-center overflow-hidden p-6 ${s.bg}`} style={{ height: 320 }}>
+      {headline && <p className={`text-lg font-bold leading-snug line-clamp-3 ${s.text}`}>{headline}</p>}
+      {body && <p className={`mt-2 text-sm leading-relaxed line-clamp-4 ${s.subtext}`}>{body}</p>}
+    </div>
+  )
+}
+
 const KIND_LABEL: Record<DetailItem["kind"], string> = {
   caption: "Caption",
   carousel: "Carousel",
@@ -133,7 +163,7 @@ export function ContentDetailPanel({ item, onClose, brandId }: ContentDetailPane
                   {block.label && (
                     <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{block.label}</p>
                   )}
-                  {block.imageUrl && (
+                  {block.imageUrl ? (
                     <PlatformPreviewFrame brandId={brandId} platform={item.platform} caption={item.scheduleCaption}>
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
@@ -143,7 +173,11 @@ export function ContentDetailPanel({ item, onClose, brandId }: ContentDetailPane
                         style={{ maxHeight: 320 }}
                       />
                     </PlatformPreviewFrame>
-                  )}
+                  ) : block.backgroundStyle ? (
+                    <PlatformPreviewFrame brandId={brandId} platform={item.platform} caption={item.scheduleCaption}>
+                      <CarouselFlatSlidePreview text={block.text} backgroundStyle={block.backgroundStyle} />
+                    </PlatformPreviewFrame>
+                  ) : null}
                   <p className="text-sm leading-relaxed whitespace-pre-wrap">{block.text}</p>
                 </div>
               ))}
