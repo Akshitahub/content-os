@@ -3,7 +3,7 @@
 import { useState, useCallback, useEffect } from "react"
 import { useSearchParams, useRouter, usePathname } from "next/navigation"
 import Link from "next/link"
-import { FaInstagram, FaFacebook, FaThreads, FaPinterest, FaLinkedin, FaYoutube, FaXTwitter } from "react-icons/fa6"
+import { FaInstagram, FaThreads, FaPinterest, FaLinkedin, FaYoutube, FaXTwitter } from "react-icons/fa6"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { isApiError } from "@/types/api"
@@ -29,11 +29,10 @@ interface ConnectionStatus {
 
 const ERROR_MESSAGES: Record<string, string> = {
   oauth_denied: "Connection was cancelled.",
-  token_exchange_failed: "Could not complete the connection with Meta. Please try again.",
-  no_pages: "No Facebook Page was found for your account. Create a Facebook Page first, then try again.",
+  token_exchange_failed: "Could not complete the connection. Please try again.",
   no_boards: "No Pinterest board was found for your account. Create a board first, then try again.",
   server_error: "Something went wrong connecting your account. Please try again.",
-  plan_restricted: "LinkedIn, YouTube, and Twitter/X publishing are available on Pro and Agency plans. Upgrade to connect this platform.",
+  plan_restricted: "This platform is available on Pro and Agency plans. Upgrade to connect it.",
 }
 
 export function SocialConnections({ brandId }: { brandId: string }) {
@@ -107,13 +106,7 @@ export function SocialConnections({ brandId }: { brandId: string }) {
     const twitterError = searchParams.get("twitter_error")
 
     if (success === "1") {
-      setBanner({ type: "success", message: "Instagram and Facebook connected successfully." })
-      router.replace(pathname)
-    } else if (success === "partial") {
-      setBanner({
-        type: "success",
-        message: "Facebook connected. Instagram not available: no Instagram Business account is linked to this Page.",
-      })
+      setBanner({ type: "success", message: "Instagram connected successfully." })
       router.replace(pathname)
     } else if (error) {
       setBanner({ type: "error", message: ERROR_MESSAGES[error] ?? ERROR_MESSAGES.server_error })
@@ -206,8 +199,7 @@ export function SocialConnections({ brandId }: { brandId: string }) {
         <CardHeader>
           <CardTitle className="text-sm flex items-center gap-2">
             <FaInstagram className="h-5 w-5" style={{ color: "#E1306C" }} />
-            <FaFacebook className="h-5 w-5" style={{ color: "#1877F2" }} />
-            Instagram &amp; Facebook
+            Instagram
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -215,36 +207,18 @@ export function SocialConnections({ brandId }: { brandId: string }) {
             <p className="text-sm text-muted-foreground">Checking connection status…</p>
           ) : status?.connected ? (
             <div className="space-y-3">
-              <div className="space-y-2">
-                <div className="flex items-center justify-between rounded-md border px-4 py-3">
-                  <div>
-                    <p className="text-sm font-medium">Facebook Page</p>
-                    {status.connected_at && (
-                      <p className="text-xs text-muted-foreground">
-                        Connected {new Date(status.connected_at).toLocaleDateString()}
-                      </p>
-                    )}
-                  </div>
-                  <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-semibold text-green-700">
-                    Connected
-                  </span>
-                </div>
-
-                {status.instagram_connected ? (
-                  <div className="flex items-center justify-between rounded-md border px-4 py-3">
-                    <p className="text-sm font-medium">@{status.ig_username ?? "unknown"}</p>
-                    <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-semibold text-green-700">
-                      Connected
-                    </span>
-                  </div>
-                ) : (
-                  <div className="rounded-md border px-4 py-3">
-                    <p className="text-sm font-medium">Instagram</p>
+              <div className="flex items-center justify-between rounded-md border px-4 py-3">
+                <div>
+                  <p className="text-sm font-medium">@{status.ig_username ?? "unknown"}</p>
+                  {status.connected_at && (
                     <p className="text-xs text-muted-foreground">
-                      Not available: no Instagram Business account is linked to this Page.
+                      Connected {new Date(status.connected_at).toLocaleDateString()}
                     </p>
-                  </div>
-                )}
+                  )}
+                </div>
+                <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-semibold text-green-700">
+                  Connected
+                </span>
               </div>
 
               {!confirmDisconnect ? (
@@ -258,7 +232,7 @@ export function SocialConnections({ brandId }: { brandId: string }) {
                 </Button>
               ) : (
                 <div className="flex items-center gap-3 rounded-md border border-destructive/40 bg-destructive/5 p-3">
-                  <p className="text-sm text-muted-foreground">Disconnect Instagram &amp; Facebook?</p>
+                  <p className="text-sm text-muted-foreground">Disconnect Instagram?</p>
                   <Button
                     variant="destructive"
                     size="sm"
@@ -273,16 +247,31 @@ export function SocialConnections({ brandId }: { brandId: string }) {
                 </div>
               )}
             </div>
+          ) : !hasZernioAccess ? (
+            <div className="flex items-center justify-between rounded-md border border-amber-200 bg-amber-50 px-4 py-3">
+              <div>
+                <div className="flex items-center gap-2">
+                  <p className="text-sm font-medium text-amber-900">Not connected</p>
+                  <span className="rounded-full bg-amber-200 px-2 py-0.5 text-xs font-semibold text-amber-800">Pro</span>
+                </div>
+                <p className="text-xs text-amber-700">
+                  Instagram publishing is available on Pro and Agency plans.
+                </p>
+              </div>
+              <Button size="sm" variant="outline" asChild>
+                <Link href="/settings?tab=billing">Upgrade</Link>
+              </Button>
+            </div>
           ) : (
             <div className="flex items-center justify-between rounded-md border px-4 py-3">
               <div>
                 <p className="text-sm font-medium">Not connected</p>
                 <p className="text-xs text-muted-foreground">
-                  Requires a Facebook Page. An Instagram Business account linked to that Page enables Instagram auto-posting too.
+                  Connect an Instagram Business or Creator account to schedule and publish posts there.
                 </p>
               </div>
               <Button size="sm" asChild>
-                <a href={`/api/v1/social/instagram/connect?brandId=${brandId}`}>Connect Instagram &amp; Facebook</a>
+                <a href={`/api/v1/social/instagram/connect?brandId=${brandId}`}>Connect Instagram</a>
               </Button>
             </div>
           )}

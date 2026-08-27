@@ -53,13 +53,17 @@ export async function GET(_request: Request, { params }: RouteParams) {
   if (result.error === "unauthorized") return NextResponse.json(buildError(ErrorCodes.UNAUTHORIZED, "You do not have access to this brand."), { status: 403 })
 
   // Never select access_token here — this response goes straight to the client.
+  // ig_business_account_id is kept in the select for backward compatibility
+  // with connections made before the Zernio migration — a brand connected
+  // under the old direct Meta OAuth flow still reports as connected until
+  // it reconnects (which will populate zernio_account_id instead).
   const { data, error } = await socialConnectionsTable(result.supabase!)
-    .select("ig_username, ig_business_account_id, connected_at, is_active")
+    .select("ig_username, ig_business_account_id, zernio_account_id, connected_at, is_active")
     .eq("brand_id", brandId)
     .eq("platform", "instagram")
     .eq("is_active", true)
     .maybeSingle() as {
-      data: { ig_username: string | null; ig_business_account_id: string | null; connected_at: string; is_active: boolean } | null
+      data: { ig_username: string | null; ig_business_account_id: string | null; zernio_account_id: string | null; connected_at: string; is_active: boolean } | null
       error: { message: string } | null
     }
 
@@ -184,13 +188,18 @@ export async function GET(_request: Request, { params }: RouteParams) {
     })
   }
 
-  // A connection row always has a Facebook Page (facebook_page_id is
-  // NOT NULL); the linked Instagram Business Account is optional.
+  // Facebook has no Zernio connection of its own — Zernio's Instagram OAuth
+  // (the flow this app uses, chosen specifically to avoid Meta's Facebook
+  // Page / App Review requirements) doesn't grant Facebook Page access, so
+  // Facebook is never reported as connected here. facebook_connected is kept
+  // as a field (rather than removed) since ScheduleAction/CalendarEntryPanel
+  // both branch on it to decide whether "Facebook" appears as a schedulable
+  // platform — always false now correctly hides that option.
   return NextResponse.json({
     data: {
       connected: true,
-      facebook_connected: true,
-      instagram_connected: Boolean(data.ig_business_account_id),
+      facebook_connected: false,
+      instagram_connected: Boolean(data.zernio_account_id || data.ig_business_account_id),
       ig_username: data.ig_username,
       connected_at: data.connected_at,
       threads_connected,

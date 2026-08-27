@@ -53,17 +53,39 @@ export type ZernioPublishResult =
   | { success: true; postId: string }
   | { success: false; error: string; retryable: boolean }
 
+export interface ZernioMediaItem {
+  type: "image" | "video"
+  url: string
+}
+
 export async function publishViaZernio(
   platform: string,
   accountId: string,
-  content: { text: string; mediaUrls?: string[]; scheduledFor?: string; timezone?: string }
+  content: {
+    text: string
+    mediaUrls?: string[]
+    // Explicit typed media, required by Zernio for anything beyond a single
+    // plain attachment — Instagram carousels/Reels/Stories and Pinterest pins
+    // all need { type, url } items (and Stories/Pinterest also need
+    // platformSpecificData below); see docs.zernio.com/platforms/instagram
+    // and /pinterest. Plain mediaUrls keeps working for the simpler
+    // Twitter/LinkedIn/YouTube posts already using it.
+    mediaItems?: ZernioMediaItem[]
+    platformSpecificData?: Record<string, unknown>
+    scheduledFor?: string
+    timezone?: string
+  }
 ): Promise<ZernioPublishResult> {
   try {
+    const platformEntry: Record<string, unknown> = { platform, accountId }
+    if (content.platformSpecificData) platformEntry.platformSpecificData = content.platformSpecificData
+
     const body: Record<string, unknown> = {
       content: content.text,
-      platforms: [{ platform, accountId }],
+      platforms: [platformEntry],
     }
-    if (content.mediaUrls?.length) body.mediaUrls = content.mediaUrls
+    if (content.mediaItems?.length) body.mediaItems = content.mediaItems
+    else if (content.mediaUrls?.length) body.mediaUrls = content.mediaUrls
     if (content.scheduledFor) {
       body.scheduledFor = content.scheduledFor
       body.timezone = content.timezone ?? "Asia/Kolkata"
@@ -91,4 +113,25 @@ export async function publishViaZernio(
     console.error("[zernio-client] unexpected publish error:", err instanceof Error ? err.message : err)
     return { success: false, error: "Unexpected error publishing via Zernio.", retryable: true }
   }
+}
+
+export interface ZernioPinterestBoard {
+  id: string
+  name: string
+}
+
+// Pinterest's boardId is "effectively required" on every pin per Zernio's
+// docs, but board selection isn't part of the OAuth connect step — this is
+// called right after connecting to auto-pick a default board, the same way
+// the old direct-OAuth flow auto-picked the first board.
+export async function getZernioPinterestBoards(accountId: string): Promise<ZernioPinterestBoard[]> {
+  const res = await fetch(`${ZERNIO_API_BASE}/accounts/${accountId}/pinterest-boards`, {
+    headers: zernioHeaders(),
+  })
+  const json = await res.json()
+  const boards = Array.isArray(json) ? json : Array.isArray(json?.boards) ? json.boards : null
+  if (!res.ok || !boards) {
+    throw new Error(json?.message ?? `Failed to fetch Pinterest boards (${res.status})`)
+  }
+  return boards
 }

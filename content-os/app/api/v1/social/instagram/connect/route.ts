@@ -1,9 +1,17 @@
-// Deployment check: 2026-07-03
 import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import { buildError, ErrorCodes } from "@/types/api"
+import { createZernioProfile, getZernioConnectUrl } from "@/lib/social/zernio-client"
+import { PLAN_LIMITS, type UserPlan } from "@/types/app"
+import { isInternalUnlimited } from "@/lib/usage/is-internal-unlimited"
+import type { SupabaseClient } from "@supabase/supabase-js"
+import type { Database } from "@/types/database"
 
-const META_LOGIN_CONFIG_ID = process.env.META_LOGIN_CONFIG_ID
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function socialConnectionsTable(supabase: SupabaseClient<Database>): any {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return (supabase as any).from("social_connections")
+}
 
 export async function GET(request: Request) {
   console.log("[social/instagram/connect] GET called")
@@ -23,9 +31,9 @@ export async function GET(request: Request) {
 
   const { data: brand } = await supabase
     .from("brands")
-    .select("id, user_id")
+    .select("id, user_id, name")
     .eq("id", brandId)
-    .single<{ id: string; user_id: string }>()
+    .single<{ id: string; user_id: string; name: string }>()
 
   if (!brand) {
     return NextResponse.json(buildError(ErrorCodes.BRAND_NOT_FOUND, "Brand not found."), { status: 404 })
@@ -34,26 +42,49 @@ export async function GET(request: Request) {
     return NextResponse.json(buildError(ErrorCodes.UNAUTHORIZED, "You do not have access to this brand."), { status: 403 })
   }
 
-  const appId = process.env.META_APP_ID
-  if (!appId) {
-    console.error("[social/instagram/connect] META_APP_ID is not configured")
-    return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Instagram connect is not configured."), { status: 500 })
+  // Instagram now routes through Zernio like LinkedIn/YouTube/Twitter — a
+  // third-party unified API billed per connected account across our whole
+  // Zernio account — gate it to paid plans so a trialing/Starter connection
+  // doesn't become pure cost with no matching revenue.
+  const { data: userData } = await supabase
+    .from("users")
+    .select("plan")
+    .eq("id", user.id)
+    .single<{ plan: UserPlan }>()
+
+  const plan: UserPlan = userData?.plan ?? "starter"
+  if (!PLAN_LIMITS[plan].zernioSocialPlatforms && !isInternalUnlimited(user.id)) {
+    return NextResponse.json(
+      buildError(ErrorCodes.USAGE_LIMIT_EXCEEDED, "Instagram publishing is available on Pro and Agency plans. Upgrade to connect this platform."),
+      { status: 403 }
+    )
   }
 
-  if (!META_LOGIN_CONFIG_ID) {
-    console.error("[social/instagram/connect] META_LOGIN_CONFIG_ID is not configured")
+  if (!process.env.ZERNIO_API_KEY) {
+    console.error("[social/instagram/connect] ZERNIO_API_KEY is not configured")
     return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Instagram connect is not configured."), { status: 500 })
   }
 
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? origin
-  const redirectUri = `${appUrl}/api/v1/social/instagram/callback`
+  const redirectUri = `${appUrl}/api/v1/social/instagram/callback?brandId=${brandId}`
 
-  const dialogUrl = new URL("https://www.facebook.com/v21.0/dialog/oauth")
-  dialogUrl.searchParams.set("client_id", appId)
-  dialogUrl.searchParams.set("redirect_uri", redirectUri)
-  dialogUrl.searchParams.set("config_id", META_LOGIN_CONFIG_ID)
-  dialogUrl.searchParams.set("state", brandId)
-  dialogUrl.searchParams.set("response_type", "code")
+  try {
+    const { data: existing } = await socialConnectionsTable(supabase)
+      .select("zernio_profile_id")
+      .eq("brand_id", brandId)
+      .not("zernio_profile_id", "is", null)
+      .limit(1)
+      .maybeSingle()
 
-  return NextResponse.redirect(dialogUrl.toString())
+    const profileId: string = existing?.zernio_profile_id ?? (await createZernioProfile(brand.name))._id
+
+    const { authUrl } = await getZernioConnectUrl("instagram", profileId, redirectUri)
+
+    const response = NextResponse.redirect(authUrl)
+    response.cookies.set("zernio_profile_id", profileId, { maxAge: 600, httpOnly: true, secure: true, sameSite: "lax" })
+    return response
+  } catch (err) {
+    console.error("[social/instagram/connect] failed to start connect flow:", err instanceof Error ? err.message : err)
+    return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Couldn't start the Instagram connect flow. Please try again."), { status: 500 })
+  }
 }
