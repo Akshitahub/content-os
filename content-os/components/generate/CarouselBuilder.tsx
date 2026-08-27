@@ -333,6 +333,20 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
   const [hookBackgroundUrl, setHookBackgroundUrl] = useState<string | null>(null)
   const [ctaBackgroundUrl, setCtaBackgroundUrl] = useState<string | null>(null)
 
+  // Autosave for slide edits made after the initial generation -- headline/
+  // subtext/points/background_style (everything wired through updateSlide)
+  // previously only ever updated local React state; the ONLY PUT this
+  // component ever made was the one-time background-image persist below,
+  // so any edit made after that (in practice, almost always -- it resolves
+  // within seconds) was silently lost the moment the user navigated away.
+  // lastPersistedSlidesRef tracks what the server already has (updated by
+  // both this debounce effect AND the background-image PUT below) so the
+  // debounce effect never re-PUTs slides that are already saved -- without
+  // it, every background-image completion would also immediately trigger a
+  // second, redundant autosave PUT of the identical data.
+  const lastPersistedSlidesRef = useRef<string | null>(null)
+  const [autosaveStatus, setAutosaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle")
+
   const allSlides = carousel?.slides ?? []
   const currentSlide = allSlides[activeSlide]
   const isLastSlide = activeSlide === allSlides.length - 1
@@ -358,6 +372,36 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
       sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ ...carousel, topic }))
     }
   }, [carousel, topic, STORAGE_KEY])
+
+  // Debounced autosave for slide edits made via updateSlide (headline,
+  // subtext, points, background_style) -- the only real save path for
+  // ongoing edits; see lastPersistedSlidesRef's declaration above for why
+  // this doesn't also double-save right when the background-image PUT
+  // above completes. 1.5s after the last edit, not on every keystroke, so
+  // a fast typist doesn't fire a PUT per character.
+  useEffect(() => {
+    if (!carousel?.id || carousel.slides.length === 0) return
+    const serialized = JSON.stringify(carousel.slides)
+    if (serialized === lastPersistedSlidesRef.current) return
+
+    setAutosaveStatus("saving")
+    const carouselId = carousel.id
+    const timer = setTimeout(() => {
+      fetch(`/api/v1/brands/${brandId}/carousels/${carouselId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ slides: JSON.parse(serialized) }),
+      })
+        .then((res) => {
+          if (!res.ok) throw new Error("Save failed")
+          lastPersistedSlidesRef.current = serialized
+          setAutosaveStatus("saved")
+          setTimeout(() => setAutosaveStatus((s) => (s === "saved" ? "idle" : s)), 2000)
+        })
+        .catch(() => setAutosaveStatus("error"))
+    }, 1500)
+    return () => clearTimeout(timer)
+  }, [carousel?.id, carousel?.slides, brandId])
 
   // Consume a topic handed off from another generator, if any
   useEffect(() => {
@@ -391,6 +435,10 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
       }
       const merged = withCtaSlideMerged(json.data)
       setCarousel(merged)
+      // Already persisted -- the generate route's own insert wrote these
+      // exact slides -- so the autosave effect below doesn't immediately
+      // re-PUT the same data the instant this render commits.
+      lastPersistedSlidesRef.current = JSON.stringify(merged.slides)
       setActiveSlide(0)
       setShowSuccess(true)
       setTimeout(() => setShowSuccess(false), 4000)
@@ -425,6 +473,10 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
           return s
         })
         setCarousel((prev) => (prev && prev.id === merged.id ? { ...prev, slides: slidesWithImages } : prev))
+        // Same reasoning as the generation-time assignment above -- this
+        // PUT is about to persist exactly this slides array, so the
+        // autosave effect shouldn't treat it as an unsaved edit too.
+        lastPersistedSlidesRef.current = JSON.stringify(slidesWithImages)
 
         fetch(`/api/v1/brands/${brandId}/carousels/${merged.id}`, {
           method: "PUT",
@@ -705,12 +757,26 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
               </div>
 
               {/* Edit toggle */}
-              <button
-                onClick={() => setShowEditor((v) => !v)}
-                className="text-xs font-medium text-violet-600 hover:underline"
-              >
-                {showEditor ? "Hide editor" : "✏️ Edit this slide"}
-              </button>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => setShowEditor((v) => !v)}
+                  className="text-xs font-medium text-violet-600 hover:underline"
+                >
+                  {showEditor ? "Hide editor" : "✏️ Edit this slide"}
+                </button>
+                {/* Subtle, not a toast -- edits autosave 1.5s after the
+                 * last change (see the debounce effect above); this just
+                 * makes that trustworthy instead of silent. */}
+                {autosaveStatus === "saving" && (
+                  <span className="text-xs text-muted-foreground">Saving…</span>
+                )}
+                {autosaveStatus === "saved" && (
+                  <span className="text-xs text-green-600">✓ Saved</span>
+                )}
+                {autosaveStatus === "error" && (
+                  <span className="text-xs text-destructive">Couldn&apos;t save — check your connection</span>
+                )}
+              </div>
 
               {showEditor && (
                 <SlideEditor
