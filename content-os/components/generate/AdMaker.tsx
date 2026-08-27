@@ -9,6 +9,7 @@ import { useBrand } from "@/hooks/useBrand"
 import { GenerationWarning } from "@/components/shared/GenerationWarning"
 import { isApiError } from "@/types/api"
 import { ScheduleAction } from "@/components/shared/ScheduleAction"
+import { AD_MAKER as AD_MAKER_CREDIT_COST } from "@/lib/usage/credit-costs"
 
 // ─── Scene definitions ─────────────────────────────────────────────────────
 
@@ -746,7 +747,7 @@ export function AdMaker({ brandId }: AdMakerProps) {
       {showSuccess && (
         <div className="flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 px-4 py-3 animate-in fade-in duration-300">
           <Check className="h-4 w-4 text-green-500 shrink-0" />
-          <span className="text-sm font-medium text-green-700">✓ Generated successfully. Scroll down to see your content</span>
+          <span className="text-sm font-medium text-green-700">✓ Generated successfully · {AD_MAKER_CREDIT_COST} credits used. Scroll down to see your content</span>
         </div>
       )}
 

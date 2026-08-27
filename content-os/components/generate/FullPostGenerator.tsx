@@ -14,6 +14,7 @@ import { resolveColorThemes } from "@/lib/design/color-themes"
 import { resolveFonts, DEFAULT_FONT_ID } from "@/lib/design/fonts"
 import type { FontId } from "@/lib/design/fonts"
 import { useGenerateFullPost, useGeneratePostImage, useGenerateFullPostFromPhoto, ApiResponseError } from "@/hooks/useGeneration"
+import { POST as POST_CREDIT_COST, PHOTO_CAPTION } from "@/lib/usage/credit-costs"
 import { useGenerationStore } from "@/stores/generationStore"
 import { useBrand } from "@/hooks/useBrand"
 import type { FullPostResult, ContentResult } from "@/hooks/useGeneration"
@@ -156,6 +157,16 @@ export function FullPostGenerator({ brandId, products }: Props) {
   const [selectedFontId, setSelectedFontId] = useState<FontId>(DEFAULT_FONT_ID)
   const [postImageUrl, setPostImageUrl] = useState<string | null>(null)
   const [imageSource, setImageSource] = useState<"ai" | "product_photo" | "user_upload" | null>(null)
+  // Full Post's real charge depends on which path actually ran, not a
+  // single fixed cost like Carousel/Story/Ad Maker -- the text-generation
+  // step itself always charges 0 (see CONTENT_FORMAT_CREDIT_COSTS'
+  // comment in lib/usage/credit-costs.ts): the AI-image path bills the
+  // bundled POST cost at the image step, the uploaded-photo path bills
+  // PHOTO_CAPTION at the vision/caption step, and the product-photo path
+  // composites client-side with no server call at all, so it's genuinely
+  // 0. null while the image step hasn't resolved yet (imageSource unset),
+  // so the confirmation banner doesn't show a cost before it's known.
+  const creditsUsedForResult = imageSource === "user_upload" ? PHOTO_CAPTION : imageSource === "product_photo" ? 0 : imageSource === "ai" ? POST_CREDIT_COST : null
   const [imageError, setImageError] = useState<string | null>(null)
   const [postSessionId, setPostSessionId] = useState<string | null>(null)
   const [selectedProduct, setSelectedProduct] = useState<PickedProduct | null>(null)
@@ -644,7 +655,9 @@ export function FullPostGenerator({ brandId, products }: Props) {
         <div className="flex items-center justify-between rounded-lg border border-green-200 bg-green-50 px-4 py-3">
           <div className="flex items-center gap-2 text-green-700">
             <Check className="h-4 w-4 shrink-0" />
-            <span className="text-sm font-medium">✓ Generated successfully. Scroll down to see your content</span>
+            <span className="text-sm font-medium">
+              ✓ Generated successfully{creditsUsedForResult !== null ? ` · ${creditsUsedForResult} credit${creditsUsedForResult !== 1 ? "s" : ""} used` : ""}. Scroll down to see your content
+            </span>
           </div>
           <Link
             href={`/brands/${brandId}/library`}

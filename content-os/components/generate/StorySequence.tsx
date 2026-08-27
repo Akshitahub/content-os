@@ -11,6 +11,7 @@ import { TopicSuggestButton } from "@/components/shared/TopicSuggestButton"
 import { ScheduleAction } from "@/components/shared/ScheduleAction"
 import { isApiError } from "@/types/api"
 import { ApiResponseError } from "@/hooks/useGeneration"
+import { STORY as STORY_CREDIT_COST } from "@/lib/usage/credit-costs"
 import Link from "next/link"
 
 // ─── Story background gradients ────────────────────────────────────────────────
@@ -587,7 +588,7 @@ export function StorySequence({ brandId }: { brandId: string }) {
         <div className="flex items-center justify-between gap-2 rounded-lg border border-green-200 bg-green-50 px-4 py-3 animate-in fade-in duration-300">
           <div className="flex items-center gap-2 text-green-700">
             <Check className="h-4 w-4 shrink-0" />
-            <span className="text-sm font-medium">✓ Story sequence generated and saved to My Content</span>
+            <span className="text-sm font-medium">✓ Story sequence generated and saved to My Content · {STORY_CREDIT_COST} credits used</span>
           </div>
           <Link
             href={`/brands/${brandId}/library?tab=stories`}
