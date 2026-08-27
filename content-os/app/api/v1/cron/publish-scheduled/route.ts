@@ -1,12 +1,5 @@
 import { NextResponse } from "next/server"
 import { createAdminClient } from "@/lib/supabase/server"
-import { publishToInstagram } from "@/lib/social/instagram-publish"
-import { publishReelToInstagram } from "@/lib/social/instagram-reel-publish"
-import { publishToFacebook } from "@/lib/social/facebook-publish"
-import { publishCarouselToInstagram } from "@/lib/social/instagram-carousel-publish"
-import { publishStorySequenceToInstagram } from "@/lib/social/instagram-story-publish"
-import { publishToThreads } from "@/lib/social/threads-publish"
-import { publishToPinterest } from "@/lib/social/pinterest-publish"
 import { publishViaZernio } from "@/lib/social/zernio-client"
 import { uploadMediaToStorage } from "@/lib/storage/upload-media"
 import type { SupabaseClient } from "@supabase/supabase-js"
@@ -15,22 +8,11 @@ import type { Database, CalendarEntryRow, SocialConnectionRow } from "@/types/da
 const MAX_PUBLISH_ATTEMPTS = 3
 const DELAY_BETWEEN_POSTS_MS = 2000
 
-// publishToThreads has a hardcoded 30s wait (Threads' recommended delay
-// before publishing an image container). This route has no explicit
-// maxDuration set today (falling back to the platform default), which
-// isn't enough headroom for that wait plus normal processing. Note: the
-// GitHub Actions workflow that triggers this cron (.github/workflows —
-// not touched here) calls it with `curl --max-time 60`, so even with this
-// bump the client-side caller can still abort at 60s; see the interim
-// one-Threads-post-per-run cap below, which keeps runtime well under that.
+// Every schedulable platform now publishes through Zernio's single POST
+// /posts call — no more per-platform Graph API dances with their own wait
+// quirks (e.g. Threads' old hardcoded 30s container wait), so there's no
+// longer a reason to cap how many of one platform run per invocation.
 export const maxDuration = 60
-
-// Interim safety limit until Threads publishing is verified under real
-// load — the 30s wait per Threads post could compound if several are due
-// in the same run, risking the run exceeding the GitHub Actions caller's
-// 60s timeout. Additional due Threads posts are simply left untouched
-// (still "scheduled") and picked up on the next run, ~15 minutes later.
-const MAX_THREADS_PER_RUN = 1
 
 type AdminClient = SupabaseClient<Database>
 
@@ -80,16 +62,22 @@ async function recordFailure(admin: AdminClient, entry: CalendarEntryRow, reason
 }
 
 async function processEntry(admin: AdminClient, entry: CalendarEntryRow): Promise<"published" | "failed" | "skipped"> {
-  // A Facebook Page and its linked Instagram Business Account share one
-  // connection row (platform="instagram", same Page access token), so a
-  // Facebook-targeted entry still looks up the "instagram" row. Threads and
-  // Pinterest each have entirely separate OAuth credentials and their own
-  // row (platform="threads"/"pinterest").
+  // Facebook has no Zernio connection of its own — it used to piggyback on
+  // Instagram's direct-OAuth Facebook Page token, but Instagram now connects
+  // via Zernio's simplified Instagram-only OAuth (chosen specifically to
+  // avoid Meta's Page/App Review requirements), which doesn't grant Facebook
+  // Page access. There's nothing to publish through until Facebook gets its
+  // own Zernio connect flow.
+  if (entry.platform === "facebook") {
+    console.error(`[cron/publish-scheduled] entry ${entry.id}: Facebook publishing is unavailable (no Zernio connection for Facebook)`)
+    return await recordFailure(admin, entry, "Facebook isn't connected. Reconnect via Settings once Facebook publishing is available again.")
+  }
+
   const { data: connection } = await admin
     .from("social_connections")
     .select("*")
     .eq("brand_id", entry.brand_id)
-    .eq("platform", entry.platform === "threads" ? "threads" : entry.platform === "pinterest" ? "pinterest" : entry.platform === "linkedin" ? "linkedin" : entry.platform === "youtube" ? "youtube" : entry.platform === "twitter" ? "twitter" : "instagram")
+    .eq("platform", entry.platform ?? "")
     .eq("is_active", true)
     .maybeSingle<SocialConnectionRow>()
 
@@ -100,44 +88,18 @@ async function processEntry(admin: AdminClient, entry: CalendarEntryRow): Promis
     return "skipped"
   }
 
-  if (entry.platform === "instagram" && !connection.ig_business_account_id) {
-    console.error(`[cron/publish-scheduled] entry ${entry.id}: brand ${entry.brand_id}'s connection has no linked Instagram Business Account`)
-    return await recordFailure(admin, entry, "Instagram not connected for this brand.")
-  }
-
-  if (entry.platform === "threads" && !connection.threads_user_id) {
-    console.error(`[cron/publish-scheduled] entry ${entry.id}: brand ${entry.brand_id}'s Threads connection is missing a threads_user_id`)
-    return await recordFailure(admin, entry, "Threads not connected for this brand.")
+  // Every remaining platform (instagram/threads/pinterest/linkedin/youtube/
+  // twitter) is connected via Zernio, which holds and refreshes the
+  // underlying platform token on its side — so the only thing to check
+  // locally is that a Zernio account was actually linked.
+  if (!connection.zernio_account_id) {
+    console.error(`[cron/publish-scheduled] entry ${entry.id}: brand ${entry.brand_id}'s ${entry.platform} connection is missing a zernio_account_id`)
+    return await recordFailure(admin, entry, `${entry.platform} not connected for this brand.`)
   }
 
   if (entry.platform === "pinterest" && !connection.pinterest_board_id) {
     console.error(`[cron/publish-scheduled] entry ${entry.id}: brand ${entry.brand_id}'s Pinterest connection is missing a pinterest_board_id`)
     return await recordFailure(admin, entry, "Pinterest not connected for this brand.")
-  }
-
-  if (entry.platform === "linkedin" && !connection.zernio_account_id) {
-    console.error(`[cron/publish-scheduled] entry ${entry.id}: brand ${entry.brand_id}'s LinkedIn connection is missing a zernio_account_id`)
-    return await recordFailure(admin, entry, "LinkedIn not connected for this brand.")
-  }
-
-  if (entry.platform === "youtube" && !connection.zernio_account_id) {
-    console.error(`[cron/publish-scheduled] entry ${entry.id}: brand ${entry.brand_id}'s YouTube connection is missing a zernio_account_id`)
-    return await recordFailure(admin, entry, "YouTube not connected for this brand.")
-  }
-
-  if (entry.platform === "twitter" && !connection.zernio_account_id) {
-    console.error(`[cron/publish-scheduled] entry ${entry.id}: brand ${entry.brand_id}'s Twitter/X connection is missing a zernio_account_id`)
-    return await recordFailure(admin, entry, "Twitter/X not connected for this brand.")
-  }
-
-  // LinkedIn/YouTube/Twitter connections have no access_token/token_expires_at
-  // of our own — Zernio holds and refreshes that token on its side, so
-  // there's nothing to check locally (token_expires_at is NULL by design for
-  // these platforms; skipping this check avoids treating that NULL as an
-  // already-expired epoch timestamp).
-  if (entry.platform !== "linkedin" && entry.platform !== "youtube" && entry.platform !== "twitter" && new Date(connection.token_expires_at).getTime() <= Date.now()) {
-    console.error(`[cron/publish-scheduled] entry ${entry.id}: access token expired for brand ${entry.brand_id}`)
-    return await recordFailure(admin, entry, "Access token has expired. Reconnect the account.")
   }
 
   const platformData = (entry.platform_specific_data ?? {}) as Record<string, unknown>
@@ -249,26 +211,44 @@ async function processEntry(admin: AdminClient, entry: CalendarEntryRow): Promis
   }
 
   if (isStory) {
-    // Stories have no parent/carousel container — each slide publishes as
-    // its own independent story item, sequentially. The result shape
-    // (publishedCount/failedAtSlide/instagramMediaIds) doesn't match the
-    // single-media-id shape the carousel/single-post result below produces,
-    // so it's handled in its own branch rather than forced into that union.
-    const storyResult = await publishStorySequenceToInstagram(connection.ig_business_account_id!, connection.access_token, imageUrls!)
+    // Stories have no parent/carousel container in Zernio either — each
+    // slide is its own independent story post (platformSpecificData:
+    // { contentType: "story" }, per docs.zernio.com/platforms/instagram),
+    // published sequentially just like the old direct Graph API loop was.
+    let publishedCount = 0
+    const mediaIds: string[] = []
+    let failure: { failedAtSlide: number; error: string; retryable: boolean } | null = null
 
-    if (!storyResult.success) {
+    for (let i = 0; i < imageUrls!.length; i++) {
+      const slideResult = await publishViaZernio("instagram", connection.zernio_account_id!, {
+        text: caption,
+        mediaItems: [{ type: "image", url: imageUrls![i]! }],
+        platformSpecificData: { contentType: "story" },
+      })
+
+      if (!slideResult.success) {
+        failure = { failedAtSlide: i + 1, error: slideResult.error, retryable: slideResult.retryable }
+        break
+      }
+
+      mediaIds.push(slideResult.postId)
+      publishedCount++
+      if (i < imageUrls!.length - 1) await sleep(DELAY_BETWEEN_POSTS_MS)
+    }
+
+    if (failure) {
       console.error(
-        `[cron/publish-scheduled] entry ${entry.id}: story sequence publish failed at slide ${storyResult.failedAtSlide}/${imageUrls!.length} ` +
-        `(${storyResult.publishedCount} published, retryable=${storyResult.retryable}) — ${storyResult.error}`
+        `[cron/publish-scheduled] entry ${entry.id}: story sequence publish failed at slide ${failure.failedAtSlide}/${imageUrls!.length} ` +
+        `(${publishedCount} published, retryable=${failure.retryable}) — ${failure.error}`
       )
       return await recordFailure(
         admin,
         entry,
-        `Story ${storyResult.failedAtSlide} of ${imageUrls!.length} failed to publish (${storyResult.publishedCount} published successfully): ${storyResult.error}`
+        `Story ${failure.failedAtSlide} of ${imageUrls!.length} failed to publish (${publishedCount} published successfully): ${failure.error}`
       )
     }
 
-    console.log(`[cron/publish-scheduled] entry ${entry.id}: published — instagram story sequence, ${storyResult.instagramMediaIds.length} slides`)
+    console.log(`[cron/publish-scheduled] entry ${entry.id}: published — instagram story sequence, ${mediaIds.length} slides`)
 
     const publishedAt = new Date().toISOString()
     const { error: updateError } = await calendarEntriesTable(admin)
@@ -277,7 +257,7 @@ async function processEntry(admin: AdminClient, entry: CalendarEntryRow): Promis
         platform_specific_data: {
           ...platformData,
           hosted_image_urls: imageUrls,
-          instagram_story_media_ids: storyResult.instagramMediaIds,
+          instagram_story_media_ids: mediaIds,
         },
         error_message: null,
         updated_at: publishedAt,
@@ -307,48 +287,42 @@ async function processEntry(admin: AdminClient, entry: CalendarEntryRow): Promis
   const pinterestTitle = pinterestTitleLine.length > 90 ? pinterestTitleLine.slice(0, 90) : pinterestTitleLine
 
   const publishResult = isCarousel
-    // ig_business_account_id is guaranteed non-null here — checked above.
-    ? await publishCarouselToInstagram(connection.ig_business_account_id!, connection.access_token, { imageUrls: imageUrls!, caption })
+    // zernio_account_id is guaranteed non-null here — checked above.
+    ? await publishViaZernio("instagram", connection.zernio_account_id!, {
+        text: caption,
+        mediaItems: imageUrls!.map(url => ({ type: "image" as const, url })),
+      })
     : entry.platform === "instagram" && isVideo
-      ? await publishReelToInstagram(connection.ig_business_account_id!, connection.access_token, { videoUrl: videoUrl!, caption })
+      ? await publishViaZernio("instagram", connection.zernio_account_id!, {
+          text: caption,
+          mediaItems: [{ type: "video", url: videoUrl! }],
+        })
       : entry.platform === "instagram"
-        ? await publishToInstagram(connection.ig_business_account_id!, connection.access_token, { imageUrl: imageUrl!, caption })
+        ? await publishViaZernio("instagram", connection.zernio_account_id!, {
+            text: caption,
+            mediaItems: [{ type: "image", url: imageUrl! }],
+          })
         : entry.platform === "threads"
-          // threads_user_id is guaranteed non-null here — checked above.
-          ? await publishToThreads(connection.threads_user_id!, connection.access_token, { imageUrl: imageUrl!, text: caption })
+          ? await publishViaZernio("threads", connection.zernio_account_id!, { text: caption, mediaUrls: [imageUrl!] })
           : entry.platform === "pinterest"
             // pinterest_board_id is guaranteed non-null here — checked above.
-            ? await publishToPinterest(connection.pinterest_board_id!, connection.access_token, { imageUrl: imageUrl!, title: pinterestTitle, description: caption })
+            ? await publishViaZernio("pinterest", connection.zernio_account_id!, {
+                text: caption,
+                mediaUrls: [imageUrl!],
+                platformSpecificData: { title: pinterestTitle, boardId: connection.pinterest_board_id! },
+              })
             : entry.platform === "linkedin"
-              // zernio_account_id is guaranteed non-null here — checked above.
               ? await publishViaZernio("linkedin", connection.zernio_account_id!, { text: caption, mediaUrls: [imageUrl!] })
               : entry.platform === "youtube"
-                // zernio_account_id is guaranteed non-null here — checked above.
                 ? await publishViaZernio("youtube", connection.zernio_account_id!, { text: caption, mediaUrls: [videoUrl!] })
-                : entry.platform === "twitter"
-                  // zernio_account_id is guaranteed non-null here — checked above.
-                  ? await publishViaZernio("twitter", connection.zernio_account_id!, { text: caption, mediaUrls: [imageUrl!] })
-                  : await publishToFacebook(connection.facebook_page_id, connection.access_token, { imageUrl: imageUrl!, message: caption })
+                : await publishViaZernio("twitter", connection.zernio_account_id!, { text: caption, mediaUrls: [imageUrl!] })
 
   if (!publishResult.success) {
     console.error(`[cron/publish-scheduled] entry ${entry.id}: publish failed (retryable=${publishResult.retryable}) — ${publishResult.error}`)
     return await recordFailure(admin, entry, publishResult.error)
   }
 
-  // publishViaZernio (LinkedIn/YouTube) returns { success, postId } — a
-  // different shape from the platform-specific publish functions above
-  // (instagramMediaId/threadsPostId/pinId/facebookPostId), so it needs its
-  // own branch here rather than falling through to facebookPostId.
-  const externalId = "instagramMediaId" in publishResult
-    ? publishResult.instagramMediaId
-    : "threadsPostId" in publishResult
-      ? publishResult.threadsPostId
-      : "pinId" in publishResult
-        ? publishResult.pinId
-        : "postId" in publishResult
-          ? publishResult.postId
-          : publishResult.facebookPostId
-  console.log(`[cron/publish-scheduled] entry ${entry.id}: published — ${entry.platform} id ${externalId}`)
+  console.log(`[cron/publish-scheduled] entry ${entry.id}: published — ${entry.platform} id ${publishResult.postId}`)
 
   const publishedAt = new Date().toISOString()
   const mediaIdKey = entry.platform === "instagram"
@@ -361,9 +335,7 @@ async function processEntry(admin: AdminClient, entry: CalendarEntryRow): Promis
           ? "linkedin_post_id"
           : entry.platform === "youtube"
             ? "youtube_video_id"
-            : entry.platform === "twitter"
-              ? "twitter_post_id"
-              : "facebook_post_id"
+            : "twitter_post_id"
 
   const { error: updateError } = await calendarEntriesTable(admin)
     .update({
@@ -371,7 +343,7 @@ async function processEntry(admin: AdminClient, entry: CalendarEntryRow): Promis
       platform_specific_data: {
         ...platformData,
         ...(isCarousel ? { hosted_image_urls: imageUrls } : isVideo ? { video_url: videoUrl } : { hosted_image_url: imageUrl }),
-        [mediaIdKey]: externalId,
+        [mediaIdKey]: publishResult.postId,
       },
       error_message: null,
       updated_at: publishedAt,
@@ -428,18 +400,8 @@ export async function GET(request: Request) {
   console.log(`[cron/publish-scheduled] ${dueEntries.length} entr${dueEntries.length === 1 ? "y" : "ies"} due`)
 
   const summary = { processed: 0, published: 0, failed: 0, skipped: 0 }
-  let threadsProcessedThisRun = 0
 
   for (const entry of dueEntries) {
-    if (entry.platform === "threads" && threadsProcessedThisRun >= MAX_THREADS_PER_RUN) {
-      console.log(
-        `[cron/publish-scheduled] entry ${entry.id}: deferring — already processed ${MAX_THREADS_PER_RUN} Threads post(s) this run, leaving scheduled for the next run`
-      )
-      summary.skipped++
-      continue
-    }
-    if (entry.platform === "threads") threadsProcessedThisRun++
-
     summary.processed++
     try {
       const result = await processEntry(admin, entry)
