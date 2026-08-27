@@ -3,24 +3,26 @@ import { createClient, createAdminClient } from "@/lib/supabase/server"
 import { generateImageSchema } from "@/lib/validations/ai"
 import { generateImage } from "@/lib/ai/image-generator"
 import { buildError, ErrorCodes } from "@/types/api"
-import { checkAndIncrementUsage, refundGenerationUsage } from "@/lib/usage/check-and-increment-usage"
+import { checkAndIncrementUsage, refundGenerationUsage, logGenerationOutcome } from "@/lib/usage/check-and-increment-usage"
 import { IMAGE } from "@/lib/usage/credit-costs"
 import { isInternalUnlimited } from "@/lib/usage/is-internal-unlimited"
 import type { BrandRow, ProductRow } from "@/types/database"
 import type { UserPlan } from "@/types/app"
 
 const BUCKET = "brand-images"
+const FEATURE = "images"
 
 export async function POST(request: Request) {
   const supabase = await createClient()
   const { data: { user }, error: authError } = await supabase.auth.getUser()
   if (authError || !user) return NextResponse.json(buildError(ErrorCodes.UNAUTHENTICATED, "You must be logged in."), { status: 401 })
 
-  const usageCheck = await checkAndIncrementUsage(user.id, IMAGE)
+  const usageCheck = await checkAndIncrementUsage(user.id, IMAGE, FEATURE)
   if (!usageCheck.ok) {
     const code = usageCheck.status === 429 ? ErrorCodes.USAGE_LIMIT_EXCEEDED : ErrorCodes.INTERNAL_ERROR
     return NextResponse.json(buildError(code, usageCheck.message), { status: usageCheck.status })
   }
+  const logId = usageCheck.logId
 
   let body: unknown
   try { body = await request.json() } catch {
@@ -59,13 +61,12 @@ export async function POST(request: Request) {
     // Full raw error (e.g. Pollinations API error text) stays server-side
     // only — never shown to the user.
     console.error("[ai/images/generate] generation failed:", result.error)
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await (supabase.from("ai_generation_logs") as any).insert({
-      user_id: user.id, brand_id: brandId, feature: "images", model: "unknown",
+    await logGenerationOutcome(supabase, logId, {
+      user_id: user.id, brand_id: brandId, feature: FEATURE, model: "unknown",
       latency_ms: Date.now() - startTime, success: false,
       error_message: result.error,
     })
-    await refundGenerationUsage(supabase, user.id, IMAGE)
+    await refundGenerationUsage(supabase, user.id, IMAGE, logId)
     return NextResponse.json(buildError(ErrorCodes.AI_GENERATION_FAILED, "Image generation failed. Please try again."), { status: 500 })
   }
 
@@ -83,7 +84,7 @@ export async function POST(request: Request) {
   if (uploadError) {
     // Image was generated but never actually delivered to the user — no
     // usable output, same as a generation failure.
-    await refundGenerationUsage(supabase, user.id, IMAGE)
+    await refundGenerationUsage(supabase, user.id, IMAGE, logId)
     return NextResponse.json(
       buildError(ErrorCodes.INTERNAL_ERROR, "Image generated but upload to storage failed.", uploadError.message),
       { status: 500 }
@@ -111,9 +112,8 @@ export async function POST(request: Request) {
     is_saved: true,
   }).select().single()
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  await (supabase.from("ai_generation_logs") as any).insert({
-    user_id: user.id, brand_id: brandId, feature: "images", model: result.provider,
+  await logGenerationOutcome(supabase, logId, {
+    user_id: user.id, brand_id: brandId, feature: FEATURE, model: result.provider,
     latency_ms: latencyMs, success: true,
   })
 

@@ -6,7 +6,18 @@ import type { SupabaseClient } from "@supabase/supabase-js"
 import type { Database } from "@/types/database"
 
 export type UsageCheckResult =
-  | { ok: true }
+  // logId is the ai_generation_logs row this charge was recorded under
+  // (null for the internal-unlimited bypass, which never charges or logs
+  // anything, or if the logging insert itself failed — logging failures
+  // are never allowed to fail the actual usage check). Callers that do
+  // their own follow-up ai_generation_logs write (model/tokens/success —
+  // see e.g. captions/generate/route.ts) should UPDATE this same row by
+  // id instead of inserting a second one, so one generation event never
+  // produces two log rows. Callers that don't log anything else can just
+  // ignore it — the row this function already wrote (feature +
+  // credits_charged) is a real improvement over the previous total
+  // silence on its own.
+  | { ok: true; logId: string | null }
   // trialExpired distinguishes "your 7-day trial ended, subscribe to
   // continue" from a normal within-plan/within-trial credit cap — callers
   // that build their own richer error UI (e.g. app/api/v1/brands/fastlane/
@@ -16,15 +27,54 @@ export type UsageCheckResult =
   | { ok: false; status: 429 | 500; message: string; trialExpired?: boolean }
 
 /**
+ * Logs a successful charge to ai_generation_logs — feature + credits_charged
+ * is the minimum needed for the "where are my credits going" breakdown
+ * (Header.tsx's credit-indicator popover). `model` is a required NOT NULL
+ * column but isn't known at charge time (the actual generation hasn't run
+ * yet), so it's set to a placeholder distinct from this codebase's existing
+ * "unknown" (genuinely-never-determined) convention -- callers that do
+ * their own richer logging afterward overwrite it via UPDATE. Never allowed
+ * to fail the charge itself: this runs strictly after charge_generation_usage
+ * already committed, so a logging failure here is swallowed and just means
+ * this one generation is invisible in the breakdown, not that the user was
+ * charged without a usable session.
+ */
+async function logCharge(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: any,
+  userId: string,
+  feature: string,
+  cost: number
+): Promise<string | null> {
+  const { data, error } = await supabase
+    .from("ai_generation_logs")
+    .insert({ user_id: userId, feature, model: "pending", credits_charged: cost })
+    .select("id")
+    .single()
+
+  if (error) {
+    console.error(`[check-and-increment-usage] logCharge insert failed for ${userId} (non-fatal, charge already committed):`, error.message)
+    return null
+  }
+  return data?.id ?? null
+}
+
+/**
  * `cost` is the number of credits this specific action draws from the
  * user's single shared monthly pool (see lib/usage/credit-costs.ts) — a
  * required parameter, not defaulted to 1, so every call site has to state
  * its cost explicitly rather than silently inheriting the old flat rate.
+ *
+ * `feature` is the category name this charge shows up under in the
+ * credits breakdown — required so every call site states it explicitly,
+ * matching the same real, already-used ai_generation_logs `feature`
+ * values (e.g. "captions", "hooks", "post_image") rather than inventing
+ * new ones; see each call site for which name it uses and why.
  */
-export async function checkAndIncrementUsage(userId: string, cost: number): Promise<UsageCheckResult> {
+export async function checkAndIncrementUsage(userId: string, cost: number, feature: string): Promise<UsageCheckResult> {
   if (isInternalUnlimited(userId)) {
     console.log(`[check-and-increment-usage] internal unlimited bypass for ${userId} — quota check skipped, generation_count not incremented`)
-    return { ok: true }
+    return { ok: true, logId: null }
   }
 
   const supabase = await createClient()
@@ -125,7 +175,9 @@ export async function checkAndIncrementUsage(userId: string, cost: number): Prom
     `[check-and-increment-usage] OK user ${userId}: plan=${user.plan} cost=${cost} limit=${limit} — new count ${updated.generation_count}, topup balance ${updated.topup_credits_balance}`
   )
 
-  return { ok: true }
+  const logId = await logCharge(supabase, userId, feature, cost)
+
+  return { ok: true, logId }
 }
 
 /**
@@ -141,8 +193,13 @@ export async function checkAndIncrementUsage(userId: string, cost: number): Prom
  * createClient() — same reasoning as refundReelUsage: this can be called
  * from contexts (e.g. an after() callback) where a fresh request-scoped
  * cookie client isn't reliable.
+ *
+ * `logId` — the id checkAndIncrementUsage's result returned — zeroes out
+ * that row's credits_charged so the breakdown doesn't count a refunded
+ * charge as money actually spent. Optional since not every caller has one
+ * (the internal-unlimited bypass never logs anything in the first place).
  */
-export async function refundGenerationUsage(supabase: SupabaseClient<Database>, userId: string, cost: number): Promise<void> {
+export async function refundGenerationUsage(supabase: SupabaseClient<Database>, userId: string, cost: number, logId?: string | null): Promise<void> {
   if (isInternalUnlimited(userId)) {
     // checkAndIncrementUsage never incremented anything for this user in
     // the first place — nothing to refund.
@@ -163,4 +220,55 @@ export async function refundGenerationUsage(supabase: SupabaseClient<Database>, 
   if (error) {
     console.error(`[check-and-increment-usage] refund_generation_usage RPC failed for user ${userId}:`, error.message)
   }
+
+  if (logId) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { error: logError } = await (supabase.from("ai_generation_logs") as any)
+      .update({ credits_charged: 0 })
+      .eq("id", logId)
+    if (logError) {
+      console.error(`[check-and-increment-usage] failed to zero out credits_charged on refund for log ${logId}:`, logError.message)
+    }
+  }
+}
+
+export interface GenerationOutcomeFields {
+  user_id: string
+  brand_id?: string | null
+  feature: string
+  model: string
+  prompt_tokens?: number | null
+  completion_tokens?: number | null
+  total_tokens?: number | null
+  latency_ms?: number | null
+  success: boolean
+  error_message?: string | null
+}
+
+/**
+ * Finalizes the ai_generation_logs row checkAndIncrementUsage's charge
+ * already created (by UPDATEing it with the real generation outcome —
+ * model, tokens, latency, success/error) instead of every call site
+ * inserting a second row for the same generation event. Falls back to a
+ * plain INSERT when logId is null (the internal-unlimited bypass never
+ * charges or logs anything up front, and a logCharge insert failure is
+ * swallowed rather than propagated) — there's no row to update in either
+ * case, so this is the same "at least log something" fallback every one
+ * of these call sites already had before checkAndIncrementUsage started
+ * logging anything itself.
+ */
+export async function logGenerationOutcome(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: any,
+  logId: string | null,
+  fields: GenerationOutcomeFields
+): Promise<void> {
+  if (logId) {
+    const { user_id: _user_id, feature: _feature, ...updateFields } = fields
+    const { error } = await supabase.from("ai_generation_logs").update(updateFields).eq("id", logId)
+    if (error) console.error(`[check-and-increment-usage] logGenerationOutcome update failed for log ${logId}:`, error.message)
+    return
+  }
+  const { error } = await supabase.from("ai_generation_logs").insert(fields)
+  if (error) console.error(`[check-and-increment-usage] logGenerationOutcome insert failed:`, error.message)
 }

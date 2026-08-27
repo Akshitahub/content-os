@@ -4,7 +4,7 @@ import { generatePostImageSchema } from "@/lib/validations/ai"
 import { generatePostImage, type ImageGenerationAttempt } from "@/lib/ai/post-image-pipeline"
 import { resolveColorThemes, findColorTheme } from "@/lib/design/color-themes"
 import { buildError, ErrorCodes } from "@/types/api"
-import { checkAndIncrementUsage, refundGenerationUsage } from "@/lib/usage/check-and-increment-usage"
+import { checkAndIncrementUsage, refundGenerationUsage, logGenerationOutcome } from "@/lib/usage/check-and-increment-usage"
 import { POST as POST_CREDIT_COST } from "@/lib/usage/credit-costs"
 import { checkAndIncrementPostImageSession } from "@/lib/usage/post-image-regenerate-session"
 import { isInternalUnlimited } from "@/lib/usage/is-internal-unlimited"
@@ -78,12 +78,14 @@ export async function POST(request: Request) {
     `[ai/post-image/generate] session check for ${postSessionId}: sessionFound=${sessionCheck.ok} shouldCharge=${shouldCharge}`
   )
 
+  let logId: string | null = null
   if (shouldCharge) {
-    const usageCheck = await checkAndIncrementUsage(user.id, POST_CREDIT_COST)
+    const usageCheck = await checkAndIncrementUsage(user.id, POST_CREDIT_COST, FEATURE)
     if (!usageCheck.ok) {
       const code = usageCheck.status === 429 ? ErrorCodes.USAGE_LIMIT_EXCEEDED : ErrorCodes.INTERNAL_ERROR
       return NextResponse.json(buildError(code, usageCheck.message), { status: usageCheck.status })
     }
+    logId = usageCheck.logId
   }
 
   const { data: brand } = await supabase.from("brands").select("*").eq("id", brandId).eq("user_id", user.id).single<BrandRow>()
@@ -140,14 +142,13 @@ export async function POST(request: Request) {
     // of which provider (if any) actually ran, which was actively
     // misleading for every free-plan (Pollinations) failure.
     const lastProvider = result.attempts[result.attempts.length - 1]?.provider ?? "unknown"
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await (supabase.from("ai_generation_logs") as any).insert({
+    await logGenerationOutcome(supabase, logId, {
       user_id: user.id, brand_id: brandId, feature: FEATURE, model: lastProvider,
       latency_ms: Date.now() - startTime, success: false, error_message: result.error,
     })
     // Only refund if this call actually charged a credit — the free
     // regenerate (2nd call in a session) never did.
-    if (shouldCharge) await refundGenerationUsage(supabase, user.id, POST_CREDIT_COST)
+    if (shouldCharge) await refundGenerationUsage(supabase, user.id, POST_CREDIT_COST, logId)
     return NextResponse.json(buildError(ErrorCodes.AI_GENERATION_FAILED, result.error), { status: 500 })
   }
 
@@ -166,7 +167,7 @@ export async function POST(request: Request) {
   if (uploadError) {
     // Image was generated but never actually delivered to the user — no
     // usable output, same as a generation failure.
-    if (shouldCharge) await refundGenerationUsage(supabase, user.id, POST_CREDIT_COST)
+    if (shouldCharge) await refundGenerationUsage(supabase, user.id, POST_CREDIT_COST, logId)
     return NextResponse.json(
       buildError(ErrorCodes.INTERNAL_ERROR, "Image generated but upload to storage failed.", uploadError.message),
       { status: 500 }
@@ -214,7 +215,7 @@ export async function POST(request: Request) {
   // above this block rather than silently continuing.
   if (saveImageError) {
     console.error("[ai/post-image/generate] generated_images insert failed:", saveImageError.message)
-    if (shouldCharge) await refundGenerationUsage(supabase, user.id, POST_CREDIT_COST)
+    if (shouldCharge) await refundGenerationUsage(supabase, user.id, POST_CREDIT_COST, logId)
     return NextResponse.json(
       buildError(ErrorCodes.INTERNAL_ERROR, "Image generated but couldn't be saved to your library.", saveImageError.message),
       { status: 500 }
@@ -234,8 +235,7 @@ export async function POST(request: Request) {
       .eq("content_project_id", contentProjectId)
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  await (supabase.from("ai_generation_logs") as any).insert({
+  await logGenerationOutcome(supabase, logId, {
     user_id: user.id, brand_id: brandId, feature: FEATURE, model: modelLabel,
     latency_ms: latencyMs, success: true,
   })

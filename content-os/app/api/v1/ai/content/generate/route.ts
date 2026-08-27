@@ -3,7 +3,7 @@ import { createClient } from "@/lib/supabase/server"
 import { generateContentSchema } from "@/lib/validations/ai"
 import { generateContent } from "@/lib/ai/content-generator"
 import { buildError, ErrorCodes } from "@/types/api"
-import { checkAndIncrementUsage, refundGenerationUsage } from "@/lib/usage/check-and-increment-usage"
+import { checkAndIncrementUsage, refundGenerationUsage, logGenerationOutcome } from "@/lib/usage/check-and-increment-usage"
 import { CONTENT_FORMAT_CREDIT_COSTS } from "@/lib/usage/credit-costs"
 import { captureServerEvent } from "@/lib/analytics/posthog"
 import { buildPatternNote } from "@/lib/ai/pattern-match"
@@ -65,11 +65,13 @@ export async function POST(request: Request) {
   // body parsing (was previously checked before the request body was even
   // read) so the format is actually known before charging for it.
   const cost = CONTENT_FORMAT_CREDIT_COSTS[format]
-  const usageCheck = await checkAndIncrementUsage(user.id, cost)
+  const feature = `content_${format}`
+  const usageCheck = await checkAndIncrementUsage(user.id, cost, feature)
   if (!usageCheck.ok) {
     const code = usageCheck.status === 429 ? ErrorCodes.USAGE_LIMIT_EXCEEDED : ErrorCodes.INTERNAL_ERROR
     return NextResponse.json(buildError(code, usageCheck.message), { status: usageCheck.status })
   }
+  const logId = usageCheck.logId
 
   const { data: brand } = await supabase.from("brands").select("*").eq("id", brandId).eq("user_id", user.id).single<BrandRow>()
   if (!brand) return NextResponse.json(buildError(ErrorCodes.BRAND_NOT_FOUND, "Brand not found."), { status: 404 })
@@ -93,13 +95,12 @@ export async function POST(request: Request) {
     result = await generateContent(brand, format, { product, platform, hookText, additionalContext, pastExamples })
   } catch (err) {
     console.error("[ai/content/generate] generation failed:", err)
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await (supabase.from("ai_generation_logs") as any).insert({
-      user_id: user.id, brand_id: brandId, feature: `content_${format}`, model: "meta/llama-3.1-70b-instruct",
+    await logGenerationOutcome(supabase, logId, {
+      user_id: user.id, brand_id: brandId, feature, model: "meta/llama-3.1-70b-instruct",
       latency_ms: Date.now() - startTime, success: false,
       error_message: err instanceof Error ? err.message : "Unknown error",
     })
-    await refundGenerationUsage(supabase, user.id, cost)
+    await refundGenerationUsage(supabase, user.id, cost, logId)
     return NextResponse.json(buildError(ErrorCodes.AI_GENERATION_FAILED, "AI generation failed. Please try again."), { status: 500 })
   }
 
@@ -151,9 +152,8 @@ export async function POST(request: Request) {
     console.error("[ai/content/generate] persist failed (non-fatal):", persistErr)
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  await (supabase.from("ai_generation_logs") as any).insert({
-    user_id: user.id, brand_id: brandId, feature: `content_${format}`, model: result.model,
+  await logGenerationOutcome(supabase, logId, {
+    user_id: user.id, brand_id: brandId, feature, model: result.model,
     prompt_tokens: result.usage?.prompt_tokens ?? null,
     completion_tokens: result.usage?.completion_tokens ?? null,
     total_tokens: result.usage?.total_tokens ?? null,

@@ -704,6 +704,13 @@ export type Database = {
           completion_tokens: number | null
           total_tokens: number | null
           cost_usd: number | null
+          // Credits actually charged for this generation (see
+          // supabase/migrations/045_credits_charged_log.sql) -- nullable
+          // since rows logged before that migration have no value.
+          // checkAndIncrementUsage sets this at charge time;
+          // refundGenerationUsage zeroes it back out on a failed
+          // generation so a refunded charge never counts as money spent.
+          credits_charged: number | null
           latency_ms: number | null
           success: boolean
           error_message: string | null
@@ -719,12 +726,25 @@ export type Database = {
           completion_tokens?: number | null
           total_tokens?: number | null
           cost_usd?: number | null
+          credits_charged?: number | null
           latency_ms?: number | null
           success?: boolean
           error_message?: string | null
           created_at?: string
         }
-        Update: never
+        Update: {
+          brand_id?: string | null
+          feature?: string
+          model?: string
+          prompt_tokens?: number | null
+          completion_tokens?: number | null
+          total_tokens?: number | null
+          cost_usd?: number | null
+          credits_charged?: number | null
+          latency_ms?: number | null
+          success?: boolean
+          error_message?: string | null
+        }
       }
       generated_images: {
         Row: {

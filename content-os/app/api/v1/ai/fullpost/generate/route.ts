@@ -6,7 +6,7 @@ import { generateContent } from "@/lib/ai/content-generator"
 import { generatePostCardHtml } from "@/lib/design/post-card-generator"
 import { mergeCaptionWithHookAndCta } from "@/lib/utils/caption-merge"
 import { buildError, ErrorCodes } from "@/types/api"
-import { checkAndIncrementUsage, refundGenerationUsage } from "@/lib/usage/check-and-increment-usage"
+import { checkAndIncrementUsage, refundGenerationUsage, logGenerationOutcome } from "@/lib/usage/check-and-increment-usage"
 import { CONTENT_FORMAT_CREDIT_COSTS } from "@/lib/usage/credit-costs"
 import { createPostImageSession } from "@/lib/usage/post-image-regenerate-session"
 import { fetchPastExamples } from "@/lib/ai/past-examples"
@@ -37,11 +37,13 @@ export async function POST(request: Request) {
   // before the request body was even read) so `format` is known before
   // charging for it.
   const cost = format === "social_post" ? 0 : CONTENT_FORMAT_CREDIT_COSTS[format]
-  const usageCheck = await checkAndIncrementUsage(user.id, cost)
+  const feature = `fullpost_${format}`
+  const usageCheck = await checkAndIncrementUsage(user.id, cost, feature)
   if (!usageCheck.ok) {
     const code = usageCheck.status === 429 ? ErrorCodes.USAGE_LIMIT_EXCEEDED : ErrorCodes.INTERNAL_ERROR
     return NextResponse.json(buildError(code, usageCheck.message), { status: usageCheck.status })
   }
+  const logId = usageCheck.logId
 
   const { data: brand } = await supabase.from("brands").select("*").eq("id", brandId).eq("user_id", user.id).single<BrandRow>()
   if (!brand) return NextResponse.json(buildError(ErrorCodes.BRAND_NOT_FOUND, "Brand not found."), { status: 404 })
@@ -289,11 +291,10 @@ export async function POST(request: Request) {
     // right after the response is written), so this still needs after()
     // rather than just dropping the await.
     after(async () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      await (supabase.from("ai_generation_logs") as any).insert({
+      await logGenerationOutcome(supabase, logId, {
         user_id: user.id,
         brand_id: brandId,
-        feature: `fullpost_${format}`,
+        feature,
         model: hookResult.model,
         latency_ms: Date.now() - startTime,
         success: true,
@@ -313,18 +314,17 @@ export async function POST(request: Request) {
     }, { status: 200 })
   } catch (err) {
     after(async () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      await (supabase.from("ai_generation_logs") as any).insert({
+      await logGenerationOutcome(supabase, logId, {
         user_id: user.id,
         brand_id: brandId,
-        feature: `fullpost_${format}`,
+        feature,
         model: "meta/llama-3.1-70b-instruct",
         latency_ms: Date.now() - startTime,
         success: false,
         error_message: err instanceof Error ? err.message : "Unknown error",
       })
     })
-    await refundGenerationUsage(supabase, user.id, cost)
+    await refundGenerationUsage(supabase, user.id, cost, logId)
     return NextResponse.json(
       buildError(ErrorCodes.AI_GENERATION_FAILED, "Full post generation failed. Please try again."),
       { status: 500 }

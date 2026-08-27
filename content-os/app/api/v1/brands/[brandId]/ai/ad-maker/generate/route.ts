@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server"
 import { createClient, createAdminClient } from "@/lib/supabase/server"
 import { buildError, ErrorCodes } from "@/types/api"
-import { checkAndIncrementUsage, refundGenerationUsage } from "@/lib/usage/check-and-increment-usage"
+import { checkAndIncrementUsage, refundGenerationUsage, logGenerationOutcome } from "@/lib/usage/check-and-increment-usage"
 import { AD_MAKER } from "@/lib/usage/credit-costs"
+
+const FEATURE = "ad_maker"
 import { generateAdMakerBackgroundSchema } from "@/lib/validations/ai"
 import { generateAdMakerBackground } from "@/lib/ai/ad-maker-background"
 import { isInternalUnlimited } from "@/lib/usage/is-internal-unlimited"
@@ -81,11 +83,12 @@ export async function POST(request: Request, { params }: RouteParams) {
   if (!parsed.success) return NextResponse.json(buildError(ErrorCodes.VALIDATION_ERROR, "Validation failed.", parsed.error.message), { status: 400 })
   const { scene, customScene, format } = parsed.data
 
-  const usageCheck = await checkAndIncrementUsage(user.id, AD_MAKER)
+  const usageCheck = await checkAndIncrementUsage(user.id, AD_MAKER, FEATURE)
   if (!usageCheck.ok) {
     const code = usageCheck.status === 429 ? ErrorCodes.USAGE_LIMIT_EXCEEDED : ErrorCodes.INTERNAL_ERROR
     return NextResponse.json(buildError(code, usageCheck.message), { status: usageCheck.status })
   }
+  const logId = usageCheck.logId
 
   // Determines the image provider (Free -> Pollinations, paid -> Flux) --
   // same lookup every other generation route uses.
@@ -117,12 +120,11 @@ export async function POST(request: Request, { params }: RouteParams) {
   if (successes.length === 0) {
     const firstFailure = results.find((r): r is Extract<(typeof results)[number], { success: false }> => !r.success)
     console.error(`[ai/ad-maker/generate] all ${VARIATION_COUNT} background variations failed after ${Date.now() - startTime}ms:`, firstFailure?.error)
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await (supabase.from("ai_generation_logs") as any).insert({
-      user_id: user.id, brand_id: brandId, feature: "ad_maker", model: "unknown",
+    await logGenerationOutcome(supabase, logId, {
+      user_id: user.id, brand_id: brandId, feature: FEATURE, model: "unknown",
       latency_ms: Date.now() - startTime, success: false, error_message: firstFailure?.error ?? "All variations failed",
     })
-    await refundGenerationUsage(supabase, user.id, AD_MAKER)
+    await refundGenerationUsage(supabase, user.id, AD_MAKER, logId)
     return NextResponse.json(buildError(ErrorCodes.AI_GENERATION_FAILED, "Couldn't generate a background. Please try again."), { status: 500 })
   }
 
@@ -148,7 +150,7 @@ export async function POST(request: Request, { params }: RouteParams) {
     // that generated but never actually made it to storage isn't usable
     // output either. Only fatal if NONE of the successfully-generated
     // variations could be uploaded.
-    await refundGenerationUsage(supabase, user.id, AD_MAKER)
+    await refundGenerationUsage(supabase, user.id, AD_MAKER, logId)
     return NextResponse.json(
       buildError(ErrorCodes.INTERNAL_ERROR, "Backgrounds generated but upload to storage failed."),
       { status: 500 }
@@ -158,9 +160,8 @@ export async function POST(request: Request, { params }: RouteParams) {
   const backgroundUrls = uploadedPaths.map((path) => admin.storage.from(BUCKET).getPublicUrl(path).data.publicUrl)
   const provider = successes[0]!.provider
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  await (supabase.from("ai_generation_logs") as any).insert({
-    user_id: user.id, brand_id: brandId, feature: "ad_maker", model: provider,
+  await logGenerationOutcome(supabase, logId, {
+    user_id: user.id, brand_id: brandId, feature: FEATURE, model: provider,
     latency_ms: Date.now() - startTime, success: true,
   })
 

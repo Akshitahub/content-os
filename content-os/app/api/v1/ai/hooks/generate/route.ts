@@ -3,8 +3,10 @@ import { createClient } from "@/lib/supabase/server"
 import { generateHooksSchema } from "@/lib/validations/ai"
 import { generateHooks } from "@/lib/ai/hooks-generator"
 import { buildError, ErrorCodes } from "@/types/api"
-import { checkAndIncrementUsage, refundGenerationUsage } from "@/lib/usage/check-and-increment-usage"
+import { checkAndIncrementUsage, refundGenerationUsage, logGenerationOutcome } from "@/lib/usage/check-and-increment-usage"
 import { HOOK_OR_CAPTION } from "@/lib/usage/credit-costs"
+
+const FEATURE = "hooks"
 import type { BrandRow, ProductRow } from "@/types/database"
 
 export async function POST(request: Request) {
@@ -21,11 +23,12 @@ export async function POST(request: Request) {
   const { data: { user }, error: authError } = await supabase.auth.getUser()
   if (authError || !user) return NextResponse.json(buildError(ErrorCodes.UNAUTHENTICATED, "You must be logged in."), { status: 401 })
 
-  const usageCheck = await checkAndIncrementUsage(user.id, HOOK_OR_CAPTION)
+  const usageCheck = await checkAndIncrementUsage(user.id, HOOK_OR_CAPTION, FEATURE)
   if (!usageCheck.ok) {
     const code = usageCheck.status === 429 ? ErrorCodes.USAGE_LIMIT_EXCEEDED : ErrorCodes.INTERNAL_ERROR
     return NextResponse.json(buildError(code, usageCheck.message), { status: usageCheck.status })
   }
+  const logId = usageCheck.logId
 
   let body: unknown
   try { body = await request.json() } catch {
@@ -56,13 +59,12 @@ export async function POST(request: Request) {
   } catch (err) {
     console.error("HOOKS GEN ERROR:", err)
     // Log failure
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await (supabase.from("ai_generation_logs") as any).insert({
-      user_id: user.id, brand_id: brandId, feature: "hooks", model: "meta/llama-3.1-70b-instruct",
+    await logGenerationOutcome(supabase, logId, {
+      user_id: user.id, brand_id: brandId, feature: FEATURE, model: "meta/llama-3.1-70b-instruct",
       latency_ms: Date.now() - startTime, success: false,
       error_message: err instanceof Error ? err.message : "Unknown error",
     })
-    await refundGenerationUsage(supabase, user.id, HOOK_OR_CAPTION)
+    await refundGenerationUsage(supabase, user.id, HOOK_OR_CAPTION, logId)
     return NextResponse.json(buildError(ErrorCodes.AI_GENERATION_FAILED, "AI generation failed. Please try again."), { status: 500 })
   }
 
@@ -95,9 +97,8 @@ export async function POST(request: Request) {
   const { data: savedHooks } = await (supabase.from("hooks") as any).insert(hookInserts).select()
 
   // Log success
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  await (supabase.from("ai_generation_logs") as any).insert({
-    user_id: user.id, brand_id: brandId, feature: "hooks", model: result.model,
+  await logGenerationOutcome(supabase, logId, {
+    user_id: user.id, brand_id: brandId, feature: FEATURE, model: result.model,
     prompt_tokens: result.usage?.prompt_tokens ?? null,
     completion_tokens: result.usage?.completion_tokens ?? null,
     total_tokens: result.usage?.total_tokens ?? null,

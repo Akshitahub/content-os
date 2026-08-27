@@ -83,11 +83,12 @@ export async function POST(request: Request) {
     return NextResponse.json(buildError(ErrorCodes.UNAUTHENTICATED, "You must be logged in."), { status: 401 })
   }
 
-  const usageCheck = await checkAndIncrementUsage(user.id, REPURPOSE)
+  const usageCheck = await checkAndIncrementUsage(user.id, REPURPOSE, "repurpose")
   if (!usageCheck.ok) {
     const code = usageCheck.status === 429 ? ErrorCodes.USAGE_LIMIT_EXCEEDED : ErrorCodes.INTERNAL_ERROR
     return NextResponse.json(buildError(code, usageCheck.message), { status: usageCheck.status })
   }
+  const logId = usageCheck.logId
 
   let body: unknown
   try { body = await request.json() } catch {
@@ -163,25 +164,25 @@ export async function POST(request: Request) {
       } catch {
         if (attempt === 1) {
           console.error("[ai/repurpose] JSON parse failed after retry. Raw:", lastRaw.slice(0, 500))
-          await refundGenerationUsage(supabase, user.id, REPURPOSE)
+          await refundGenerationUsage(supabase, user.id, REPURPOSE, logId)
           return NextResponse.json(buildError(ErrorCodes.AI_GENERATION_FAILED, "AI returned invalid JSON. Please try again."), { status: 500 })
         }
       }
     }
     if (!result) {
-      await refundGenerationUsage(supabase, user.id, REPURPOSE)
+      await refundGenerationUsage(supabase, user.id, REPURPOSE, logId)
       return NextResponse.json(buildError(ErrorCodes.AI_GENERATION_FAILED, "AI returned invalid JSON. Please try again."), { status: 500 })
     }
 
     if (!Array.isArray(result.hooks)) {
-      await refundGenerationUsage(supabase, user.id, REPURPOSE)
+      await refundGenerationUsage(supabase, user.id, REPURPOSE, logId)
       return NextResponse.json(buildError(ErrorCodes.AI_GENERATION_FAILED, "AI response malformed. Please try again."), { status: 500 })
     }
 
     return NextResponse.json({ data: result }, { status: 200 })
   } catch (err) {
     console.error("[ai/repurpose] error:", err)
-    await refundGenerationUsage(supabase, user.id, REPURPOSE)
+    await refundGenerationUsage(supabase, user.id, REPURPOSE, logId)
     const msg = err instanceof Error ? err.message : "Repurpose failed."
     return NextResponse.json(buildError(ErrorCodes.AI_GENERATION_FAILED, msg), { status: 500 })
   }

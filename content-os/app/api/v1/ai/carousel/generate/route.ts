@@ -183,11 +183,12 @@ export async function POST(request: Request) {
     return NextResponse.json(buildError(ErrorCodes.UNAUTHENTICATED, "You must be logged in."), { status: 401 })
   }
 
-  const usageCheck = await checkAndIncrementUsage(user.id, CAROUSEL)
+  const usageCheck = await checkAndIncrementUsage(user.id, CAROUSEL, "carousel")
   if (!usageCheck.ok) {
     const code = usageCheck.status === 429 ? ErrorCodes.USAGE_LIMIT_EXCEEDED : ErrorCodes.INTERNAL_ERROR
     return NextResponse.json(buildError(code, usageCheck.message), { status: usageCheck.status })
   }
+  const logId = usageCheck.logId
 
   let body: unknown
   try { body = await request.json() } catch {
@@ -236,7 +237,7 @@ export async function POST(request: Request) {
 
     const d = data as Record<string, unknown>
     if (!Array.isArray(d.slides) || d.slides.length === 0) {
-      await refundGenerationUsage(supabase, user.id, CAROUSEL)
+      await refundGenerationUsage(supabase, user.id, CAROUSEL, logId)
       return NextResponse.json(buildError(ErrorCodes.AI_GENERATION_FAILED, "Carousel generation failed. Please try again."), { status: 500 })
     }
 
@@ -278,7 +279,7 @@ export async function POST(request: Request) {
     // very first response.
     return NextResponse.json({ data: { ...d, slides: mergedSlides, id: carouselId } }, { status: 200 })
   } catch (err) {
-    await refundGenerationUsage(supabase, user.id, CAROUSEL)
+    await refundGenerationUsage(supabase, user.id, CAROUSEL, logId)
     const msg = err instanceof Error ? err.message : "Generation failed"
     return NextResponse.json(buildError(ErrorCodes.AI_GENERATION_FAILED, msg), { status: 500 })
   }

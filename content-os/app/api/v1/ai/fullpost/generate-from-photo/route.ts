@@ -4,7 +4,7 @@ import { generateFullPostFromPhotoSchema } from "@/lib/validations/ai"
 import { analyzePhotoForPost } from "@/lib/ai/vision"
 import { uploadMediaToStorage } from "@/lib/storage/upload-media"
 import { buildError, ErrorCodes } from "@/types/api"
-import { checkAndIncrementUsage, refundGenerationUsage } from "@/lib/usage/check-and-increment-usage"
+import { checkAndIncrementUsage, refundGenerationUsage, logGenerationOutcome } from "@/lib/usage/check-and-increment-usage"
 import { PHOTO_CAPTION } from "@/lib/usage/credit-costs"
 import type { BrandRow } from "@/types/database"
 
@@ -36,15 +36,16 @@ export async function POST(request: Request) {
 
   const { brandId, imageDataUrl, additionalContext } = parsed.data
 
-  const usageCheck = await checkAndIncrementUsage(user.id, PHOTO_CAPTION)
+  const usageCheck = await checkAndIncrementUsage(user.id, PHOTO_CAPTION, FEATURE)
   if (!usageCheck.ok) {
     const code = usageCheck.status === 429 ? ErrorCodes.USAGE_LIMIT_EXCEEDED : ErrorCodes.INTERNAL_ERROR
     return NextResponse.json(buildError(code, usageCheck.message), { status: usageCheck.status })
   }
+  const logId = usageCheck.logId
 
   const { data: brand } = await supabase.from("brands").select("*").eq("id", brandId).eq("user_id", user.id).single<BrandRow>()
   if (!brand) {
-    await refundGenerationUsage(supabase, user.id, PHOTO_CAPTION)
+    await refundGenerationUsage(supabase, user.id, PHOTO_CAPTION, logId)
     return NextResponse.json(buildError(ErrorCodes.BRAND_NOT_FOUND, "Brand not found."), { status: 404 })
   }
 
@@ -59,7 +60,7 @@ export async function POST(request: Request) {
   // already uses for exactly that reason.
   const uploadResult = await uploadMediaToStorage({ kind: "dataUrl", dataUrl: imageDataUrl }, `${brandId}/uploaded-posts`)
   if ("error" in uploadResult) {
-    await refundGenerationUsage(supabase, user.id, PHOTO_CAPTION)
+    await refundGenerationUsage(supabase, user.id, PHOTO_CAPTION, logId)
     return NextResponse.json(buildError(ErrorCodes.VALIDATION_ERROR, "Couldn't upload your photo.", uploadResult.error), { status: 400 })
   }
   const photoUrl = uploadResult.publicUrl
@@ -153,8 +154,7 @@ export async function POST(request: Request) {
     if (imageInsertError) throw new Error(`Failed to save image: ${imageInsertError.message}`)
 
     after(async () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      await (supabase.from("ai_generation_logs") as any).insert({
+      await logGenerationOutcome(supabase, logId, {
         user_id: user.id, brand_id: brandId, feature: FEATURE, model,
         latency_ms: Date.now() - startTime, success: true,
       })
@@ -174,14 +174,13 @@ export async function POST(request: Request) {
   } catch (err) {
     console.error("[ai/fullpost/generate-from-photo] failed:", err)
     after(async () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      await (supabase.from("ai_generation_logs") as any).insert({
+      await logGenerationOutcome(supabase, logId, {
         user_id: user.id, brand_id: brandId, feature: FEATURE, model: "qwen/qwen3.6-27b",
         latency_ms: Date.now() - startTime, success: false,
         error_message: err instanceof Error ? err.message : "Unknown error",
       })
     })
-    await refundGenerationUsage(supabase, user.id, PHOTO_CAPTION)
+    await refundGenerationUsage(supabase, user.id, PHOTO_CAPTION, logId)
     return NextResponse.json(buildError(ErrorCodes.AI_GENERATION_FAILED, "Couldn't generate a caption for your photo. Please try again."), { status: 500 })
   }
 }

@@ -18,6 +18,7 @@ import type { BrandRow, CalendarEntryRow } from "@/types/database"
 import type { UserPlan, Platform, GeneratedCaption, CarouselContent } from "@/types/app"
 
 const IMAGE_BUCKET = "brand-images"
+const FEATURE = "calendar_regenerate"
 // Instagram carousels need at least 2 images to be publishable — same
 // minimum lib/ai/fastlane.ts and app/api/v1/calendar/schedule-post/route.ts
 // enforce.
@@ -85,11 +86,12 @@ export async function POST(request: Request, { params }: RouteParams) {
   }
 
   const cost = entry.content_type === "carousel" ? CAROUSEL_CREDIT_COST : POST_CREDIT_COST
-  const usageCheck = await checkAndIncrementUsage(user.id, cost)
+  const usageCheck = await checkAndIncrementUsage(user.id, cost, FEATURE)
   if (!usageCheck.ok) {
     const code = usageCheck.status === 429 ? ErrorCodes.USAGE_LIMIT_EXCEEDED : ErrorCodes.INTERNAL_ERROR
     return NextResponse.json(buildError(code, usageCheck.message), { status: usageCheck.status })
   }
+  const logId = usageCheck.logId
 
   const platform = resolvePlatform(entry.platform)
   // calendar_entries has no product_id column -- Autopilot never recorded
@@ -231,7 +233,7 @@ export async function POST(request: Request, { params }: RouteParams) {
     return NextResponse.json({ data: updated }, { status: 200 })
   } catch (err) {
     console.error(`[calendar/regenerate] entry ${entryId} failed:`, err instanceof Error ? err.message : err)
-    await refundGenerationUsage(supabase, user.id, cost)
+    await refundGenerationUsage(supabase, user.id, cost, logId)
     return NextResponse.json(buildError(ErrorCodes.AI_GENERATION_FAILED, "Regeneration failed. Please try again."), { status: 500 })
   }
 }

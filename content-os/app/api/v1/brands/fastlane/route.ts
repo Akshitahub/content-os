@@ -58,6 +58,7 @@ export async function POST(request: Request) {
   // guarantee that a failed run doesn't cost you credits or a monthly
   // Autopilot run.
   let chargedCost = 0
+  let chargeLogId: string | null = null
   let runCountIncremented = false
   const isUnlimited = isInternalUnlimited(user.id)
 
@@ -179,7 +180,7 @@ export async function POST(request: Request) {
     // route in this app already does it (e.g. app/api/v1/ai/fullpost/
     // generate/route.ts) — this route was the odd one out.
     if (!isUnlimited) {
-      const usageCheck = await checkAndIncrementUsage(user.id, estimatedCost)
+      const usageCheck = await checkAndIncrementUsage(user.id, estimatedCost, "autopilot_slot")
       if (!usageCheck.ok) {
         // trial_expired mirrors run_cap_reached's shape below — a
         // dedicated discriminator the client checks before falling
@@ -199,6 +200,7 @@ export async function POST(request: Request) {
         )
       }
       chargedCost = estimatedCost
+      chargeLogId = usageCheck.logId
     }
 
     // Run-count isn't part of checkAndIncrementUsage's shared credit pool
@@ -282,7 +284,7 @@ export async function POST(request: Request) {
     // executeFastlane succeeded; now needs an explicit revert since
     // charging moved earlier, upfront, to close the race window).
     if (chargedCost > 0) {
-      await refundGenerationUsage(supabase, user.id, chargedCost).catch(() => {})
+      await refundGenerationUsage(supabase, user.id, chargedCost, chargeLogId).catch(() => {})
     }
     if (runCountIncremented) {
       // Best-effort, not atomic -- acceptable here: this is the rare
