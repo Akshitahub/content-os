@@ -21,9 +21,24 @@ export async function createZernioProfile(name: string): Promise<ZernioProfile> 
     body: JSON.stringify({ name, description: `SocioPosts brand: ${name}` }),
   })
   const json = await res.json()
+
+  // Zernio enforces unique profile names per account. This fires when an
+  // earlier attempt created the profile at Zernio but failed at a later
+  // step before it got persisted to social_connections (e.g. a request
+  // that failed on getZernioConnectUrl right after) — our DB never learns
+  // that profile exists, so every retry keeps trying to create a duplicate
+  // and keeps colliding with it. Zernio's own conflict response hands back
+  // the existing profile's id, so recover by reusing it instead of
+  // treating this as fatal — the caller's normal "existing profile" path
+  // then persists it, self-healing the gap for next time.
+  if (res.status === 409 && json?.code === "profile_name_conflict" && json?.details?.existingProfileId) {
+    console.error(`[zernio-client] createZernioProfile: name conflict for "${name}", reusing existingProfileId ${json.details.existingProfileId}`)
+    return { _id: json.details.existingProfileId, name }
+  }
+
   if (!res.ok || !json._id) {
     console.error(`[zernio-client] createZernioProfile failed (status ${res.status}):`, JSON.stringify(json))
-    throw new Error(json?.message ?? `Failed to create Zernio profile (${res.status})`)
+    throw new Error(json?.message ?? json?.error ?? `Failed to create Zernio profile (${res.status})`)
   }
   return json
 }
@@ -50,7 +65,7 @@ export async function getZernioConnectUrl(
     // connect-URL failure), so the raw shape is needed to tell a genuine
     // Zernio-side rejection apart from us reading the wrong field name.
     console.error(`[zernio-client] getZernioConnectUrl(${platform}) failed (status ${res.status}):`, JSON.stringify(json))
-    throw new Error(json?.message ?? `Failed to start Zernio connect flow (${res.status})`)
+    throw new Error(json?.message ?? json?.error ?? `Failed to start Zernio connect flow (${res.status})`)
   }
   return json
 }
@@ -108,9 +123,9 @@ export async function publishViaZernio(
     const postId: string | undefined = json?.post?._id ?? json?._id
 
     if (!res.ok || !postId) {
-      const message = json?.message ?? `Zernio publish failed (${res.status})`
+      const message = json?.message ?? json?.error ?? `Zernio publish failed (${res.status})`
       const retryable = res.status === 429 || res.status >= 500
-      console.error(`[zernio-client] publish to ${platform} failed:`, message)
+      console.error(`[zernio-client] publish to ${platform} failed (status ${res.status}):`, JSON.stringify(json))
       return { success: false, error: message, retryable }
     }
 
@@ -137,7 +152,8 @@ export async function getZernioPinterestBoards(accountId: string): Promise<Zerni
   const json = await res.json()
   const boards = Array.isArray(json) ? json : Array.isArray(json?.boards) ? json.boards : null
   if (!res.ok || !boards) {
-    throw new Error(json?.message ?? `Failed to fetch Pinterest boards (${res.status})`)
+    console.error(`[zernio-client] getZernioPinterestBoards failed (status ${res.status}):`, JSON.stringify(json))
+    throw new Error(json?.message ?? json?.error ?? `Failed to fetch Pinterest boards (${res.status})`)
   }
   return boards
 }
