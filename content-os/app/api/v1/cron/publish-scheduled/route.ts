@@ -147,8 +147,9 @@ async function processEntry(admin: AdminClient, entry: CalendarEntryRow): Promis
       const noun = isStory ? "story slide" : "carousel image"
       const hostedUrls: string[] = []
       for (let i = 0; i < sourceUrls.length; i++) {
+        const sourceUrl = sourceUrls[i]!
         const uploadResult = await uploadMediaToStorage(
-          { kind: "remoteUrl", url: sourceUrls[i]! },
+          sourceUrl.startsWith("data:") ? { kind: "dataUrl", dataUrl: sourceUrl } : { kind: "remoteUrl", url: sourceUrl },
           `${entry.brand_id}/${entry.id}-${i}`
         )
         if ("error" in uploadResult) {
@@ -181,7 +182,7 @@ async function processEntry(admin: AdminClient, entry: CalendarEntryRow): Promis
       }
 
       const uploadResult = await uploadMediaToStorage(
-        { kind: "remoteUrl", url: sourceUrl },
+        sourceUrl.startsWith("data:") ? { kind: "dataUrl", dataUrl: sourceUrl } : { kind: "remoteUrl", url: sourceUrl },
         `${entry.brand_id}/${entry.id}`
       )
       if ("error" in uploadResult) {
