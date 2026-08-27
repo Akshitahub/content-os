@@ -10,6 +10,7 @@ import { BrandSelector } from "@/components/layout/BrandSelector"
 import { PLAN_LIMITS } from "@/types/app"
 import type { UserPlan } from "@/types/app"
 import { useUserCredits } from "@/hooks/useUserCredits"
+import { useCreditsBreakdown } from "@/hooks/useCreditsBreakdown"
 
 interface HeaderProps {
   userEmail?: string
@@ -21,6 +22,9 @@ export function Header({ userEmail, userName, onMenuClick }: HeaderProps) {
   const router = useRouter()
   const [dropdownOpen, setDropdownOpen] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
+  const [breakdownOpen, setBreakdownOpen] = useState(false)
+  const breakdownRef = useRef<HTMLDivElement>(null)
+  const { data: breakdownData, isLoading: breakdownLoading } = useCreditsBreakdown(breakdownOpen)
 
   // Fetched live (shared cache with every other credit display — see
   // hooks/useUserCredits.ts) instead of a server-rendered prop, which
@@ -58,6 +62,9 @@ export function Header({ userEmail, userName, onMenuClick }: HeaderProps) {
     function handleClickOutside(e: MouseEvent) {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
         setDropdownOpen(false)
+      }
+      if (breakdownRef.current && !breakdownRef.current.contains(e.target as Node)) {
+        setBreakdownOpen(false)
       }
     }
     document.addEventListener("mousedown", handleClickOutside)
@@ -98,24 +105,56 @@ export function Header({ userEmail, userName, onMenuClick }: HeaderProps) {
               Trial ended &middot; Subscribe to continue &rarr;
             </Link>
           ) : (
-            <div className="flex flex-col items-end gap-0.5">
-              <span className={`text-[10px] font-medium leading-none ${creditColor}`}>
-                {trialing ? `Trial · ${trialDaysLeft}d left` : planLabel} &middot; {remaining} credits remaining
-                {topupBalance > 0 && ` (${topupBalance} top-up)`}
-              </span>
-              <div className="h-1 w-20 rounded-full bg-muted overflow-hidden">
-                <div
-                  className={`h-full rounded-full transition-all ${barColor}`}
-                  style={{ width: `${usagePct}%` }}
-                />
-              </div>
+            <div className="relative" ref={breakdownRef}>
+              <button
+                type="button"
+                onClick={() => setBreakdownOpen((v) => !v)}
+                className="flex flex-col items-end gap-0.5 rounded-md px-1 py-0.5 -mx-1 hover:bg-muted transition-colors"
+              >
+                <span className={`text-[10px] font-medium leading-none ${creditColor}`}>
+                  {trialing ? `Trial · ${trialDaysLeft}d left` : planLabel} &middot; {remaining} credits remaining
+                  {topupBalance > 0 && ` (${topupBalance} top-up)`}
+                </span>
+                <div className="h-1 w-20 rounded-full bg-muted overflow-hidden">
+                  <div
+                    className={`h-full rounded-full transition-all ${barColor}`}
+                    style={{ width: `${usagePct}%` }}
+                  />
+                </div>
+              </button>
               {showUpgradeNudge && (
                 <Link
                   href="/settings#plan-usage"
-                  className="text-[10px] font-medium leading-none text-violet-600 hover:text-violet-700 hover:underline"
+                  className="block text-right text-[10px] font-medium leading-none text-violet-600 hover:text-violet-700 hover:underline"
                 >
                   Low on credits &middot; Upgrade &rarr;
                 </Link>
+              )}
+
+              {breakdownOpen && (
+                <div className="absolute right-0 top-full mt-1.5 w-64 rounded-lg border bg-card shadow-lg z-50 overflow-hidden">
+                  <div className="px-3 py-2 border-b">
+                    <p className="text-xs font-semibold">Where your credits went</p>
+                    <p className="text-[10px] text-muted-foreground">This billing period</p>
+                  </div>
+                  <div className="max-h-64 overflow-y-auto py-1">
+                    {breakdownLoading ? (
+                      <p className="px-3 py-3 text-xs text-muted-foreground">Loading…</p>
+                    ) : !breakdownData || breakdownData.breakdown.length === 0 ? (
+                      <p className="px-3 py-3 text-xs text-muted-foreground">No credits used yet this period.</p>
+                    ) : (
+                      breakdownData.breakdown.map((entry) => (
+                        <div key={entry.label} className="flex items-center justify-between px-3 py-1.5">
+                          <span className="text-xs text-foreground">{entry.label}</span>
+                          <span className="text-xs text-muted-foreground">
+                            {entry.credits} credit{entry.credits !== 1 ? "s" : ""}
+                            <span className="text-muted-foreground/60"> &middot; {entry.count} generation{entry.count !== 1 ? "s" : ""}</span>
+                          </span>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
               )}
             </div>
           )}
