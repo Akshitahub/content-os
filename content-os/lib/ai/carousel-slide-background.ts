@@ -20,7 +20,23 @@ function resolveBrandColors(brand: BrandRow): string[] {
   return colors
 }
 
-function buildSlidePrompt(headline: string, vibe: Vibe, colors: string[]): string {
+// Confirmed live (2026-08-27), not guessed: generated several real
+// carousels and found hallucinated on-image text specifically on CTA
+// slides (e.g. a background that rendered "Upgrade Your Commute" and
+// "with Noise" as real, legible typography), while hook/cover slides
+// across the same sample stayed clean. The mechanism is this function's
+// own `evokes the mood of: "${headline}"` line: a hook's headline reads
+// as a topic/concept ("5 Morning Habits for Productivity"), but a CTA
+// slide's headline is quoted here as-is and is itself a literal branded
+// marketing tagline ("Upgrade Your Commute with Noise") — quoting that
+// directly into the prompt reads far more like "design a poster around
+// this exact line" than "evoke a mood," which a diffusion model is much
+// more prone to resolving by rendering the quoted phrase as literal
+// on-image type, even against the existing "no text" guard below. `role`
+// was already threaded from the client (hook vs cta) but never actually
+// used to change the prompt -- it only gated which plans could call this
+// at all.
+function buildSlidePrompt(headline: string, vibe: Vibe, colors: string[], role: "hook" | "cta"): string {
   // Descriptive color names, not raw hex — diffusion models reliably follow
   // "a vibrant orange-red" but ignore "#FF5733" outright, confirmed via real
   // testing (see docs/research/seedream-5-lite-evaluation.md).
@@ -29,8 +45,15 @@ function buildSlidePrompt(headline: string, vibe: Vibe, colors: string[]): strin
     "abstract atmospheric background image for a social media carousel slide",
     VIBE_BACKGROUND_STYLES[vibe],
     colorNames.length > 0 ? `color palette inspired by ${colorNames.join(" and ")}` : "",
-    `evokes the mood of: "${headline}"`,
+    // Hook: the headline is topic-shaped, safe to quote for mood grounding.
+    // CTA: never quote the literal tagline -- describe the FEELING a
+    // closing/call-to-action slide wants instead of the exact branded
+    // sentence, which is what was actually getting rendered as text.
+    role === "hook"
+      ? `evokes the mood of: "${headline}"`
+      : "evokes a warm, inviting, confident closing/call-to-action mood",
     "no text, no words, no letters, no numbers, no logos anywhere in the image",
+    role === "cta" ? "no rendered call-to-action text, no marketing taglines, no slogans, no typography of any kind" : "",
     "no literal photos of people, products, or objects — purely abstract shapes, gradients, and textures",
     "leave calm, uncluttered negative space so text stays readable when overlaid on top",
     "keep the composition's key visual interest centered in the frame — avoid placing it in the outer ~10% margin on any side",
@@ -53,6 +76,9 @@ export interface GenerateCarouselSlideBackgroundOptions {
   brand: BrandRow
   plan: UserPlan
   isInternalUnlimitedUser: boolean
+  /** Which slide this background is for -- see buildSlidePrompt's comment
+   * for why this changes the prompt, not just which plans can call this. */
+  role: "hook" | "cta"
 }
 
 /**
@@ -70,7 +96,7 @@ export async function generateCarouselSlideBackground(
   const brandColors = resolveBrandColors(options.brand)
   const colors = brandColors.length > 0 ? brandColors : VIBE_FALLBACK_COLORS[vibe]
 
-  const prompt = buildSlidePrompt(options.headline, vibe, colors)
+  const prompt = buildSlidePrompt(options.headline, vibe, colors, options.role)
   const fallbackPrompt = simplifySlidePrompt(vibe)
 
   return fetchBackgroundImage(prompt, fallbackPrompt, options.plan, options.isInternalUnlimitedUser)

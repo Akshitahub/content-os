@@ -76,6 +76,7 @@ export async function POST(request: Request) {
     brand,
     plan,
     isInternalUnlimitedUser: isUnlimited,
+    role,
   })
   const latencyMs = Date.now() - startTime
 
