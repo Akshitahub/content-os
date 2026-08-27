@@ -22,6 +22,7 @@ export async function createZernioProfile(name: string): Promise<ZernioProfile> 
   })
   const json = await res.json()
   if (!res.ok || !json._id) {
+    console.error(`[zernio-client] createZernioProfile failed (status ${res.status}):`, JSON.stringify(json))
     throw new Error(json?.message ?? `Failed to create Zernio profile (${res.status})`)
   }
   return json
@@ -44,6 +45,11 @@ export async function getZernioConnectUrl(
   const res = await fetch(url.toString(), { headers: zernioHeaders() })
   const json = await res.json()
   if (!res.ok || !json.authUrl) {
+    // Log the full body — a bare .message string has been misleading here
+    // before (e.g. a profile-creation confirmation message surfacing on a
+    // connect-URL failure), so the raw shape is needed to tell a genuine
+    // Zernio-side rejection apart from us reading the wrong field name.
+    console.error(`[zernio-client] getZernioConnectUrl(${platform}) failed (status ${res.status}):`, JSON.stringify(json))
     throw new Error(json?.message ?? `Failed to start Zernio connect flow (${res.status})`)
   }
   return json

@@ -76,7 +76,24 @@ export async function GET(request: Request) {
       .limit(1)
       .maybeSingle()
 
-    const profileId: string = existing?.zernio_profile_id ?? (await createZernioProfile(brand.name))._id
+    let profileId: string
+    if (existing?.zernio_profile_id) {
+      profileId = existing.zernio_profile_id
+    } else {
+      profileId = (await createZernioProfile(brand.name))._id
+      // Persist immediately so a retry (e.g. if getZernioConnectUrl below
+      // fails) reuses this profile instead of creating a new orphaned one at
+      // Zernio on every attempt. is_active stays false — the real connection
+      // (zernio_account_id) is only written once OAuth actually completes.
+      const { error: profileUpsertError } = await socialConnectionsTable(supabase)
+        .upsert(
+          { brand_id: brandId, platform: "pinterest", zernio_profile_id: profileId, access_token: null, token_expires_at: null, is_active: false },
+          { onConflict: "brand_id,platform" }
+        )
+      if (profileUpsertError) {
+        console.error("[social/pinterest/connect] failed to persist zernio_profile_id:", profileUpsertError)
+      }
+    }
 
     const { authUrl } = await getZernioConnectUrl("pinterest", profileId, redirectUri)
 
