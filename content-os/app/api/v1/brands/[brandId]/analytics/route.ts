@@ -34,14 +34,14 @@ export async function GET(_request: Request, { params }: RouteParams) {
     .eq("is_active", true)
     .maybeSingle<SocialConnectionRow>()
 
-  if (!connection || !connection.ig_business_account_id) {
+  if (!connection || !connection.zernio_account_id) {
     return NextResponse.json(
       buildError(ErrorCodes.VALIDATION_ERROR, "Connect Instagram first to see analytics."),
       { status: 400 }
     )
   }
 
-  const insightsResult = await getAccountInsights(connection.ig_business_account_id, connection.access_token)
+  const insightsResult = await getAccountInsights(connection.zernio_account_id)
   if (!insightsResult.success) {
     console.error(`[analytics] insights fetch failed for brand ${brandId}:`, insightsResult.error)
     return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, insightsResult.error), { status: 500 })

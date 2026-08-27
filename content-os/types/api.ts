@@ -45,6 +45,7 @@ export const ErrorCodes = {
   PRODUCT_NOT_FOUND: "PRODUCT_NOT_FOUND",
   AI_GENERATION_FAILED: "AI_GENERATION_FAILED",
   USAGE_LIMIT_EXCEEDED: "USAGE_LIMIT_EXCEEDED",
+  FEATURE_UNAVAILABLE: "FEATURE_UNAVAILABLE",
 } as const
 
 export type ErrorCode = typeof ErrorCodes[keyof typeof ErrorCodes]

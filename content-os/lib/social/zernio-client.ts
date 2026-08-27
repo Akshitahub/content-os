@@ -157,3 +157,123 @@ export async function getZernioPinterestBoards(accountId: string): Promise<Zerni
   }
   return boards
 }
+
+// ─── Analytics (replaces direct Meta Graph API calls) ─────────────────────
+//
+// Zernio-connected accounts never give this app a usable Meta access
+// token (Zernio holds it on its own side), so account analytics has to go
+// through Zernio's own analytics endpoints instead of graph.facebook.com.
+// Confirmed against docs.zernio.com/analytics/*: reach/engagement live
+// under account-insights, follower growth needs the separate
+// follower-history endpoint (Meta dropped follower_count from Graph API
+// v22+'s /insights, so Zernio built a dedicated replacement), and there is
+// no audience-demographics equivalent anywhere in Zernio's API — that gap
+// is real, not a gap in this integration.
+
+export interface ZernioInsightTimeSeriesPoint {
+  date?: string
+  value?: number
+}
+
+export interface ZernioInsightMetric {
+  total?: number
+  values?: ZernioInsightTimeSeriesPoint[]
+}
+
+export interface ZernioAnalyticsResponse {
+  success?: boolean
+  metrics?: Record<string, ZernioInsightMetric>
+  unavailableMetrics?: { metric?: string; reason?: string; message?: string }[]
+}
+
+type ZernioAnalyticsFetchResult =
+  | { ok: true; data: ZernioAnalyticsResponse }
+  | { ok: false; error: string }
+
+async function fetchZernioAnalytics(path: string, params: Record<string, string>): Promise<ZernioAnalyticsFetchResult> {
+  const url = new URL(`${ZERNIO_API_BASE}${path}`)
+  for (const [key, value] of Object.entries(params)) url.searchParams.set(key, value)
+
+  try {
+    const res = await fetch(url.toString(), { headers: zernioHeaders() })
+    const json = await res.json()
+    if (!res.ok) {
+      console.error(`[zernio-client] ${path} failed (status ${res.status}):`, JSON.stringify(json))
+      return { ok: false, error: json?.message ?? json?.error ?? `Request failed (${res.status})` }
+    }
+    return { ok: true, data: json }
+  } catch (err) {
+    console.error(`[zernio-client] ${path} unexpected error:`, err instanceof Error ? err.message : err)
+    return { ok: false, error: "Unexpected error reaching Zernio." }
+  }
+}
+
+/** metrics is a comma-separated list (e.g. "reach" or "accounts_engaged,total_interactions").
+ * metricType applies to the whole request — Zernio only supports time_series for "reach";
+ * every other metric here is total_value only. since/until are YYYY-MM-DD, not unix timestamps. */
+export async function getZernioInstagramAccountInsights(
+  accountId: string,
+  metrics: string,
+  metricType: "time_series" | "total_value",
+  since: string,
+  until: string
+): Promise<ZernioAnalyticsFetchResult> {
+  return fetchZernioAnalytics("/analytics/instagram/account-insights", { accountId, metrics, metricType, since, until })
+}
+
+export async function getZernioInstagramFollowerHistory(
+  accountId: string,
+  since: string,
+  until: string
+): Promise<ZernioAnalyticsFetchResult> {
+  return fetchZernioAnalytics("/analytics/instagram/follower-history", {
+    accountId,
+    metrics: "follower_count",
+    metricType: "time_series",
+    since,
+    until,
+  })
+}
+
+export interface ZernioPostAnalyticsItem {
+  content?: string
+  publishedAt?: string
+  platformPostUrl?: string
+  mediaType?: string
+  analytics?: { likes?: number; comments?: number; reach?: number }
+}
+
+/** Lists an account's posts with per-post analytics — source=all includes
+ * both posts published through Zernio and ones synced from the platform
+ * directly, so this isn't limited to only what this app itself published. */
+export async function listZernioPostAnalytics(
+  accountId: string,
+  platform: string,
+  limit: number
+): Promise<{ ok: true; items: ZernioPostAnalyticsItem[] } | { ok: false; error: string }> {
+  const url = new URL(`${ZERNIO_API_BASE}/analytics`)
+  url.searchParams.set("accountId", accountId)
+  url.searchParams.set("platform", platform)
+  url.searchParams.set("source", "all")
+  url.searchParams.set("limit", String(limit))
+  url.searchParams.set("sortBy", "publishedAt")
+  url.searchParams.set("order", "desc")
+
+  try {
+    const res = await fetch(url.toString(), { headers: zernioHeaders() })
+    const json = await res.json()
+    if (!res.ok) {
+      console.error(`[zernio-client] listZernioPostAnalytics failed (status ${res.status}):`, JSON.stringify(json))
+      return { ok: false, error: json?.message ?? json?.error ?? `Request failed (${res.status})` }
+    }
+    const items = Array.isArray(json) ? json : Array.isArray(json?.data) ? json.data : Array.isArray(json?.posts) ? json.posts : null
+    if (!items) {
+      console.error("[zernio-client] listZernioPostAnalytics: unexpected response shape:", JSON.stringify(json).slice(0, 500))
+      return { ok: false, error: "Unexpected response shape from Zernio." }
+    }
+    return { ok: true, items }
+  } catch (err) {
+    console.error("[zernio-client] listZernioPostAnalytics unexpected error:", err instanceof Error ? err.message : err)
+    return { ok: false, error: "Unexpected error reaching Zernio." }
+  }
+}

@@ -1,53 +1,9 @@
 "use client"
 
 import { useState, useCallback, useEffect } from "react"
-import { Loader2, AlertCircle, TrendingUp, ExternalLink, Flame, Wand2, ChevronDown } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
 import Link from "next/link"
 import { isApiError } from "@/types/api"
-import { cn } from "@/lib/utils"
-
-const MAX_COMPETITORS = 5
-
-interface ViralPost {
-  permalink: string
-  caption: string | null
-  likeCount: number
-  commentsCount: number
-  timestamp: string
-  engagement: number
-  multipleOfAverage: number
-}
-
-interface AccountMetrics {
-  handle: string
-  followersCount: number
-  mediaCount: number
-  sampledPostCount: number
-  postsPerWeek: number | null
-  avgEngagementRate: number | null
-}
-
-interface CompetitorMetrics extends AccountMetrics {
-  viralPosts: ViralPost[]
-}
-
-interface CompetitorResult {
-  handle: string
-  candidateName?: string
-  source?: "brand_field" | "ai_guess"
-  success: boolean
-  error: string | null
-  profile: { username: string; followersCount: number; mediaCount: number; biography: string | null; website: string | null } | null
-  metrics: CompetitorMetrics | null
-  analysis: string | null
-}
-
-interface AnalysisResponse {
-  own: AccountMetrics | null
-  competitors: CompetitorResult[]
-}
 
 interface ConnectionStatus {
   connected: boolean
@@ -55,186 +11,7 @@ interface ConnectionStatus {
   instagram_connected: boolean
 }
 
-function formatRate(rate: number | null): string {
-  return rate !== null ? `${(rate * 100).toFixed(2)}%` : "Not enough data"
-}
-
-function formatFrequency(perWeek: number | null): string {
-  return perWeek !== null ? `${perWeek} posts/week` : "Not enough data"
-}
-
-function CompetitorCard({ result }: { result: CompetitorResult }) {
-  const [showAnalysis, setShowAnalysis] = useState(false)
-
-  if (!result.success || !result.metrics || !result.profile) {
-    return (
-      <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4">
-        <p className="text-sm font-semibold">@{result.handle}</p>
-        <p className="mt-1 flex items-start gap-1.5 text-xs text-destructive">
-          <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-          {result.error ?? "Lookup failed."}
-        </p>
-      </div>
-    )
-  }
-
-  const { profile, metrics, analysis } = result
-
-  return (
-    <div className="rounded-lg border bg-card p-4 space-y-3">
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2 min-w-0">
-          <p className="text-sm font-semibold truncate">@{profile.username}</p>
-          {result.source === "brand_field" && (
-            <span className="shrink-0 rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-semibold text-blue-700">
-              From your competitor list
-            </span>
-          )}
-          {result.source === "ai_guess" && (
-            <span className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
-              AI-suggested match
-            </span>
-          )}
-        </div>
-        <span className="shrink-0 text-xs text-muted-foreground">{profile.followersCount.toLocaleString()} followers</span>
-      </div>
-      {profile.biography && <p className="text-xs text-muted-foreground line-clamp-2">{profile.biography}</p>}
-
-      <div className="grid grid-cols-2 gap-3 text-xs">
-        <div className="rounded-md bg-muted/50 p-2.5">
-          <p className="text-muted-foreground">Posting frequency</p>
-          <p className="mt-0.5 font-semibold">{formatFrequency(metrics.postsPerWeek)}</p>
-        </div>
-        <div className="rounded-md bg-muted/50 p-2.5">
-          <p className="text-muted-foreground">Avg. engagement rate</p>
-          <p className="mt-0.5 font-semibold">{formatRate(metrics.avgEngagementRate)}</p>
-        </div>
-      </div>
-      <p className="text-[11px] text-muted-foreground">
-        Based on {metrics.sampledPostCount} recent posts sampled via Instagram Business Discovery.
-      </p>
-
-      {metrics.viralPosts.length > 0 && (
-        <div className="space-y-1.5">
-          <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            <Flame className="h-3.5 w-3.5 text-orange-500" /> Viral posts (2x+ their average)
-          </p>
-          <ul className="space-y-1.5">
-            {metrics.viralPosts.slice(0, 5).map((post) => (
-              <li key={post.permalink} className="rounded-md border px-2.5 py-2 text-xs">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="font-medium">{post.multipleOfAverage}x avg ({post.likeCount} likes, {post.commentsCount} comments)</span>
-                  {post.permalink && (
-                    <a href={post.permalink} target="_blank" rel="noopener noreferrer" className="shrink-0 text-muted-foreground hover:text-foreground">
-                      <ExternalLink className="h-3.5 w-3.5" />
-                    </a>
-                  )}
-                </div>
-                {post.caption && <p className="mt-1 line-clamp-2 text-muted-foreground">{post.caption}</p>}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      {analysis && (
-        <div className="rounded-md bg-primary/5 border border-primary/10 p-3">
-          <button
-            type="button"
-            onClick={() => setShowAnalysis((v) => !v)}
-            className="flex w-full items-center justify-between gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground"
-          >
-            <span className="flex items-center gap-1.5">
-              <TrendingUp className="h-3.5 w-3.5" /> Content &amp; gap analysis
-            </span>
-            <span className="flex items-center gap-1 normal-case tracking-normal text-muted-foreground/80">
-              {showAnalysis ? "Hide details" : "See details"}
-              <ChevronDown className={cn("h-3.5 w-3.5 transition-transform duration-200", showAnalysis && "rotate-180")} />
-            </span>
-          </button>
-          {showAnalysis && (
-            <p className="mt-2 whitespace-pre-wrap text-xs leading-relaxed">{analysis}</p>
-          )}
-        </div>
-      )}
-    </div>
-  )
-}
-
-function AutoDiscoverSection({
-  brandId,
-  onResult,
-}: {
-  brandId: string
-  onResult: (data: AnalysisResponse) => void
-}) {
-  const [loading, setLoading] = useState(false)
-  const [successMsg, setSuccessMsg] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
-
-  const handleAutoDiscover = useCallback(async () => {
-    setLoading(true)
-    setSuccessMsg(null)
-    setError(null)
-    try {
-      const res = await fetch(`/api/v1/brands/${brandId}/competitor-analysis/auto-discover`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ count: MAX_COMPETITORS }),
-      })
-      const json: unknown = await res.json()
-      if (!res.ok || isApiError(json)) {
-        const msg = isApiError(json) ? json.error.message : "Auto-discovery failed."
-        setError(msg)
-        return
-      }
-      const data = (json as { data: AnalysisResponse }).data
-      onResult(data)
-      setSuccessMsg(
-        data.competitors.length > 0
-          ? `Found ${data.competitors.length} verified competitor${data.competitors.length !== 1 ? "s" : ""} and analyzed them.`
-          : "Couldn't verify any competitor Instagram accounts. Add real competitor names in your brand's Competitors field (in brand settings) and try again."
-      )
-    } catch {
-      setError("Network error. Please try again.")
-    } finally {
-      setLoading(false)
-    }
-  }, [brandId, onResult])
-
-  return (
-    <div className="rounded-lg border border-violet-200 bg-violet-50/30 p-4 space-y-2">
-      <p className="flex items-center gap-2 text-sm font-semibold text-violet-900">
-        <Wand2 className="h-4 w-4 text-violet-600" /> Auto-discover competitors
-      </p>
-      <p className="text-xs text-muted-foreground">
-        Uses your saved competitors first, and verifies each has a real public Instagram account before showing it.
-      </p>
-      <Button
-        size="sm"
-        onClick={handleAutoDiscover}
-        disabled={loading}
-        className="w-full bg-violet-600 hover:bg-violet-700"
-      >
-        {loading ? (
-          <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Searching…</>
-        ) : (
-          <><Wand2 className="h-3.5 w-3.5 mr-1.5" /> Find competitors for me</>
-        )}
-      </Button>
-      {loading && (
-        <p className="animate-pulse text-xs text-muted-foreground text-center">
-          Verifying accounts and generating insights. This can take up to a minute.
-        </p>
-      )}
-      {successMsg && <p className="text-xs font-medium text-green-700">{successMsg}</p>}
-      {error && <p className="text-xs text-destructive">{error}</p>}
-    </div>
-  )
-}
-
 export function CompetitorAnalysis({ brandId }: { brandId: string }) {
-  const [result, setResult] = useState<AnalysisResponse | null>(null)
   const [connection, setConnection] = useState<ConnectionStatus | null>(null)
   const [checkingConnection, setCheckingConnection] = useState(false)
   const [connectionError, setConnectionError] = useState(false)
@@ -261,10 +38,6 @@ export function CompetitorAnalysis({ brandId }: { brandId: string }) {
     checkConnection()
   }, [checkConnection])
 
-  const handleAutoDiscoverResult = useCallback((data: AnalysisResponse) => {
-    setResult(data)
-  }, [])
-
   return (
     <Card>
       <CardHeader>
@@ -272,8 +45,8 @@ export function CompetitorAnalysis({ brandId }: { brandId: string }) {
       </CardHeader>
       <CardContent className="space-y-4">
         <p className="text-xs text-muted-foreground">
-          Uses Instagram&apos;s public Business Discovery API: real follower counts, posting frequency, and
-          engagement rates for any public Instagram Business/Creator account. Requires Instagram connected above.
+          Looks up real follower counts, posting frequency, and engagement rates for public Instagram Business/
+          Creator accounts you don&apos;t own.
         </p>
 
         {checkingConnection && (
@@ -305,26 +78,21 @@ export function CompetitorAnalysis({ brandId }: { brandId: string }) {
           </div>
         )}
 
+        {/* Instagram's Business Discovery API — the only way to look up an
+            account you don't own — requires a direct Meta access token.
+            Zernio (the unified API this app's Instagram connection now goes
+            through) doesn't expose an equivalent: confirmed against its full
+            API reference, no endpoint exists for looking up accounts outside
+            the connected profile. This isn't a "not connected" state — it's
+            genuinely unavailable regardless of connection status, so it gets
+            its own message rather than reusing the connect prompt above. */}
         {!checkingConnection && !connectionError && connection?.instagram_connected && (
-          <AutoDiscoverSection brandId={brandId} onResult={handleAutoDiscoverResult} />
-        )}
-
-        {result && (
-          <div className="space-y-3">
-            {result.own ? (
-              <div className="rounded-md border px-3 py-2 text-xs">
-                <span className="font-semibold">Your baseline (@{result.own.handle}): </span>
-                {formatFrequency(result.own.postsPerWeek)} · {formatRate(result.own.avgEngagementRate)} avg engagement
-              </div>
-            ) : (
-              <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-                No baseline data available for your own account yet. Comparisons below are competitor-only.
-              </div>
-            )}
-
-            {result.competitors.map((c) => (
-              <CompetitorCard key={c.handle} result={c} />
-            ))}
+          <div className="rounded-md border bg-muted/30 p-3">
+            <p className="text-sm font-medium">Competitor analysis isn&apos;t currently available.</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              This feature depended on a Meta-specific capability our current Instagram integration doesn&apos;t
+              support. We&apos;re looking into alternatives.
+            </p>
           </div>
         )}
       </CardContent>
