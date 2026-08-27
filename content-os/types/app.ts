@@ -213,8 +213,7 @@ export interface AutopilotTier {
 
 // `price` is in whole rupees (₹/mo) — the single source Razorpay checkout
 // and every UI price display should read from, rather than hand-copying
-// the number. `influencerOutreach` gates the influencer discovery/outreach
-// feature (Pro and Agency only). `carouselCtaAiBackground` gates the
+// the number. `carouselCtaAiBackground` gates the
 // AI-generated background image on a carousel's closing (CTA) slide —
 // Starter and above; the opening (hook) slide gets one on every plan
 // unconditionally, so it has no flag of its own here.
@@ -247,10 +246,10 @@ export interface AutopilotTier {
 // every gate in this table (brands/products/features), the trial's own
 // reduced credit cap is enforced separately in
 // lib/usage/check-and-increment-usage.ts.
-export const PLAN_LIMITS: Record<UserPlan, { price: number; annualPrice: number; generations: number; brands: number; products: number; zernioSocialPlatforms: boolean; reelsPerWeek: number; autopilot: AutopilotTier; influencerOutreach: boolean; carouselCtaAiBackground: boolean }> = {
-  starter: { price: 499,  annualPrice: 5389,   generations: 150,  brands: 2, products: 30,   zernioSocialPlatforms: false, reelsPerWeek: 0, autopilot: { days: 14, slots: 14, creditCost: 74,  maxRunsPerMonth: 1 }, influencerOutreach: false, carouselCtaAiBackground: true },
-  pro:     { price: 1999, annualPrice: 21589,  generations: 600,  brands: 3, products: 200,  zernioSocialPlatforms: true,  reelsPerWeek: 1, autopilot: { days: 30, slots: 30, creditCost: 162, maxRunsPerMonth: 3 }, influencerOutreach: true,  carouselCtaAiBackground: true },
-  agency:  { price: 4999, annualPrice: 53989,  generations: 1600, brands: 5, products: 1000, zernioSocialPlatforms: true,  reelsPerWeek: 4, autopilot: { days: 30, slots: 30, creditCost: 162, maxRunsPerMonth: 4 }, influencerOutreach: true,  carouselCtaAiBackground: true },
+export const PLAN_LIMITS: Record<UserPlan, { price: number; annualPrice: number; generations: number; brands: number; products: number; zernioSocialPlatforms: boolean; reelsPerWeek: number; autopilot: AutopilotTier; carouselCtaAiBackground: boolean }> = {
+  starter: { price: 499,  annualPrice: 5389,   generations: 150,  brands: 2, products: 30,   zernioSocialPlatforms: false, reelsPerWeek: 0, autopilot: { days: 14, slots: 14, creditCost: 74,  maxRunsPerMonth: 1 }, carouselCtaAiBackground: true },
+  pro:     { price: 1999, annualPrice: 21589,  generations: 600,  brands: 3, products: 200,  zernioSocialPlatforms: true,  reelsPerWeek: 1, autopilot: { days: 30, slots: 30, creditCost: 162, maxRunsPerMonth: 3 }, carouselCtaAiBackground: true },
+  agency:  { price: 4999, annualPrice: 53989,  generations: 1600, brands: 5, products: 1000, zernioSocialPlatforms: true,  reelsPerWeek: 4, autopilot: { days: 30, slots: 30, creditCost: 162, maxRunsPerMonth: 4 }, carouselCtaAiBackground: true },
 }
 
 // ─── Trending context ────────────────────────────────────────────────────────
@@ -291,18 +290,3 @@ export interface FastlaneResult {
   errors: string[]
   created_entries: CalendarEntryRow[]
 }
-
-// ─── Influencer types ────────────────────────────────────────────────────────
-
-export type InfluencerStatus =
-  | "discovered"
-  | "contacted"
-  | "replied"
-  | "negotiating"
-  | "partnered"
-  | "rejected"
-  | "completed"
-
-export type PartnershipStatus = "draft" | "sent" | "active" | "completed" | "cancelled"
-export type OutreachChannel = "dm" | "email" | "whatsapp"
-export type InfluencerPlatform = "instagram" | "tiktok" | "youtube" | "linkedin"

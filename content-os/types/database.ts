@@ -513,186 +513,6 @@ export type Database = {
           updated_at?: string
         }
       }
-      influencers: {
-        Row: {
-          id: string
-          brand_id: string
-          platform: "instagram" | "tiktok" | "youtube" | "linkedin"
-          handle: string
-          full_name: string | null
-          bio: string | null
-          email: string | null
-          follower_count: number | null
-          following_count: number | null
-          post_count: number | null
-          avg_engagement_rate: number | null
-          profile_url: string | null
-          avatar_url: string | null
-          niche: string | null
-          location: string | null
-          fit_score: number | null
-          fit_reasoning: string | null
-          raw_scraped_data: Record<string, unknown>
-          discovery_type: "influencer_partner" | "prospect_customer"
-          status: "discovered" | "contacted" | "replied" | "negotiating" | "partnered" | "rejected" | "completed"
-          notes: string | null
-          created_at: string
-          updated_at: string
-        }
-        Insert: {
-          id?: string
-          brand_id: string
-          platform: "instagram" | "tiktok" | "youtube" | "linkedin"
-          handle: string
-          full_name?: string | null
-          bio?: string | null
-          email?: string | null
-          follower_count?: number | null
-          following_count?: number | null
-          post_count?: number | null
-          avg_engagement_rate?: number | null
-          profile_url?: string | null
-          avatar_url?: string | null
-          niche?: string | null
-          location?: string | null
-          fit_score?: number | null
-          fit_reasoning?: string | null
-          raw_scraped_data?: Record<string, unknown>
-          discovery_type?: "influencer_partner" | "prospect_customer"
-          status?: "discovered" | "contacted" | "replied" | "negotiating" | "partnered" | "rejected" | "completed"
-          notes?: string | null
-          created_at?: string
-          updated_at?: string
-        }
-        Update: {
-          handle?: string
-          full_name?: string | null
-          bio?: string | null
-          email?: string | null
-          follower_count?: number | null
-          following_count?: number | null
-          post_count?: number | null
-          avg_engagement_rate?: number | null
-          profile_url?: string | null
-          avatar_url?: string | null
-          niche?: string | null
-          location?: string | null
-          fit_score?: number | null
-          fit_reasoning?: string | null
-          raw_scraped_data?: Record<string, unknown>
-          discovery_type?: "influencer_partner" | "prospect_customer"
-          status?: "discovered" | "contacted" | "replied" | "negotiating" | "partnered" | "rejected" | "completed"
-          notes?: string | null
-          updated_at?: string
-        }
-      }
-      influencer_partnerships: {
-        Row: {
-          id: string
-          influencer_id: string
-          brand_id: string
-          campaign_name: string
-          campaign_brief: string | null
-          deliverables: string[]
-          talking_points: string[]
-          dos: string[]
-          donts: string[]
-          key_hashtags: string[]
-          compensation_type: "paid" | "gifted" | "affiliate" | "collab" | null
-          compensation_amount: number | null
-          currency: string
-          timeline_start: string | null
-          timeline_end: string | null
-          status: "draft" | "sent" | "active" | "completed" | "cancelled"
-          actual_reach: number | null
-          actual_engagement: number | null
-          conversions: number | null
-          roi_notes: string | null
-          created_at: string
-          updated_at: string
-        }
-        Insert: {
-          id?: string
-          influencer_id: string
-          brand_id: string
-          campaign_name: string
-          campaign_brief?: string | null
-          deliverables?: string[]
-          talking_points?: string[]
-          dos?: string[]
-          donts?: string[]
-          key_hashtags?: string[]
-          compensation_type?: "paid" | "gifted" | "affiliate" | "collab" | null
-          compensation_amount?: number | null
-          currency?: string
-          timeline_start?: string | null
-          timeline_end?: string | null
-          status?: "draft" | "sent" | "active" | "completed" | "cancelled"
-          actual_reach?: number | null
-          actual_engagement?: number | null
-          conversions?: number | null
-          roi_notes?: string | null
-          created_at?: string
-          updated_at?: string
-        }
-        Update: {
-          campaign_name?: string
-          campaign_brief?: string | null
-          deliverables?: string[]
-          talking_points?: string[]
-          dos?: string[]
-          donts?: string[]
-          key_hashtags?: string[]
-          compensation_type?: "paid" | "gifted" | "affiliate" | "collab" | null
-          compensation_amount?: number | null
-          currency?: string
-          timeline_start?: string | null
-          timeline_end?: string | null
-          status?: "draft" | "sent" | "active" | "completed" | "cancelled"
-          actual_reach?: number | null
-          actual_engagement?: number | null
-          conversions?: number | null
-          roi_notes?: string | null
-          updated_at?: string
-        }
-      }
-      outreach_messages: {
-        Row: {
-          id: string
-          influencer_id: string
-          brand_id: string
-          channel: "dm" | "email" | "whatsapp"
-          subject: string | null
-          message_text: string
-          tone: string | null
-          sent_at: string | null
-          replied_at: string | null
-          reply_text: string | null
-          created_at: string
-        }
-        Insert: {
-          id?: string
-          influencer_id: string
-          brand_id: string
-          channel: "dm" | "email" | "whatsapp"
-          subject?: string | null
-          message_text: string
-          tone?: string | null
-          sent_at?: string | null
-          replied_at?: string | null
-          reply_text?: string | null
-          created_at?: string
-        }
-        Update: {
-          channel?: "dm" | "email" | "whatsapp"
-          subject?: string | null
-          message_text?: string
-          tone?: string | null
-          sent_at?: string | null
-          replied_at?: string | null
-          reply_text?: string | null
-        }
-      }
       ai_generation_logs: {
         Row: {
           id: string
@@ -1330,9 +1150,6 @@ export type CalendarEntryRow = Database["public"]["Tables"]["calendar_entries"][
 export type AIGenerationLogRow = Database["public"]["Tables"]["ai_generation_logs"]["Row"]
 export type GeneratedImageRow = Database["public"]["Tables"]["generated_images"]["Row"]
 export type ImageGenerationAttemptRow = Database["public"]["Tables"]["image_generation_attempts"]["Row"]
-export type InfluencerRow = Database["public"]["Tables"]["influencers"]["Row"]
-export type InfluencerPartnershipRow = Database["public"]["Tables"]["influencer_partnerships"]["Row"]
-export type OutreachMessageRow = Database["public"]["Tables"]["outreach_messages"]["Row"]
 export type ReelScriptRow = Database["public"]["Tables"]["reel_scripts"]["Row"]
 export type CarouselRow = Database["public"]["Tables"]["carousels"]["Row"]
 export type AdCopyRow = Database["public"]["Tables"]["ad_copies"]["Row"]
@@ -1360,9 +1177,6 @@ export type CalendarEntryInsert = Database["public"]["Tables"]["calendar_entries
 export type AIGenerationLogInsert = Database["public"]["Tables"]["ai_generation_logs"]["Insert"]
 export type GeneratedImageInsert = Database["public"]["Tables"]["generated_images"]["Insert"]
 export type ImageGenerationAttemptInsert = Database["public"]["Tables"]["image_generation_attempts"]["Insert"]
-export type InfluencerInsert = Database["public"]["Tables"]["influencers"]["Insert"]
-export type InfluencerPartnershipInsert = Database["public"]["Tables"]["influencer_partnerships"]["Insert"]
-export type OutreachMessageInsert = Database["public"]["Tables"]["outreach_messages"]["Insert"]
 export type ReelScriptInsert = Database["public"]["Tables"]["reel_scripts"]["Insert"]
 export type CarouselInsert = Database["public"]["Tables"]["carousels"]["Insert"]
 export type AdCopyInsert = Database["public"]["Tables"]["ad_copies"]["Insert"]

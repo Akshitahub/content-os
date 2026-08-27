@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { useCallback, useState, useEffect } from "react"
-import { Zap, Bookmark, Calendar, Layers, Copy, Check, Sparkles, Users, TrendingUp, TrendingDown, ArrowRight } from "lucide-react"
+import { Zap, Bookmark, Calendar, Layers, Copy, Check, Sparkles, TrendingUp, TrendingDown, ArrowRight } from "lucide-react"
 import type { CalendarEntryRow } from "@/types/database"
 import { STATUS_COLORS } from "@/lib/design/constants"
 import { PlatformIcon } from "@/components/shared/PlatformIcon"
@@ -45,7 +45,6 @@ const QUICK_ACTIONS = [
   { href: "fastlane", label: "Autopilot", sub: "Plan a month in one click", icon: Zap, color: "text-violet-600", bg: "from-violet-500/20 to-violet-500/5", ring: "hover:border-violet-300", hoverShadow: "hover:shadow-violet-100" },
   { href: "generate", label: "Create", sub: "Hooks, posts, carousels & more", icon: Sparkles, color: "text-blue-600", bg: "from-blue-500/20 to-blue-500/5", ring: "hover:border-blue-300", hoverShadow: "hover:shadow-blue-100" },
   { href: "calendar", label: "Calendar", sub: "See what's scheduled", icon: Calendar, color: "text-green-600", bg: "from-green-500/20 to-green-500/5", ring: "hover:border-green-300", hoverShadow: "hover:shadow-green-100" },
-  { href: "influencers", label: "Creators", sub: "Find & reach out to influencers", icon: Users, color: "text-amber-600", bg: "from-amber-500/20 to-amber-500/5", ring: "hover:border-amber-300", hoverShadow: "hover:shadow-amber-100" },
 ] as const
 
 export function DashboardStats({

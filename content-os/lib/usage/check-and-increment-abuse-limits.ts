@@ -6,13 +6,12 @@ export type AbuseLimitCheckResult =
 
 const DAY_MS = 24 * 60 * 60 * 1000
 
-// Generous on purpose — these exist to bound automated abuse (storage-fill,
-// spam-relay via outreach email), not to constrain a real heavy user's
-// normal daily activity. Neither action costs a generation credit (that's
-// the existing checkAndIncrementUsage system, scoped to AI generation cost),
-// so without a limit here there was nothing bounding call frequency at all.
+// Generous on purpose — exists to bound automated abuse (storage-fill via
+// repeated scheduling calls), not to constrain a real heavy user's normal
+// daily activity. Doesn't cost a generation credit (that's the existing
+// checkAndIncrementUsage system, scoped to AI generation cost), so without
+// a limit here there was nothing bounding call frequency at all.
 const SCHEDULE_POST_DAILY_LIMIT = 100
-const OUTREACH_EMAIL_DAILY_LIMIT = 50
 // Generous — covers legitimate onboarding usage of importing multiple
 // brand/product URLs, while still bounding automated abuse of the two
 // AI extraction routes (each call fetches an arbitrary URL and hits an AI
@@ -78,21 +77,6 @@ export async function checkAndIncrementScheduleUsage(userId: string): Promise<Ab
     "schedule_post_count_reset_at",
     SCHEDULE_POST_DAILY_LIMIT,
     `You've reached today's limit of ${SCHEDULE_POST_DAILY_LIMIT} scheduled posts. Try again tomorrow.`
-  )
-}
-
-/** Bounds how many outreach emails a user can send per day — the target
- * address is user-supplied and unverified, so without a limit this app's
- * own email-sending reputation could be used to spam or phish arbitrary
- * addresses. */
-export async function checkAndIncrementOutreachEmailUsage(userId: string): Promise<AbuseLimitCheckResult> {
-  return checkAndIncrementDailyCounter(
-    userId,
-    "outreach_email_count_today, outreach_email_count_reset_at",
-    "outreach_email_count_today",
-    "outreach_email_count_reset_at",
-    OUTREACH_EMAIL_DAILY_LIMIT,
-    `You've reached today's limit of ${OUTREACH_EMAIL_DAILY_LIMIT} outreach emails. Try again tomorrow.`
   )
 }
 

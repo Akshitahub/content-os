@@ -1,5 +1,5 @@
 import Link from "next/link"
-import { Globe, Zap, Sparkles, Star, ArrowRight, Check, Gem, Leaf, Shirt, Home, Film, LayoutGrid, Mail, Handshake, Plane } from "lucide-react"
+import { Globe, Zap, Sparkles, Star, ArrowRight, Check, Gem, Leaf, Shirt, Home, Film, LayoutGrid, Mail, Plane } from "lucide-react"
 import { createClient } from "@/lib/supabase/server"
 import { ScrollNavHandler } from "@/components/landing/ScrollNavHandler"
 import { LiveDemo } from "@/components/landing/LiveDemo"
@@ -225,7 +225,6 @@ export default async function RootPage() {
                 },
                 { title: "Carousels", desc: "Slide-by-slide content plans for educational and product carousels that actually get saved.", Icon: LayoutGrid },
                 { title: "Email Sequences", desc: "Welcome, nurture, and launch sequences written in your brand's tone, not a generic template.", Icon: Mail },
-                { title: "Influencer Outreach", desc: "Personalized DM and email pitches for collaborations, tailored to each creator's niche.", Icon: Handshake },
                 { title: "Autopilot ✈️", desc: "Our flagship: paste your URL, get 30 days of planned, ready-to-post content instantly.", Icon: Plane, highlight: true },
               ].map(({ title, desc, Icon, highlight, comingSoon }) => (
                 <div key={title} className={`rounded-2xl p-6 transition-all hover:scale-[1.01] ${highlight ? "border border-violet-500/30 bg-violet-950/40" : "border border-white/5 bg-white/5"}`}>

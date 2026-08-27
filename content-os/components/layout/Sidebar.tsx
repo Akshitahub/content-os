@@ -4,7 +4,7 @@ import { useState } from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import {
-  Home, Sparkles, Bookmark, Calendar, Zap, Users, Package,
+  Home, Sparkles, Bookmark, Calendar, Zap, Package,
   Briefcase, Settings, HelpCircle, ChevronDown, X, Plus,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
@@ -255,16 +255,6 @@ export function Sidebar({ isOpen = false, onClose }: SidebarProps) {
               onClose={onClose}
               chipBg="bg-amber-500/10"
               chipColor="text-amber-500"
-              faded={!activeBrandId}
-            />
-            <NavItem
-              href={brandHref("/influencers")}
-              label="Creators"
-              icon={Users}
-              isActive={brandActive("/influencers")}
-              onClose={onClose}
-              chipBg="bg-teal-500/10"
-              chipColor="text-teal-500"
               faded={!activeBrandId}
             />
             <NavItem

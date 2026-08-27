@@ -20,7 +20,7 @@ export default function TermsPage() {
       </Section>
 
       <Section title="2. Description of Service">
-        <p>SocioPosts is an AI-powered content generation platform that helps ecommerce brands create hooks, captions, reel scripts, carousels, and other marketing content. The Service includes the Fastlane content planner, influencer discovery tools, brand management features, and related capabilities.</p>
+        <p>SocioPosts is an AI-powered content generation platform that helps ecommerce brands create hooks, captions, reel scripts, carousels, and other marketing content. The Service includes the Fastlane content planner, brand management features, and related capabilities.</p>
       </Section>
 
       <Section title="3. Eligibility">
