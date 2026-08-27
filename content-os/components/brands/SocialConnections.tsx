@@ -4,8 +4,9 @@ import { useState, useCallback, useEffect } from "react"
 import { useSearchParams, useRouter, usePathname } from "next/navigation"
 import Link from "next/link"
 import { FaInstagram, FaThreads, FaPinterest, FaLinkedin, FaYoutube, FaXTwitter } from "react-icons/fa6"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import type { IconType } from "react-icons"
 import { Button } from "@/components/ui/button"
+import { cn } from "@/lib/utils"
 import { isApiError } from "@/types/api"
 import { PLAN_LIMITS, type UserPlan } from "@/types/app"
 
@@ -33,6 +34,18 @@ const ERROR_MESSAGES: Record<string, string> = {
   no_boards: "No Pinterest board was found for your account. Create a board first, then try again.",
   server_error: "Something went wrong connecting your account. Please try again.",
   plan_restricted: "This platform is available on Pro and Agency plans. Upgrade to connect it.",
+}
+
+interface PlatformTile {
+  key: string
+  label: string
+  Icon: IconType
+  iconColor: string
+  connected: boolean
+  handle: string | null
+  description: string
+  connectHref: string
+  showDisconnect: boolean
 }
 
 export function SocialConnections({ brandId }: { brandId: string }) {
@@ -181,6 +194,75 @@ export function SocialConnections({ brandId }: { brandId: string }) {
     }
   }, [brandId])
 
+  const platforms: PlatformTile[] = [
+    {
+      key: "instagram",
+      label: "Instagram",
+      Icon: FaInstagram,
+      iconColor: "#E1306C",
+      connected: !!status?.connected,
+      handle: status?.connected ? `@${status.ig_username ?? "unknown"}` : null,
+      description: "Connect an Instagram Business or Creator account to schedule and publish posts there.",
+      connectHref: `/api/v1/social/instagram/connect?brandId=${brandId}`,
+      showDisconnect: true,
+    },
+    {
+      key: "threads",
+      label: "Threads",
+      Icon: FaThreads,
+      iconColor: "#000000",
+      connected: !!status?.threads_connected,
+      handle: status?.threads_connected ? `@${status.threads_username ?? "unknown"}` : null,
+      description: "Connect Threads to schedule and publish posts there.",
+      connectHref: `/api/v1/social/threads/connect?brandId=${brandId}`,
+      showDisconnect: false,
+    },
+    {
+      key: "pinterest",
+      label: "Pinterest",
+      Icon: FaPinterest,
+      iconColor: "#E60023",
+      connected: !!status?.pinterest_connected,
+      handle: status?.pinterest_connected ? `@${status.pinterest_username ?? "unknown"}` : null,
+      description: "Connect Pinterest to schedule and publish pins there.",
+      connectHref: `/api/v1/social/pinterest/connect?brandId=${brandId}`,
+      showDisconnect: false,
+    },
+    {
+      key: "linkedin",
+      label: "LinkedIn",
+      Icon: FaLinkedin,
+      iconColor: "#0A66C2",
+      connected: !!status?.linkedin_connected,
+      handle: status?.linkedin_connected ? (status.linkedin_username ?? "Connected") : null,
+      description: "Connect LinkedIn to schedule and publish posts there.",
+      connectHref: `/api/v1/social/linkedin/connect?brandId=${brandId}`,
+      showDisconnect: false,
+    },
+    {
+      key: "youtube",
+      label: "YouTube",
+      Icon: FaYoutube,
+      iconColor: "#FF0000",
+      connected: !!status?.youtube_connected,
+      handle: status?.youtube_connected ? (status.youtube_channel_name ?? "Connected") : null,
+      description: "Connect YouTube to schedule video uploads there.",
+      connectHref: `/api/v1/social/youtube/connect?brandId=${brandId}`,
+      showDisconnect: false,
+    },
+    {
+      key: "twitter",
+      label: "Twitter / X",
+      Icon: FaXTwitter,
+      iconColor: "#000000",
+      connected: !!status?.twitter_connected,
+      handle: status?.twitter_connected ? (status.twitter_username ?? "Connected") : null,
+      description: "Connect Twitter/X to schedule and publish posts there.",
+      connectHref: `/api/v1/social/twitter/connect?brandId=${brandId}`,
+      showDisconnect: false,
+    },
+  ]
+
   return (
     <div className="space-y-4">
       {banner && (
@@ -195,325 +277,110 @@ export function SocialConnections({ brandId }: { brandId: string }) {
         </div>
       )}
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-sm flex items-center gap-2">
-            <FaInstagram className="h-5 w-5" style={{ color: "#E1306C" }} />
-            Instagram
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {loading ? (
-            <p className="text-sm text-muted-foreground">Checking connection status…</p>
-          ) : status?.connected ? (
-            <div className="space-y-3">
-              <div className="flex items-center justify-between rounded-md border px-4 py-3">
-                <div>
-                  <p className="text-sm font-medium">@{status.ig_username ?? "unknown"}</p>
-                  {status.connected_at && (
-                    <p className="text-xs text-muted-foreground">
-                      Connected {new Date(status.connected_at).toLocaleDateString()}
-                    </p>
-                  )}
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+        {platforms.map((platform) => {
+          const gated = !platform.connected && !hasZernioAccess
+          const isInstagramDisconnecting = platform.showDisconnect && confirmDisconnect
+
+          return (
+            <div
+              key={platform.key}
+              className="flex flex-col gap-3 rounded-lg border bg-card p-4 shadow-sm"
+            >
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex min-w-0 items-center gap-2">
+                  <platform.Icon className="h-4 w-4 flex-shrink-0" style={{ color: platform.iconColor }} />
+                  <span className="truncate text-sm font-medium">{platform.label}</span>
                 </div>
-                <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-semibold text-green-700">
-                  Connected
-                </span>
+                <span
+                  className={cn(
+                    "h-2.5 w-2.5 flex-shrink-0 rounded-full",
+                    loading
+                      ? "bg-muted-foreground/20"
+                      : platform.connected
+                        ? "bg-green-500"
+                        : gated
+                          ? "bg-amber-400"
+                          : "bg-muted-foreground/30"
+                  )}
+                  title={loading ? "Checking…" : platform.connected ? "Connected" : gated ? "Upgrade required" : "Not connected"}
+                />
               </div>
 
-              {!confirmDisconnect ? (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="text-destructive hover:text-destructive"
-                  onClick={() => setConfirmDisconnect(true)}
-                >
-                  Disconnect
-                </Button>
-              ) : (
-                <div className="flex items-center gap-3 rounded-md border border-destructive/40 bg-destructive/5 p-3">
-                  <p className="text-sm text-muted-foreground">Disconnect Instagram?</p>
-                  <Button
-                    variant="destructive"
-                    size="sm"
-                    disabled={disconnecting}
-                    onClick={handleDisconnect}
-                  >
-                    {disconnecting ? "Disconnecting…" : "Yes, disconnect"}
-                  </Button>
-                  <Button variant="ghost" size="sm" onClick={() => setConfirmDisconnect(false)}>
-                    Cancel
-                  </Button>
+              {loading ? (
+                <p className="text-xs text-muted-foreground">Checking…</p>
+              ) : platform.connected ? (
+                <p className="truncate text-xs text-muted-foreground">{platform.handle}</p>
+              ) : gated ? (
+                <div className="flex items-center gap-1.5">
+                  <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800">
+                    Pro
+                  </span>
+                  <span className="truncate text-xs text-amber-700">Upgrade to connect</span>
                 </div>
+              ) : (
+                <p className="line-clamp-2 text-xs text-muted-foreground">{platform.description}</p>
+              )}
+
+              <div className="mt-auto">
+                {loading ? null : platform.connected ? (
+                  platform.showDisconnect ? (
+                    isInstagramDisconnecting ? (
+                      <div className="flex flex-col gap-1.5 rounded-md border border-destructive/40 bg-destructive/5 p-2">
+                        <p className="text-xs text-muted-foreground">Disconnect Instagram?</p>
+                        <div className="flex gap-1.5">
+                          <Button
+                            variant="destructive"
+                            size="sm"
+                            className="h-7 flex-1 px-2 text-xs"
+                            disabled={disconnecting}
+                            onClick={handleDisconnect}
+                          >
+                            {disconnecting ? "…" : "Yes"}
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 flex-1 px-2 text-xs"
+                            onClick={() => setConfirmDisconnect(false)}
+                          >
+                            Cancel
+                          </Button>
+                        </div>
+                      </div>
+                    ) : (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 w-full justify-start px-2 text-xs text-muted-foreground hover:text-destructive"
+                        onClick={() => setConfirmDisconnect(true)}
+                      >
+                        Disconnect
+                      </Button>
+                    )
+                  ) : (
+                    <span className="inline-flex rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-semibold text-green-700">
+                      Connected
+                    </span>
+                  )
+                ) : gated ? (
+                  <Button size="sm" variant="outline" className="h-7 w-full text-xs" asChild>
+                    <Link href="/settings?tab=billing">Upgrade</Link>
+                  </Button>
+                ) : (
+                  <Button size="sm" className="h-7 w-full text-xs" asChild>
+                    <a href={platform.connectHref}>Connect</a>
+                  </Button>
+                )}
+              </div>
+
+              {platform.showDisconnect && actionError && (
+                <p className="text-xs text-destructive">{actionError}</p>
               )}
             </div>
-          ) : !hasZernioAccess ? (
-            <div className="flex items-center justify-between rounded-md border border-amber-200 bg-amber-50 px-4 py-3">
-              <div>
-                <div className="flex items-center gap-2">
-                  <p className="text-sm font-medium text-amber-900">Not connected</p>
-                  <span className="rounded-full bg-amber-200 px-2 py-0.5 text-xs font-semibold text-amber-800">Pro</span>
-                </div>
-                <p className="text-xs text-amber-700">
-                  Instagram publishing is available on Pro and Agency plans.
-                </p>
-              </div>
-              <Button size="sm" variant="outline" asChild>
-                <Link href="/settings?tab=billing">Upgrade</Link>
-              </Button>
-            </div>
-          ) : (
-            <div className="flex items-center justify-between rounded-md border px-4 py-3">
-              <div>
-                <p className="text-sm font-medium">Not connected</p>
-                <p className="text-xs text-muted-foreground">
-                  Connect an Instagram Business or Creator account to schedule and publish posts there.
-                </p>
-              </div>
-              <Button size="sm" asChild>
-                <a href={`/api/v1/social/instagram/connect?brandId=${brandId}`}>Connect Instagram</a>
-              </Button>
-            </div>
-          )}
-
-          {actionError && <p className="text-sm text-destructive">{actionError}</p>}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-sm flex items-center gap-2">
-            <FaThreads className="h-5 w-5" style={{ color: "#000000" }} /> Threads
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {loading ? (
-            <p className="text-sm text-muted-foreground">Checking connection status…</p>
-          ) : status?.threads_connected ? (
-            <div className="flex items-center justify-between rounded-md border px-4 py-3">
-              <p className="text-sm font-medium">@{status.threads_username ?? "unknown"}</p>
-              <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-semibold text-green-700">
-                Connected
-              </span>
-            </div>
-          ) : !hasZernioAccess ? (
-            <div className="flex items-center justify-between rounded-md border border-amber-200 bg-amber-50 px-4 py-3">
-              <div>
-                <div className="flex items-center gap-2">
-                  <p className="text-sm font-medium text-amber-900">Not connected</p>
-                  <span className="rounded-full bg-amber-200 px-2 py-0.5 text-xs font-semibold text-amber-800">Pro</span>
-                </div>
-                <p className="text-xs text-amber-700">
-                  Threads publishing is available on Pro and Agency plans.
-                </p>
-              </div>
-              <Button size="sm" variant="outline" asChild>
-                <Link href="/settings?tab=billing">Upgrade</Link>
-              </Button>
-            </div>
-          ) : (
-            <div className="flex items-center justify-between rounded-md border px-4 py-3">
-              <div>
-                <p className="text-sm font-medium">Not connected</p>
-                <p className="text-xs text-muted-foreground">
-                  Connect Threads to schedule and publish posts there.
-                </p>
-              </div>
-              <Button size="sm" asChild>
-                <a href={`/api/v1/social/threads/connect?brandId=${brandId}`}>Connect Threads</a>
-              </Button>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-sm flex items-center gap-2">
-            <FaPinterest className="h-5 w-5" style={{ color: "#E60023" }} /> Pinterest
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {loading ? (
-            <p className="text-sm text-muted-foreground">Checking connection status…</p>
-          ) : status?.pinterest_connected ? (
-            <div className="flex items-center justify-between rounded-md border px-4 py-3">
-              <p className="text-sm font-medium">@{status.pinterest_username ?? "unknown"}</p>
-              <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-semibold text-green-700">
-                Connected
-              </span>
-            </div>
-          ) : !hasZernioAccess ? (
-            <div className="flex items-center justify-between rounded-md border border-amber-200 bg-amber-50 px-4 py-3">
-              <div>
-                <div className="flex items-center gap-2">
-                  <p className="text-sm font-medium text-amber-900">Not connected</p>
-                  <span className="rounded-full bg-amber-200 px-2 py-0.5 text-xs font-semibold text-amber-800">Pro</span>
-                </div>
-                <p className="text-xs text-amber-700">
-                  Pinterest publishing is available on Pro and Agency plans.
-                </p>
-              </div>
-              <Button size="sm" variant="outline" asChild>
-                <Link href="/settings?tab=billing">Upgrade</Link>
-              </Button>
-            </div>
-          ) : (
-            <div className="flex items-center justify-between rounded-md border px-4 py-3">
-              <div>
-                <p className="text-sm font-medium">Not connected</p>
-                <p className="text-xs text-muted-foreground">
-                  Connect Pinterest to schedule and publish pins there.
-                </p>
-              </div>
-              <Button size="sm" asChild>
-                <a href={`/api/v1/social/pinterest/connect?brandId=${brandId}`}>Connect Pinterest</a>
-              </Button>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-sm flex items-center gap-2">
-            <FaLinkedin className="h-5 w-5" style={{ color: "#0A66C2" }} /> LinkedIn
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {loading ? (
-            <p className="text-sm text-muted-foreground">Checking connection status…</p>
-          ) : status?.linkedin_connected ? (
-            <div className="flex items-center justify-between rounded-md border px-4 py-3">
-              <p className="text-sm font-medium">{status.linkedin_username ?? "Connected"}</p>
-              <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-semibold text-green-700">
-                Connected
-              </span>
-            </div>
-          ) : !hasZernioAccess ? (
-            <div className="flex items-center justify-between rounded-md border border-amber-200 bg-amber-50 px-4 py-3">
-              <div>
-                <div className="flex items-center gap-2">
-                  <p className="text-sm font-medium text-amber-900">Not connected</p>
-                  <span className="rounded-full bg-amber-200 px-2 py-0.5 text-xs font-semibold text-amber-800">Pro</span>
-                </div>
-                <p className="text-xs text-amber-700">
-                  LinkedIn publishing is available on Pro and Agency plans.
-                </p>
-              </div>
-              <Button size="sm" variant="outline" asChild>
-                <Link href="/settings?tab=billing">Upgrade</Link>
-              </Button>
-            </div>
-          ) : (
-            <div className="flex items-center justify-between rounded-md border px-4 py-3">
-              <div>
-                <p className="text-sm font-medium">Not connected</p>
-                <p className="text-xs text-muted-foreground">
-                  Connect LinkedIn to schedule and publish posts there.
-                </p>
-              </div>
-              <Button size="sm" asChild>
-                <a href={`/api/v1/social/linkedin/connect?brandId=${brandId}`}>Connect LinkedIn</a>
-              </Button>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-sm flex items-center gap-2">
-            <FaYoutube className="h-5 w-5" style={{ color: "#FF0000" }} /> YouTube
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {loading ? (
-            <p className="text-sm text-muted-foreground">Checking connection status…</p>
-          ) : status?.youtube_connected ? (
-            <div className="flex items-center justify-between rounded-md border px-4 py-3">
-              <p className="text-sm font-medium">{status.youtube_channel_name ?? "Connected"}</p>
-              <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-semibold text-green-700">
-                Connected
-              </span>
-            </div>
-          ) : !hasZernioAccess ? (
-            <div className="flex items-center justify-between rounded-md border border-amber-200 bg-amber-50 px-4 py-3">
-              <div>
-                <div className="flex items-center gap-2">
-                  <p className="text-sm font-medium text-amber-900">Not connected</p>
-                  <span className="rounded-full bg-amber-200 px-2 py-0.5 text-xs font-semibold text-amber-800">Pro</span>
-                </div>
-                <p className="text-xs text-amber-700">
-                  YouTube publishing is available on Pro and Agency plans.
-                </p>
-              </div>
-              <Button size="sm" variant="outline" asChild>
-                <Link href="/settings?tab=billing">Upgrade</Link>
-              </Button>
-            </div>
-          ) : (
-            <div className="flex items-center justify-between rounded-md border px-4 py-3">
-              <div>
-                <p className="text-sm font-medium">Not connected</p>
-                <p className="text-xs text-muted-foreground">
-                  Connect YouTube to schedule video uploads there.
-                </p>
-              </div>
-              <Button size="sm" asChild>
-                <a href={`/api/v1/social/youtube/connect?brandId=${brandId}`}>Connect YouTube</a>
-              </Button>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-sm flex items-center gap-2">
-            <FaXTwitter className="h-5 w-5" style={{ color: "#000000" }} /> Twitter / X
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {loading ? (
-            <p className="text-sm text-muted-foreground">Checking connection status…</p>
-          ) : status?.twitter_connected ? (
-            <div className="flex items-center justify-between rounded-md border px-4 py-3">
-              <p className="text-sm font-medium">{status.twitter_username ?? "Connected"}</p>
-              <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-semibold text-green-700">
-                Connected
-              </span>
-            </div>
-          ) : !hasZernioAccess ? (
-            <div className="flex items-center justify-between rounded-md border border-amber-200 bg-amber-50 px-4 py-3">
-              <div>
-                <div className="flex items-center gap-2">
-                  <p className="text-sm font-medium text-amber-900">Not connected</p>
-                  <span className="rounded-full bg-amber-200 px-2 py-0.5 text-xs font-semibold text-amber-800">Pro</span>
-                </div>
-                <p className="text-xs text-amber-700">
-                  Twitter/X publishing is available on Pro and Agency plans.
-                </p>
-              </div>
-              <Button size="sm" variant="outline" asChild>
-                <Link href="/settings?tab=billing">Upgrade</Link>
-              </Button>
-            </div>
-          ) : (
-            <div className="flex items-center justify-between rounded-md border px-4 py-3">
-              <div>
-                <p className="text-sm font-medium">Not connected</p>
-                <p className="text-xs text-muted-foreground">
-                  Connect Twitter/X to schedule and publish posts there.
-                </p>
-              </div>
-              <Button size="sm" asChild>
-                <a href={`/api/v1/social/twitter/connect?brandId=${brandId}`}>Connect Twitter/X</a>
-              </Button>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+          )
+        })}
+      </div>
     </div>
   )
 }
