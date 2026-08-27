@@ -42,10 +42,10 @@ function CopyBtn({ text }: { text: string }) {
 }
 
 const QUICK_ACTIONS = [
-  { href: "fastlane", label: "Autopilot", sub: "Plan a month in one click", icon: Zap, color: "text-violet-600", bg: "bg-violet-500/10", ring: "hover:border-violet-300", hoverShadow: "hover:shadow-violet-100" },
-  { href: "generate", label: "Create", sub: "Hooks, posts, carousels & more", icon: Sparkles, color: "text-blue-600", bg: "bg-blue-500/10", ring: "hover:border-blue-300", hoverShadow: "hover:shadow-blue-100" },
-  { href: "calendar", label: "Calendar", sub: "See what's scheduled", icon: Calendar, color: "text-green-600", bg: "bg-green-500/10", ring: "hover:border-green-300", hoverShadow: "hover:shadow-green-100" },
-  { href: "influencers", label: "Creators", sub: "Find & reach out to influencers", icon: Users, color: "text-amber-600", bg: "bg-amber-500/10", ring: "hover:border-amber-300", hoverShadow: "hover:shadow-amber-100" },
+  { href: "fastlane", label: "Autopilot", sub: "Plan a month in one click", icon: Zap, color: "text-violet-600", bg: "from-violet-500/20 to-violet-500/5", ring: "hover:border-violet-300", hoverShadow: "hover:shadow-violet-100" },
+  { href: "generate", label: "Create", sub: "Hooks, posts, carousels & more", icon: Sparkles, color: "text-blue-600", bg: "from-blue-500/20 to-blue-500/5", ring: "hover:border-blue-300", hoverShadow: "hover:shadow-blue-100" },
+  { href: "calendar", label: "Calendar", sub: "See what's scheduled", icon: Calendar, color: "text-green-600", bg: "from-green-500/20 to-green-500/5", ring: "hover:border-green-300", hoverShadow: "hover:shadow-green-100" },
+  { href: "influencers", label: "Creators", sub: "Find & reach out to influencers", icon: Users, color: "text-amber-600", bg: "from-amber-500/20 to-amber-500/5", ring: "hover:border-amber-300", hoverShadow: "hover:shadow-amber-100" },
 ] as const
 
 export function DashboardStats({
@@ -101,6 +101,7 @@ export function DashboardStats({
   // rather than building a broken /brands/undefined/... URL.
   const libraryHref = firstBrandId ? `/brands/${firstBrandId}/library` : "/brands"
   const calendarThisWeekHref = firstBrandId ? `/brands/${firstBrandId}/calendar?view=week` : "/brands"
+  const createHref = firstBrandId ? `/brands/${firstBrandId}/generate` : "/brands"
 
   // hoverShadow tints each card's lift-on-hover shadow to match its own
   // accent (violet/blue/green/amber) rather than one uniform tint --
@@ -114,7 +115,8 @@ export function DashboardStats({
       sub: "AI content pieces",
       icon: Zap,
       color: "text-violet-500",
-      bg: "bg-violet-500/10",
+      bg: "bg-gradient-to-br from-violet-500/20 to-violet-500/5",
+      topBorder: "border-t-violet-400",
       hoverShadow: "hover:shadow-violet-100",
       trend: generationsTrend,
       // Same destination as "Saved content" below — both metrics live in
@@ -129,7 +131,8 @@ export function DashboardStats({
       sub: "across 7 types",
       icon: Bookmark,
       color: "text-blue-500",
-      bg: "bg-blue-500/10",
+      bg: "bg-gradient-to-br from-blue-500/20 to-blue-500/5",
+      topBorder: "border-t-blue-400",
       hoverShadow: "hover:shadow-blue-100",
       trend: null,
       href: libraryHref,
@@ -140,7 +143,8 @@ export function DashboardStats({
       sub: "content entries",
       icon: Calendar,
       color: "text-green-500",
-      bg: "bg-green-500/10",
+      bg: "bg-gradient-to-br from-green-500/20 to-green-500/5",
+      topBorder: "border-t-green-400",
       hoverShadow: "hover:shadow-green-100",
       trend: null,
       href: calendarThisWeekHref,
@@ -151,7 +155,8 @@ export function DashboardStats({
       sub: "imported & configured",
       icon: Layers,
       color: "text-amber-500",
-      bg: "bg-amber-500/10",
+      bg: "bg-gradient-to-br from-amber-500/20 to-amber-500/5",
+      topBorder: "border-t-amber-400",
       hoverShadow: "hover:shadow-amber-100",
       trend: null,
       href: "/brands",
@@ -162,7 +167,7 @@ export function DashboardStats({
     <div className="space-y-6">
       {/* Welcome banner — new users with no content yet */}
       {generationsThisMonth === 0 && savedContentCount === 0 && firstBrandId && (
-        <div className="rounded-xl border bg-gradient-to-br from-violet-50 to-indigo-50 dark:from-violet-900/20 dark:to-indigo-900/20 p-6 text-center space-y-3">
+        <div className="rounded-xl border bg-gradient-to-br from-violet-50 to-indigo-50 p-6 text-center shadow-sm space-y-3 dark:from-violet-900/20 dark:to-indigo-900/20">
           <div className="text-3xl">👋</div>
           <div>
             <p className="text-lg font-semibold">Welcome to SocioPosts!</p>
@@ -180,7 +185,7 @@ export function DashboardStats({
 
       {/* Onboarding checklist */}
       {!onboardingDismissed && (
-        <div className="relative overflow-hidden rounded-xl border border-violet-200/60 bg-gradient-to-br from-violet-50/80 via-card to-card p-5 dark:border-violet-800/30 dark:from-violet-900/10">
+        <div className="relative overflow-hidden rounded-xl border border-violet-200/60 bg-gradient-to-br from-violet-50/80 via-card to-card p-5 shadow-sm dark:border-violet-800/30 dark:from-violet-900/10">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
               <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-violet-600 text-white shadow-sm">
@@ -235,11 +240,11 @@ export function DashboardStats({
 
       {/* Stat cards — 2x2 on mobile, 4 across on desktop */}
       <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
-        {stats.map(({ label, value, sub, icon: Icon, color, bg, hoverShadow, trend, href }) => (
+        {stats.map(({ label, value, sub, icon: Icon, color, bg, topBorder, hoverShadow, trend, href }) => (
           <Link
             key={label}
             href={href}
-            className={`block cursor-pointer rounded-xl border bg-card p-5 transition-all duration-200 hover:-translate-y-1 hover:shadow-lg ${hoverShadow}`}
+            className={`block cursor-pointer rounded-xl border border-t-2 bg-card p-5 shadow-sm transition-all duration-200 hover:-translate-y-1 hover:shadow-lg ${topBorder} ${hoverShadow}`}
           >
             <div className="flex items-center justify-between mb-3">
               <p className="text-xs font-medium text-muted-foreground">{label}</p>
@@ -262,29 +267,32 @@ export function DashboardStats({
       </div>
 
       {/* Activity chart */}
-      <ActivityChart data={dailyActivity} />
+      <ActivityChart data={dailyActivity} createHref={createHref} />
 
       {/* Quick actions — primary entry points, not an afterthought row */}
       {firstBrandId && (
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-          {QUICK_ACTIONS.map(({ href, label, sub, icon: Icon, color, bg, ring, hoverShadow }) => (
-            <Link
-              key={href}
-              href={`/brands/${firstBrandId}/${href}`}
-              className={`group flex flex-col gap-3 rounded-xl border bg-card p-4 transition-all duration-200 hover:-translate-y-1 hover:shadow-lg ${ring} ${hoverShadow}`}
-            >
-              <div className="flex items-center justify-between">
-                <div className={`flex h-10 w-10 items-center justify-center rounded-xl ${bg}`}>
-                  <Icon className={`h-5 w-5 ${color}`} />
+        <div>
+          <h2 className="mb-4 text-base font-semibold">Quick actions</h2>
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+            {QUICK_ACTIONS.map(({ href, label, sub, icon: Icon, color, bg, ring, hoverShadow }) => (
+              <Link
+                key={href}
+                href={`/brands/${firstBrandId}/${href}`}
+                className={`group flex flex-col gap-3 rounded-xl border bg-card p-4 shadow-sm transition-all duration-200 hover:-translate-y-1 hover:shadow-lg ${ring} ${hoverShadow}`}
+              >
+                <div className="flex items-center justify-between">
+                  <div className={`flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br ${bg}`}>
+                    <Icon className={`h-5 w-5 ${color}`} />
+                  </div>
+                  <ArrowRight className="h-3.5 w-3.5 text-muted-foreground/40 transition-transform group-hover:translate-x-0.5 group-hover:text-muted-foreground" />
                 </div>
-                <ArrowRight className="h-3.5 w-3.5 text-muted-foreground/40 transition-transform group-hover:translate-x-0.5 group-hover:text-muted-foreground" />
-              </div>
-              <div>
-                <p className="text-sm font-semibold text-foreground">{label}</p>
-                <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground">{sub}</p>
-              </div>
-            </Link>
-          ))}
+                <div>
+                  <p className="text-sm font-semibold text-foreground">{label}</p>
+                  <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground">{sub}</p>
+                </div>
+              </Link>
+            ))}
+          </div>
         </div>
       )}
 
@@ -304,7 +312,7 @@ export function DashboardStats({
             {recentCalendar.slice(0, 4).map((entry) => (
               <div
                 key={entry.id}
-                className="rounded-xl border bg-card p-4 space-y-3 transition-all duration-200 hover:-translate-y-1 hover:shadow-lg hover:shadow-violet-100"
+                className="rounded-xl border bg-card p-4 space-y-3 shadow-sm transition-all duration-200 hover:-translate-y-1 hover:shadow-lg hover:shadow-violet-100"
               >
                 {/* Platform + date */}
                 <div className="flex items-center justify-between gap-2">
