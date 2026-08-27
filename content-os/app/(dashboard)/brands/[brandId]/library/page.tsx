@@ -590,7 +590,7 @@ function CarouselCard({ carousel, brandId, onOpenDetail }: { carousel: CarouselR
 
 // ─── Story card ───────────────────────────────────────────────────────────────
 
-interface StorySlideShape { text?: string; subtext?: string; type?: string; background_image_url?: string | null }
+interface StorySlideShape { text?: string; subtext?: string; type?: string; background_image_url?: string | null; custom_background_colors?: string[] | null }
 
 function StoryCard({ story, brandId, onOpenDetail }: { story: StoryRow; brandId: string; onOpenDetail: (item: DetailItem) => void }) {
   const [deleteConfirming, setDeleteConfirming] = useState(false)
@@ -614,6 +614,11 @@ function StoryCard({ story, brandId, onOpenDetail }: { story: StoryRow; brandId:
     onSuccess: () => qc.invalidateQueries({ queryKey: ["library", "stories", brandId] }),
   })
   const thumbnail = slides.find((s) => s.background_image_url)?.background_image_url ?? null
+  // Custom color mode (see ColorWheelPicker) skips AI backgrounds for
+  // every slide, so a custom-color story sequence has no real
+  // background_image_url at all -- same fallback CarouselCard already
+  // needed for the identical case.
+  const thumbnailColors = !thumbnail ? slides.find((s) => s.custom_background_colors?.length)?.custom_background_colors : null
   const scheduleImages = slides.map((s) => s.background_image_url).filter((u): u is string => !!u)
 
   function openDetail() {
@@ -625,6 +630,7 @@ function StoryCard({ story, brandId, onOpenDetail }: { story: StoryRow; brandId:
         label: `Story ${i + 1}${s.type ? ` (${s.type})` : ""}`,
         text: [s.text, s.subtext].filter(Boolean).join("\n"),
         imageUrl: s.background_image_url,
+        customBackgroundColors: s.custom_background_colors,
       })),
       hashtags: [],
       createdAt: story.created_at,
@@ -648,6 +654,8 @@ function StoryCard({ story, brandId, onOpenDetail }: { story: StoryRow; brandId:
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={thumbnail} alt="" className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105" />
         </div>
+      ) : thumbnailColors && thumbnailColors.length > 0 ? (
+        <div className="aspect-square overflow-hidden" style={{ background: cssBackgroundFromColors(thumbnailColors) }} />
       ) : (
         <div className="flex aspect-square items-center justify-center bg-gradient-to-br from-violet-50 to-fuchsia-50">
           <Zap className="h-10 w-10 text-violet-300" />

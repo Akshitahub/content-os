@@ -31,6 +31,13 @@ export type StorySlide = {
    * so it round-trips through the existing whole-array sessionStorage
    * persistence for free. */
   background_image_url?: string
+  /** "Custom color" mode (see components/shared/VibePicker.tsx +
+   * ColorWheelPicker) -- an exact user-picked flat/gradient, applied
+   * uniformly to every slide when active. Client-only, same as
+   * background_image_url above; takes priority over both it and the
+   * named `background` enum wherever a slide is rendered. 1 hex = solid,
+   * 2 = a gradient. */
+  custom_background_colors?: string[] | null
 }
 
 // The actual Instagram caption text for this story sequence — separate

@@ -12,6 +12,8 @@ import { ScheduleAction } from "@/components/shared/ScheduleAction"
 import { isApiError } from "@/types/api"
 import { ApiResponseError } from "@/hooks/useGeneration"
 import { STORY as STORY_CREDIT_COST } from "@/lib/usage/credit-costs"
+import { VibePicker, type Vibe } from "@/components/shared/VibePicker"
+import { cssBackgroundFromColors } from "@/components/shared/ColorWheelPicker"
 import Link from "next/link"
 
 // ─── Story background gradients ────────────────────────────────────────────────
@@ -88,6 +90,12 @@ function PhoneStory({
   const s = STORY_BG[story.background] ?? STORY_BG.gradient_violet
   const elementId = `story-card-${index}`
   const hasBg = !!story.background_image_url
+  // "Custom color" mode (see VibePicker/ColorWheelPicker in the main
+  // component below) -- an exact user pick, takes priority over the
+  // named `background` enum but never over a real AI photo (the two
+  // can't coexist today anyway: picking Custom color skips AI background
+  // generation entirely, see generate()).
+  const customBg = !hasBg ? cssBackgroundFromColors(story.custom_background_colors) : undefined
 
   // contentEditable is inherently uncontrolled — commit on blur only
   // (never on every keystroke) so the cursor never jumps mid-typing.
@@ -107,11 +115,12 @@ function PhoneStory({
       e.currentTarget.blur()
     }
   }
-  // A photo background's own contrast can't be predicted the way the flat
-  // STORY_BG swatches can, so text always goes white-on-scrim instead of
-  // following the slide's normal light/dark text pairing.
-  const textColor = hasBg ? "text-white" : s.text
-  const subColor = hasBg ? "text-white/70" : s.sub
+  // A photo or custom color background's own contrast can't be predicted
+  // the way the flat STORY_BG swatches can, so text always goes
+  // white-on-scrim instead of following the slide's normal light/dark
+  // text pairing.
+  const textColor = hasBg || customBg ? "text-white" : s.text
+  const subColor = hasBg || customBg ? "text-white/70" : s.sub
 
   const posClass =
     story.text_position === "top" ? "justify-start" :
@@ -150,11 +159,12 @@ function PhoneStory({
         style={{ width: 220, height: 390 }}
       >
         <div
-          className={`flex h-full flex-col relative bg-cover bg-center ${hasBg ? "" : s.bg}`}
-          style={hasBg ? { backgroundImage: `url(${story.background_image_url})` } : undefined}
+          className={`flex h-full flex-col relative bg-cover bg-center ${hasBg || customBg ? "" : s.bg}`}
+          style={hasBg ? { backgroundImage: `url(${story.background_image_url})` } : customBg ? { background: customBg } : undefined}
         >
-          {/* Dark scrim so text stays readable over an AI-generated background */}
-          {hasBg && (
+          {/* Dark scrim so text stays readable over an AI-generated or
+           * custom color/gradient background. */}
+          {(hasBg || customBg) && (
             <div className="absolute inset-0 z-0 bg-gradient-to-t from-black/75 via-black/25 to-black/45" />
           )}
 
@@ -254,8 +264,8 @@ function PhoneStory({
               key={preset.key}
               type="button"
               title={preset.label}
-              onClick={() => onUpdateSlide({ background: preset.key as StorySlide["background"], background_image_url: undefined })}
-              className={`h-6 w-6 rounded-full ${preset.swatch} transition-transform hover:scale-110 ${story.background === preset.key && !hasBg ? "ring-2 ring-offset-2 ring-violet-500" : ""}`}
+              onClick={() => onUpdateSlide({ background: preset.key as StorySlide["background"], background_image_url: undefined, custom_background_colors: undefined })}
+              className={`h-6 w-6 rounded-full ${preset.swatch} transition-transform hover:scale-110 ${story.background === preset.key && !hasBg && !customBg ? "ring-2 ring-offset-2 ring-violet-500" : ""}`}
             />
           ))}
         </div>
@@ -290,6 +300,22 @@ export function StorySequence({ brandId }: { brandId: string }) {
   // of writing its result onto a newer, unrelated set of stories.
   const generationIdRef = useRef(0)
 
+  // Vibe (including "Custom color", the 7th option) -- this component
+  // never exposed a Vibe picker at all before now (the AI text-generation
+  // route already accepted an optional `vibe` param, just nothing here
+  // ever sent one), so this brings it to parity with CarouselBuilder
+  // rather than only adding Custom color with nothing for it to sit
+  // "alongside" the way the task describes.
+  const [vibe, setVibe] = useState<Vibe | undefined>()
+  const [customColors, setCustomColors] = useState<string[]>([])
+
+  // The saved stories row id -- needed by the debounced autosave effect
+  // below, so lifted into state instead of staying a local `const` inside
+  // generate() the way it was before this fix.
+  const [storyRowId, setStoryRowId] = useState<string | null>(null)
+  const lastPersistedStoriesRef = useRef<string | null>(null)
+  const [autosaveStatus, setAutosaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle")
+
   // Restore from sessionStorage
   useEffect(() => {
     const saved = sessionStorage.getItem(STORAGE_KEY)
@@ -311,6 +337,39 @@ export function StorySequence({ brandId }: { brandId: string }) {
       sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ stories, caption: storyCaption }))
     }
   }, [stories, storyCaption, STORAGE_KEY])
+
+  // Debounced autosave for slide edits made via updateSlide (inline text
+  // edits, the existing preset color swap, and the new Custom color mode
+  // alike) -- mirrors CarouselBuilder.tsx's identical fix for the same
+  // underlying gap: this component's only PUT used to fire once, right
+  // after the initial hook/cta background-image fetch, and any edit made
+  // after that point was silently lost the moment the user navigated
+  // away. See lastPersistedStoriesRef's declaration above for why this
+  // doesn't also double-save right when the background-image PUT below
+  // completes. 1.5s after the last edit, not on every keystroke.
+  useEffect(() => {
+    if (!storyRowId || stories.length === 0) return
+    const serialized = JSON.stringify(stories)
+    if (serialized === lastPersistedStoriesRef.current) return
+
+    setAutosaveStatus("saving")
+    const rowId = storyRowId
+    const timer = setTimeout(() => {
+      fetch(`/api/v1/brands/${brandId}/stories/${rowId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ stories: JSON.parse(serialized) }),
+      })
+        .then((res) => {
+          if (!res.ok) throw new Error("Save failed")
+          lastPersistedStoriesRef.current = serialized
+          setAutosaveStatus("saved")
+          setTimeout(() => setAutosaveStatus((s) => (s === "saved" ? "idle" : s)), 2000)
+        })
+        .catch(() => setAutosaveStatus("error"))
+    }, 1500)
+    return () => clearTimeout(timer)
+  }, [storyRowId, stories, brandId])
 
   function handleImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const files = Array.from(e.target.files ?? [])
@@ -341,6 +400,12 @@ export function StorySequence({ brandId }: { brandId: string }) {
     setStories([])
     setStoryCaption(null)
     setShowCaptionEditor(false)
+    setStoryRowId(null)
+    // "custom_color" is a client-only rendering mode, never a real vibe
+    // the text-generation prompt should see -- omitted from the request
+    // entirely in that case rather than sent literally (same reasoning as
+    // CarouselBuilder.tsx's identical guard).
+    const isCustomColorMode = vibe === "custom_color"
     try {
       const res = await fetch("/api/v1/ai/stories/generate", {
         method: "POST",
@@ -351,6 +416,7 @@ export function StorySequence({ brandId }: { brandId: string }) {
           storyCount,
           hasUserImages: uploadedImages.length > 0,
           imageDescriptions: uploadedImages.map((_, i) => `User provided image ${i + 1}`),
+          vibe: isCustomColorMode ? undefined : vibe,
         }),
       })
       const json = await res.json() as { data?: { id?: string | null; stories: StorySlide[]; caption?: StoryCaption }; error?: { code?: string; message?: string } }
@@ -361,45 +427,67 @@ export function StorySequence({ brandId }: { brandId: string }) {
       const savedStories = json.data.stories
       const rowId = json.data.id ?? null
       setStories(savedStories)
+      setStoryRowId(rowId)
+      // Already persisted -- the generate route's own insert wrote these
+      // exact stories -- so the autosave effect above doesn't immediately
+      // re-PUT the same data the instant this render commits.
+      lastPersistedStoriesRef.current = JSON.stringify(savedStories)
       setStoryCaption(json.data.caption ?? null)
       setShowSuccess(true)
       setTimeout(() => setShowSuccess(false), 4000)
 
-      // Best-effort AI backgrounds for hook/cta slides only (available to
-      // every plan, no tiering) — fired after text succeeds so a slow/
-      // failed image call never blocks or breaks story generation itself.
-      // Waits for ALL of them to settle before writing anything back, one
-      // PUT per generation instead of one per slide — fetchSlideBackground
-      // never throws, so Promise.all here always resolves. Guarded by genId
-      // so a stale response from a superseded generate() call can't write
-      // onto a newer set of stories.
-      const bgTargets = savedStories
-        .map((slide, i) => ({ slide, i }))
-        .filter((t): t is { slide: StorySlide & { type: "hook" | "cta" }; i: number } => t.slide.type === "hook" || t.slide.type === "cta")
+      if (isCustomColorMode) {
+        // The whole point of Custom color is an instant, zero-AI-cost
+        // background -- applied uniformly to every slide (hook, reveal,
+        // buildup, and cta alike), not just hook/cta the way AI
+        // backgrounds are scoped. Deliberately does NOT update
+        // lastPersistedStoriesRef: these colors were never sent to
+        // /api/v1/ai/stories/generate, so the debounced autosave effect
+        // above needs to see this as a real, unsaved change and persist
+        // it on its own -- no separate PUT needed here.
+        const coloredStories = savedStories.map((s) => ({ ...s, custom_background_colors: customColors }))
+        if (generationIdRef.current === genId) setStories(coloredStories)
+      } else {
+        // Best-effort AI backgrounds for hook/cta slides only (available to
+        // every plan, no tiering) — fired after text succeeds so a slow/
+        // failed image call never blocks or breaks story generation itself.
+        // Waits for ALL of them to settle before writing anything back, one
+        // PUT per generation instead of one per slide — fetchSlideBackground
+        // never throws, so Promise.all here always resolves. Guarded by genId
+        // so a stale response from a superseded generate() call can't write
+        // onto a newer set of stories.
+        const bgTargets = savedStories
+          .map((slide, i) => ({ slide, i }))
+          .filter((t): t is { slide: StorySlide & { type: "hook" | "cta" }; i: number } => t.slide.type === "hook" || t.slide.type === "cta")
 
-      Promise.all(bgTargets.map(({ slide }) => fetchSlideBackground(brandId, slide.text, slide.type))).then((urls) => {
-        if (generationIdRef.current !== genId) return
-        if (!urls.some((u) => u)) return
+        Promise.all(bgTargets.map(({ slide }) => fetchSlideBackground(brandId, slide.text, slide.type))).then((urls) => {
+          if (generationIdRef.current !== genId) return
+          if (!urls.some((u) => u)) return
 
-        const updated = [...savedStories]
-        bgTargets.forEach(({ i }, idx) => {
-          const url = urls[idx]
-          if (url) updated[i] = { ...updated[i]!, background_image_url: url }
-        })
-        setStories(updated)
-
-        if (rowId) {
-          fetch(`/api/v1/brands/${brandId}/stories/${rowId}`, {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ stories: updated }),
-          }).catch(() => {
-            // Best-effort — the story sequence itself already generated
-            // fine; a failed persist here just means the Library won't
-            // show its images, not a user-facing generation failure.
+          const updated = [...savedStories]
+          bgTargets.forEach(({ i }, idx) => {
+            const url = urls[idx]
+            if (url) updated[i] = { ...updated[i]!, background_image_url: url }
           })
-        }
-      })
+          setStories(updated)
+          // Same reasoning as the generation-time assignment above -- this
+          // PUT is about to persist exactly this stories array, so the
+          // autosave effect shouldn't treat it as an unsaved edit too.
+          lastPersistedStoriesRef.current = JSON.stringify(updated)
+
+          if (rowId) {
+            fetch(`/api/v1/brands/${brandId}/stories/${rowId}`, {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ stories: updated }),
+            }).catch(() => {
+              // Best-effort — the story sequence itself already generated
+              // fine; a failed persist here just means the Library won't
+              // show its images, not a user-facing generation failure.
+            })
+          }
+        })
+      }
     } catch (e) {
       setApiError(e)
       if (hadPrevStories && prevStoriesRef.current.length > 0) {
@@ -546,6 +634,17 @@ export function StorySequence({ brandId }: { brandId: string }) {
           </div>
         </div>
 
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium">Vibe</label>
+          <VibePicker
+            selected={vibe}
+            onSelect={setVibe}
+            compact
+            customColors={customColors}
+            onCustomColorsChange={setCustomColors}
+          />
+        </div>
+
         <GenerationWarning isPending={loading} />
         <button onClick={generate} disabled={loading}
           className="flex w-full items-center justify-center gap-2 rounded-full bg-gradient-to-r from-violet-600 to-indigo-600 py-3 text-sm font-semibold text-white shadow-md transition hover:from-violet-700 hover:to-indigo-700 disabled:opacity-60">
@@ -603,7 +702,14 @@ export function StorySequence({ brandId }: { brandId: string }) {
       {stories.length > 0 && !loading && (
         <div className="space-y-4">
           <div className="flex items-center justify-between">
-            <p className="text-sm font-semibold">{stories.length} stories ready</p>
+            <div className="flex items-center gap-3">
+              <p className="text-sm font-semibold">{stories.length} stories ready</p>
+              {/* Subtle, not a toast -- edits (inline text, color swap,
+               * Custom color) autosave 1.5s after the last change. */}
+              {autosaveStatus === "saving" && <span className="text-xs text-muted-foreground">Saving…</span>}
+              {autosaveStatus === "saved" && <span className="text-xs text-green-600">✓ Saved</span>}
+              {autosaveStatus === "error" && <span className="text-xs text-destructive">Couldn&apos;t save — check your connection</span>}
+            </div>
             <div className="flex gap-2">
               <button onClick={copyAllText}
                 className="flex items-center gap-1 rounded-full border px-3 py-1.5 text-xs font-medium hover:bg-secondary">
