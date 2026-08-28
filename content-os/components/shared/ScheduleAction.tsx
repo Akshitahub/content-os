@@ -7,12 +7,13 @@ import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
 import { isApiError } from "@/types/api"
 import { captureElementAsDataUrl } from "@/lib/utils/download-as-image"
+import { renderStorySlides, type StoryExportSlide } from "@/lib/utils/story-export"
 import Link from "next/link"
 
 // Extracted from five copy-pasted definitions (AdMaker.tsx,
 // FullPostGenerator.tsx, CarouselBuilder.tsx, StorySequence.tsx, and
 // MemeMaker.tsx before it was deleted) — the platform-picker/date-picker/
-// "push to calendar" flow was identical everywhere, but two genuinely
+// "push to calendar" flow was identical everywhere, but a few genuinely
 // different variants had accumulated:
 //
 // 1. Single hosted image (AdMaker, FullPostGenerator): schedules one
@@ -23,12 +24,18 @@ import Link from "next/link"
 //    FullPostGenerator's had been kept current with all 6 -- that's the
 //    version kept here, so every single-image caller now gets full
 //    platform support instead of just two of them.
-// 2. Multiple DOM-only slides (CarouselBuilder, StorySequence): each
-//    slide only exists as a rendered element, not a stored URL, so
-//    scheduling has to capture every element to a data URL first
-//    (captureElementAsDataUrl, with progress) before posting. Instagram-
-//    only in both, since that's genuinely how carousel/story publishing
-//    works today, not something to "fix" into feature parity with mode 1.
+// 2. Multiple DOM-only slides (CarouselBuilder): each slide only exists
+//    as a rendered element, not a stored URL, so scheduling has to
+//    capture every element to a data URL first (captureElementAsDataUrl,
+//    with progress) before posting. Instagram-only, since that's
+//    genuinely how carousel publishing works today.
+// 3. Story slides (StorySequence.tsx): used to be DOM-captured the same
+//    way as mode 2 -- but that captured the live phone-frame preview
+//    element verbatim (rounded corners, phone chrome, and all) at
+//    browser-screenshot quality, which is exactly what was reaching real
+//    published Instagram stories. Stories now render server-side via
+//    lib/image/story-compositor.ts (real 1080x1920, no phone-frame chrome)
+//    at schedule-confirm time instead — see the storySlides branch below.
 //
 // One real bug found while reconciling: StorySequence's copy forgot to
 // strip a leading "#" from hashtags before sending
@@ -55,6 +62,7 @@ type ScheduleActionProps =
        * connected platform the user picks. */
       imageUrl: string
       slideElementIds?: undefined
+      storySlides?: undefined
       imageUrls?: undefined
       contentFormat?: undefined
       itemLabel?: undefined
@@ -66,12 +74,15 @@ type ScheduleActionProps =
       imageUrl?: undefined
       /** DOM element ids to capture as data URLs right before scheduling
        * (each slide only exists as a rendered element, not a stored URL).
-       * Instagram-only — carousels/stories don't publish anywhere else. */
+       * Carousel-only — see the storySlides variant below for why stories
+       * don't do this anymore. Instagram-only, since that's genuinely how
+       * carousel publishing works today. */
       slideElementIds: string[]
+      storySlides?: undefined
       imageUrls?: undefined
-      contentFormat: "carousel" | "story"
-      /** What to call one capture unit in progress/error copy — "slide" or
-       * "story". Defaults to contentFormat's own name. */
+      contentFormat: "carousel"
+      /** What to call one capture unit in progress/error copy — defaults
+       * to contentFormat's own name. */
       itemLabel?: string
     }
   | {
@@ -80,9 +91,25 @@ type ScheduleActionProps =
       hashtags: string[]
       imageUrl?: undefined
       slideElementIds?: undefined
-      /** Already-hosted slide image URLs (e.g. persisted slides read back
-       * from the Library) — scheduled directly, no capture step needed.
-       * Instagram-only, same as the DOM-capture variant. */
+      /** Real slide data, rendered server-side via
+       * lib/image/story-compositor.ts right before scheduling — a clean
+       * full-bleed 1080x1920 raster, not a screenshot of the phone-frame
+       * editing preview. Instagram-only, same as every story path. */
+      storySlides: StoryExportSlide[]
+      imageUrls?: undefined
+      contentFormat: "story"
+      itemLabel?: string
+    }
+  | {
+      brandId: string
+      caption: string
+      hashtags: string[]
+      imageUrl?: undefined
+      slideElementIds?: undefined
+      storySlides?: undefined
+      /** Already-hosted slide image URLs (e.g. a persisted carousel read
+       * back from the Library) — scheduled directly, no capture step
+       * needed. Instagram-only, same as the DOM-capture variant. */
       imageUrls: string[]
       contentFormat: "carousel" | "story"
       itemLabel?: string
@@ -90,12 +117,13 @@ type ScheduleActionProps =
 
 export function ScheduleAction(props: ScheduleActionProps) {
   const { brandId, caption, hashtags } = props
-  const isMultiSlide = props.slideElementIds !== undefined || props.imageUrls !== undefined
+  const isMultiSlide = props.slideElementIds !== undefined || props.imageUrls !== undefined || props.storySlides !== undefined
   const itemLabel = isMultiSlide ? (props.itemLabel ?? props.contentFormat) : ""
   // Pulled out of the union so the handleConfirm callback below can depend
   // on plain values instead of the whole `props` object.
   const imageUrl = props.imageUrl
   const slideElementIds = props.slideElementIds
+  const storySlides = props.storySlides
   const preHostedImageUrls = props.imageUrls
   const contentFormat = props.contentFormat
 
@@ -179,6 +207,18 @@ export function ScheduleAction(props: ScheduleActionProps) {
       }
       setCaptureProgress(null)
       body = { brandId, platform: "instagram", imageUrls: capturedUrls, contentFormat, caption, hashtags: hashtags.map((h) => h.replace(/^#+/, "")), scheduledDate: date, scheduledTime: time }
+    } else if (storySlides) {
+      setSubmitState("capturing")
+      // Real server-side render (lib/image/story-compositor.ts) instead of
+      // a DOM screenshot — this is the fix for rounded phone-frame corners
+      // and low quality showing up in real published Instagram stories.
+      const renderedUrls = await renderStorySlides(storySlides)
+      if (!renderedUrls || renderedUrls.length !== storySlides.length) {
+        setErrorMsg(`Couldn't render the ${itemLabel} images. Please try again.`)
+        setSubmitState("error")
+        return
+      }
+      body = { brandId, platform: "instagram", imageUrls: renderedUrls, contentFormat, caption, hashtags: hashtags.map((h) => h.replace(/^#+/, "")), scheduledDate: date, scheduledTime: time }
     } else if (preHostedImageUrls) {
       // Already hosted (e.g. slides persisted from a saved Library item) —
       // no capture step needed, straight to scheduling.
@@ -207,7 +247,7 @@ export function ScheduleAction(props: ScheduleActionProps) {
       setErrorMsg("Network error. Please try again.")
       setSubmitState("error")
     }
-  }, [brandId, isMultiSlide, imageUrl, slideElementIds, preHostedImageUrls, contentFormat, itemLabel, platform, caption, hashtags, date, time])
+  }, [brandId, isMultiSlide, imageUrl, slideElementIds, storySlides, preHostedImageUrls, contentFormat, itemLabel, platform, caption, hashtags, date, time])
 
   const isBusy = submitState === "capturing" || submitState === "loading"
 
@@ -317,8 +357,10 @@ export function ScheduleAction(props: ScheduleActionProps) {
           </div>
 
           <Button size="sm" className="w-full" onClick={handleConfirm} disabled={isBusy}>
-            {submitState === "capturing" && captureProgress
-              ? `Capturing ${itemLabel} ${captureProgress.current} of ${captureProgress.total}…`
+            {submitState === "capturing"
+              ? (captureProgress
+                  ? `Capturing ${itemLabel} ${captureProgress.current} of ${captureProgress.total}…`
+                  : `Rendering ${itemLabel}s…`)
               : submitState === "loading"
                 ? "Scheduling…"
                 : "Confirm schedule"}

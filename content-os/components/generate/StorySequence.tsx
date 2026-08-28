@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from "react"
 import { Loader2, Download, Copy, Check, RefreshCw, AlertCircle, Image, Upload, X, Plus, Minus, Palette } from "lucide-react"
 import { ProductPicker, type PickedProduct } from "@/components/shared/ProductPicker"
 import type { StorySlide, StoryCaption } from "@/app/api/v1/ai/stories/generate/route"
-import { downloadElementAsImage, downloadMultipleAsImages } from "@/lib/utils/download-as-image"
+import { downloadStorySlideAsImage, downloadStorySlidesAsImages, type StoryExportSlide } from "@/lib/utils/story-export"
 import { GenerationWarning } from "@/components/shared/GenerationWarning"
 import { getFriendlyError } from "@/lib/utils/error-messages"
 import { TopicSuggestButton } from "@/components/shared/TopicSuggestButton"
@@ -46,6 +46,28 @@ const STORY_BG_PRESETS: { key: string; swatch: string; label: string }[] = [
   { key: "gradient_warm", swatch: "bg-gradient-to-b from-amber-400 to-red-600", label: "Warm" },
   { key: "white", swatch: "bg-white border border-gray-300", label: "White" },
 ]
+
+// Shared by the per-slide "PNG" button, "Save all as PNG", and
+// ScheduleAction below — all three need the same slide data handed to the
+// server-side compositor (lib/image/story-compositor.ts via
+// lib/utils/story-export.ts), just for a different number of slides at a
+// time. productImageSource is safe to always pass regardless of slide
+// type — the compositor itself gates whether it's actually used (reveal/
+// cta, or hook for a single-slide sequence), same as the live preview.
+function toExportSlide(story: StorySlide, productImageSource: string | null | undefined): StoryExportSlide {
+  return {
+    type: story.type,
+    text: story.text,
+    subtext: story.subtext,
+    background: story.background,
+    text_position: story.text_position,
+    has_poll: story.has_poll,
+    poll_options: story.poll_options,
+    background_image_url: story.background_image_url,
+    custom_background_colors: story.custom_background_colors,
+    productImageSource: productImageSource ?? null,
+  }
+}
 
 // ─── TOPIC CHIPS ────────────────────────────────────────────────────────────────
 
@@ -256,7 +278,7 @@ function PhoneStory({
         </button>
         <button onClick={async () => {
           setDlErr(false)
-          const ok = await downloadElementAsImage(elementId, `story-${index + 1}`)
+          const ok = await downloadStorySlideAsImage(toExportSlide(story, uploadedImage), `story-${index + 1}`)
           if (!ok) setDlErr(true)
         }}
           className="flex items-center gap-1 rounded-full border px-3 py-1.5 text-[11px] font-medium hover:bg-secondary">
@@ -729,7 +751,8 @@ export function StorySequence({ brandId }: { brandId: string }) {
               </button>
               <button onClick={async () => {
                 setSaveAllErr(false)
-                const ok = await downloadMultipleAsImages(stories.map((_, i) => `story-card-${i}`), "story-sequence")
+                const exportSlides = stories.map((s, i) => toExportSlide(s, selectedProduct?.imageUrl ?? uploadedImages[i]?.preview))
+                const ok = await downloadStorySlidesAsImages(exportSlides, "story-sequence")
                 if (!ok) setSaveAllErr(true)
               }}
                 className="flex items-center gap-1 rounded-full border px-3 py-1.5 text-xs font-medium hover:bg-secondary">
@@ -790,7 +813,7 @@ export function StorySequence({ brandId }: { brandId: string }) {
 
           <ScheduleAction
             brandId={brandId}
-            slideElementIds={stories.map((_, i) => `story-card-${i}`)}
+            storySlides={stories.map((s, i) => toExportSlide(s, selectedProduct?.imageUrl ?? uploadedImages[i]?.preview))}
             contentFormat="story"
             itemLabel="story"
             caption={storyCaption?.caption_text || stories[0]?.text || ""}

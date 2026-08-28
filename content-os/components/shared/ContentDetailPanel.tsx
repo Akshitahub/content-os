@@ -3,6 +3,7 @@
 import { X, Copy, Check } from "lucide-react"
 import { useState } from "react"
 import { ScheduleAction } from "@/components/shared/ScheduleAction"
+import type { StoryExportSlide } from "@/lib/utils/story-export"
 import { DeleteConfirmButton } from "@/components/shared/DeleteConfirmButton"
 import { PlatformPreviewFrame } from "@/components/shared/PlatformPreviewFrame"
 import { resolveCarouselBgStyle } from "@/lib/design/carousel-slide-styles"
@@ -61,6 +62,12 @@ export interface DetailItem {
    * story schedules all of its persisted slide images together. */
   scheduleImageUrl?: string | null
   scheduleImageUrls?: string[]
+  /** Story-only: real slide data, rendered server-side via
+   * lib/image/story-compositor.ts at schedule-confirm time instead of
+   * scheduling the bare AI background photo (scheduleImageUrls' old
+   * behavior for stories — no headline/subtext/CTA text at all). Takes
+   * priority over scheduleImageUrls when both are present. */
+  scheduleStorySlides?: StoryExportSlide[]
   /** Present only when this item can actually be deleted (every kind
    * today) -- throw to signal failure, DeleteConfirmButton shows the
    * error inline and lets the user retry. On success the panel closes
@@ -237,7 +244,17 @@ export function ContentDetailPanel({ item, onClose, brandId }: ContentDetailPane
                   hashtags={item.hashtags}
                 />
               )}
-              {!item.scheduleImageUrl && item.scheduleImageUrls && item.scheduleImageUrls.length > 0 && (
+              {!item.scheduleImageUrl && item.scheduleStorySlides && item.scheduleStorySlides.length > 0 && (
+                <ScheduleAction
+                  brandId={brandId}
+                  storySlides={item.scheduleStorySlides}
+                  contentFormat="story"
+                  itemLabel="story"
+                  caption={item.scheduleCaption}
+                  hashtags={item.hashtags}
+                />
+              )}
+              {!item.scheduleImageUrl && !item.scheduleStorySlides && item.scheduleImageUrls && item.scheduleImageUrls.length > 0 && (
                 <ScheduleAction
                   brandId={brandId}
                   imageUrls={item.scheduleImageUrls}

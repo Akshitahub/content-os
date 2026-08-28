@@ -16,6 +16,7 @@ import type { HookRow, CaptionRow, ReelScriptRow, CarouselRow, AdCopyRow, EmailS
 import type { Json } from "@/types/database"
 import { scoreHook, scoreColor, scoreLabel } from "@/lib/utils/content-score"
 import { cssBackgroundFromColors } from "@/components/shared/ColorWheelPicker"
+import type { StoryExportSlide } from "@/lib/utils/story-export"
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -590,7 +591,17 @@ function CarouselCard({ carousel, brandId, onOpenDetail }: { carousel: CarouselR
 
 // ─── Story card ───────────────────────────────────────────────────────────────
 
-interface StorySlideShape { text?: string; subtext?: string; type?: string; background_image_url?: string | null; custom_background_colors?: string[] | null }
+interface StorySlideShape {
+  text?: string
+  subtext?: string
+  type?: "hook" | "reveal" | "buildup" | "cta"
+  background?: string
+  text_position?: "top" | "center" | "bottom"
+  has_poll?: boolean
+  poll_options?: string[]
+  background_image_url?: string | null
+  custom_background_colors?: string[] | null
+}
 
 function StoryCard({ story, brandId, onOpenDetail }: { story: StoryRow; brandId: string; onOpenDetail: (item: DetailItem) => void }) {
   const [deleteConfirming, setDeleteConfirming] = useState(false)
@@ -619,7 +630,28 @@ function StoryCard({ story, brandId, onOpenDetail }: { story: StoryRow; brandId:
   // background_image_url at all -- same fallback CarouselCard already
   // needed for the identical case.
   const thumbnailColors = !thumbnail ? slides.find((s) => s.custom_background_colors?.length)?.custom_background_colors : null
-  const scheduleImages = slides.map((s) => s.background_image_url).filter((u): u is string => !!u)
+  // Real slide data, rendered server-side via lib/image/story-compositor.ts
+  // at schedule-confirm time (see ScheduleAction's storySlides prop) --
+  // previously this scheduled the bare AI background_image_url directly
+  // (filtered to slides that had one), with no headline/subtext/CTA text
+  // composited on at all, and silently dropped any slide using a named
+  // preset or custom color (no background_image_url to filter in). No
+  // uploaded/product photo here -- that was only ever kept in the live
+  // editing session's local state, never persisted to this row.
+  const scheduleStorySlides: StoryExportSlide[] = slides
+    .filter((s): s is StorySlideShape & { type: NonNullable<StorySlideShape["type"]>; text: string; background: string; text_position: NonNullable<StorySlideShape["text_position"]> } =>
+      !!s.type && !!s.text && !!s.background && !!s.text_position)
+    .map((s) => ({
+      type: s.type,
+      text: s.text,
+      subtext: s.subtext ?? "",
+      background: s.background,
+      text_position: s.text_position,
+      has_poll: s.has_poll ?? false,
+      poll_options: s.poll_options,
+      background_image_url: s.background_image_url,
+      custom_background_colors: s.custom_background_colors,
+    }))
 
   function openDetail() {
     onOpenDetail({
@@ -635,7 +667,7 @@ function StoryCard({ story, brandId, onOpenDetail }: { story: StoryRow; brandId:
       hashtags: [],
       createdAt: story.created_at,
       scheduleCaption: story.topic || slides[0]?.text || "",
-      scheduleImageUrls: scheduleImages,
+      scheduleStorySlides,
       // stories has no platform column of its own -- Instagram Stories is
       // the only thing this feature ever produces (StorySequence.tsx,
       // ScheduleAction's isMultiSlide path), not a guessed default.
