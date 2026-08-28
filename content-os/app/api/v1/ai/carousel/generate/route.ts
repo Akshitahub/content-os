@@ -7,6 +7,7 @@ import { CAROUSEL } from "@/lib/usage/credit-costs"
 import { buildPastExamplesBlock, QUALITY_BAR } from "@/lib/ai/prompts"
 import { z } from "zod"
 import type { BrandRow } from "@/types/database"
+import type { CarouselBackgroundStyle } from "@/lib/design/carousel-slide-styles"
 
 const schema = z.object({
   brandId: z.string().uuid(),
@@ -15,6 +16,27 @@ const schema = z.object({
   platform: z.enum(["instagram", "linkedin"]).default("instagram"),
   vibe: z.string().optional(),
 })
+
+// Confirmed live (2026-08-28): the LLM's `background_style` choice was
+// effectively vibe-blind — two generations with vibe="professional" and
+// vibe="fun_playful" produced byte-for-byte identical background_style
+// (and rendered CSS) for every content slide, and the prompt's own
+// "BACKGROUND STYLES (rotate through these...)" instruction ties each of
+// the 4 fixed options to slide role ("for cover and CTA", "for content
+// slides"), never to vibe — vibe is only ever mentioned once as loose
+// context ("Visual Vibe: X"). Same root cause and same fix as
+// VIBE_TO_STORY_BACKGROUND in app/api/v1/ai/stories/generate/route.ts:
+// background_style is now assigned deterministically in code from the
+// selected vibe, overriding the LLM's own (role-based) choice on every
+// slide. No-op when no vibe was selected, preserving the prior default.
+const VIBE_TO_CAROUSEL_BACKGROUND: Record<string, CarouselBackgroundStyle> = {
+  fun_playful: "vibe_fun_playful",
+  clean_minimal: "white_violet",
+  bold_dramatic: "gradient_dark",
+  warm_cozy: "vibe_warm_cozy",
+  professional: "vibe_professional",
+  trendy_genz: "vibe_trendy_genz",
+}
 
 function extractJSON(raw: string): string {
   let cleaned = raw.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim()
@@ -244,7 +266,18 @@ export async function POST(request: Request) {
     // Complete from the start, not dependent on the later best-effort
     // background-image enrichment step ever running/succeeding — see
     // mergeCtaSlideIntoSlides's own comment above.
-    const mergedSlides = mergeCtaSlideIntoSlides(d.slides, d.cta_slide)
+    let mergedSlides = mergeCtaSlideIntoSlides(d.slides, d.cta_slide)
+
+    // Override every slide's background_style with one deterministic,
+    // vibe-derived value — see VIBE_TO_CAROUSEL_BACKGROUND above. Applied
+    // after the CTA merge so a synthesized CTA slide (which otherwise
+    // always hardcodes "gradient_dark") also reflects the selected vibe.
+    const vibeBackground = vibe ? VIBE_TO_CAROUSEL_BACKGROUND[vibe] : undefined
+    if (vibeBackground) {
+      mergedSlides = mergedSlides.map((s) =>
+        s && typeof s === "object" ? { ...s, background_style: vibeBackground } : s
+      )
+    }
 
     // Persist (non-fatal) — matches the pattern used by every other
     // generate route: the generate call itself saves, the client never
