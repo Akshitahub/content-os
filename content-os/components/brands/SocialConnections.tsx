@@ -6,9 +6,11 @@ import Link from "next/link"
 import { FaInstagram, FaThreads, FaPinterest, FaLinkedin, FaYoutube, FaXTwitter } from "react-icons/fa6"
 import type { IconType } from "react-icons"
 import { Button } from "@/components/ui/button"
+import { ComingSoonBadge } from "@/components/shared/ComingSoonBadge"
 import { cn } from "@/lib/utils"
 import { isApiError } from "@/types/api"
 import { PLAN_LIMITS, type UserPlan } from "@/types/app"
+import { ENABLED_SOCIAL_PLATFORMS } from "@/lib/constants"
 
 interface ConnectionStatus {
   connected: boolean
@@ -277,9 +279,14 @@ export function SocialConnections({ brandId }: { brandId: string }) {
         </div>
       )}
 
+      <p className="text-xs text-muted-foreground">
+        More platforms coming soon as we grow — Instagram first.
+      </p>
+
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         {platforms.map((platform) => {
-          const gated = !platform.connected && !hasZernioAccess
+          const isEnabled = ENABLED_SOCIAL_PLATFORMS.includes(platform.key)
+          const gated = !platform.connected && isEnabled && !hasZernioAccess
           const isInstagramDisconnecting = platform.showDisconnect && confirmDisconnect
 
           return (
@@ -303,7 +310,7 @@ export function SocialConnections({ brandId }: { brandId: string }) {
                           ? "bg-amber-400"
                           : "bg-muted-foreground/30"
                   )}
-                  title={loading ? "Checking…" : platform.connected ? "Connected" : gated ? "Upgrade required" : "Not connected"}
+                  title={loading ? "Checking…" : platform.connected ? "Connected" : gated ? "Upgrade required" : !isEnabled ? "Coming soon" : "Not connected"}
                 />
               </div>
 
@@ -311,6 +318,8 @@ export function SocialConnections({ brandId }: { brandId: string }) {
                 <p className="text-xs text-muted-foreground">Checking…</p>
               ) : platform.connected ? (
                 <p className="truncate text-xs text-muted-foreground">{platform.handle}</p>
+              ) : !isEnabled ? (
+                <p className="line-clamp-2 text-xs text-muted-foreground">{platform.description}</p>
               ) : gated ? (
                 <div className="flex items-center gap-1.5">
                   <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800">
@@ -363,6 +372,8 @@ export function SocialConnections({ brandId }: { brandId: string }) {
                       Connected
                     </span>
                   )
+                ) : !isEnabled ? (
+                  <ComingSoonBadge />
                 ) : gated ? (
                   <Button size="sm" variant="outline" className="h-7 w-full text-xs" asChild>
                     <Link href="/settings?tab=billing">Upgrade</Link>

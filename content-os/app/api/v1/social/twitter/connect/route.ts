@@ -4,6 +4,7 @@ import { buildError, ErrorCodes } from "@/types/api"
 import { createZernioProfile, getZernioConnectUrl } from "@/lib/social/zernio-client"
 import { PLAN_LIMITS, type UserPlan } from "@/types/app"
 import { isInternalUnlimited } from "@/lib/usage/is-internal-unlimited"
+import { ENABLED_SOCIAL_PLATFORMS } from "@/lib/constants"
 import type { SupabaseClient } from "@supabase/supabase-js"
 import type { Database } from "@/types/database"
 
@@ -40,6 +41,19 @@ export async function GET(request: Request) {
   }
   if (brand.user_id !== user.id) {
     return NextResponse.json(buildError(ErrorCodes.UNAUTHORIZED, "You do not have access to this brand."), { status: 403 })
+  }
+
+  // Business-stage cost control, independent of plan tier — see
+  // lib/constants.ts's ENABLED_SOCIAL_PLATFORMS. Checked before the plan
+  // gate below: a platform nobody can access yet shouldn't be presented as
+  // an "upgrade to unlock" case. Enforced here (not just hidden/disabled in
+  // the UI) since this is the step that actually starts incurring Zernio's
+  // per-account cost.
+  if (!ENABLED_SOCIAL_PLATFORMS.includes("twitter")) {
+    return NextResponse.json(
+      buildError(ErrorCodes.FEATURE_UNAVAILABLE, "Twitter/X isn't available yet — Instagram is the only platform we support right now. More are coming as we grow."),
+      { status: 403 }
+    )
   }
 
   // LinkedIn/YouTube/Twitter all route through Zernio, a third-party
