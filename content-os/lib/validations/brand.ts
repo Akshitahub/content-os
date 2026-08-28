@@ -7,7 +7,6 @@ const brandBaseSchema = z.object({
   target_audience: z.string().max(300).nullish(),
   tone_of_voice: z.string().max(200).nullish(),
   brand_values: z.array(z.string().max(50)).max(10).optional().transform((v) => v ?? []),
-  competitors: z.array(z.string().max(100)).max(10).optional().transform((v) => v ?? []),
   website_url: z.union([z.string().url("Please enter a valid URL"), z.literal(""), z.null()]).optional(),
   instagram_handle: z.string().max(50).nullish(),
   ai_persona: z.string().max(1000).nullish(),
@@ -27,7 +26,6 @@ export type CreateBrandInput = {
   target_audience?: string | null
   tone_of_voice?: string | null
   brand_values: string[]
-  competitors: string[]
   website_url?: string | null
   instagram_handle?: string | null
   ai_persona?: string | null

@@ -34,8 +34,7 @@ export function calculateBestPerformingPosts(media: AccountMedia[], limit: numbe
  * The one AI-generated part of the dashboard. Every number is passed in
  * already calculated from real Instagram Insights/media data — the model
  * is only asked to observe patterns and explicitly say when it doesn't
- * have enough to support a claim, following the same strict-honesty
- * discipline as lib/ai/competitor-analysis.ts.
+ * have enough to support a claim.
  */
 export async function generateAccountInsights(
   brand: BrandRow,

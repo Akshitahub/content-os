@@ -1,18 +1,16 @@
 "use client"
 
 import { useState } from "react"
-import { LayoutGrid, Share2, BarChart3, Users } from "lucide-react"
+import { LayoutGrid, Share2, BarChart3 } from "lucide-react"
 import { SocialConnections } from "@/components/brands/SocialConnections"
 import { AnalyticsDashboard } from "@/components/brands/AnalyticsDashboard"
-import { CompetitorAnalysis } from "@/components/brands/CompetitorAnalysis"
 
-type BrandDetailTab = "overview" | "connections" | "analytics" | "competitors"
+type BrandDetailTab = "overview" | "connections" | "analytics"
 
 const TABS: { id: BrandDetailTab; label: string; icon: React.ElementType }[] = [
   { id: "overview", label: "Overview", icon: LayoutGrid },
   { id: "connections", label: "Connections", icon: Share2 },
   { id: "analytics", label: "Analytics", icon: BarChart3 },
-  { id: "competitors", label: "Competitors", icon: Users },
 ]
 
 export function BrandDetailTabs({ brandId, children }: { brandId: string; children: React.ReactNode }) {
@@ -44,7 +42,6 @@ export function BrandDetailTabs({ brandId, children }: { brandId: string; childr
       {activeTab === "overview" && children}
       {activeTab === "connections" && <SocialConnections brandId={brandId} />}
       {activeTab === "analytics" && <AnalyticsDashboard brandId={brandId} />}
-      {activeTab === "competitors" && <CompetitorAnalysis brandId={brandId} />}
     </div>
   )
 }

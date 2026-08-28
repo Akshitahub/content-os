@@ -94,7 +94,6 @@ const TIERS: PricingTier[] = [
       creditsLine("pro"),
       "+ LinkedIn, YouTube, Twitter/X",
       "Autopilot: generate a month of content in one click",
-      "Competitor tracking (5 competitors)",
       "Full analytics: demographics, best-time-to-post",
       "Monthly PDF reports",
     ],
@@ -106,7 +105,6 @@ const TIERS: PricingTier[] = [
     features: [
       "5 brands",
       creditsLine("agency"),
-      "Competitor tracking across multiple brands",
       "Dedicated support",
     ],
   },

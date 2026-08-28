@@ -105,7 +105,6 @@ export function BrandForm({ defaultValues, onSubmit, submitLabel = "Save brand",
       target_audience: "",
       tone_of_voice: "",
       brand_values: [],
-      competitors: [],
       website_url: "",
       instagram_handle: "",
       ai_persona: "",
@@ -114,13 +113,11 @@ export function BrandForm({ defaultValues, onSubmit, submitLabel = "Save brand",
   })
 
   const brandValues = watch("brand_values") ?? []
-  const competitors = watch("competitors") ?? []
 
   const onValidSubmit: SubmitHandler<CreateBrandInput> = async (data) => {
     await onSubmit({
       ...data,
       brand_values: data.brand_values ?? [],
-      competitors: data.competitors ?? [],
     })
   }
 
@@ -209,20 +206,6 @@ export function BrandForm({ defaultValues, onSubmit, submitLabel = "Save brand",
             <Label>What your brand stands for <span className="text-xs font-normal text-muted-foreground">(optional)</span></Label>
             <p className="text-xs text-muted-foreground">What matters most to your brand? Press Enter or comma to add. Max 10.</p>
             <TagInput value={brandValues} onChange={(val) => setValue("brand_values", val)} placeholder="e.g. Affordable quality, Sustainability, Empowerment, Innovation" />
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Competitive context</CardTitle>
-          <CardDescription>Helps the AI differentiate your content from competitors.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-2">
-            <Label>Competitors</Label>
-            <p className="text-xs text-muted-foreground">Brand names you compete with. Max 10.</p>
-            <TagInput value={competitors} onChange={(val) => setValue("competitors", val)} placeholder="e.g. Forest Essentials, Nykaa..." />
           </div>
         </CardContent>
       </Card>

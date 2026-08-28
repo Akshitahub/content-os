@@ -147,7 +147,6 @@ export type Database = {
           target_audience: string | null
           tone_of_voice: string | null
           brand_values: string[]
-          competitors: string[]
           color_palette: Json
           logo_url: string | null
           website_url: string | null
@@ -175,7 +174,6 @@ export type Database = {
           target_audience?: string | null
           tone_of_voice?: string | null
           brand_values?: string[]
-          competitors?: string[]
           color_palette?: Json
           logo_url?: string | null
           website_url?: string | null
@@ -201,7 +199,6 @@ export type Database = {
           target_audience?: string | null
           tone_of_voice?: string | null
           brand_values?: string[]
-          competitors?: string[]
           color_palette?: Json
           logo_url?: string | null
           website_url?: string | null

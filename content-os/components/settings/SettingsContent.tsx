@@ -79,7 +79,6 @@ const PLAN_FEATURES: { label: string; plans: Plan[] }[] = [
   { label: "Autopilot (30-day content planner)", plans: ["starter", "pro", "agency"] },
   { label: "LinkedIn, YouTube, Twitter/X publishing", plans: ["pro", "agency"] },
   { label: "AI video reels (from your credit pool)", plans: ["pro", "agency"] },
-  { label: "Competitor tracking", plans: ["starter", "pro", "agency"] },
   { label: "Full analytics + demographics + best-time-to-post", plans: ["pro", "agency"] },
   { label: "Monthly PDF reports", plans: ["starter", "pro", "agency"] },
   { label: "Dedicated support", plans: ["agency"] },
