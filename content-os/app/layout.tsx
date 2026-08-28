@@ -30,8 +30,12 @@ export const metadata: Metadata = {
   ],
   metadataBase: new URL(BASE_URL),
   icons: {
-    icon: [{ url: "/favicon.svg", type: "image/svg+xml" }],
-    shortcut: "/favicon.svg",
+    icon: [
+      { url: "/brand/favicon-16.png", sizes: "16x16", type: "image/png" },
+      { url: "/brand/favicon-32.png", sizes: "32x32", type: "image/png" },
+    ],
+    shortcut: "/brand/favicon-32.png",
+    apple: [{ url: "/brand/apple-touch-icon.png", sizes: "180x180", type: "image/png" }],
   },
   openGraph: {
     title: "SocioPosts | AI Content Generator for Indian D2C Brands",
