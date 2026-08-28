@@ -237,15 +237,25 @@ export interface AutopilotTier {
 // its 5 brands, and the user manually picks which brands to spend those
 // runs on — no automatic rotation.
 //
-// Free tier removed entirely (2026-08-26 pricing revision) — every new
-// signup instead starts on a 7-day no-card trial with a separate, much
+// Free tier removed entirely (2026-08-26 pricing revision) — Starter/Pro
+// signups instead start on a 7-day no-card trial with a separate, much
 // smaller credit cap than any paid tier's `generations` here (see
 // TRIAL_CREDIT_CAP in lib/usage/credit-costs.ts and users.trial_ends_at/
-// subscribed_at) rather than a standing free plan. `plan` itself is never
-// "free" anymore — during a trial it still resolves to "starter" for
-// every gate in this table (brands/products/features), the trial's own
-// reduced credit cap is enforced separately in
+// subscribed_at) rather than a standing free plan. Agency has no trial at
+// all — its signup goes straight to checkout (see
+// app/api/auth/callback/route.ts's isAgencyCheckout handling). `plan`
+// itself is never "free" anymore — during a trial it still resolves to
+// "starter" for every gate in this table (brands/products/features), the
+// trial's own reduced credit cap is enforced separately in
 // lib/usage/check-and-increment-usage.ts.
+//
+// `zernioSocialPlatforms` gates Threads/Pinterest/LinkedIn/YouTube/
+// Twitter's plan tier (Pro/Agency vs. Starter) — but is currently moot for
+// all of them beneath a separate, plan-independent gate:
+// ENABLED_SOCIAL_PLATFORMS in lib/constants.ts restricts actual Zernio
+// connections to Instagram only for now (a business-stage cost control,
+// not a pricing decision), so this field only matters again once that
+// list expands.
 export const PLAN_LIMITS: Record<UserPlan, { price: number; annualPrice: number; generations: number; brands: number; products: number; zernioSocialPlatforms: boolean; reelsPerWeek: number; autopilot: AutopilotTier; carouselCtaAiBackground: boolean }> = {
   starter: { price: 499,  annualPrice: 5389,   generations: 150,  brands: 2, products: 30,   zernioSocialPlatforms: false, reelsPerWeek: 0, autopilot: { days: 14, slots: 14, creditCost: 74,  maxRunsPerMonth: 1 }, carouselCtaAiBackground: true },
   pro:     { price: 1999, annualPrice: 21589,  generations: 600,  brands: 3, products: 200,  zernioSocialPlatforms: true,  reelsPerWeek: 1, autopilot: { days: 30, slots: 30, creditCost: 162, maxRunsPerMonth: 3 }, carouselCtaAiBackground: true },

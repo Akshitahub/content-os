@@ -77,13 +77,20 @@ const PLAN_COLORS: Record<Plan, string> = {
   agency: "bg-green-100 text-green-700",
 }
 
+// Kept in sync by hand with PLAN_LIMITS (types/app.ts) and
+// ENABLED_SOCIAL_PLATFORMS (lib/constants.ts) — this is a plain include/
+// exclude checklist, not numbers, so it can't read those directly the way
+// PricingSection.tsx's creditsLine() does. Auto-post is Pro/Agency only
+// (PLAN_LIMITS.zernioSocialPlatforms) and Instagram-only for now
+// (ENABLED_SOCIAL_PLATFORMS) — Threads/Pinterest/LinkedIn/YouTube/
+// Twitter/X are plan-eligible but not yet actually connectable, so they
+// aren't listed as an included feature here. AI video reels are omitted
+// entirely — REELS_ENABLED is false, so no plan actually has them yet.
 const PLAN_FEATURES: { label: string; plans: Plan[] }[] = [
   { label: "AI content generation", plans: ["starter", "pro", "agency"] },
   { label: "Brand management", plans: ["starter", "pro", "agency"] },
-  { label: "Auto-post & schedule (Instagram, Facebook, Threads, Pinterest)", plans: ["starter", "pro", "agency"] },
-  { label: "Autopilot (30-day content planner)", plans: ["starter", "pro", "agency"] },
-  { label: "LinkedIn, YouTube, Twitter/X publishing", plans: ["pro", "agency"] },
-  { label: "AI video reels (from your credit pool)", plans: ["pro", "agency"] },
+  { label: "Autopilot content planner", plans: ["starter", "pro", "agency"] },
+  { label: "Auto-post & schedule to Instagram", plans: ["pro", "agency"] },
   { label: "Full analytics + demographics + best-time-to-post", plans: ["pro", "agency"] },
   { label: "Monthly PDF reports", plans: ["starter", "pro", "agency"] },
   { label: "Dedicated support", plans: ["agency"] },

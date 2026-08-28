@@ -4,6 +4,7 @@ import { useState } from "react"
 import Link from "next/link"
 import { Check } from "lucide-react"
 import { PLAN_LIMITS } from "@/types/app"
+import { REELS_ENABLED, ENABLED_SOCIAL_PLATFORMS } from "@/lib/constants"
 
 type BillingCycle = "monthly" | "annual"
 
@@ -41,15 +42,23 @@ const MANUAL_POSTS_TARGET: Record<"starter" | "pro" | "agency", number> = {
   agency: 100,
 }
 
-// Reels draw from this same shared credit pool once they launch (see
-// lib/usage/credit-costs.ts's REEL weight) rather than the old fixed
-// weekly allowance ("1 reel/week", "3-4 reels/week") this copy used to
-// promise — that promise is gone because the real per-reel cost isn't
+// Reels are fully parked behind REELS_ENABLED (lib/constants.ts) — not
+// reachable anywhere in the app right now (see CreatePicker.tsx's Reel
+// card and the landing page's own Features grid, both "Coming soon").
+// This note used to describe reels as an already-included Pro/Agency
+// benefit; it now says the same "coming soon" thing this copy claims
+// everywhere else, rather than promising something nobody can use yet.
+// Once REELS_ENABLED flips on, reels draw from this same shared credit
+// pool (see lib/usage/credit-costs.ts's REEL weight) rather than the old
+// fixed weekly allowance ("1 reel/week", "3-4 reels/week") this copy used
+// to promise — that promise is gone because the real per-reel cost isn't
 // confirmed yet (REEL there is still a placeholder). Starter isn't
 // mentioned, matching PLAN_LIMITS.starter.reelsPerWeek staying 0.
 function reelNote(planId: "starter" | "pro" | "agency"): string {
-  if (planId === "pro") return ", plus AI video reels from the same credit pool"
-  if (planId === "agency") return ", with generous room for AI video reels too"
+  if (REELS_ENABLED) {
+    if (planId === "pro") return ", plus AI video reels from the same credit pool"
+    if (planId === "agency") return ", with generous room for AI video reels too"
+  }
   return ""
 }
 
@@ -64,6 +73,11 @@ function creditsLine(planId: "starter" | "pro" | "agency"): string {
   const autopilotNote = `${runs} Autopilot run${runs === 1 ? "" : "s"} across your ${brands} brand${brands === 1 ? "" : "s"}`
   return `${credits.toLocaleString("en-IN")} credits / month: ~${posts} posts + ${autopilotNote}${reelNote(planId)}`
 }
+
+// Derived from ENABLED_SOCIAL_PLATFORMS (lib/constants.ts) rather than
+// hand-typed, so this can't drift from the actual cost-control gate —
+// only ever "Instagram" today, but reads as a list once that array grows.
+const ENABLED_PLATFORMS_LABEL = ENABLED_SOCIAL_PLATFORMS.map((p) => p[0].toUpperCase() + p.slice(1)).join(", ")
 
 // Real annual price from PLAN_LIMITS[id].annualPrice (the same value
 // actually charged at checkout — see create-checkout-session/route.ts) —
@@ -81,7 +95,7 @@ const TIERS: PricingTier[] = [
     features: [
       "2 brands",
       creditsLine("starter"),
-      "Auto-post & schedule to Instagram, Facebook, Threads, Pinterest",
+      "Download-ready posts — publish manually",
       "Autopilot: generate weeks of content in one click",
       "Basic analytics & ROI tracking",
     ],
@@ -94,7 +108,7 @@ const TIERS: PricingTier[] = [
     features: [
       "3 brands",
       creditsLine("pro"),
-      "+ LinkedIn, YouTube, Twitter/X",
+      `Auto-post & schedule to ${ENABLED_PLATFORMS_LABEL} (more platforms coming soon)`,
       "Autopilot: generate a month of content in one click",
       "Full analytics: demographics, best-time-to-post",
       "Monthly PDF reports",
@@ -107,6 +121,7 @@ const TIERS: PricingTier[] = [
     features: [
       "5 brands",
       creditsLine("agency"),
+      `Auto-post & schedule to ${ENABLED_PLATFORMS_LABEL} (more platforms coming soon)`,
       "Dedicated support",
     ],
   },

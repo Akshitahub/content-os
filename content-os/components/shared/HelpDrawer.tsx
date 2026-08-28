@@ -32,7 +32,7 @@ const FAQ_CATEGORIES: FaqCategory[] = [
       },
       {
         q: "How do I connect my social accounts?",
-        a: "Open your brand page and go to the Connections tab. Instagram, Facebook, Threads, and Pinterest connect directly; LinkedIn and YouTube route through a partner integration and are available on Pro and Agency plans.",
+        a: "Open your brand page and go to the Connections tab. Every platform connects through Zernio, our publishing partner, and connecting is available on Pro and Agency plans. We're starting with Instagram only while we scale — the rest are marked \"Coming soon\" and will open up over time.",
       },
     ],
   },
@@ -45,7 +45,7 @@ const FAQ_CATEGORIES: FaqCategory[] = [
       },
       {
         q: "What's the difference between a Reel, Story, and Carousel?",
-        a: "A Reel is a scripted short video with AI voiceover. A Story is 3–5 connected full-screen slides. A Carousel is a multi-slide post with its own AI-written copy per slide.",
+        a: "A Reel is a scripted short video with AI voiceover — script generation is available now, and the AI voiceover/video step is coming soon. A Story is 3–5 connected full-screen slides. A Carousel is a multi-slide post with its own AI-written copy per slide.",
       },
     ],
   },
@@ -53,8 +53,8 @@ const FAQ_CATEGORIES: FaqCategory[] = [
     title: "Publishing & Scheduling",
     items: [
       {
-        q: "Why can't I connect LinkedIn or YouTube?",
-        a: "These two route through a third-party publishing partner that bills per connected account, so they're available on Pro and Agency plans only. Instagram, Facebook, Threads, and Pinterest stay free to connect on every plan.",
+        q: "Why can't I connect Threads, Pinterest, LinkedIn, YouTube, or Twitter/X yet?",
+        a: "All publishing routes through Zernio, our third-party partner that bills per connected account, and connecting is available on Pro and Agency plans (Starter doesn't include auto-posting). To manage that cost while we scale, we're starting with Instagram only — every other platform is marked \"Coming soon\" on the Connections tab.",
       },
       {
         q: "How does scheduling work?",
