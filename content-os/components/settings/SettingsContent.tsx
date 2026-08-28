@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useCallback, useEffect } from "react"
+import { useState, useCallback, useEffect, useRef } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { useForm } from "react-hook-form"
@@ -45,6 +45,11 @@ interface BrandProps {
 interface SettingsContentProps {
   user: UserProps
   brands: BrandProps[]
+  /** Set when the Agency signup flow (see app/api/auth/callback/route.ts)
+   * lands here — auto-opens the Agency checkout modal once Razorpay's
+   * script has loaded, so a brand-new Agency signup goes straight to
+   * payment instead of landing on a page they have to act on themselves. */
+  startPlan?: "agency" | null
 }
 
 // ---------------------------------------------------------------------------
@@ -217,7 +222,7 @@ interface RazorpayResponse {
   razorpay_signature: string
 }
 
-function PlanSection({ user }: { user: UserProps }) {
+function PlanSection({ user, autoUpgradePlan }: { user: UserProps; autoUpgradePlan?: "agency" | null }) {
   // Shared with Header/the Autopilot page (hooks/useUserCredits.ts) --
   // previously this read a server-rendered prop computed without the
   // monthly-reset check /api/v1/user/profile applies, and could disagree
@@ -251,10 +256,12 @@ function PlanSection({ user }: { user: UserProps }) {
   const [topupSuccess, setTopupSuccess] = useState<{ credits: number } | null>(null)
 
   // Load the Razorpay checkout script once on mount
+  const [razorpayReady, setRazorpayReady] = useState(false)
   useEffect(() => {
     const script = document.createElement("script")
     script.src = "https://checkout.razorpay.com/v1/checkout.js"
     script.async = true
+    script.onload = () => setRazorpayReady(true)
     document.body.appendChild(script)
     return () => {
       document.body.removeChild(script)
@@ -339,6 +346,18 @@ function PlanSection({ user }: { user: UserProps }) {
       setUpgradeState("idle")
     }
   }, [billingPeriod])
+
+  // Agency signup (app/api/auth/callback/route.ts) lands here with
+  // autoUpgradePlan="agency" -- open the checkout modal automatically so
+  // that flow's "no trial, straight to checkout" promise doesn't dead-end
+  // on a page the user has to act on themselves. Guarded to fire once.
+  const autoUpgradeFired = useRef(false)
+  useEffect(() => {
+    if (autoUpgradePlan === "agency" && razorpayReady && !autoUpgradeFired.current) {
+      autoUpgradeFired.current = true
+      handleUpgrade("agency")
+    }
+  }, [autoUpgradePlan, razorpayReady, handleUpgrade])
 
   const handleBuyTopup = useCallback(async (packId: CreditPackId) => {
     const pack = CREDIT_PACKS[packId]
@@ -940,12 +959,12 @@ function ConnectionsSection({ brands }: { brands: BrandProps[] }) {
 // Root client component
 // ---------------------------------------------------------------------------
 
-export function SettingsContent({ user, brands }: SettingsContentProps) {
+export function SettingsContent({ user, brands, startPlan }: SettingsContentProps) {
   return (
     <div className="mx-auto max-w-2xl space-y-6">
       <ProfileSection user={user} />
       <Separator />
-      <PlanSection user={user} />
+      <PlanSection user={user} autoUpgradePlan={startPlan ?? null} />
       <Separator />
       <ConnectionsSection brands={brands} />
       <Separator />

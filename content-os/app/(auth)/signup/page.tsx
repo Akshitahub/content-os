@@ -1,7 +1,7 @@
 "use client"
 
-import { useState } from "react"
-import { useRouter } from "next/navigation"
+import { Suspense, useState } from "react"
+import { useRouter, useSearchParams } from "next/navigation"
 import Link from "next/link"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
@@ -38,8 +38,10 @@ const signupSchema = z
 
 type SignupFormData = z.infer<typeof signupSchema>
 
-export default function SignupPage() {
+function SignupForm() {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const isAgency = searchParams.get("plan") === "agency"
   const [serverError, setServerError] = useState<string | null>(null)
   const [isGoogleLoading, setIsGoogleLoading] = useState(false)
 
@@ -51,6 +53,14 @@ export default function SignupPage() {
     resolver: zodResolver(signupSchema),
   })
 
+  // Agency has no free trial — this sends a brand-new Agency signup
+  // straight to checkout (skipping onboarding) instead of the default
+  // dashboard/onboarding landing every other plan gets. See
+  // app/api/auth/callback/route.ts's isAgencyCheckout handling.
+  const callbackUrl = isAgency
+    ? `${typeof window !== "undefined" ? window.location.origin : ""}/api/auth/callback?next=${encodeURIComponent("/settings?tab=billing&startPlan=agency")}`
+    : `${typeof window !== "undefined" ? window.location.origin : ""}/api/auth/callback`
+
   async function onSubmit(data: SignupFormData) {
     setServerError(null)
     const supabase = createClient()
@@ -60,7 +70,7 @@ export default function SignupPage() {
       password: data.password,
       options: {
         data: { full_name: data.fullName },
-        emailRedirectTo: `${window.location.origin}/api/auth/callback`,
+        emailRedirectTo: callbackUrl,
       },
     })
 
@@ -80,7 +90,7 @@ export default function SignupPage() {
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
-        redirectTo: `${window.location.origin}/api/auth/callback`,
+        redirectTo: callbackUrl,
       },
     })
 
@@ -93,9 +103,11 @@ export default function SignupPage() {
   return (
     <Card className="w-full max-w-md">
       <CardHeader className="space-y-1">
-        <CardTitle className="text-2xl">Create your account</CardTitle>
+        <CardTitle className="text-2xl">{isAgency ? "Subscribe to Agency" : "Create your account"}</CardTitle>
         <CardDescription>
-          Start building your AI content system today
+          {isAgency
+            ? "Agency doesn't include a free trial — create your account and you'll go straight to checkout."
+            : "Start building your AI content system today"}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -195,7 +207,7 @@ export default function SignupPage() {
 
           <Button type="submit" className="w-full" disabled={isSubmitting || isGoogleLoading}>
             {isSubmitting && <Loader2 className="h-4 w-4 animate-spin" />}
-            Create account
+            {isAgency ? "Continue to checkout" : "Create account"}
           </Button>
         </form>
 
@@ -207,5 +219,13 @@ export default function SignupPage() {
         </p>
       </CardContent>
     </Card>
+  )
+}
+
+export default function SignupPage() {
+  return (
+    <Suspense fallback={null}>
+      <SignupForm />
+    </Suspense>
   )
 }

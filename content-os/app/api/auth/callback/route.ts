@@ -15,6 +15,11 @@ export async function GET(request: Request) {
     next = "/dashboard"
   }
 
+  // Agency has no trial (see signup/page.tsx) — its signup CTA links here
+  // with this `next` target so a brand-new Agency signup is sent straight
+  // to checkout below instead of the trial-oriented onboarding flow.
+  const isAgencyCheckout = next.startsWith("/settings") && next.includes("startPlan=agency")
+
   if (code) {
     let supabase
     try {
@@ -37,7 +42,24 @@ export async function GET(request: Request) {
           const isNewUser = Math.abs(createdAt - updatedAt) < 10_000
 
           if (isNewUser) {
-            redirectPath = "/onboarding/welcome"
+            if (isAgencyCheckout) {
+              // handle_new_user() (migration 039) unconditionally grants a
+              // 7-day trial on signup. Agency doesn't get one, so clear it
+              // here rather than in the trigger — this is the one signup
+              // path that opts out, and null trial_ends_at + no
+              // subscription already fails closed as "must pay" (see
+              // lib/usage/trial-status.ts), so this alone is enough even if
+              // the user abandons the checkout modal below.
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              const { error: clearTrialError } = await (supabase.from("users") as any)
+                .update({ trial_ends_at: null })
+                .eq("id", user.id)
+              if (clearTrialError) {
+                console.error("[auth/callback] failed to clear Agency signup trial:", clearTrialError)
+              }
+            } else {
+              redirectPath = "/onboarding/welcome"
+            }
             if (user.email) {
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
               const fullName = (user.user_metadata as any)?.full_name as string | undefined

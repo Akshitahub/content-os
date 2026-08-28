@@ -6,7 +6,12 @@ import type { UserRow, BrandRow } from "@/types/database"
 
 export const metadata: Metadata = { title: "Settings | SocioPosts" }
 
-export default async function SettingsPage() {
+export default async function SettingsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>
+}) {
+  const { startPlan } = await searchParams
   const supabase = await createClient()
 
   const { data: { user }, error: authError } = await supabase.auth.getUser()
@@ -50,6 +55,7 @@ export default async function SettingsPage() {
           reel_count_reset_at: profile?.reel_count_reset_at ?? null,
         }}
         brands={brands}
+        startPlan={startPlan === "agency" ? "agency" : null}
       />
     </div>
   )

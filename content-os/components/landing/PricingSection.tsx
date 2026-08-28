@@ -28,8 +28,10 @@ function formatRupees(amount: number): string {
 // decision — see the pricing revision this pairs with in types/app.ts),
 // not re-derived by dividing the whole pool by POST, since that would
 // overstate what's left after also budgeting for Autopilot.
-// Free tier removed (2026-08-26 pricing revision) — every signup instead
-// gets a 7-day no-card trial (see the banner above the tier grid below).
+// Free tier removed (2026-08-26 pricing revision) — Starter/Pro signups
+// get a 7-day no-card trial; Agency has none and goes straight to
+// checkout (see app/api/auth/callback/route.ts's isAgencyCheckout
+// handling, and the banner above the tier grid below).
 // Starter's target dropped from 40 to 13 to match its resized 150-credit
 // pool at roughly the same credits-per-post ratio the old 450-credit/40-post
 // figure implied (450/40 ≈ 11.25 credits/post; 150/13 ≈ 11.5).
@@ -118,7 +120,7 @@ export function PricingSection() {
       <div className="mb-8 text-center">
         <span className="mb-3 inline-block rounded-full bg-violet-50 px-3 py-1 text-xs font-semibold uppercase tracking-widest text-violet-600">Pricing</span>
         <h2 className="text-3xl font-bold tracking-tight text-gray-900 sm:text-4xl">Simple, honest pricing</h2>
-        <p className="mt-2 text-sm font-semibold text-emerald-600">Every plan starts with a 7-day free trial — no card required.</p>
+        <p className="mt-2 text-sm font-semibold text-emerald-600">Starter and Pro start with a 7-day free trial — no card required. Agency goes straight to checkout.</p>
       </div>
 
       {/* Monthly / Annual toggle */}
@@ -185,14 +187,14 @@ export function PricingSection() {
                 ))}
               </ul>
               <Link
-                href="/signup"
+                href={tier.id === "agency" ? "/signup?plan=agency" : "/signup"}
                 className={`rounded-full px-5 py-2.5 text-center text-sm font-semibold transition ${
                   tier.highlighted
                     ? "bg-violet-600 text-white hover:bg-violet-700"
                     : "border border-gray-200 text-gray-700 hover:bg-gray-50"
                 }`}
               >
-                Start free trial
+                {tier.id === "agency" ? "Subscribe now" : "Start free trial"}
               </Link>
             </div>
           )
