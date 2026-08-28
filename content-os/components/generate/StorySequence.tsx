@@ -221,15 +221,15 @@ function PhoneStory({
               {story.subtext}
             </p>
 
-            {/* Poll sticker */}
+            {/* Plain CTA text, not an interactive sticker -- baked into the
+                image file, this can't actually collect taps/votes once
+                published (Instagram's real Question/Poll stickers are only
+                addable natively through Instagram's own app/API afterward),
+                so it shouldn't be styled to look like one. */}
             {story.has_poll && story.poll_options && (
-              <div className="mt-4 w-full rounded-xl bg-white/20 backdrop-blur-sm p-2 space-y-1.5">
-                {story.poll_options.map((opt, i) => (
-                  <div key={i} className="rounded-lg bg-white/80 px-3 py-1.5">
-                    <span className="text-[10px] font-bold text-gray-900">{opt}</span>
-                  </div>
-                ))}
-              </div>
+              <p className={`mt-4 text-center text-xs font-semibold ${subColor}`}>
+                {story.poll_options.join("  ·  ")}
+              </p>
             )}
           </div>
 
