@@ -1,5 +1,5 @@
 import { ImageResponse } from "next/og"
-import { LogoIcon } from "@/components/shared/LogoIcon"
+import { LOGO_DATA_URI } from "@/lib/design/logo-data-uri"
 
 export const runtime = "edge"
 
@@ -36,15 +36,35 @@ export async function GET() {
 
         {/* Logo row */}
         <div style={{ display: "flex", alignItems: "center", gap: "14px", marginBottom: "40px" }}>
-          <LogoIcon size={40} />
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={LOGO_DATA_URI} width={40} height={40} alt="" />
           <span style={{ color: "#ffffff", fontSize: "28px", fontWeight: 700, letterSpacing: "-0.5px" }}>
             SocioPosts
           </span>
         </div>
 
-        {/* Headline */}
+        {/* Headline -- satori (what ImageResponse renders through) requires
+            an explicit display on any element with more than one child
+            node; flexWrap: "wrap" is the standard pattern for text that
+            needs to keep wrapping naturally around an inline colored span
+            like this one, rather than being forced onto a single flex row.
+            Pre-existing bug, unrelated to the logo swap this file's other
+            change is about -- this route was crashing (500) before it too,
+            just never noticed since nothing links to it (see app/layout.tsx,
+            which points its real OG meta tags at the static
+            public/og-image.png instead). */}
         <div
           style={{
+            display: "flex",
+            flexWrap: "wrap",
+            // flexbox turns each text/element child into its own flex item
+            // rather than flowing inline text, which collapses the literal
+            // whitespace that used to separate them -- columnGap replaces
+            // it with real, consistent spacing instead. Longhand, not the
+            // `gap` shorthand -- satori's CSS support is a subset of the
+            // real spec and silently no-ops on properties it doesn't
+            // recognize rather than erroring, which is what happened here.
+            columnGap: "14px",
             color: "#ffffff",
             fontSize: "58px",
             fontWeight: 800,
@@ -54,8 +74,9 @@ export async function GET() {
             marginBottom: "32px",
           }}
         >
-          Your brand URL →{" "}
-          <span style={{ color: "#818cf8" }}>30 days</span> of content
+          <span>Your brand URL →</span>
+          <span style={{ color: "#818cf8" }}>30 days</span>
+          <span>of content</span>
         </div>
 
         {/* Sub-text */}
