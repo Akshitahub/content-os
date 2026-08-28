@@ -62,6 +62,15 @@ function reelNote(planId: "starter" | "pro" | "agency"): string {
   return ""
 }
 
+// Autopilot's span/output-per-run, straight from PLAN_LIMITS rather than
+// the vague "generate weeks/a month of content in one click" this used to
+// say — concrete numbers instead, and consistent across all three tiers
+// (the old copy also just omitted this bullet for Agency entirely).
+function autopilotSpanNote(planId: "starter" | "pro" | "agency"): string {
+  const { days, slots } = PLAN_LIMITS[planId].autopilot
+  return `Autopilot: ${days}-day plan, ${slots} pieces per run`
+}
+
 function creditsLine(planId: "starter" | "pro" | "agency"): string {
   const { generations: credits, brands, autopilot } = PLAN_LIMITS[planId]
   const posts = MANUAL_POSTS_TARGET[planId]
@@ -96,7 +105,7 @@ const TIERS: PricingTier[] = [
       "2 brands",
       creditsLine("starter"),
       "Download-ready posts — publish manually",
-      "Autopilot: generate weeks of content in one click",
+      autopilotSpanNote("starter"),
       "Basic analytics & ROI tracking",
     ],
   },
@@ -109,7 +118,7 @@ const TIERS: PricingTier[] = [
       "3 brands",
       creditsLine("pro"),
       `Auto-post & schedule to ${ENABLED_PLATFORMS_LABEL} (more platforms coming soon)`,
-      "Autopilot: generate a month of content in one click",
+      autopilotSpanNote("pro"),
       "Full analytics: demographics, best-time-to-post",
       "Monthly PDF reports",
     ],
@@ -122,6 +131,7 @@ const TIERS: PricingTier[] = [
       "5 brands",
       creditsLine("agency"),
       `Auto-post & schedule to ${ENABLED_PLATFORMS_LABEL} (more platforms coming soon)`,
+      autopilotSpanNote("agency"),
       "Dedicated support",
     ],
   },
