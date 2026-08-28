@@ -20,7 +20,7 @@ export type StorySlide = {
   type: "hook" | "reveal" | "buildup" | "cta"
   text: string
   subtext: string
-  background: "gradient_violet" | "gradient_pink" | "gradient_dark" | "gradient_warm" | "white"
+  background: "gradient_violet" | "gradient_pink" | "gradient_dark" | "gradient_warm" | "white" | "vibe_fun_playful" | "vibe_professional" | "vibe_trendy_genz"
   text_position: "top" | "center" | "bottom"
   has_poll: boolean
   poll_options?: [string, string]
@@ -61,6 +61,29 @@ export type GeneratedStorySequence = {
  * 3+ stories (matching the previous hardcoded 3/4/5 sequences exactly),
  * tapering down to just ["hook"] or ["hook", "cta"] for 1-2 stories.
  */
+// Confirmed live (2026-08-28): the LLM's `background` choice was almost
+// entirely type-based (hook→gradient_violet, reveal→gradient_pink,
+// cta→gradient_dark, per the literal JSON example below) and effectively
+// ignored `vibe` — two generations with vibe="professional" and
+// vibe="fun_playful" produced byte-for-byte identical backgrounds for
+// every slide. Rather than trying to prompt-engineer the model into
+// reliably tying an enum field to a loose "Visual Vibe: X" context line —
+// the exact kind of instruction-following diffusion/LLM models in this
+// codebase are already documented as unreliable at (see
+// vibe-background-styles.ts's describeColor comment) — background is now
+// assigned deterministically in code from the selected vibe, overriding
+// whatever the LLM put in each slide's `background` field. Only falls
+// through to the LLM's own (type-based) choice when no vibe was selected
+// at all, preserving that as the pre-existing default behavior.
+const VIBE_TO_STORY_BACKGROUND: Record<string, StorySlide["background"]> = {
+  fun_playful: "vibe_fun_playful",
+  clean_minimal: "white",
+  bold_dramatic: "gradient_dark",
+  warm_cozy: "gradient_warm",
+  professional: "vibe_professional",
+  trendy_genz: "vibe_trendy_genz",
+}
+
 function buildStoryTypeSequence(storyCount: number): string[] {
   if (storyCount <= 1) return ["hook"]
   if (storyCount === 2) return ["hook", "cta"]
@@ -249,6 +272,15 @@ ${QUALITY_BAR}`,
     if (!Array.isArray(d.stories) || d.stories.length === 0) {
       await refundGenerationUsage(supabase, user.id, STORY, logId)
       return NextResponse.json(buildError(ErrorCodes.AI_GENERATION_FAILED, "Story generation failed. Please try again."), { status: 500 })
+    }
+
+    // Override the LLM's per-slide background choice with one deterministic,
+    // vibe-derived value applied to every slide -- see VIBE_TO_STORY_BACKGROUND
+    // above for why. No-op (keeps whatever the LLM picked) when no vibe was
+    // selected, matching the pre-existing default.
+    const vibeBackground = vibe ? VIBE_TO_STORY_BACKGROUND[vibe] : undefined
+    if (vibeBackground) {
+      d.stories = (d.stories as Record<string, unknown>[]).map((s) => ({ ...s, background: vibeBackground }))
     }
 
     // Persist (non-fatal) — matches the pattern used by every other

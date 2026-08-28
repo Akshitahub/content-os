@@ -24,6 +24,14 @@ const STORY_BG: Record<string, { bg: string; text: string; sub: string }> = {
   gradient_dark:   { bg: "bg-gradient-to-b from-gray-900 via-gray-800 to-black", text: "text-white", sub: "text-white/60" },
   gradient_warm:   { bg: "bg-gradient-to-b from-amber-400 via-orange-500 to-red-600", text: "text-white", sub: "text-white/70" },
   white:           { bg: "bg-white border border-gray-200", text: "text-gray-900", sub: "text-gray-500" },
+  // Vibe-specific flat backgrounds — see VIBE_TO_STORY_BACKGROUND in
+  // app/api/v1/ai/stories/generate/route.ts, which assigns these
+  // deterministically from the selected vibe (clean_minimal/bold_dramatic/
+  // warm_cozy reuse the keys above; these three vibes had no matching
+  // pre-existing key).
+  vibe_fun_playful:   { bg: "bg-gradient-to-b from-orange-400 via-yellow-400 to-teal-400", text: "text-white", sub: "text-white/70" },
+  vibe_professional:  { bg: "bg-gradient-to-b from-blue-900 via-slate-800 to-gray-900", text: "text-white", sub: "text-white/70" },
+  vibe_trendy_genz:   { bg: "bg-gradient-to-b from-violet-500 via-fuchsia-500 to-cyan-400", text: "text-white", sub: "text-white/80" },
 }
 
 // Curated preset swatches offered by the inline color picker below — the
@@ -54,12 +62,15 @@ const QUICK_TOPICS = [
 // Best-effort AI background fetch for a single hook/cta story slide — never
 // throws, resolves to null (falls back to the existing flat gradient) on
 // any HTTP error or network failure. Available to every plan, no tiering.
-async function fetchSlideBackground(brandId: string, text: string, role: "hook" | "cta"): Promise<string | null> {
+// Confirmed live (2026-08-28): this call never sent `vibe` at all, so the
+// generated background image always ignored whichever vibe was selected —
+// unlike CarouselBuilder.tsx's equivalent call, which already sent it.
+async function fetchSlideBackground(brandId: string, text: string, vibe: Vibe | undefined, role: "hook" | "cta"): Promise<string | null> {
   try {
     const res = await fetch("/api/v1/ai/stories/slide-image/generate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ brandId, text, role }),
+      body: JSON.stringify({ brandId, text, vibe, role }),
     })
     if (!res.ok) return null
     const json = await res.json() as { data?: { public_url?: string } }
@@ -460,7 +471,7 @@ export function StorySequence({ brandId }: { brandId: string }) {
           .map((slide, i) => ({ slide, i }))
           .filter((t): t is { slide: StorySlide & { type: "hook" | "cta" }; i: number } => t.slide.type === "hook" || t.slide.type === "cta")
 
-        Promise.all(bgTargets.map(({ slide }) => fetchSlideBackground(brandId, slide.text, slide.type))).then((urls) => {
+        Promise.all(bgTargets.map(({ slide }) => fetchSlideBackground(brandId, slide.text, vibe, slide.type))).then((urls) => {
           if (generationIdRef.current !== genId) return
           if (!urls.some((u) => u)) return
 
