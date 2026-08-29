@@ -13,7 +13,7 @@ import { isApiError } from "@/types/api"
 import { ApiResponseError } from "@/hooks/useGeneration"
 import { STORY as STORY_CREDIT_COST, STORY_SLIDE_AI_BACKGROUND } from "@/lib/usage/credit-costs"
 import { VibePicker, type Vibe } from "@/components/shared/VibePicker"
-import { cssBackgroundFromColors } from "@/components/shared/ColorWheelPicker"
+import { cssBackgroundFromColors, ColorWheelPicker } from "@/components/shared/ColorWheelPicker"
 import Link from "next/link"
 
 // ─── Story background gradients ────────────────────────────────────────────────
@@ -308,20 +308,49 @@ function PhoneStory({
         {dlErr && <p className="text-[10px] text-destructive">Download failed</p>}
       </div>
 
-      {/* Preset color/gradient swap — local re-composite only, no new
-          generation call. Picking a swatch also drops any AI background
-          image so the flat color actually becomes visible. */}
+      {/* Preset color/gradient swap plus a real per-slide custom color --
+          both a local re-composite only, no new generation call. Picking
+          either drops any AI background image so the flat color actually
+          becomes visible. Custom color is stored on THIS slide's own
+          custom_background_colors via onUpdateSlide (which only ever
+          updates stories[index], never siblings — see updateSlide in the
+          main component) rather than the whole-sequence customColors
+          state the top-level "Custom color" vibe option sets at
+          generation time -- that's still what seeds an initial color for
+          every slide when picked upfront, but this is what lets one slide
+          get its own different color afterward, per-slide, exactly like
+          Carousel's SlideEditor. */}
       {showColors && (
-        <div className="flex items-center gap-1.5">
-          {STORY_BG_PRESETS.map((preset) => (
+        <div className="flex flex-col items-center gap-2">
+          <div className="flex items-center gap-1.5">
+            {STORY_BG_PRESETS.map((preset) => (
+              <button
+                key={preset.key}
+                type="button"
+                title={preset.label}
+                onClick={() => onUpdateSlide({ background: preset.key as StorySlide["background"], background_image_url: undefined, custom_background_colors: undefined })}
+                className={`h-6 w-6 rounded-full ${preset.swatch} transition-transform hover:scale-110 ${story.background === preset.key && !hasBg && !customBg ? "ring-2 ring-offset-2 ring-violet-500" : ""}`}
+              />
+            ))}
             <button
-              key={preset.key}
               type="button"
-              title={preset.label}
-              onClick={() => onUpdateSlide({ background: preset.key as StorySlide["background"], background_image_url: undefined, custom_background_colors: undefined })}
-              className={`h-6 w-6 rounded-full ${preset.swatch} transition-transform hover:scale-110 ${story.background === preset.key && !hasBg && !customBg ? "ring-2 ring-offset-2 ring-violet-500" : ""}`}
-            />
-          ))}
+              title="Custom color"
+              onClick={() => onUpdateSlide({ custom_background_colors: story.custom_background_colors?.length ? story.custom_background_colors : ["#6366F1", "#EC4899"], background_image_url: undefined })}
+              className={`flex h-6 w-6 items-center justify-center rounded-full border border-black/10 transition-transform hover:scale-110 ${customBg ? "ring-2 ring-offset-2 ring-violet-500" : ""}`}
+              style={{ background: customBg ?? "linear-gradient(135deg, #6366F1, #EC4899)" }}
+            >
+              <Palette className="h-3 w-3 text-white drop-shadow" />
+            </button>
+          </div>
+
+          {customBg && (
+            <div className="w-56 rounded-lg border bg-card p-3">
+              <ColorWheelPicker
+                colors={story.custom_background_colors ?? ["#6366F1", "#EC4899"]}
+                onChange={(colors) => onUpdateSlide({ custom_background_colors: colors, background_image_url: undefined })}
+              />
+            </div>
+          )}
         </div>
       )}
     </div>
