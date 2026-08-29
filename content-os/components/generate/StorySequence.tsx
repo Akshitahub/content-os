@@ -408,27 +408,40 @@ export function StorySequence({ brandId }: { brandId: string }) {
   const lastPersistedStoriesRef = useRef<string | null>(null)
   const [autosaveStatus, setAutosaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle")
 
-  // Restore from sessionStorage
+  // Restore from sessionStorage -- confirmed live (2026-08-29), the exact
+  // same bug found in CarouselBuilder.tsx's identical restore effect: this
+  // dropped the saved stories row's own `id` entirely (never read from
+  // `parsed`, never passed into setStoryRowId), even though the persist
+  // effect right below now always writes it. A restored story sequence's
+  // `storyRowId` therefore came back null after any reload/tab revisit,
+  // and the debounced autosave effect's very first guard
+  // (`if (!storyRowId || stories.length === 0) return`) means every edit
+  // made afterward -- inline text, a preset color swap, the new per-slide
+  // custom color -- looked like it saved (no error, no different UI) but
+  // was quietly never persisted.
   useEffect(() => {
     const saved = sessionStorage.getItem(STORAGE_KEY)
     if (saved) {
       try {
-        const parsed = JSON.parse(saved) as { stories?: StorySlide[]; caption?: StoryCaption }
+        const parsed = JSON.parse(saved) as { id?: string | null; stories?: StorySlide[]; caption?: StoryCaption }
         if (parsed.stories && parsed.stories.length > 0) {
           setStories(parsed.stories)
           setStoryCaption(parsed.caption ?? null)
+          setStoryRowId(parsed.id ?? null)
         }
       } catch {}
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [brandId])
 
-  // Persist to sessionStorage
+  // Persist to sessionStorage -- now includes the row id (see the restore
+  // effect's comment above for why this half of the round trip matters
+  // just as much as reading it back).
   useEffect(() => {
     if (stories.length > 0) {
-      sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ stories, caption: storyCaption }))
+      sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ id: storyRowId, stories, caption: storyCaption }))
     }
-  }, [stories, storyCaption, STORAGE_KEY])
+  }, [stories, storyCaption, storyRowId, STORAGE_KEY])
 
   // Debounced autosave for slide edits made via updateSlide (inline text
   // edits, the existing preset color swap, and the new Custom color mode
