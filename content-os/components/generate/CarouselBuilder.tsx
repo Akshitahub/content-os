@@ -15,7 +15,7 @@ import { ApiResponseError } from "@/hooks/useGeneration"
 import { useGenerationStore } from "@/stores/generationStore"
 import { CAROUSEL as CAROUSEL_CREDIT_COST, CAROUSEL_SLIDE_AI_BACKGROUND } from "@/lib/usage/credit-costs"
 import { CAROUSEL_BG_STYLES, type CarouselBackgroundStyle } from "@/lib/design/carousel-slide-styles"
-import { cssBackgroundFromColors } from "@/components/shared/ColorWheelPicker"
+import { cssBackgroundFromColors, ColorWheelPicker } from "@/components/shared/ColorWheelPicker"
 import Link from "next/link"
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
@@ -325,16 +325,62 @@ function SlideEditor({
         ))}
         <div>
           <label className="text-xs text-muted-foreground">Background</label>
-          <select
-            value={slide.background_style}
-            onChange={(e) => onChange({ ...slide, background_style: e.target.value as BackgroundStyle })}
-            className="mt-0.5 w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
-          >
-            <option value="gradient_dark">Dark Violet</option>
-            <option value="gradient_light">Light Violet</option>
-            <option value="white_violet">White</option>
-            <option value="dark_navy">Dark Navy</option>
-          </select>
+          {/* Custom color is a per-slide choice, stored on this slide's own
+              custom_background_colors -- NOT broadcast to every slide the
+              way picking "Custom color" at generation time is (that still
+              exists as a quick starting point for the whole carousel, see
+              generate()'s isCustomColorMode branch; this is what lets a
+              person change one slide afterward without touching its
+              siblings). Which UI shows is derived from the slide's own
+              data (does it already have custom colors set?) rather than
+              separate local state, so there's one source of truth. */}
+          <div className="mt-0.5 flex gap-2">
+            <button
+              type="button"
+              onClick={() => onChange({ ...slide, custom_background_colors: null })}
+              className={`flex-1 rounded-md border-2 py-1.5 text-xs font-semibold transition-all ${
+                !slide.custom_background_colors?.length ? "border-violet-500 bg-violet-50 text-violet-700 dark:bg-violet-950/30" : "border-border hover:border-violet-300"
+              }`}
+            >
+              Preset
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (slide.custom_background_colors?.length) return
+                // Seeds with a real image_url cleared -- a custom color
+                // pick should actually take visual effect immediately,
+                // and SlidePreview's hasBg check takes priority over
+                // customBg whenever both are present.
+                onChange({ ...slide, custom_background_colors: ["#6366F1", "#EC4899"], image_url: null })
+              }}
+              className={`flex-1 rounded-md border-2 py-1.5 text-xs font-semibold transition-all ${
+                slide.custom_background_colors?.length ? "border-violet-500 bg-violet-50 text-violet-700 dark:bg-violet-950/30" : "border-border hover:border-violet-300"
+              }`}
+            >
+              Custom color
+            </button>
+          </div>
+
+          {slide.custom_background_colors?.length ? (
+            <div className="mt-2">
+              <ColorWheelPicker
+                colors={slide.custom_background_colors}
+                onChange={(colors) => onChange({ ...slide, custom_background_colors: colors, image_url: null })}
+              />
+            </div>
+          ) : (
+            <select
+              value={slide.background_style}
+              onChange={(e) => onChange({ ...slide, background_style: e.target.value as BackgroundStyle })}
+              className="mt-2 w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+            >
+              <option value="gradient_dark">Dark Violet</option>
+              <option value="gradient_light">Light Violet</option>
+              <option value="white_violet">White</option>
+              <option value="dark_navy">Dark Navy</option>
+            </select>
+          )}
         </div>
       </div>
     </div>
