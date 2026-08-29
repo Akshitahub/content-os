@@ -190,10 +190,46 @@ Make every slide punchy, valuable, and shareable. The cover must stop the scroll
 // server-side, before the insert below, means the row is complete and
 // correct from the moment it's created, independent of that later,
 // optional, best-effort step.
+// Confirmed live (2026-08-29) as its own real bug, found while tracing
+// why a published carousel's CTA slide was missing its actual
+// call-to-action line: this only ever copied `headline` from the AI's
+// cta_slide object, silently dropping `cta` (the CTA line itself, e.g.
+// "Follow for more tips like this") and `handle` (e.g. "@brand") --
+// permanently, since the carousels table has no separate cta_slide
+// column (see types/database.ts) and `slides` is the only thing ever
+// persisted or read back. Every carousel ever saved lost this text the
+// moment it was first generated, not just on a later reload. Now copies
+// all three fields, mirroring CarouselBuilder.tsx's identical client-side
+// withCtaSlideMerged() fix.
 function mergeCtaSlideIntoSlides(slides: unknown[], ctaSlide: unknown): unknown[] {
   if (!ctaSlide || typeof ctaSlide !== "object") return slides
-  if (slides.some((s) => s && typeof s === "object" && (s as { type?: unknown }).type === "cta")) return slides
-  const cta = ctaSlide as { headline?: unknown }
+  const cta = ctaSlide as { headline?: unknown; cta?: unknown; handle?: unknown }
+  const existingIndex = slides.findIndex((s) => s && typeof s === "object" && (s as { type?: unknown }).type === "cta")
+
+  if (existingIndex !== -1) {
+    // CONFIRMED live (2026-08-29): the model doesn't reliably stick to
+    // "slides holds only cover+content, the CTA is the separate cta_slide
+    // field" -- a real generation included its own type:"cta" entry
+    // directly inside `slides` AS WELL AS a separate cta_slide object.
+    // The old code treated any existing cta-type slide as "already
+    // merged, nothing to do" and returned early -- but a model-authored
+    // inline cta slide only ever follows the plain headline/points/
+    // background_style shape, never `cta`/`handle` (those aren't part of
+    // a regular slide's schema), so this silently persisted a CTA slide
+    // with no actual call-to-action line or handle, exactly the reported
+    // defect. Now backfills them from the separate cta_slide object
+    // instead of skipping, without duplicating the slide.
+    const existing = slides[existingIndex] as Record<string, unknown>
+    if (typeof existing.cta === "string" && typeof existing.handle === "string") return slides
+    const merged = [...slides]
+    merged[existingIndex] = {
+      ...existing,
+      cta: typeof existing.cta === "string" ? existing.cta : (typeof cta.cta === "string" ? cta.cta : undefined),
+      handle: typeof existing.handle === "string" ? existing.handle : (typeof cta.handle === "string" ? cta.handle : undefined),
+    }
+    return merged
+  }
+
   return [
     ...slides,
     {
@@ -201,6 +237,8 @@ function mergeCtaSlideIntoSlides(slides: unknown[], ctaSlide: unknown): unknown[
       type: "cta",
       background_style: "gradient_dark",
       headline: typeof cta.headline === "string" ? cta.headline : "",
+      cta: typeof cta.cta === "string" ? cta.cta : undefined,
+      handle: typeof cta.handle === "string" ? cta.handle : undefined,
     },
   ]
 }

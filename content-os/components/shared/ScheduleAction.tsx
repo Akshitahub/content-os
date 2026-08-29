@@ -6,8 +6,8 @@ import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
 import { isApiError } from "@/types/api"
-import { captureElementAsDataUrl } from "@/lib/utils/download-as-image"
 import { renderStorySlides, type StoryExportSlide } from "@/lib/utils/story-export"
+import { renderCarouselSlides, type CarouselExportSlide } from "@/lib/utils/carousel-export"
 import Link from "next/link"
 
 // Extracted from five copy-pasted definitions (AdMaker.tsx,
@@ -24,18 +24,25 @@ import Link from "next/link"
 //    FullPostGenerator's had been kept current with all 6 -- that's the
 //    version kept here, so every single-image caller now gets full
 //    platform support instead of just two of them.
-// 2. Multiple DOM-only slides (CarouselBuilder): each slide only exists
-//    as a rendered element, not a stored URL, so scheduling has to
-//    capture every element to a data URL first (captureElementAsDataUrl,
-//    with progress) before posting. Instagram-only, since that's
-//    genuinely how carousel publishing works today.
-// 3. Story slides (StorySequence.tsx): used to be DOM-captured the same
-//    way as mode 2 -- but that captured the live phone-frame preview
-//    element verbatim (rounded corners, phone chrome, and all) at
-//    browser-screenshot quality, which is exactly what was reaching real
-//    published Instagram stories. Stories now render server-side via
-//    lib/image/story-compositor.ts (real 1080x1920, no phone-frame chrome)
-//    at schedule-confirm time instead — see the storySlides branch below.
+// 2. Carousel slides (CarouselBuilder.tsx, and the Library's
+//    ContentDetailPanel for a saved carousel): used to capture each
+//    slide's live DOM element as a data URL (captureElementAsDataUrl) --
+//    which only exists while CarouselBuilder's own editor page is open,
+//    so scheduling a saved carousel later from Library had no DOM to
+//    capture and fell back to the bare, uncomposited AI background photo
+//    instead (CONFIRMED, 2026-08-29, as a real published-post defect:
+//    missing text, missing slides). Carousels now render server-side via
+//    lib/image/carousel-compositor.ts (real 1080x1350, no editor chrome)
+//    at schedule-confirm time instead, same fix already applied to
+//    stories below -- see the carouselSlides branch.
+// 3. Story slides (StorySequence.tsx, and Library): used to be DOM-
+//    captured the same way mode 2 was -- but that captured the live
+//    phone-frame preview element verbatim (rounded corners, phone chrome,
+//    and all) at browser-screenshot quality, which is exactly what was
+//    reaching real published Instagram stories. Stories render server-side
+//    via lib/image/story-compositor.ts (real 1080x1920, no phone-frame
+//    chrome) at schedule-confirm time instead — see the storySlides
+//    branch below.
 //
 // One real bug found while reconciling: StorySequence's copy forgot to
 // strip a leading "#" from hashtags before sending
@@ -61,7 +68,7 @@ type ScheduleActionProps =
       /** Already-hosted image URL — schedules directly to whichever
        * connected platform the user picks. */
       imageUrl: string
-      slideElementIds?: undefined
+      carouselSlides?: undefined
       storySlides?: undefined
       imageUrls?: undefined
       contentFormat?: undefined
@@ -72,16 +79,19 @@ type ScheduleActionProps =
       caption: string
       hashtags: string[]
       imageUrl?: undefined
-      /** DOM element ids to capture as data URLs right before scheduling
-       * (each slide only exists as a rendered element, not a stored URL).
-       * Carousel-only — see the storySlides variant below for why stories
-       * don't do this anymore. Instagram-only, since that's genuinely how
-       * carousel publishing works today. */
-      slideElementIds: string[]
+      /** Real slide data, rendered server-side via
+       * lib/image/carousel-compositor.ts right before scheduling — a
+       * clean full-bleed 1080x1350 raster (background + headline/points/
+       * CTA text baked in), not a screenshot of the live editor DOM.
+       * Instagram-only, same as every carousel path. */
+      carouselSlides: CarouselExportSlide[]
+      /** Composited onto the bottom-right corner of every slide, same as
+       * the live SlidePreview. */
+      brandName: string
       storySlides?: undefined
       imageUrls?: undefined
       contentFormat: "carousel"
-      /** What to call one capture unit in progress/error copy — defaults
+      /** What to call one render unit in progress/error copy — defaults
        * to contentFormat's own name. */
       itemLabel?: string
     }
@@ -90,7 +100,7 @@ type ScheduleActionProps =
       caption: string
       hashtags: string[]
       imageUrl?: undefined
-      slideElementIds?: undefined
+      carouselSlides?: undefined
       /** Real slide data, rendered server-side via
        * lib/image/story-compositor.ts right before scheduling — a clean
        * full-bleed 1080x1920 raster, not a screenshot of the phone-frame
@@ -105,11 +115,14 @@ type ScheduleActionProps =
       caption: string
       hashtags: string[]
       imageUrl?: undefined
-      slideElementIds?: undefined
+      carouselSlides?: undefined
       storySlides?: undefined
-      /** Already-hosted slide image URLs (e.g. a persisted carousel read
-       * back from the Library) — scheduled directly, no capture step
-       * needed. Instagram-only, same as the DOM-capture variant. */
+      /** Already-hosted slide image URLs — scheduled directly, no render
+       * step needed. Instagram-only, same as the other multi-slide
+       * variants. Kept for any caller that already has final, composited
+       * URLs on hand (nothing currently uses this for carousel/story --
+       * both now always render server-side above, so those slides are
+       * never scheduled from stale/incomplete stored URLs). */
       imageUrls: string[]
       contentFormat: "carousel" | "story"
       itemLabel?: string
@@ -117,12 +130,13 @@ type ScheduleActionProps =
 
 export function ScheduleAction(props: ScheduleActionProps) {
   const { brandId, caption, hashtags } = props
-  const isMultiSlide = props.slideElementIds !== undefined || props.imageUrls !== undefined || props.storySlides !== undefined
+  const isMultiSlide = props.carouselSlides !== undefined || props.imageUrls !== undefined || props.storySlides !== undefined
   const itemLabel = isMultiSlide ? (props.itemLabel ?? props.contentFormat) : ""
   // Pulled out of the union so the handleConfirm callback below can depend
   // on plain values instead of the whole `props` object.
   const imageUrl = props.imageUrl
-  const slideElementIds = props.slideElementIds
+  const carouselSlides = props.carouselSlides
+  const brandName = props.carouselSlides ? props.brandName : undefined
   const storySlides = props.storySlides
   const preHostedImageUrls = props.imageUrls
   const contentFormat = props.contentFormat
@@ -189,24 +203,19 @@ export function ScheduleAction(props: ScheduleActionProps) {
     setErrorMsg(null)
 
     let body: Record<string, unknown>
-    if (slideElementIds) {
+    if (carouselSlides) {
       setSubmitState("capturing")
-      // Capture every slide as a data URL right before scheduling — each
-      // slide only exists as a DOM element, not a stored image URL.
-      const capturedUrls: string[] = []
-      for (let i = 0; i < slideElementIds.length; i++) {
-        setCaptureProgress({ current: i + 1, total: slideElementIds.length })
-        const dataUrl = await captureElementAsDataUrl(slideElementIds[i]!)
-        if (!dataUrl) {
-          setErrorMsg(`Couldn't capture ${itemLabel} ${i + 1}. Please try again.`)
-          setSubmitState("error")
-          setCaptureProgress(null)
-          return
-        }
-        capturedUrls.push(dataUrl)
+      // Real server-side render (lib/image/carousel-compositor.ts) instead
+      // of a DOM screenshot -- this is the fix for a carousel scheduled
+      // from Library previously publishing with no text and missing
+      // slides (there was no live editor DOM to screenshot there at all).
+      const renderedUrls = await renderCarouselSlides(brandName ?? "", carouselSlides)
+      if (!renderedUrls || renderedUrls.length !== carouselSlides.length) {
+        setErrorMsg(`Couldn't render the ${itemLabel} images. Please try again.`)
+        setSubmitState("error")
+        return
       }
-      setCaptureProgress(null)
-      body = { brandId, platform: "instagram", imageUrls: capturedUrls, contentFormat, caption, hashtags: hashtags.map((h) => h.replace(/^#+/, "")), scheduledDate: date, scheduledTime: time }
+      body = { brandId, platform: "instagram", imageUrls: renderedUrls, contentFormat, caption, hashtags: hashtags.map((h) => h.replace(/^#+/, "")), scheduledDate: date, scheduledTime: time }
     } else if (storySlides) {
       setSubmitState("capturing")
       // Real server-side render (lib/image/story-compositor.ts) instead of
@@ -247,7 +256,7 @@ export function ScheduleAction(props: ScheduleActionProps) {
       setErrorMsg("Network error. Please try again.")
       setSubmitState("error")
     }
-  }, [brandId, isMultiSlide, imageUrl, slideElementIds, storySlides, preHostedImageUrls, contentFormat, itemLabel, platform, caption, hashtags, date, time])
+  }, [brandId, isMultiSlide, imageUrl, carouselSlides, brandName, storySlides, preHostedImageUrls, contentFormat, itemLabel, platform, caption, hashtags, date, time])
 
   const isBusy = submitState === "capturing" || submitState === "loading"
 

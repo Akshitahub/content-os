@@ -4,6 +4,7 @@ import { X, Copy, Check } from "lucide-react"
 import { useState } from "react"
 import { ScheduleAction } from "@/components/shared/ScheduleAction"
 import type { StoryExportSlide } from "@/lib/utils/story-export"
+import type { CarouselExportSlide } from "@/lib/utils/carousel-export"
 import { DeleteConfirmButton } from "@/components/shared/DeleteConfirmButton"
 import { PlatformPreviewFrame } from "@/components/shared/PlatformPreviewFrame"
 import { resolveCarouselBgStyle } from "@/lib/design/carousel-slide-styles"
@@ -68,6 +69,19 @@ export interface DetailItem {
    * behavior for stories — no headline/subtext/CTA text at all). Takes
    * priority over scheduleImageUrls when both are present. */
   scheduleStorySlides?: StoryExportSlide[]
+  /** Carousel-only: real slide data, rendered server-side via
+   * lib/image/carousel-compositor.ts at schedule-confirm time --
+   * CONFIRMED (2026-08-29) as a real published-post defect fix:
+   * scheduleImageUrls' old behavior for carousels scheduled the bare
+   * AI-generated background photo, un-composited with any text, and only
+   * for whichever slides happened to have one (typically just the cover
+   * slide). Takes priority over both scheduleImageUrls and
+   * scheduleStorySlides when present. */
+  scheduleCarouselSlides?: CarouselExportSlide[]
+  /** Composited onto the bottom-right corner of every carousel slide,
+   * same as the live SlidePreview -- only meaningful alongside
+   * scheduleCarouselSlides. */
+  scheduleBrandName?: string
   /** Present only when this item can actually be deleted (every kind
    * today) -- throw to signal failure, DeleteConfirmButton shows the
    * error inline and lets the user retry. On success the panel closes
@@ -244,7 +258,18 @@ export function ContentDetailPanel({ item, onClose, brandId }: ContentDetailPane
                   hashtags={item.hashtags}
                 />
               )}
-              {!item.scheduleImageUrl && item.scheduleStorySlides && item.scheduleStorySlides.length > 0 && (
+              {!item.scheduleImageUrl && item.scheduleCarouselSlides && item.scheduleCarouselSlides.length > 0 && (
+                <ScheduleAction
+                  brandId={brandId}
+                  carouselSlides={item.scheduleCarouselSlides}
+                  brandName={item.scheduleBrandName ?? ""}
+                  contentFormat="carousel"
+                  itemLabel="slide"
+                  caption={item.scheduleCaption}
+                  hashtags={item.hashtags}
+                />
+              )}
+              {!item.scheduleImageUrl && !item.scheduleCarouselSlides && item.scheduleStorySlides && item.scheduleStorySlides.length > 0 && (
                 <ScheduleAction
                   brandId={brandId}
                   storySlides={item.scheduleStorySlides}
@@ -254,7 +279,7 @@ export function ContentDetailPanel({ item, onClose, brandId }: ContentDetailPane
                   hashtags={item.hashtags}
                 />
               )}
-              {!item.scheduleImageUrl && !item.scheduleStorySlides && item.scheduleImageUrls && item.scheduleImageUrls.length > 0 && (
+              {!item.scheduleImageUrl && !item.scheduleCarouselSlides && !item.scheduleStorySlides && item.scheduleImageUrls && item.scheduleImageUrls.length > 0 && (
                 <ScheduleAction
                   brandId={brandId}
                   imageUrls={item.scheduleImageUrls}

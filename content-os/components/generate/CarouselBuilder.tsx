@@ -6,7 +6,7 @@ import { ProductPicker, type PickedProduct } from "@/components/shared/ProductPi
 import { VibePicker, type Vibe } from "@/components/shared/VibePicker"
 import { ScheduleAction } from "@/components/shared/ScheduleAction"
 import { useBrand } from "@/hooks/useBrand"
-import { downloadElementAsImage, downloadMultipleAsImages } from "@/lib/utils/download-as-image"
+import { downloadCarouselSlideAsImage, downloadCarouselSlidesAsImages, type CarouselExportSlide } from "@/lib/utils/carousel-export"
 import { GenerationWarning } from "@/components/shared/GenerationWarning"
 import { getFriendlyError } from "@/lib/utils/error-messages"
 import { TopicSuggestButton } from "@/components/shared/TopicSuggestButton"
@@ -61,6 +61,21 @@ interface CarouselSlideRich {
    * with. */
   text_position_x?: number
   text_position_y?: number
+  /** CTA slide only -- confirmed live (2026-08-29) as ANOTHER instance of
+   * this exact "what's saved doesn't match what was generated" bug class:
+   * withCtaSlideMerged/mergeCtaSlideIntoSlides (the client and server
+   * copies of the same merge) only ever copied `headline` from the AI's
+   * separate cta_slide object onto this slide -- `cta` (the actual
+   * call-to-action line, e.g. "Follow for more tips like this") and
+   * `handle` (e.g. "@brand") were silently dropped every time, on every
+   * save, because CarouselSlideRich had nowhere to hold them. The
+   * carousels DB row has no separate cta_slide column at all (see
+   * types/database.ts) -- `slides` is the only thing ever persisted or
+   * read back, so this data was permanently lost the moment a carousel
+   * was first saved, not just on a later reload. Added here so the merge
+   * functions have somewhere to actually put it. */
+  cta?: string
+  handle?: string
 }
 
 interface CtaSlide {
@@ -81,17 +96,68 @@ interface GeneratedCarousel {
   hashtags: string[]
 }
 
-// The API returns `slides` (cover + content only, i.e. slideCount - 1 items)
-// and a separate `cta_slide` object — the CTA was never part of `slides`,
-// so the UI always showed one fewer slide than the user picked. Append it
-// as a real slide so slide count/navigation/thumbnails all include it.
+// Shared by the "Save as PNG"/"Download all slides" buttons and
+// ScheduleAction below — all three need the same slide data handed to the
+// server-side compositor (lib/image/carousel-compositor.ts via
+// lib/utils/carousel-export.ts), just for a different number of slides at
+// a time. Prefers the CTA slide's own persisted cta/handle fields (see
+// CarouselSlideRich.cta/.handle's own comment) over the separate ctaSlide
+// prop -- both should agree once withCtaSlideMerged runs, but the slide's
+// own fields are what's actually in the database, so they're the more
+// trustworthy source here specifically (this function's whole job is
+// producing what gets exported/persisted).
+function toExportSlide(slide: CarouselSlideRich, ctaSlide: CtaSlide | undefined, productImage: string | null): CarouselExportSlide {
+  return {
+    type: slide.type,
+    headline: slide.headline,
+    subtext: slide.type === "cover" ? slide.subtext : undefined,
+    points: slide.type === "content" ? slide.points : undefined,
+    ctaText: slide.type === "cta" ? (slide.cta ?? ctaSlide?.cta) : undefined,
+    ctaHandle: slide.type === "cta" ? (slide.handle ?? ctaSlide?.handle) : undefined,
+    background_style: slide.background_style,
+    image_url: slide.image_url,
+    custom_background_colors: slide.custom_background_colors,
+    text_position_x: slide.text_position_x,
+    text_position_y: slide.text_position_y,
+    productImageSource: productImage,
+  }
+}
+
+// The API returns `slides` already merged with the CTA slide (see the
+// generate route's own mergeCtaSlideIntoSlides) in the normal case, so
+// this is usually a no-op pass-through -- kept as a defensive fallback for
+// data shaped by something older (e.g. a sessionStorage-restored carousel
+// generated before that server-side merge existed).
 function withCtaSlideMerged(data: GeneratedCarousel): GeneratedCarousel {
-  if (!data.cta_slide || data.slides.some((s) => s.type === "cta")) return data
+  if (!data.cta_slide) return data
+
+  const existingIndex = data.slides.findIndex((s) => s.type === "cta")
+  if (existingIndex !== -1) {
+    // CONFIRMED live (2026-08-29), same finding as the server-side
+    // mergeCtaSlideIntoSlides: the model doesn't reliably keep the CTA
+    // out of `slides` the way the prompt asks, so an existing cta-type
+    // slide here might still be missing `cta`/`handle` (a model-authored
+    // inline cta slide only ever follows the plain headline/points/
+    // background_style shape) -- backfill from the separate cta_slide
+    // object instead of treating "already present" as "already correct".
+    const existing = data.slides[existingIndex]!
+    if (existing.cta && existing.handle) return data
+    const slides = [...data.slides]
+    slides[existingIndex] = { ...existing, cta: existing.cta ?? data.cta_slide.cta, handle: existing.handle ?? data.cta_slide.handle }
+    return { ...data, slides }
+  }
+
   const ctaSlide: CarouselSlideRich = {
     slide_number: data.slides.length + 1,
     type: "cta",
     background_style: "gradient_dark",
     headline: data.cta_slide.headline,
+    // See CarouselSlideRich.cta/.handle's own comment -- these used to be
+    // dropped here entirely, so the database's `slides` column (the only
+    // thing ever persisted or read back for a saved carousel) never had
+    // the CTA's actual line/handle at all.
+    cta: data.cta_slide.cta,
+    handle: data.cta_slide.handle,
   }
   return { ...data, slides: [...data.slides, ctaSlide] }
 }
@@ -1101,13 +1167,13 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
               {/* Action buttons */}
               <div className="flex flex-wrap gap-2">
                 <button
-                  onClick={() => downloadElementAsImage(`carousel-slide-${activeSlide}`, `carousel-slide-${activeSlide + 1}`)}
+                  onClick={() => currentSlide && downloadCarouselSlideAsImage(brand?.name ?? "", toExportSlide(currentSlide, carousel.cta_slide, productImage), `carousel-slide-${activeSlide + 1}`)}
                   className="flex items-center gap-1.5 rounded-full border border-input px-4 py-2 text-xs font-medium hover:bg-secondary"
                 >
                   <Image className="h-3.5 w-3.5" /> Save slide as PNG
                 </button>
                 <button
-                  onClick={() => downloadMultipleAsImages(allSlides.map((_, i) => `carousel-slide-${i}`), "carousel")}
+                  onClick={() => downloadCarouselSlidesAsImages(brand?.name ?? "", allSlides.map((s) => toExportSlide(s, carousel.cta_slide, productImage)), "carousel")}
                   className="flex items-center gap-1.5 rounded-full border border-input px-4 py-2 text-xs font-medium hover:bg-secondary"
                 >
                   <Download className="h-3.5 w-3.5" /> Download all slides
@@ -1136,7 +1202,8 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
 
               <ScheduleAction
                 brandId={brandId}
-                slideElementIds={allSlides.map((_, i) => `carousel-slide-${i}`)}
+                carouselSlides={allSlides.map((s) => toExportSlide(s, carousel.cta_slide, productImage))}
+                brandName={brand?.name ?? ""}
                 contentFormat="carousel"
                 itemLabel="slide"
                 caption={carousel.cover_hook || carousel.title}

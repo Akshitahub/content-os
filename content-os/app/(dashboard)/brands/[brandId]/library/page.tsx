@@ -17,6 +17,8 @@ import type { Json } from "@/types/database"
 import { scoreHook, scoreColor, scoreLabel } from "@/lib/utils/content-score"
 import { cssBackgroundFromColors } from "@/components/shared/ColorWheelPicker"
 import type { StoryExportSlide } from "@/lib/utils/story-export"
+import type { CarouselExportSlide } from "@/lib/utils/carousel-export"
+import { useBrand } from "@/hooks/useBrand"
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -469,12 +471,30 @@ function ReelScriptCard({ script, brandId }: { script: ReelScriptRow; brandId: s
 // under `points` (a string array), never a `body` string field -- reading
 // `s.body` here always resolved to undefined, silently dropping every
 // body slide's actual substantive text (not just its background) from
-// the Library's detail view. `subtext` is cover-only.
-interface SlideShape { headline?: string; subtext?: string; points?: string[]; image_url?: string | null; background_style?: string | null; custom_background_colors?: string[] | null }
+// the Library's detail view. `subtext` is cover-only. `type`/`cta`/
+// `handle`/`text_position_x`/`text_position_y` added for the real
+// server-side compositor export below (lib/image/carousel-compositor.ts) --
+// `cta`/`handle` only actually populated on carousels saved after the
+// mergeCtaSlideIntoSlides fix (app/api/v1/ai/carousel/generate/route.ts);
+// older rows simply never had this data persisted at all.
+interface SlideShape {
+  type?: "cover" | "content" | "cta"
+  headline?: string
+  subtext?: string
+  points?: string[]
+  cta?: string
+  handle?: string
+  image_url?: string | null
+  background_style?: string | null
+  custom_background_colors?: string[] | null
+  text_position_x?: number | null
+  text_position_y?: number | null
+}
 
 function CarouselCard({ carousel, brandId, onOpenDetail }: { carousel: CarouselRow; brandId: string; onOpenDetail: (item: DetailItem) => void }) {
   const [deleteConfirming, setDeleteConfirming] = useState(false)
   const qc = useQueryClient()
+  const { data: brand } = useBrand(brandId)
   const slides = (carousel.slides as Json[] as SlideShape[]) ?? []
   const ratingMutation = useMutation({
     mutationFn: async (rating: number) => {
@@ -499,7 +519,32 @@ function CarouselCard({ carousel, brandId, onOpenDetail }: { carousel: CarouselR
   // to find here -- same gap as the body-slide fix above, just at the
   // card-thumbnail level instead of the detail panel.
   const thumbnailColors = !thumbnail ? slides.find((s) => s.custom_background_colors?.length)?.custom_background_colors : null
-  const scheduleImages = slides.map((s) => s.image_url).filter((u): u is string => !!u)
+  // Real slide data, rendered server-side via
+  // lib/image/carousel-compositor.ts at schedule-confirm time -- CONFIRMED
+  // live (2026-08-29) as the root cause of a real published carousel
+  // missing its text and every slide beyond the first: this used to
+  // schedule slides.map(s => s.image_url).filter(Boolean), the bare
+  // AI-generated background photo with no headline/points/CTA text ever
+  // composited onto it, and only for whichever slides happened to have
+  // one (typically just the cover slide, since a body slide never gets an
+  // image_url unless "AI background for every slide" was opted into --
+  // every slide without one was silently dropped by the filter). Same fix
+  // already applied to StoryCard's scheduleStorySlides below.
+  const scheduleCarouselSlides: CarouselExportSlide[] = slides
+    .filter((s): s is SlideShape & { type: NonNullable<SlideShape["type"]>; headline: string } => !!s.type && !!s.headline)
+    .map((s) => ({
+      type: s.type,
+      headline: s.headline,
+      subtext: s.subtext,
+      points: s.points,
+      ctaText: s.cta,
+      ctaHandle: s.handle,
+      background_style: s.background_style,
+      image_url: s.image_url,
+      custom_background_colors: s.custom_background_colors,
+      text_position_x: s.text_position_x,
+      text_position_y: s.text_position_y,
+    }))
 
   function openDetail() {
     onOpenDetail({
@@ -515,7 +560,8 @@ function CarouselCard({ carousel, brandId, onOpenDetail }: { carousel: CarouselR
       hashtags: carousel.hashtags,
       createdAt: carousel.created_at,
       scheduleCaption: carousel.title || slides[0]?.headline || "",
-      scheduleImageUrls: scheduleImages,
+      scheduleCarouselSlides,
+      scheduleBrandName: brand?.name ?? "",
       platform: carousel.platform,
       onDelete: () => deleteMutation.mutateAsync(),
     })
@@ -601,6 +647,15 @@ interface StorySlideShape {
   poll_options?: string[]
   background_image_url?: string | null
   custom_background_colors?: string[] | null
+  /** Free-drag override -- see StorySlide.text_position_x/y's own comment
+   * (app/api/v1/ai/stories/generate/route.ts). Found missing from this
+   * shape and the scheduleStorySlides map below during the same audit
+   * that found CarouselCard's export gap: without these, a dragged text
+   * position saved to a story row would silently fall back to its
+   * text_position-derived default the moment it was scheduled from
+   * Library instead of live, right after generating. */
+  text_position_x?: number | null
+  text_position_y?: number | null
 }
 
 function StoryCard({ story, brandId, onOpenDetail }: { story: StoryRow; brandId: string; onOpenDetail: (item: DetailItem) => void }) {
@@ -651,6 +706,13 @@ function StoryCard({ story, brandId, onOpenDetail }: { story: StoryRow; brandId:
       poll_options: s.poll_options,
       background_image_url: s.background_image_url,
       custom_background_colors: s.custom_background_colors,
+      // Found missing during this same audit (2026-08-29) -- without
+      // these, a dragged text position never reached this compositor
+      // call once scheduled from Library, silently reverting to the
+      // text_position-derived default instead of where it was actually
+      // dragged.
+      text_position_x: s.text_position_x ?? undefined,
+      text_position_y: s.text_position_y ?? undefined,
     }))
 
   function openDetail() {
