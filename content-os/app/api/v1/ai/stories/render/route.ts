@@ -25,6 +25,11 @@ const slideSchema = z.object({
   background_image_url: z.string().max(6_000_000).nullish(),
   custom_background_colors: z.array(z.string()).max(2).nullish(),
   productImageSource: z.string().max(6_000_000).nullish(),
+  // Free-drag override -- see StorySlide.text_position_x/y's own comment
+  // (app/api/v1/ai/stories/generate/route.ts). Optional/absent falls back
+  // to text_position above, same as the live editor preview.
+  text_position_x: z.number().min(0).max(100).optional(),
+  text_position_y: z.number().min(0).max(100).optional(),
 })
 // Matches the generate route's own storyCount cap (1-10).
 const schema = z.object({ slides: z.array(slideSchema).min(1).max(10) })

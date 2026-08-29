@@ -22,6 +22,13 @@ export interface StoryExportSlide {
    * (or hook, for a single-slide sequence); safe to always pass, the
    * compositor applies that gating itself. */
   productImageSource?: string | null
+  /** Free-drag override for the text block's position -- see
+   * StorySlide.text_position_x/y's own comment. Threaded through here so
+   * the real server-side render (this file's whole reason to exist)
+   * actually reflects a dragged position instead of only the live editor
+   * preview. */
+  text_position_x?: number
+  text_position_y?: number
 }
 
 /** Returns one data: URL PNG per slide, or null on any failure. */

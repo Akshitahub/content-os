@@ -69,10 +69,24 @@ function wrapText(text: string, maxCharsPerLine: number, maxLines: number): stri
   return lines.slice(0, maxLines)
 }
 
-function textLines(lines: string[], startY: number, lineHeight: number, fontSize: number, color: string, weight: number): string {
+function textLines(lines: string[], startY: number, lineHeight: number, fontSize: number, color: string, weight: number, xAttr: string): string {
   return lines
-    .map((line, i) => `<text x="50%" y="${startY + i * lineHeight}" text-anchor="middle" font-family="StoryFont, sans-serif" font-weight="${weight}" font-size="${fontSize}" fill="${color}">${escapeXml(line)}</text>`)
+    .map((line, i) => `<text x="${xAttr}" y="${startY + i * lineHeight}" text-anchor="middle" font-family="StoryFont, sans-serif" font-weight="${weight}" font-size="${fontSize}" fill="${color}">${escapeXml(line)}</text>`)
     .join("")
+}
+
+// Mirrors StorySequence.tsx's PhoneStory.defaultStoryTextPosition exactly
+// (same SAFE_ZONE ratio, same +4/+6 inward nudge) -- a slide that's never
+// been dragged (no text_position_x/y) should render at the same spot the
+// live editor preview already showed it, not jump once it's actually
+// exported/published.
+function defaultTextCenter(pos: StoryCompositeSlide["text_position"]): { x: number; y: number } {
+  const safeZonePct = (SAFE_ZONE / CANVAS_HEIGHT) * 100
+  const minY = safeZonePct + 4
+  const maxY = 100 - safeZonePct - 4
+  if (pos === "top") return { x: 50, y: minY + 6 }
+  if (pos === "bottom") return { x: 50, y: maxY - 6 }
+  return { x: 50, y: 50 }
 }
 
 // ─── Backgrounds ────────────────────────────────────────────────────────────
@@ -222,26 +236,30 @@ function buildTextOverlaySvg(slide: StoryCompositeSlide, textColor: string, subC
   const gapToPoll = pollLines.length > 0 ? 64 : 0
   const totalBlockHeight = headlineBlockHeight + gapToSubtext + subtextBlockHeight + gapToPoll + pollBlockHeight
 
-  const interiorTop = SAFE_ZONE
-  const interiorBottom = CANVAS_HEIGHT - SAFE_ZONE
-  const interiorHeight = interiorBottom - interiorTop
-
-  const blockStartY =
-    slide.text_position === "top" ? interiorTop :
-    slide.text_position === "bottom" ? interiorBottom - totalBlockHeight :
-    interiorTop + (interiorHeight - totalBlockHeight) / 2
+  // Free-drag position (percentages, block CENTER) takes over completely
+  // once set -- see StoryCompositeSlide.text_position_x/y's own comment.
+  // Falls back to deriving a center point from text_position for any
+  // slide that's never been dragged, via the same formula the live
+  // preview defaults to (defaultTextCenter above), so nothing jumps
+  // between editor and real export.
+  const center = slide.text_position_x !== undefined && slide.text_position_y !== undefined
+    ? { x: slide.text_position_x, y: slide.text_position_y }
+    : defaultTextCenter(slide.text_position)
+  const centerXAttr = `${center.x}%`
+  const centerYPx = (center.y / 100) * CANVAS_HEIGHT
+  const blockStartY = centerYPx - totalBlockHeight / 2
 
   let cursorY = blockStartY
-  const headlineSvg = textLines(headlineLines, cursorY + headlineFontSize * 0.85, headlineLineHeight, headlineFontSize, textColor, 900)
+  const headlineSvg = textLines(headlineLines, cursorY + headlineFontSize * 0.85, headlineLineHeight, headlineFontSize, textColor, 900, centerXAttr)
   cursorY += headlineBlockHeight + gapToSubtext
 
   const subtextSvg = subtextLines.length > 0
-    ? textLines(subtextLines, cursorY + SUBTEXT_FONT_SIZE * 0.85, subtextLineHeight, SUBTEXT_FONT_SIZE, subColor, 600)
+    ? textLines(subtextLines, cursorY + SUBTEXT_FONT_SIZE * 0.85, subtextLineHeight, SUBTEXT_FONT_SIZE, subColor, 600, centerXAttr)
     : ""
   cursorY += subtextBlockHeight + gapToPoll
 
   const pollSvg = pollLines.length > 0
-    ? textLines(pollLines, cursorY + POLL_FONT_SIZE * 0.85, pollLineHeight, POLL_FONT_SIZE, subColor, 700)
+    ? textLines(pollLines, cursorY + POLL_FONT_SIZE * 0.85, pollLineHeight, POLL_FONT_SIZE, subColor, 700, centerXAttr)
     : ""
 
   return `<svg width="${CANVAS_WIDTH}" height="${CANVAS_HEIGHT}" xmlns="http://www.w3.org/2000/svg">${headlineSvg}${subtextSvg}${pollSvg}</svg>`
@@ -266,6 +284,14 @@ export interface StoryCompositeSlide {
    * when shouldShowProductImage(type, total) is true, same as the live
    * preview. */
   productImageSource?: string | null
+  /** Free-drag override for where the text block sits -- percentages
+   * (0-100 of this canvas's own width/height, marking the block's
+   * center), matching exactly what StorySequence.tsx's PhoneStory drags
+   * against (see components/shared/useDraggableText.ts). Absent falls
+   * back to deriving a position from text_position above, same as the
+   * live preview's own fallback -- see buildTextOverlaySvg below. */
+  text_position_x?: number
+  text_position_y?: number
 }
 
 /**

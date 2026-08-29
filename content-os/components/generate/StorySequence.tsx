@@ -67,6 +67,8 @@ function toExportSlide(story: StorySlide, productImageSource: string | null | un
     background_image_url: story.background_image_url,
     custom_background_colors: story.custom_background_colors,
     productImageSource: productImageSource ?? null,
+    text_position_x: story.text_position_x,
+    text_position_y: story.text_position_y,
   }
 }
 
