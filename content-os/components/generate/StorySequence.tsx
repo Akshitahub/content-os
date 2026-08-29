@@ -281,9 +281,6 @@ function PhoneStory({
             <p className={`relative z-10 pb-3 text-center text-[9px] ${subColor}`}>Tap to continue →</p>
           )}
         </div>
-
-        {/* Notch */}
-        <div className="absolute top-0 left-1/2 -translate-x-1/2 h-4 w-16 rounded-b-xl bg-gray-900" />
       </div>
 
       {/* Actions */}
