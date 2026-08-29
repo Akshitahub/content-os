@@ -454,14 +454,25 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
   const currentSlide = allSlides[activeSlide]
   const isLastSlide = activeSlide === allSlides.length - 1
 
-  // Restore from sessionStorage
+  // Restore from sessionStorage -- confirmed live (2026-08-29): this
+  // dropped the carousel's own `id` entirely (never read from `parsed`,
+  // never passed into the restored object), even though the persist
+  // effect right below always writes it. A restored carousel's `id`
+  // therefore silently came back undefined after any reload/tab
+  // revisit, and the debounced autosave effect's very first guard
+  // (`if (!carousel?.id ...) return`) means every edit made afterward
+  // -- headline, points, background, the new per-slide custom color --
+  // looked like it saved (no error, no different UI) but was quietly
+  // never persisted. Reproduced directly: opened a real saved carousel,
+  // changed a slide's color, waited well past the 1.5s debounce, and
+  // confirmed via the database that nothing had been written.
   useEffect(() => {
     const saved = sessionStorage.getItem(STORAGE_KEY)
     if (saved) {
       try {
-        const parsed = JSON.parse(saved) as { slides?: CarouselSlideRich[]; topic?: string; title?: string; cover_hook?: string; cta_slide?: CtaSlide; hashtags?: string[] }
+        const parsed = JSON.parse(saved) as { id?: string | null; slides?: CarouselSlideRich[]; topic?: string; title?: string; cover_hook?: string; cta_slide?: CtaSlide; hashtags?: string[] }
         if (parsed.slides && parsed.slides.length > 0) {
-          setCarousel(withCtaSlideMerged({ title: parsed.title ?? "", cover_hook: parsed.cover_hook ?? "", slides: parsed.slides, cta_slide: parsed.cta_slide, hashtags: parsed.hashtags ?? [] }))
+          setCarousel(withCtaSlideMerged({ id: parsed.id, title: parsed.title ?? "", cover_hook: parsed.cover_hook ?? "", slides: parsed.slides, cta_slide: parsed.cta_slide, hashtags: parsed.hashtags ?? [] }))
           if (parsed.topic) setTopic(parsed.topic)
         }
       } catch {}
