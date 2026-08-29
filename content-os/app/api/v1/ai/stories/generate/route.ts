@@ -124,6 +124,27 @@ Story types:
 
 TEXT RULES: No exclamation marks, no hashtags, no emojis in "text" or "subtext" — plain, punchy text only.
 
+SLIDE TEXT FORMATS — confirmed live (2026-08-29): every slide defaulting
+to the same "punchy claim + supporting detail" shape for "text"/"subtext"
+reads as repetitive across a sequence, even when the wording changes.
+Vary the structure slide-by-slide instead — don't force every sequence
+through the same rotation, and don't use the same format twice in a row:
+- Direct statement — "text" states the value prop or fact outright,
+  "subtext" adds one supporting detail. (The default shape — use it,
+  but not for every slide.)
+- Question — "text" poses a real question the viewer would ask
+  themselves, "subtext" teases the answer without fully giving it away.
+- Stat / number callout — "text" leads with a striking number or
+  statistic, "subtext" explains what it means.
+- Contrast — "text" names a before/after or old-way/new-way shift,
+  "subtext" is the other half of the contrast.
+Also vary "text_position" genuinely across the sequence (top/center/
+bottom) rather than defaulting to the same position for every slide of
+a given type. "has_poll" isn't cta-exclusive either — a reveal or
+buildup slide can carry a real poll (e.g. "Which do you prefer?") when
+it fits the content; use it on at most one non-cta slide, only when it
+genuinely fits, not as a default.
+
 Background options:
 - "gradient_violet": Purple/violet gradient (great for hook)
 - "gradient_pink": Pink/rose gradient (great for reveal)
@@ -145,30 +166,39 @@ Respond with ONLY this JSON:
     {
       "story_number": 1,
       "type": "hook",
-      "text": "Main hook text (bold, large, 5-8 words max)",
-      "subtext": "Secondary text (smaller, supporting)",
+      "text": "What if your inbox emptied itself",
+      "subtext": "Most founders find out too late",
       "background": "gradient_violet",
-      "text_position": "center",
+      "text_position": "top",
       "has_poll": false
     },
     {
       "story_number": 2,
       "type": "reveal",
-      "text": "Reveal text",
-      "subtext": "Supporting detail",
+      "text": "3 hours saved every single day",
+      "subtext": "That's what automation actually buys back",
       "background": "gradient_pink",
-      "text_position": "bottom",
+      "text_position": "center",
       "has_poll": false
+    },
+    {
+      "story_number": 3,
+      "type": "buildup",
+      "text": "Manual replies vs. automated ones",
+      "subtext": "18-minute average wait vs. instant",
+      "background": "gradient_warm",
+      "text_position": "bottom",
+      "has_poll": true,
+      "poll_options": ["Manual, always", "Ready to automate"]
     },
     {
       "story_number": ${storyCount},
       "type": "cta",
-      "text": "CTA line",
+      "text": "Your inbox, handled",
       "subtext": "Link in bio",
       "background": "gradient_dark",
       "text_position": "center",
-      "has_poll": true,
-      "poll_options": ["Yes, I want it!", "Tell me more"]
+      "has_poll": false
     }
   ],
   "caption": {
