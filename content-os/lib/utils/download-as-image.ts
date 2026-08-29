@@ -15,8 +15,13 @@ export async function captureElementAsDataUrl(
       cacheBust: true,
       backgroundColor: "#ffffff",
       filter: (node: Element) => {
-        const tag = (node as HTMLElement).tagName
-        return tag !== "LINK"
+        const el = node as HTMLElement
+        // data-export-ignore -- editor-only chrome (currently just
+        // CarouselBuilder.tsx's SlidePreview drag handle) that must never
+        // leak into the real downloaded/scheduled PNG, since this DOM
+        // screenshot IS the real export for that flow (unlike Stories,
+        // which renders server-side and never touches this file at all).
+        return el.tagName !== "LINK" && !el.hasAttribute?.("data-export-ignore")
       },
     })
     if (!dataUrl || dataUrl === "data:,") {

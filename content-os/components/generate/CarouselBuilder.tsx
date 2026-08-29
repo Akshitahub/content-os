@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useCallback, useEffect, useRef } from "react"
-import { ChevronLeft, ChevronRight, Copy, Check, Loader2, RefreshCw, Download, AlertCircle, Image, Sparkles } from "lucide-react"
+import { ChevronLeft, ChevronRight, Copy, Check, Loader2, RefreshCw, Download, AlertCircle, Image, Sparkles, Move } from "lucide-react"
 import { ProductPicker, type PickedProduct } from "@/components/shared/ProductPicker"
 import { VibePicker, type Vibe } from "@/components/shared/VibePicker"
 import { ScheduleAction } from "@/components/shared/ScheduleAction"
@@ -16,6 +16,7 @@ import { useGenerationStore } from "@/stores/generationStore"
 import { CAROUSEL as CAROUSEL_CREDIT_COST, CAROUSEL_SLIDE_AI_BACKGROUND } from "@/lib/usage/credit-costs"
 import { CAROUSEL_BG_STYLES, type CarouselBackgroundStyle } from "@/lib/design/carousel-slide-styles"
 import { cssBackgroundFromColors, ColorWheelPicker } from "@/components/shared/ColorWheelPicker"
+import { useDraggableText, type TextPosition } from "@/components/shared/useDraggableText"
 import Link from "next/link"
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
@@ -46,6 +47,20 @@ interface CarouselSlideRich {
    * gradient (see ColorWheelPicker). Takes rendering priority over both
    * image_url and background_style wherever slides are shown. */
   custom_background_colors?: string[] | null
+  /** Free-drag override for where the headline/body text block sits on
+   * the slide -- confirmed live (2026-08-29, same finding as Stories):
+   * text always dead-centered looks awkward against an AI-generated
+   * background whose busy areas vary per generation. Absent on every
+   * slide until dragged (SlidePreview then falls back to the previous
+   * dead-center default, x=50/y=50). Percentages (0-100 of the full
+   * slide, not pixels) so one stored position renders identically at
+   * the small editor preview's size and the real captured/exported
+   * image -- see components/shared/useDraggableText.ts. x/y mark the
+   * block's horizontal/vertical CENTER, matching the CSS
+   * `left/top + translate(-50%,-50%)` anchor SlidePreview renders it
+   * with. */
+  text_position_x?: number
+  text_position_y?: number
 }
 
 interface CtaSlide {
@@ -125,6 +140,17 @@ async function fetchSlideBackground(brandId: string, vibe: Vibe | undefined, rol
   return "url" in result ? result.url : null
 }
 
+// ─── Draggable text positioning ────────────────────────────────────────────────
+
+// No safe-zone concept pre-existed for Carousel the way Stories has one
+// (Instagram doesn't overlay carousel images the way it does Stories) --
+// this is just clear of the slide-number/swipe label pinned top-right and
+// the brand name pinned bottom-right (see buildSlideSvg/SlidePreview's own
+// fixed corner labels), with real anti-clip margin handled dynamically by
+// useDraggableText's measureRef, same as Stories.
+const CAROUSEL_TEXT_BOUNDS = { minX: 15, maxX: 85, minY: 12, maxY: 85 }
+const CAROUSEL_DEFAULT_TEXT_POSITION: TextPosition = { x: 50, y: 50 }
+
 // ─── Slide renderer ────────────────────────────────────────────────────────────
 
 function SlidePreview({
@@ -136,6 +162,7 @@ function SlidePreview({
   elementId,
   productImage,
   backgroundImageUrl,
+  onPositionCommit,
 }: {
   slide: CarouselSlideRich
   ctaSlide?: CtaSlide
@@ -149,11 +176,33 @@ function SlidePreview({
    * BG_STYLES gradient below when absent (still-loading, failed, or a
    * middle slide that never gets one). */
   backgroundImageUrl?: string | null
+  /** Present only on the one interactive, full-size, on-screen preview
+   * (not the thumbnail strip, not the off-screen hidden renders used for
+   * bulk PNG export) -- enables the drag handle and commits a dragged
+   * position back to this slide via the caller's updateSlide. The text
+   * block itself is always rendered at slide.text_position_x/y (falling
+   * back to dead-center) regardless of whether this is provided, so the
+   * off-screen export renders still reflect a dragged position correctly
+   * -- only the interactive handle itself is conditional. */
+  onPositionCommit?: (position: TextPosition) => void
 }) {
   const s = CAROUSEL_BG_STYLES[slide.background_style] ?? CAROUSEL_BG_STYLES.gradient_dark
   const isThumb = size === "thumb"
   const isCta = slide.type === "cta" && isLastSlide && ctaSlide
   const hasBg = !!backgroundImageUrl
+  const frameRef = useRef<HTMLDivElement>(null)
+  const textBlockRef = useRef<HTMLDivElement>(null)
+  const storedPosition: TextPosition | null =
+    slide.text_position_x !== undefined && slide.text_position_y !== undefined
+      ? { x: slide.text_position_x, y: slide.text_position_y }
+      : null
+  const { onPointerDown: onDragHandleDown, current: textPos } = useDraggableText({
+    containerRef: frameRef,
+    measureRef: textBlockRef,
+    position: storedPosition ?? CAROUSEL_DEFAULT_TEXT_POSITION,
+    bounds: CAROUSEL_TEXT_BOUNDS,
+    onCommit: (p) => onPositionCommit?.(p),
+  })
   // Custom color takes priority over the named background_style (but
   // never over a real AI photo, which can't happen alongside custom
   // color today anyway -- picking "Custom color" skips AI generation
@@ -172,6 +221,7 @@ function SlidePreview({
   return (
     <div
       id={elementId}
+      ref={frameRef}
       className={`relative flex flex-col overflow-hidden rounded-xl bg-cover bg-center ${hasBg || customBg ? "" : s.bg} ${
         // 4:5 (1080x1350) — matches PORTRAIT_DIMENSIONS in
         // lib/ai/carousel-slide-background.ts, so the full generated
@@ -224,8 +274,48 @@ function SlidePreview({
         </>
       )}
 
-      {/* Content */}
-      <div className={`relative z-10 flex h-full flex-col justify-center ${isThumb ? "p-1.5" : "p-8"}`}>
+      {/* Content -- thumb stays the old full-width, vertically-centered
+          flow (a 56x80px nav thumbnail has no room for free positioning
+          to matter); full size is free-drag positioned instead (see
+          useDraggableText), replacing the old fixed dead-center-only
+          layout. left/top are percentages of this slide card itself
+          (frameRef) -- the same box html-to-image captures for
+          download/schedule -- so textPos renders correctly both here and
+          in the real exported PNG. */}
+      <div
+        ref={textBlockRef}
+        className={isThumb ? "relative z-10 flex h-full flex-col justify-center p-1.5" : "absolute z-10 flex flex-col"}
+        style={isThumb ? undefined : {
+          left: `${textPos.x}%`,
+          top: `${textPos.y}%`,
+          transform: "translate(-50%, -50%)",
+          width: "max-content",
+          maxWidth: "calc(100% - 64px)",
+          touchAction: "none",
+        }}
+      >
+        {/* Drag handle -- separate hit target from the text (SlideEditor,
+            not inline editing here, handles headline/body text changes),
+            and marked data-export-ignore so it never leaks into the real
+            downloaded/scheduled PNG (see download-as-image.ts's filter --
+            CarouselBuilder's real export is a DOM screenshot of this
+            exact element, unlike Stories' server-side compositor, so
+            anything visible here that shouldn't ship has to be excluded
+            explicitly). Only rendered on the one interactive full-size
+            preview (onPositionCommit provided) -- thumbnails and the
+            off-screen bulk-export renders don't get it, though both still
+            render the text at the correct dragged position. */}
+        {!isThumb && onPositionCommit && (
+          <button
+            type="button"
+            data-export-ignore
+            onPointerDown={onDragHandleDown}
+            title="Drag to reposition"
+            className="mb-1.5 flex h-5 w-8 shrink-0 cursor-grab items-center justify-center self-center rounded-full bg-black/40 text-white transition-colors hover:bg-black/60 active:cursor-grabbing"
+          >
+            <Move className="h-3 w-3" />
+          </button>
+        )}
         {slide.type === "cover" && (
           <>
             <h2 className={`font-extrabold leading-tight ${textColor} ${isThumb ? "text-[8px] line-clamp-2" : "text-3xl line-clamp-3"} ${productImage && !isThumb ? "max-w-[55%]" : ""}`}>
@@ -948,6 +1038,7 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
                   elementId={`carousel-slide-${activeSlide}`}
                   productImage={productImage ?? undefined}
                   backgroundImageUrl={backgroundUrlForSlide(activeSlide)}
+                  onPositionCommit={(p) => updateSlide(activeSlide, { ...currentSlide, text_position_x: p.x, text_position_y: p.y })}
                 />
               </div>
 
