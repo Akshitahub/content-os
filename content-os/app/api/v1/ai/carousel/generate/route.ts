@@ -77,8 +77,31 @@ CRITICAL RULES:
 
 SLIDE STRUCTURE:
 - Slide 1: Cover slide (type: "cover") — bold hook headline + teaser subtext
-- Slides 2 to ${slideCount - 1}: Content slides (type: "content") — each with a clear title + 2-3 bullet points
+- Slides 2 to ${slideCount - 1}: Content slides (type: "content") — see CONTENT SLIDE FORMATS below
 - Slide ${slideCount}: CTA slide (type: "cta") — strong call to action
+
+CONTENT SLIDE FORMATS — confirmed live (2026-08-29): every content slide
+defaulting to the same "title + 3 bullet points" shape reads as
+repetitive across different carousels, even when the wording changes.
+Vary the structure slide-by-slide instead, choosing whichever format
+actually fits that slide's specific content best — don't force every
+carousel through the same rotation, and don't use the same format twice
+in a row. Every format still uses only "headline" and "points" (the
+existing fields — a real UI, not just this prompt, renders these, so no
+new field names):
+- Bold statement / stat callout — a single striking claim or number does
+  all the work. "headline" carries it; "points" is an empty array. Best
+  for a fact that doesn't need supporting bullets to land.
+- Short comparison — "points" has exactly 2 items framed as a contrast
+  (before/after, old way/new way, myth/reality). "headline" names what's
+  being compared.
+- Question and answer — "headline" is phrased as a real question the
+  audience would ask; "points" has exactly 1 item that directly answers
+  it.
+- Full list — the existing format: "headline" is a clear title, "points"
+  has 2-3 supporting bullets.
+Across a whole carousel, use a genuine mix — not every content slide as
+a list, and not the same format repeated back-to-back.
 
 BACKGROUND STYLES (rotate through these, DO NOT repeat same style twice in a row):
 - "gradient_dark" — dark violet to purple (for cover and CTA)
@@ -117,9 +140,30 @@ Respond with ONLY this JSON (no markdown, no explanation):
     {
       "slide_number": 2,
       "type": "content",
-      "headline": "Point #1 Title",
-      "points": ["Key insight one", "Key insight two", "Key insight three"],
+      "headline": "73% of first-time buyers never come back",
+      "points": [],
       "background_style": "gradient_light"
+    },
+    {
+      "slide_number": 3,
+      "type": "content",
+      "headline": "Generic emails vs. personalized ones",
+      "points": ["Generic: 2% open rate", "Personalized: 41% open rate"],
+      "background_style": "white_violet"
+    },
+    {
+      "slide_number": 4,
+      "type": "content",
+      "headline": "Why do most carts get abandoned?",
+      "points": ["Shipping cost shows up too late in checkout"],
+      "background_style": "gradient_light"
+    },
+    {
+      "slide_number": 5,
+      "type": "content",
+      "headline": "Fix your checkout flow in 3 steps",
+      "points": ["Show shipping cost upfront", "Cut form fields to the essentials", "Add a guest checkout option"],
+      "background_style": "white_violet"
     }
   ],
   "cta_slide": {
