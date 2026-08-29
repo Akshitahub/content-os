@@ -21,7 +21,21 @@ function resolveBrandColors(brand: BrandRow): string[] {
   return colors
 }
 
-function buildStorySlidePrompt(text: string, vibe: Vibe, colors: string[]): string {
+// Confirmed live (2026-08-29) via the identical bug in
+// lib/ai/carousel-slide-background.ts: quoting a slide's own text
+// directly into the prompt (`evokes the mood of: "${text}"`) reads to a
+// diffusion model as "render this text," not "evoke this mood" — even
+// against the "no text" guard below. That fix (real content-generation
+// text is never a reliable "safe to quote" vs. "tagline, don't quote"
+// split — some short, punchy hook/CTA-style lines get rendered as
+// on-image text regardless of role) applies exactly the same way here:
+// StorySequence.tsx's PhoneStory overlays the real text on top of this
+// image, so a hallucinated copy of it in the photo itself would read as
+// duplicated, offset text on the slide, same as the Carousel bug. Brand
+// niche (a short, generic category descriptor, not a message anyone
+// would expect rendered as text) replaces the slide's own text for
+// whatever topical grounding is still useful.
+function buildStorySlidePrompt(niche: string | null, vibe: Vibe, colors: string[]): string {
   // Descriptive color names, not raw hex — diffusion models reliably follow
   // "a vibrant orange-red" but ignore "#FF5733" outright, confirmed via real
   // testing (see docs/research/seedream-5-lite-evaluation.md).
@@ -30,8 +44,9 @@ function buildStorySlidePrompt(text: string, vibe: Vibe, colors: string[]): stri
     "abstract atmospheric vertical background image for a full-screen phone story slide",
     VIBE_BACKGROUND_STYLES[vibe],
     colorNames.length > 0 ? `color palette inspired by ${colorNames.join(" and ")}` : "",
-    `evokes the mood of: "${text}"`,
+    niche ? `evokes the mood of a ${niche} brand` : "",
     "no text, no words, no letters, no numbers, no logos anywhere in the image",
+    "no rendered slogans, taglines, or typography of any kind, however short",
     "no literal photos of people, products, or objects — purely abstract shapes, gradients, and textures",
     "keep the vertical center calm and uncluttered so text stays readable when overlaid on top",
     ABSTRACT_SAFETY_BOILERPLATE,
@@ -47,21 +62,32 @@ function simplifyStorySlidePrompt(vibe: Vibe): string {
 }
 
 export interface GenerateStorySlideBackgroundOptions {
-  text: string
   vibe?: StoryVibe
   brand: BrandRow
   plan: UserPlan
   isInternalUnlimitedUser: boolean
+  /** Which slide this background is for. "body" (reveal/buildup — any
+   * slide that isn't the hook or the closing cta) is the optional "AI
+   * background for every slide" mode -- unlike hook/cta, generating one
+   * always costs real credits (see lib/usage/credit-costs.ts's
+   * STORY_SLIDE_AI_BACKGROUND and the charging logic in this function's
+   * caller). Doesn't change the prompt itself (unlike Carousel's cta-only
+   * closing-mood line, Stories' prompt has never varied by role) — kept
+   * only so the route can log/meter by role. */
+  role: "hook" | "cta" | "body"
 }
 
 /**
  * Generates an abstract, on-brand portrait background image for a story
- * slide (hook or CTA) — same prompt construction as
- * lib/ai/carousel-slide-background.ts (vibe + brand color + content mood,
+ * slide (hook, cta, or an opted-in body slide) — same prompt construction
+ * as lib/ai/carousel-slide-background.ts (vibe + brand color + niche,
  * deliberately abstract rather than literal photography), just framed for
  * Stories' 9:16 canvas instead of a square. Reuses fetchBackgroundImage's
  * provider resolution, retry, and quality-check logic as-is — no
- * duplicated fetch/retry/fallback code. Never throws.
+ * duplicated fetch/retry/fallback code. Never throws. Deliberately takes
+ * no slide text at all — see buildStorySlidePrompt's comment for why
+ * quoting any specific slide text into the prompt is what caused real
+ * on-image text hallucination.
  */
 export async function generateStorySlideBackground(
   options: GenerateStorySlideBackgroundOptions
@@ -70,7 +96,7 @@ export async function generateStorySlideBackground(
   const brandColors = resolveBrandColors(options.brand)
   const colors = brandColors.length > 0 ? brandColors : VIBE_FALLBACK_COLORS[vibe]
 
-  const prompt = buildStorySlidePrompt(options.text, vibe, colors)
+  const prompt = buildStorySlidePrompt(options.brand.niche, vibe, colors)
   const fallbackPrompt = simplifyStorySlidePrompt(vibe)
 
   return fetchBackgroundImage(prompt, fallbackPrompt, options.plan, options.isInternalUnlimitedUser, STORY_DIMENSIONS)

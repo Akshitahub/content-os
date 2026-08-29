@@ -4,6 +4,8 @@ import { buildError, ErrorCodes } from "@/types/api"
 import { generateStorySlideBackground, type StoryVibe } from "@/lib/ai/story-slide-background"
 import { uploadMediaToStorage } from "@/lib/storage/upload-media"
 import { isInternalUnlimited } from "@/lib/usage/is-internal-unlimited"
+import { checkAndIncrementUsage, refundGenerationUsage } from "@/lib/usage/check-and-increment-usage"
+import { STORY_SLIDE_AI_BACKGROUND } from "@/lib/usage/credit-costs"
 import type { UserPlan } from "@/types/app"
 import { z } from "zod"
 import type { BrandRow } from "@/types/database"
@@ -12,9 +14,8 @@ const STORY_VIBES = ["fun_playful", "clean_minimal", "bold_dramatic", "warm_cozy
 
 const schema = z.object({
   brandId: z.string().uuid(),
-  text: z.string().min(1).max(300),
   vibe: z.enum(STORY_VIBES).optional(),
-  role: z.enum(["hook", "cta"]),
+  role: z.enum(["hook", "cta", "body"]),
 })
 
 // Chains up to 3 sequential external calls (first attempt, retry, and a
@@ -26,17 +27,21 @@ const schema = z.object({
 export const maxDuration = 60
 
 /**
- * Generates an AI background image for a story's opening (hook) or closing
- * (CTA) slide — see lib/ai/story-slide-background.ts for the prompt.
- * Mirrors app/api/v1/ai/carousel/slide-image/generate/route.ts exactly,
- * just with a portrait (9:16) canvas instead of square. Fired by
+ * Generates an AI background image for a story's opening (hook), closing
+ * (cta), or — the opt-in "AI background for every slide" mode — a
+ * reveal/buildup ("body") slide. See lib/ai/story-slide-background.ts for
+ * the prompt. Mirrors app/api/v1/ai/carousel/slide-image/generate/route.ts
+ * exactly, just with a portrait (9:16) canvas instead of square. Fired by
  * StorySequence.tsx as a best-effort follow-up after text generation
  * succeeds, so a slow/failed image call never blocks or breaks story
  * generation — the client just keeps the existing flat vibe-color slide.
- * Available to every plan including Free (no PLAN_LIMITS gate here — see
- * carouselCtaAiBackground for comparison, which does gate the carousel
- * CTA slide; Stories intentionally does not gate either slide).
- * Not currently metered against the generation-credit quota.
+ *
+ * hook/cta stay unmetered (bundled into the story generation's own
+ * charge, as before) — only "body" spends real credits
+ * (STORY_SLIDE_AI_BACKGROUND per slide), since that's the genuinely new,
+ * uncapped-count cost surface a user opts into. Neither role is gated by
+ * plan (Stories has never gated either slide — see carouselCtaAiBackground
+ * for the carousel equivalent that does gate its CTA slide).
  */
 export async function POST(request: Request) {
   const supabase = await createClient()
@@ -51,7 +56,7 @@ export async function POST(request: Request) {
   const parsed = schema.safeParse(body)
   if (!parsed.success) return NextResponse.json(buildError(ErrorCodes.VALIDATION_ERROR, "Validation failed.", parsed.error.message), { status: 400 })
 
-  const { brandId, text, vibe, role } = parsed.data
+  const { brandId, vibe, role } = parsed.data
 
   const { data: brand } = await supabase.from("brands").select("*").eq("id", brandId).eq("user_id", user.id).single<BrandRow>()
   if (!brand) return NextResponse.json(buildError(ErrorCodes.BRAND_NOT_FOUND, "Brand not found."), { status: 404 })
@@ -60,18 +65,32 @@ export async function POST(request: Request) {
   const plan: UserPlan = userData?.plan ?? "starter"
   const isUnlimited = isInternalUnlimited(user.id)
 
+  // "body" is the only role that actually spends credits — checked and
+  // charged up front, same pattern as every other paid generation route,
+  // refunded below if generation or upload ends up failing.
+  let usageLogId: string | null = null
+  if (role === "body") {
+    const usageCheck = await checkAndIncrementUsage(user.id, STORY_SLIDE_AI_BACKGROUND, "story_slide_bg_body")
+    if (!usageCheck.ok) {
+      const code = usageCheck.status === 429 ? ErrorCodes.USAGE_LIMIT_EXCEEDED : ErrorCodes.INTERNAL_ERROR
+      return NextResponse.json(buildError(code, usageCheck.message), { status: usageCheck.status })
+    }
+    usageLogId = usageCheck.logId
+  }
+
   const startTime = Date.now()
   const result = await generateStorySlideBackground({
-    text,
     vibe: vibe as StoryVibe | undefined,
     brand,
     plan,
     isInternalUnlimitedUser: isUnlimited,
+    role,
   })
   const latencyMs = Date.now() - startTime
 
   if (!result.success) {
     console.error(`[ai/stories/slide-image/generate] generation failed after ${latencyMs}ms (role=${role}):`, result.error)
+    if (role === "body") await refundGenerationUsage(supabase, user.id, STORY_SLIDE_AI_BACKGROUND, usageLogId)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await (supabase.from("ai_generation_logs") as any).insert({
       user_id: user.id, brand_id: brandId, feature: `story_slide_bg_${role}`, model: "unknown",
@@ -89,6 +108,7 @@ export async function POST(request: Request) {
 
   if ("error" in uploadResult) {
     console.error(`[ai/stories/slide-image/generate] upload failed (role=${role}):`, uploadResult.error)
+    if (role === "body") await refundGenerationUsage(supabase, user.id, STORY_SLIDE_AI_BACKGROUND, usageLogId)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await (supabase.from("ai_generation_logs") as any).insert({
       user_id: user.id, brand_id: brandId, feature: `story_slide_bg_${role}`, model: provider,

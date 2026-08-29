@@ -94,6 +94,14 @@ export const REMOVE_BACKGROUND = 1
 // this only meters the newly expanded surface.
 export const CAROUSEL_SLIDE_AI_BACKGROUND = IMAGE
 
+// Same "AI background for every slide" mode, for Stories -- reveal/buildup
+// slides normally only get a flat vibe color (hook/cta stay bundled free
+// into the base STORY charge, same as Carousel's hook/cta). Same real
+// Flux/Pollinations cost driver as CAROUSEL_SLIDE_AI_BACKGROUND, so priced
+// identically rather than invented fresh. Charged PER SLIDE actually
+// generated (see app/api/v1/ai/stories/slide-image/generate/route.ts).
+export const STORY_SLIDE_AI_BACKGROUND = IMAGE
+
 // content/generate and fullpost/generate both dispatch on ContentFormat —
 // one shared map so the two routes can never charge a different amount
 // for the identical format. "social_post" here is content/generate's
