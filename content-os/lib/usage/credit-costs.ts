@@ -84,6 +84,16 @@ export const PHOTO_CAPTION = HOOK_OR_CAPTION
 export const REPURPOSE = 1
 export const REMOVE_BACKGROUND = 1
 
+// Optional "AI background for every slide" carousel mode — extends the
+// always-bundled hook/CTA AI backgrounds to body slides too. Each body
+// slide is a genuinely separate Flux/Pollinations image call, the same
+// cost driver as the standalone Images tab, so it's priced identically
+// to IMAGE rather than invented fresh. Charged PER SLIDE actually
+// generated, on top of the base CAROUSEL charge — hook/CTA stay bundled
+// free as before (see app/api/v1/ai/carousel/slide-image/generate/route.ts),
+// this only meters the newly expanded surface.
+export const CAROUSEL_SLIDE_AI_BACKGROUND = IMAGE
+
 // content/generate and fullpost/generate both dispatch on ContentFormat —
 // one shared map so the two routes can never charge a different amount
 // for the identical format. "social_post" here is content/generate's

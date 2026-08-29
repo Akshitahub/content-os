@@ -42,7 +42,7 @@ function resolveBrandColors(brand: BrandRow): string[] {
 // "handmade jewelry" — not a message anyone would expect rendered as
 // text) replaces it for whatever topical grounding is still useful,
 // falling back to the vibe/colors alone when a brand has no niche set.
-function buildSlidePrompt(niche: string | null, vibe: Vibe, colors: string[], role: "hook" | "cta"): string {
+function buildSlidePrompt(niche: string | null, vibe: Vibe, colors: string[], role: "hook" | "cta" | "body"): string {
   // Descriptive color names, not raw hex — diffusion models reliably follow
   // "a vibrant orange-red" but ignore "#FF5733" outright, confirmed via real
   // testing (see docs/research/seedream-5-lite-evaluation.md).
@@ -77,20 +77,25 @@ export interface GenerateCarouselSlideBackgroundOptions {
   plan: UserPlan
   isInternalUnlimitedUser: boolean
   /** Which slide this background is for -- see buildSlidePrompt's comment
-   * for why this changes the prompt, not just which plans can call this. */
-  role: "hook" | "cta"
+   * for why this changes the prompt, not just which plans can call this.
+   * "body" (any content slide, not the cover or closing slide) is the
+   * optional "AI background for every slide" mode -- unlike hook/cta,
+   * generating one always costs real credits (see
+   * lib/usage/credit-costs.ts's CAROUSEL_SLIDE_AI_BACKGROUND and the
+   * charging logic in this route's caller). */
+  role: "hook" | "cta" | "body"
 }
 
 /**
  * Generates an abstract, on-brand background image for a carousel slide
- * (hook or CTA) — reuses fetchBackgroundImage's existing Pollinations/Flux
- * provider resolution, retry, and quality-check logic as-is; this module
- * only owns the carousel-specific prompt (brand niche + vibe + brand
- * colors, deliberately abstract rather than literal photography). Never
- * throws — same never-throw contract as fetchBackgroundImage. Deliberately
- * takes no headline/caption text at all — see buildSlidePrompt's comment
- * for why quoting any specific slide text into the prompt is what caused
- * real on-image text hallucination.
+ * (hook, CTA, or an opted-in body slide) — reuses fetchBackgroundImage's
+ * existing Pollinations/Flux provider resolution, retry, and quality-check
+ * logic as-is; this module only owns the carousel-specific prompt (brand
+ * niche + vibe + brand colors, deliberately abstract rather than literal
+ * photography). Never throws — same never-throw contract as
+ * fetchBackgroundImage. Deliberately takes no headline/caption text at
+ * all — see buildSlidePrompt's comment for why quoting any specific slide
+ * text into the prompt is what caused real on-image text hallucination.
  */
 export async function generateCarouselSlideBackground(
   options: GenerateCarouselSlideBackgroundOptions

@@ -4,6 +4,8 @@ import { buildError, ErrorCodes } from "@/types/api"
 import { generateCarouselSlideBackground, type CarouselVibe } from "@/lib/ai/carousel-slide-background"
 import { uploadMediaToStorage } from "@/lib/storage/upload-media"
 import { isInternalUnlimited } from "@/lib/usage/is-internal-unlimited"
+import { checkAndIncrementUsage, refundGenerationUsage } from "@/lib/usage/check-and-increment-usage"
+import { CAROUSEL_SLIDE_AI_BACKGROUND } from "@/lib/usage/credit-costs"
 import { PLAN_LIMITS, type UserPlan } from "@/types/app"
 import { z } from "zod"
 import type { BrandRow } from "@/types/database"
@@ -13,7 +15,7 @@ const CAROUSEL_VIBES = ["fun_playful", "clean_minimal", "bold_dramatic", "warm_c
 const schema = z.object({
   brandId: z.string().uuid(),
   vibe: z.enum(CAROUSEL_VIBES).optional(),
-  role: z.enum(["hook", "cta"]),
+  role: z.enum(["hook", "cta", "body"]),
 })
 
 // Chains up to 3 sequential external calls (first attempt, retry, and a
@@ -25,14 +27,19 @@ const schema = z.object({
 export const maxDuration = 60
 
 /**
- * Generates an AI background image for a carousel's opening (hook) or
- * closing (CTA) slide — see lib/ai/carousel-slide-background.ts for the
- * prompt. Fired by CarouselBuilder.tsx as a best-effort follow-up after
- * text generation succeeds, not as part of /api/v1/ai/carousel/generate
- * itself, so a slow/failed image call never blocks or breaks carousel
- * generation — the client just keeps the existing flat vibe-color slide.
- * Not currently metered against the generation-credit quota (bundled into
- * the cost of the carousel generation that already charged one).
+ * Generates an AI background image for a carousel's opening (hook),
+ * closing (CTA), or — the opt-in "AI background for every slide" mode —
+ * a content ("body") slide. See lib/ai/carousel-slide-background.ts for
+ * the prompt. Fired by CarouselBuilder.tsx as a best-effort follow-up
+ * after text generation succeeds, not as part of
+ * /api/v1/ai/carousel/generate itself, so a slow/failed image call never
+ * blocks or breaks carousel generation — the client just keeps the
+ * existing flat vibe-color slide.
+ *
+ * hook/cta stay unmetered (bundled into the carousel generation's own
+ * charge, as before) — only "body" spends real credits
+ * (CAROUSEL_SLIDE_AI_BACKGROUND per slide), since that's the genuinely
+ * new, uncapped-count cost surface a user opts into.
  */
 export async function POST(request: Request) {
   const supabase = await createClient()
@@ -68,6 +75,19 @@ export async function POST(request: Request) {
     )
   }
 
+  // "body" is the only role that actually spends credits — checked and
+  // charged up front, same pattern as every other paid generation route,
+  // refunded below if generation or upload ends up failing.
+  let usageLogId: string | null = null
+  if (role === "body") {
+    const usageCheck = await checkAndIncrementUsage(user.id, CAROUSEL_SLIDE_AI_BACKGROUND, "carousel_slide_bg_body")
+    if (!usageCheck.ok) {
+      const code = usageCheck.status === 429 ? ErrorCodes.USAGE_LIMIT_EXCEEDED : ErrorCodes.INTERNAL_ERROR
+      return NextResponse.json(buildError(code, usageCheck.message), { status: usageCheck.status })
+    }
+    usageLogId = usageCheck.logId
+  }
+
   const startTime = Date.now()
   const result = await generateCarouselSlideBackground({
     vibe: vibe as CarouselVibe | undefined,
@@ -80,6 +100,7 @@ export async function POST(request: Request) {
 
   if (!result.success) {
     console.error(`[ai/carousel/slide-image/generate] generation failed after ${latencyMs}ms (role=${role}):`, result.error)
+    if (role === "body") await refundGenerationUsage(supabase, user.id, CAROUSEL_SLIDE_AI_BACKGROUND, usageLogId)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await (supabase.from("ai_generation_logs") as any).insert({
       user_id: user.id, brand_id: brandId, feature: `carousel_slide_bg_${role}`, model: "unknown",
@@ -102,6 +123,7 @@ export async function POST(request: Request) {
 
   if ("error" in uploadResult) {
     console.error(`[ai/carousel/slide-image/generate] upload failed (role=${role}):`, uploadResult.error)
+    if (role === "body") await refundGenerationUsage(supabase, user.id, CAROUSEL_SLIDE_AI_BACKGROUND, usageLogId)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await (supabase.from("ai_generation_logs") as any).insert({
       user_id: user.id, brand_id: brandId, feature: `carousel_slide_bg_${role}`, model: provider,
@@ -112,7 +134,8 @@ export async function POST(request: Request) {
 
   // Logged per call (not just on failure) so per-carousel image-call
   // latency/cost is queryable via ai_generation_logs as usage grows — a
-  // single carousel can trigger up to 2 of these (1 for Free tier).
+  // single carousel can trigger up to 2 of these for hook/cta alone (1 for
+  // Free tier), plus one per body slide when the AI-background mode is on.
   console.log(`[ai/carousel/slide-image/generate] role=${role} plan=${plan} provider=${provider} latencyMs=${latencyMs}`)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   await (supabase.from("ai_generation_logs") as any).insert({

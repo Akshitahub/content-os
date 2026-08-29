@@ -13,7 +13,7 @@ import { TopicSuggestButton } from "@/components/shared/TopicSuggestButton"
 import { isApiError } from "@/types/api"
 import { ApiResponseError } from "@/hooks/useGeneration"
 import { useGenerationStore } from "@/stores/generationStore"
-import { CAROUSEL as CAROUSEL_CREDIT_COST } from "@/lib/usage/credit-costs"
+import { CAROUSEL as CAROUSEL_CREDIT_COST, CAROUSEL_SLIDE_AI_BACKGROUND } from "@/lib/usage/credit-costs"
 import { CAROUSEL_BG_STYLES, type CarouselBackgroundStyle } from "@/lib/design/carousel-slide-styles"
 import { cssBackgroundFromColors } from "@/components/shared/ColorWheelPicker"
 import Link from "next/link"
@@ -81,29 +81,48 @@ function withCtaSlideMerged(data: GeneratedCarousel): GeneratedCarousel {
   return { ...data, slides: [...data.slides, ctaSlide] }
 }
 
-// Best-effort AI background fetch for a single slide — never throws, and
-// resolves to null (falls back to the existing flat vibe-color background)
-// on any HTTP error, network failure, or plan restriction (e.g. Free tier
-// requesting the CTA slide's background gets a 403, handled the same as
-// any other failure here rather than as a special case). Deliberately
-// doesn't send the slide's headline -- lib/ai/carousel-slide-background.ts
-// no longer quotes it into the image prompt at all (confirmed live: doing
-// so caused the model to render the headline as real on-image text,
-// which then visually duplicated the actual overlaid <h2> in
-// SlidePreview).
-async function fetchSlideBackground(brandId: string, vibe: Vibe | undefined, role: "hook" | "cta"): Promise<string | null> {
+// Deliberately doesn't send the slide's headline --
+// lib/ai/carousel-slide-background.ts no longer quotes it into the image
+// prompt at all (confirmed live: doing so caused the model to render the
+// headline as real on-image text, which then visually duplicated the
+// actual overlaid <h2> in SlidePreview).
+//
+// "body" slides (the opt-in "AI background for every slide" mode) spend
+// real credits per call, unlike hook/cta -- so unlike the old
+// swallow-everything version, a caller needs to tell "ran out of
+// credits, stop asking for more" apart from "this one attempt failed,
+// try the next slide anyway." fetchSlideBackgroundResult keeps that
+// distinction; fetchSlideBackground wraps it back down to the simpler
+// null-on-any-failure shape hook/cta (which are never credit-gated) have
+// always used.
+type SlideBackgroundResult = { url: string } | { error: "insufficient_credits" | "failed" }
+
+async function fetchSlideBackgroundResult(brandId: string, vibe: Vibe | undefined, role: "hook" | "cta" | "body"): Promise<SlideBackgroundResult> {
   try {
     const res = await fetch("/api/v1/ai/carousel/slide-image/generate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ brandId, vibe, role }),
     })
-    if (!res.ok) return null
+    if (res.status === 429) return { error: "insufficient_credits" }
+    if (!res.ok) return { error: "failed" }
     const json = await res.json() as { data?: { public_url?: string } }
-    return json.data?.public_url ?? null
+    return json.data?.public_url ? { url: json.data.public_url } : { error: "failed" }
   } catch {
-    return null
+    return { error: "failed" }
   }
+}
+
+// Best-effort AI background fetch for the hook/CTA slides — never throws,
+// and resolves to null (falls back to the existing flat vibe-color
+// background) on any HTTP error, network failure, or plan restriction
+// (e.g. a plan without carouselCtaAiBackground requesting the CTA slide's
+// background gets a 403, handled the same as any other failure here
+// rather than as a special case). Neither role is credit-gated, so the
+// insufficient_credits/failed distinction never matters here.
+async function fetchSlideBackground(brandId: string, vibe: Vibe | undefined, role: "hook" | "cta"): Promise<string | null> {
+  const result = await fetchSlideBackgroundResult(brandId, vibe, role)
+  return "url" in result ? result.url : null
 }
 
 // ─── Slide renderer ────────────────────────────────────────────────────────────
@@ -336,6 +355,14 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
   // Only meaningful when vibe === "custom_color" -- see VibePicker's
   // customColors prop and CarouselSlideRich.custom_background_colors.
   const [customColors, setCustomColors] = useState<string[]>([])
+  // Extends the hook/CTA-only AI background to every content slide too --
+  // opt-in since, unlike hook/cta, each one spends real credits (see
+  // CAROUSEL_SLIDE_AI_BACKGROUND). Only meaningful alongside a real vibe
+  // (custom_color already means "flat color everywhere, no AI, ever" --
+  // mutually exclusive with this, not layered on top of it).
+  const [allSlidesAiBg, setAllSlidesAiBg] = useState(false)
+  const [bodyBgProgress, setBodyBgProgress] = useState<{ current: number; total: number } | null>(null)
+  const [bodyBgWarning, setBodyBgWarning] = useState<string | null>(null)
   const [selectedProduct, setSelectedProduct] = useState<PickedProduct | null>(null)
   const productImage = selectedProduct?.imageUrl ?? null
 
@@ -486,9 +513,14 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
       // carousel's images while the new ones are still in flight.
       setHookBackgroundUrl(null)
       setCtaBackgroundUrl(null)
+      setBodyBgProgress(null)
+      setBodyBgWarning(null)
       const hookSlide = merged.slides[0]
       const ctaSlideEntry = merged.slides[merged.slides.length - 1]
       const hasCtaSlide = !!ctaSlideEntry && merged.slides.length > 1
+      const bodyIndices = allSlidesAiBg
+        ? merged.slides.map((_, i) => i).filter((i) => i !== 0 && !(hasCtaSlide && i === merged.slides.length - 1))
+        : []
 
       if (isCustomColorMode) {
         // The whole point of Custom color is an instant, zero-AI-cost
@@ -502,21 +534,46 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
         const coloredSlides = merged.slides.map((s) => ({ ...s, custom_background_colors: customColors }))
         setCarousel((prev) => (prev && prev.id === merged.id ? { ...prev, slides: coloredSlides } : prev))
       } else {
-        // Waits for BOTH backgrounds to settle before writing anything back —
-        // one PUT per generation instead of one per slide, since both fetches
-        // are already in flight together and there's no user-facing reason to
-        // persist them separately.
-        Promise.all([
-          hookSlide ? fetchSlideBackground(brandId, vibe, "hook") : Promise.resolve(null),
-          hasCtaSlide ? fetchSlideBackground(brandId, vibe, "cta") : Promise.resolve(null),
-        ]).then(([hookBg, ctaBg]) => {
+        (async () => {
+          const [hookBg, ctaBg] = await Promise.all([
+            hookSlide ? fetchSlideBackground(brandId, vibe, "hook") : Promise.resolve(null),
+            hasCtaSlide ? fetchSlideBackground(brandId, vibe, "cta") : Promise.resolve(null),
+          ])
           setHookBackgroundUrl(hookBg)
           setCtaBackgroundUrl(ctaBg)
-          if (!merged.id || (!hookBg && !ctaBg)) return
+
+          // Body slides are credit-metered (unlike hook/cta above), so
+          // they're requested one at a time rather than all at once —
+          // partly to fail fast and stop asking once credits run out
+          // instead of firing a batch of doomed requests, and partly
+          // because Pollinations itself only allows one in-flight request
+          // per IP (confirmed live: concurrent hook+cta calls already
+          // occasionally 429 each other), so real parallelism here would
+          // mostly just trade one slow path for a bunch of failed ones.
+          const bodyUpdates: Record<number, string> = {}
+          for (let n = 0; n < bodyIndices.length; n++) {
+            setBodyBgProgress({ current: n + 1, total: bodyIndices.length })
+            const result = await fetchSlideBackgroundResult(brandId, vibe, "body")
+            if ("url" in result) {
+              bodyUpdates[bodyIndices[n]!] = result.url
+            } else if (result.error === "insufficient_credits") {
+              setBodyBgWarning(
+                `Ran out of credits after ${n} of ${bodyIndices.length} extra slide backgrounds — the rest kept their flat color.`
+              )
+              break
+            }
+            // A plain "failed" (transient generation error) doesn't stop
+            // the loop -- that one slide just keeps its flat color, same
+            // best-effort fallback hook/cta already have.
+          }
+          setBodyBgProgress(null)
+
+          if (!merged.id || (!hookBg && !ctaBg && Object.keys(bodyUpdates).length === 0)) return
 
           const slidesWithImages = merged.slides.map((s, i) => {
             if (i === 0 && hookBg) return { ...s, image_url: hookBg }
             if (i === merged.slides.length - 1 && hasCtaSlide && ctaBg) return { ...s, image_url: ctaBg }
+            if (bodyUpdates[i]) return { ...s, image_url: bodyUpdates[i] }
             return s
           })
           setCarousel((prev) => (prev && prev.id === merged.id ? { ...prev, slides: slidesWithImages } : prev))
@@ -534,7 +591,7 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
             // failed persist here just means the Library won't show its
             // image, not a user-facing generation failure.
           })
-        })
+        })()
       }
     } catch (e) {
       setApiError(e)
@@ -662,6 +719,29 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
               />
             </div>
 
+            {/* Optional per-carousel upgrade: AI photo backgrounds for
+                every content slide, not just the hook/CTA that already get
+                one free. Only offered alongside a real vibe -- Custom
+                color already means "flat color everywhere, no AI", so the
+                two are mutually exclusive rather than combinable. */}
+            {vibe && vibe !== "custom_color" && (
+              <label className="flex cursor-pointer items-start gap-2.5 rounded-lg border p-3 text-sm transition-colors hover:bg-secondary/40">
+                <input
+                  type="checkbox"
+                  checked={allSlidesAiBg}
+                  onChange={(e) => setAllSlidesAiBg(e.target.checked)}
+                  className="mt-0.5 h-4 w-4 rounded border-input"
+                />
+                <div>
+                  <p className="font-medium">AI background for every slide</p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    Generates a real photo background for each content slide too, not just the cover and closing slide —{" "}
+                    {CAROUSEL_SLIDE_AI_BACKGROUND} credits per slide, charged only for slides that actually generate one.
+                  </p>
+                </div>
+              </label>
+            )}
+
             <div className="space-y-1.5">
               <label className="text-xs font-medium">Product photo (optional)</label>
               <ProductPicker
@@ -735,6 +815,20 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
               >
                 View in My Content →
               </Link>
+            </div>
+          )}
+
+          {bodyBgProgress && (
+            <div className="flex items-center gap-2 rounded-lg border border-violet-200 bg-violet-50 px-4 py-3 text-sm text-violet-700">
+              <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
+              Generating slide background {bodyBgProgress.current} of {bodyBgProgress.total}…
+            </div>
+          )}
+
+          {bodyBgWarning && (
+            <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+              <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+              {bodyBgWarning}
             </div>
           )}
 
