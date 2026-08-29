@@ -20,23 +20,29 @@ function resolveBrandColors(brand: BrandRow): string[] {
   return colors
 }
 
-// Confirmed live (2026-08-27), not guessed: generated several real
-// carousels and found hallucinated on-image text specifically on CTA
-// slides (e.g. a background that rendered "Upgrade Your Commute" and
-// "with Noise" as real, legible typography), while hook/cover slides
-// across the same sample stayed clean. The mechanism is this function's
-// own `evokes the mood of: "${headline}"` line: a hook's headline reads
-// as a topic/concept ("5 Morning Habits for Productivity"), but a CTA
-// slide's headline is quoted here as-is and is itself a literal branded
-// marketing tagline ("Upgrade Your Commute with Noise") — quoting that
-// directly into the prompt reads far more like "design a poster around
-// this exact line" than "evoke a mood," which a diffusion model is much
-// more prone to resolving by rendering the quoted phrase as literal
-// on-image type, even against the existing "no text" guard below. `role`
-// was already threaded from the client (hook vs cta) but never actually
-// used to change the prompt -- it only gated which plans could call this
-// at all.
-function buildSlidePrompt(headline: string, vibe: Vibe, colors: string[], role: "hook" | "cta"): string {
+// Confirmed live (2026-08-27): generated several real carousels and found
+// hallucinated on-image text on CTA slides (e.g. a background that
+// rendered "Upgrade Your Commute" and "with Noise" as real, legible
+// typography). The fix at the time was to stop quoting the CTA's literal
+// tagline and describe a generic closing mood instead, on the theory that
+// a hook's headline is safely "topic-shaped" (e.g. "5 Morning Habits for
+// Productivity") rather than a quotable branded line.
+//
+// Confirmed live AGAIN (2026-08-29): that theory was wrong. Reproduced a
+// hook slide whose headline ("Your brand voice, AI-enhanced") is itself
+// punchy, tagline-shaped copy — this function's old
+// `evokes the mood of: "${headline}"` line quoted it directly, and the
+// diffusion model rendered it as literal on-image text, at a different
+// position than SlidePreview's real overlaid <h2>. The two together read
+// as duplicated, offset text on the same slide (the actual bug report).
+// "Topic-shaped vs. tagline-shaped" isn't a reliable distinction to make
+// from the headline text alone, so both roles now get the same
+// treatment: never quote the literal headline into the prompt. Brand
+// niche (already a short, generic category descriptor like "skincare" or
+// "handmade jewelry" — not a message anyone would expect rendered as
+// text) replaces it for whatever topical grounding is still useful,
+// falling back to the vibe/colors alone when a brand has no niche set.
+function buildSlidePrompt(niche: string | null, vibe: Vibe, colors: string[], role: "hook" | "cta"): string {
   // Descriptive color names, not raw hex — diffusion models reliably follow
   // "a vibrant orange-red" but ignore "#FF5733" outright, confirmed via real
   // testing (see docs/research/seedream-5-lite-evaluation.md).
@@ -45,15 +51,10 @@ function buildSlidePrompt(headline: string, vibe: Vibe, colors: string[], role: 
     "abstract atmospheric background image for a social media carousel slide",
     VIBE_BACKGROUND_STYLES[vibe],
     colorNames.length > 0 ? `color palette inspired by ${colorNames.join(" and ")}` : "",
-    // Hook: the headline is topic-shaped, safe to quote for mood grounding.
-    // CTA: never quote the literal tagline -- describe the FEELING a
-    // closing/call-to-action slide wants instead of the exact branded
-    // sentence, which is what was actually getting rendered as text.
-    role === "hook"
-      ? `evokes the mood of: "${headline}"`
-      : "evokes a warm, inviting, confident closing/call-to-action mood",
+    niche ? `evokes the mood of a ${niche} brand` : "",
+    role === "cta" ? "evokes a warm, inviting, confident closing/call-to-action mood" : "",
     "no text, no words, no letters, no numbers, no logos anywhere in the image",
-    role === "cta" ? "no rendered call-to-action text, no marketing taglines, no slogans, no typography of any kind" : "",
+    "no rendered slogans, taglines, or typography of any kind, however short",
     "no literal photos of people, products, or objects — purely abstract shapes, gradients, and textures",
     "leave calm, uncluttered negative space so text stays readable when overlaid on top",
     "keep the composition's key visual interest centered in the frame — avoid placing it in the outer ~10% margin on any side",
@@ -71,7 +72,6 @@ function simplifySlidePrompt(vibe: Vibe): string {
 }
 
 export interface GenerateCarouselSlideBackgroundOptions {
-  headline: string
   vibe?: CarouselVibe
   brand: BrandRow
   plan: UserPlan
@@ -85,9 +85,12 @@ export interface GenerateCarouselSlideBackgroundOptions {
  * Generates an abstract, on-brand background image for a carousel slide
  * (hook or CTA) — reuses fetchBackgroundImage's existing Pollinations/Flux
  * provider resolution, retry, and quality-check logic as-is; this module
- * only owns the carousel-specific prompt (headline mood + vibe + brand
+ * only owns the carousel-specific prompt (brand niche + vibe + brand
  * colors, deliberately abstract rather than literal photography). Never
- * throws — same never-throw contract as fetchBackgroundImage.
+ * throws — same never-throw contract as fetchBackgroundImage. Deliberately
+ * takes no headline/caption text at all — see buildSlidePrompt's comment
+ * for why quoting any specific slide text into the prompt is what caused
+ * real on-image text hallucination.
  */
 export async function generateCarouselSlideBackground(
   options: GenerateCarouselSlideBackgroundOptions
@@ -96,7 +99,7 @@ export async function generateCarouselSlideBackground(
   const brandColors = resolveBrandColors(options.brand)
   const colors = brandColors.length > 0 ? brandColors : VIBE_FALLBACK_COLORS[vibe]
 
-  const prompt = buildSlidePrompt(options.headline, vibe, colors, options.role)
+  const prompt = buildSlidePrompt(options.brand.niche, vibe, colors, options.role)
   const fallbackPrompt = simplifySlidePrompt(vibe)
 
   return fetchBackgroundImage(prompt, fallbackPrompt, options.plan, options.isInternalUnlimitedUser)

@@ -12,7 +12,6 @@ const CAROUSEL_VIBES = ["fun_playful", "clean_minimal", "bold_dramatic", "warm_c
 
 const schema = z.object({
   brandId: z.string().uuid(),
-  headline: z.string().min(1).max(300),
   vibe: z.enum(CAROUSEL_VIBES).optional(),
   role: z.enum(["hook", "cta"]),
 })
@@ -48,7 +47,7 @@ export async function POST(request: Request) {
   const parsed = schema.safeParse(body)
   if (!parsed.success) return NextResponse.json(buildError(ErrorCodes.VALIDATION_ERROR, "Validation failed.", parsed.error.message), { status: 400 })
 
-  const { brandId, headline, vibe, role } = parsed.data
+  const { brandId, vibe, role } = parsed.data
 
   const { data: brand } = await supabase.from("brands").select("*").eq("id", brandId).eq("user_id", user.id).single<BrandRow>()
   if (!brand) return NextResponse.json(buildError(ErrorCodes.BRAND_NOT_FOUND, "Brand not found."), { status: 404 })
@@ -71,7 +70,6 @@ export async function POST(request: Request) {
 
   const startTime = Date.now()
   const result = await generateCarouselSlideBackground({
-    headline,
     vibe: vibe as CarouselVibe | undefined,
     brand,
     plan,

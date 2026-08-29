@@ -85,13 +85,18 @@ function withCtaSlideMerged(data: GeneratedCarousel): GeneratedCarousel {
 // resolves to null (falls back to the existing flat vibe-color background)
 // on any HTTP error, network failure, or plan restriction (e.g. Free tier
 // requesting the CTA slide's background gets a 403, handled the same as
-// any other failure here rather than as a special case).
-async function fetchSlideBackground(brandId: string, headline: string, vibe: Vibe | undefined, role: "hook" | "cta"): Promise<string | null> {
+// any other failure here rather than as a special case). Deliberately
+// doesn't send the slide's headline -- lib/ai/carousel-slide-background.ts
+// no longer quotes it into the image prompt at all (confirmed live: doing
+// so caused the model to render the headline as real on-image text,
+// which then visually duplicated the actual overlaid <h2> in
+// SlidePreview).
+async function fetchSlideBackground(brandId: string, vibe: Vibe | undefined, role: "hook" | "cta"): Promise<string | null> {
   try {
     const res = await fetch("/api/v1/ai/carousel/slide-image/generate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ brandId, headline, vibe, role }),
+      body: JSON.stringify({ brandId, vibe, role }),
     })
     if (!res.ok) return null
     const json = await res.json() as { data?: { public_url?: string } }
@@ -502,8 +507,8 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
         // are already in flight together and there's no user-facing reason to
         // persist them separately.
         Promise.all([
-          hookSlide ? fetchSlideBackground(brandId, hookSlide.headline, vibe, "hook") : Promise.resolve(null),
-          hasCtaSlide ? fetchSlideBackground(brandId, ctaSlideEntry.headline, vibe, "cta") : Promise.resolve(null),
+          hookSlide ? fetchSlideBackground(brandId, vibe, "hook") : Promise.resolve(null),
+          hasCtaSlide ? fetchSlideBackground(brandId, vibe, "cta") : Promise.resolve(null),
         ]).then(([hookBg, ctaBg]) => {
           setHookBackgroundUrl(hookBg)
           setCtaBackgroundUrl(ctaBg)
@@ -562,8 +567,18 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
   }
 
   // Only the first (hook) and last (CTA) slides ever get an AI background —
-  // everything in between keeps the flat vibe-color treatment.
+  // everything in between keeps the flat vibe-color treatment. The slide's
+  // own persisted image_url is the real source of truth (set once the
+  // generate-time fetch resolves, and restored from sessionStorage/a saved
+  // Library carousel on reload) -- hookBackgroundUrl/ctaBackgroundUrl are
+  // only a transient in-flight cache for the brief window between
+  // generation finishing and that fetch resolving. Reading state alone
+  // here (the previous behavior) meant a restored carousel's real AI photo
+  // silently vanished on every page reload, back to the flat color, even
+  // though the photo was correctly saved.
   function backgroundUrlForSlide(index: number): string | null {
+    const slide = allSlides[index]
+    if (slide?.image_url) return slide.image_url
     if (index === 0) return hookBackgroundUrl
     if (index === allSlides.length - 1 && allSlides.length > 1) return ctaBackgroundUrl
     return null
