@@ -38,6 +38,23 @@ export type StorySlide = {
    * named `background` enum wherever a slide is rendered. 1 hex = solid,
    * 2 = a gradient. */
   custom_background_colors?: string[] | null
+  /** Free-drag override for where the headline+subtext block sits on the
+   * slide -- confirmed live (2026-08-29): the fixed top/center/bottom
+   * choice above looks awkward against an AI-generated background whose
+   * busy areas vary per generation (a real slide's text box landed on top
+   * of a visually busy part of its own background with no way to nudge
+   * it clear). Client-only, set by dragging the text block in
+   * StorySequence.tsx's PhoneStory preview -- absent on freshly generated
+   * slides (text_position above still governs placement until the user
+   * actually drags). Percentages (0-100 of the slide's full width/height,
+   * not just the safe-zone interior), not pixels, so one stored position
+   * renders identically at the small editor preview's size and the real
+   * 1080x1920 export canvas (lib/image/story-compositor.ts) -- see
+   * components/shared/useDraggableText.ts. x/y mark the block's
+   * horizontal/vertical CENTER, matching the CSS
+   * `left/top + translate(-50%,-50%)` anchor used to render it. */
+  text_position_x?: number
+  text_position_y?: number
 }
 
 // The actual Instagram caption text for this story sequence — separate

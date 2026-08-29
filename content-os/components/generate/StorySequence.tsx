@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useRef } from "react"
-import { Loader2, Download, Copy, Check, RefreshCw, AlertCircle, Image, Upload, X, Plus, Minus, Palette } from "lucide-react"
+import { Loader2, Download, Copy, Check, RefreshCw, AlertCircle, Image, Upload, X, Plus, Minus, Palette, Move } from "lucide-react"
 import { ProductPicker, type PickedProduct } from "@/components/shared/ProductPicker"
 import type { StorySlide, StoryCaption } from "@/app/api/v1/ai/stories/generate/route"
 import { downloadStorySlideAsImage, downloadStorySlidesAsImages, type StoryExportSlide } from "@/lib/utils/story-export"
@@ -14,6 +14,7 @@ import { ApiResponseError } from "@/hooks/useGeneration"
 import { STORY as STORY_CREDIT_COST, STORY_SLIDE_AI_BACKGROUND } from "@/lib/usage/credit-costs"
 import { VibePicker, type Vibe } from "@/components/shared/VibePicker"
 import { cssBackgroundFromColors, ColorWheelPicker } from "@/components/shared/ColorWheelPicker"
+import { useDraggableText, type TextPosition } from "@/components/shared/useDraggableText"
 import Link from "next/link"
 
 // ─── Story background gradients ────────────────────────────────────────────────
@@ -123,6 +124,31 @@ async function fetchSlideBackground(brandId: string, vibe: Vibe | undefined, rol
   return "url" in result ? result.url : null
 }
 
+// ─── Draggable text positioning ────────────────────────────────────────────────
+
+// Instagram's Stories UI overlays the top (profile/username) and bottom
+// (reply bar, link stickers) of the real 1080x1920 canvas -- same ratio
+// lib/image/story-compositor.ts's SAFE_ZONE/CANVAS_HEIGHT uses, expressed
+// as a percentage here since the drag position is stored as one. Clamps
+// dragging so the text block's center can never land in either overlay
+// area (a small inward nudge on top of the raw ratio, since a real block
+// has real height and a center-anchor sitting exactly on the line would
+// still let half the block poke into it).
+const STORY_SAFE_ZONE_PCT = (250 / 1920) * 100
+const STORY_TEXT_BOUNDS = { minX: 15, maxX: 85, minY: STORY_SAFE_ZONE_PCT + 4, maxY: 100 - STORY_SAFE_ZONE_PCT - 4 }
+
+// Starting point for a freshly generated slide that's never been dragged
+// -- approximates where the old fixed top/center/bottom flex layout used
+// to land text, so switching to free drag positioning doesn't jump
+// existing content around on first render. Once dragged even once,
+// story.text_position_x/y take over completely and this is never
+// consulted again for that slide.
+function defaultStoryTextPosition(pos: StorySlide["text_position"]): TextPosition {
+  if (pos === "top") return { x: 50, y: STORY_TEXT_BOUNDS.minY + 6 }
+  if (pos === "bottom") return { x: 50, y: STORY_TEXT_BOUNDS.maxY - 6 }
+  return { x: 50, y: 50 }
+}
+
 // ─── Phone frame story card ────────────────────────────────────────────────────
 
 function PhoneStory({
@@ -141,6 +167,8 @@ function PhoneStory({
   const [copied, setCopied] = useState(false)
   const [dlErr, setDlErr] = useState(false)
   const [showColors, setShowColors] = useState(false)
+  const frameRef = useRef<HTMLDivElement>(null)
+  const textBlockRef = useRef<HTMLDivElement>(null)
   const s = STORY_BG[story.background] ?? STORY_BG.gradient_violet
   const elementId = `story-card-${index}`
   const hasBg = !!story.background_image_url
@@ -176,20 +204,24 @@ function PhoneStory({
   const textColor = hasBg || customBg ? "text-white" : s.text
   const subColor = hasBg || customBg ? "text-white/70" : s.sub
 
-  const posClass =
-    story.text_position === "top" ? "justify-start" :
-    story.text_position === "bottom" ? "justify-end" :
-    "justify-center"
-
-  // Instagram's Stories UI overlays the top (profile/username) and bottom
-  // (reply bar, link stickers) of the real 1080x1920 canvas — standard
-  // guidance keeps text within the central ~1420px band, i.e. clear of the
-  // outer ~250px top and bottom. This preview's phone frame is a fixed
-  // 220x390px mock (the same element html-to-image captures for
-  // download/schedule), so the same 250/1920 ratio scaled to 390px height
-  // is applied as a hard inset — independent of text_position, which only
-  // controls alignment within this already-safe interior.
-  const STORY_SAFE_ZONE_PX = Math.round(390 * (250 / 1920))
+  // Free-drag text positioning -- text_position (top/center/bottom) only
+  // still matters as the starting point for a slide that's never been
+  // dragged; once story.text_position_x/y exist, they're the sole source
+  // of truth. Percentage-based against the whole 220x390 phone frame
+  // (frameRef), the exact same box the real compositor treats as 0-100 --
+  // see useDraggableText's own doc comment for why that's what makes one
+  // stored position render correctly at both sizes.
+  const storedPosition: TextPosition | null =
+    story.text_position_x !== undefined && story.text_position_y !== undefined
+      ? { x: story.text_position_x, y: story.text_position_y }
+      : null
+  const { onPointerDown: onDragHandleDown, current: textPos } = useDraggableText({
+    containerRef: frameRef,
+    measureRef: textBlockRef,
+    position: storedPosition ?? defaultStoryTextPosition(story.text_position),
+    bounds: STORY_TEXT_BOUNDS,
+    onCommit: (p) => onUpdateSlide({ text_position_x: p.x, text_position_y: p.y }),
+  })
 
   function copyText() {
     navigator.clipboard.writeText(`${story.text}\n${story.subtext}`)
@@ -209,6 +241,7 @@ function PhoneStory({
       {/* Phone frame */}
       <div
         id={elementId}
+        ref={frameRef}
         className="relative overflow-hidden rounded-[28px] border-[5px] border-gray-900 shadow-2xl"
         style={{ width: 220, height: 390 }}
       >
@@ -240,11 +273,43 @@ function PhoneStory({
               live. Not a style preference — avoids a real duplicate-UI bug
               at publish time. */}
 
-          {/* Main content */}
+          {/* Main content -- free-drag positioned (see useDraggableText),
+              replacing the old fixed top/center/bottom flex layout. left/
+              top are percentages of the phone frame itself (frameRef),
+              anchored at the block's own center via the translate, so the
+              same textPos renders correctly at this small preview size and
+              at the compositor's real 1080x1920 canvas alike. */}
           <div
-            className={`relative z-10 flex flex-1 flex-col items-center px-4 ${posClass}`}
-            style={{ paddingTop: STORY_SAFE_ZONE_PX, paddingBottom: STORY_SAFE_ZONE_PX }}
+            ref={textBlockRef}
+            className="absolute z-10 flex flex-col items-center px-2"
+            style={{
+              left: `${textPos.x}%`,
+              top: `${textPos.y}%`,
+              transform: "translate(-50%, -50%)",
+              // Shrink-to-fit (not a fixed near-full-frame width) -- a
+              // fixed wide box centered off to one side clips its own
+              // text against the frame edge the moment it's dragged away
+              // from x=50 (confirmed live). Capped by maxWidth so long
+              // text still wraps instead of overflowing the frame.
+              width: "max-content",
+              maxWidth: "calc(100% - 32px)",
+              touchAction: "none",
+            }}
           >
+            {/* Drag handle -- deliberately separate from the text itself
+                so grabbing it never fights the contentEditable fields'
+                own click-to-place-cursor behavior below. Always visible
+                (not hover-only) since hover has no touch-device
+                equivalent and this handle is the only way to discover
+                free positioning exists. */}
+            <button
+              type="button"
+              onPointerDown={onDragHandleDown}
+              title="Drag to reposition"
+              className="mb-1.5 flex h-5 w-8 shrink-0 cursor-grab items-center justify-center rounded-full bg-black/40 text-white transition-colors hover:bg-black/60 active:cursor-grabbing"
+            >
+              <Move className="h-3 w-3" />
+            </button>
             <p
               contentEditable
               suppressContentEditableWarning
@@ -276,9 +341,12 @@ function PhoneStory({
             )}
           </div>
 
-          {/* Tap to continue hint */}
+          {/* Tap to continue hint -- pinned to the bottom edge directly
+              now that the content block above is out of normal flow
+              (absolutely positioned for free dragging), rather than
+              relying on a flex-1 sibling pushing it down. */}
           {index < total - 1 && (
-            <p className={`relative z-10 pb-3 text-center text-[9px] ${subColor}`}>Tap to continue →</p>
+            <p className={`absolute z-10 bottom-0 inset-x-0 pb-3 text-center text-[9px] ${subColor}`}>Tap to continue →</p>
           )}
         </div>
       </div>
