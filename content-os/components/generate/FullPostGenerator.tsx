@@ -259,6 +259,24 @@ export function FullPostGenerator({ brandId, products }: Props) {
     }
   }, [fullPostResult, postSessionId, selectedProduct, runProductCardComposite, runImageGeneration])
 
+  // Caption editing — this result is still pre-save local/store state at
+  // this point (the captions row this generation already wrote server-side
+  // has no id threaded back to the client at all to PUT an edit onto, see
+  // app/api/v1/ai/fullpost/generate/route.ts's captions insert), so
+  // "saving" an edit here just means updating fullPostResult itself.
+  // Confirmed this is enough for the one downstream action that actually
+  // reads it before this result is replaced or navigated away from:
+  // getScheduleCaption(result) below derives scheduleCaption fresh from
+  // this same result on every render, so ScheduleAction's Confirm button
+  // sends whatever this holds at click time, edited or not.
+  const handleSaveCaption = useCallback((text: string) => {
+    if (!fullPostResult || fullPostResult.content.format !== "social_post") return
+    setFullPostResult({
+      ...fullPostResult,
+      content: { ...fullPostResult.content, content: { ...fullPostResult.content.content, caption_text: text } },
+    })
+  }, [fullPostResult, setFullPostResult])
+
   // Shared by file-browse, drag-drop, and clipboard paste — same
   // one-validation-path convention as AdMaker/ProductPicker's own
   // processImageFile.
@@ -674,6 +692,7 @@ export function FullPostGenerator({ brandId, products }: Props) {
           result={fullPostResult}
           copied={copied}
           onCopy={copy}
+          onSaveCaption={handleSaveCaption}
           brandId={brandId}
           brandName={brandName}
           postImageUrl={postImageUrl}
@@ -715,7 +734,23 @@ function HookSection({ hook, copied, onCopy }: { hook: GeneratedHook; copied: st
   )
 }
 
-function ContentDisplay({ content, copied, onCopy }: { content: ContentResult; copied: string | null; onCopy: (t: string, k: string) => void }) {
+function ContentDisplay({ content, copied, onCopy, onSaveCaption }: { content: ContentResult; copied: string | null; onCopy: (t: string, k: string) => void; onSaveCaption?: (text: string) => void }) {
+  // Caption editing (social_post only) -- mirrors
+  // components/calendar/CalendarEntryPanel.tsx's Edit/Cancel/Save caption
+  // pattern exactly, just without that component's PUT-to-database step
+  // (see onSaveCaption's own call site for why: this content hasn't been
+  // saved anywhere with an id to PUT back to yet at this point). Reset
+  // whenever `content` itself changes (a fresh generation or Regenerate),
+  // same as CalendarEntryPanel resets on a new `entry`.
+  const [isEditingCaption, setIsEditingCaption] = useState(false)
+  const [editCaptionText, setEditCaptionText] = useState(
+    content.format === "social_post" ? (content.content as GeneratedCaption).caption_text : ""
+  )
+  useEffect(() => {
+    if (content.format === "social_post") setEditCaptionText((content.content as GeneratedCaption).caption_text)
+    setIsEditingCaption(false)
+  }, [content])
+
   if (content.format === "social_post") {
     const c = content.content as GeneratedCaption
     const full = `${c.caption_text}\n\n${c.hashtags.map((h) => `#${h.replace(/^#+/, "")}`).join(" ")}`
@@ -723,13 +758,44 @@ function ContentDisplay({ content, copied, onCopy }: { content: ContentResult; c
       <div className="rounded-lg border bg-card p-4 space-y-3">
         <div className="flex items-center justify-between">
           <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Caption</span>
-          <CopyBtn text={full} id="caption" copied={copied} onCopy={onCopy} />
+          <div className="flex items-center gap-1">
+            {!isEditingCaption && <CopyBtn text={full} id="caption" copied={copied} onCopy={onCopy} />}
+            {onSaveCaption && (
+              <button
+                type="button"
+                onClick={() => setIsEditingCaption((v) => !v)}
+                className="rounded px-1.5 py-0.5 text-xs text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+              >
+                {isEditingCaption ? "Cancel" : "Edit"}
+              </button>
+            )}
+          </div>
         </div>
-        <p className="text-sm whitespace-pre-wrap leading-relaxed">{c.caption_text}</p>
-        {c.hashtags.length > 0 && (
+        {isEditingCaption ? (
+          <div className="space-y-2">
+            <textarea
+              rows={5}
+              value={editCaptionText}
+              onChange={(e) => setEditCaptionText(e.target.value)}
+              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring resize-none"
+            />
+            <Button
+              size="sm"
+              onClick={() => {
+                onSaveCaption?.(editCaptionText)
+                setIsEditingCaption(false)
+              }}
+            >
+              Save
+            </Button>
+          </div>
+        ) : (
+          <p className="text-sm whitespace-pre-wrap leading-relaxed">{c.caption_text}</p>
+        )}
+        {!isEditingCaption && c.hashtags.length > 0 && (
           <p className="text-xs text-primary font-medium">{c.hashtags.map((h) => `#${h.replace(/^#+/, "")}`).join(" ")}</p>
         )}
-        {c.cta && <p className="text-xs text-muted-foreground">CTA: {c.cta}</p>}
+        {!isEditingCaption && c.cta && <p className="text-xs text-muted-foreground">CTA: {c.cta}</p>}
       </div>
     )
   }
@@ -986,6 +1052,7 @@ function FullPostResults({
   result,
   copied,
   onCopy,
+  onSaveCaption,
   brandId,
   brandName,
   postImageUrl,
@@ -997,6 +1064,7 @@ function FullPostResults({
   result: FullPostResult
   copied: string | null
   onCopy: (text: string, key: string) => void
+  onSaveCaption: (text: string) => void
   brandId: string
   brandName: string
   postImageUrl: string | null
@@ -1023,7 +1091,7 @@ function FullPostResults({
   return (
     <div className="space-y-4">
       <HookSection hook={result.hook} copied={copied} onCopy={onCopy} />
-      <ContentDisplay content={result.content} copied={copied} onCopy={onCopy} />
+      <ContentDisplay content={result.content} copied={copied} onCopy={onCopy} onSaveCaption={onSaveCaption} />
 
       {/* This IS the final post image — exactly what downloads and what
           gets scheduled, never a separate raw/unstyled preview. */}
