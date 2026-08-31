@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react"
 import {
   Loader2, ArrowUpRight, ArrowDownRight, ExternalLink, Clock, Download, ChevronDown,
-  Eye, Users, Heart,
+  Eye, Users, Heart, Lightbulb, ListChecks, Sparkles,
 } from "lucide-react"
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts"
 import { cn } from "@/lib/utils"
@@ -281,6 +281,123 @@ function DemographicBlock({ label, items }: { label: string; items: DemographicB
   )
 }
 
+// ─── AI insights & suggestions ─────────────────────────────────────────────
+
+// The model is prompted (lib/ai/account-analytics.ts) to return exactly two
+// labeled plain-text sections -- "INSIGHTS:" (2-3 short paragraphs) and
+// "SUGGESTIONS:" (2-4 items, plain dashes if any bullet symbol at all).
+// This only ever restructures that same text for display -- every word the
+// AI wrote is still rendered in full, just split into { insights,
+// suggestions } and, for each suggestion, a bold lead-in vs. supporting
+// detail (splitLeadIn below). Never rewrites or drops content.
+function parseAiInsights(text: string): { insights: string[]; suggestions: string[] } {
+  const insightsMatch = text.match(/INSIGHTS:?\s*([\s\S]*?)(?:\n\s*SUGGESTIONS:?|$)/i)
+  const suggestionsMatch = text.match(/SUGGESTIONS:?\s*([\s\S]*)$/i)
+
+  const insightsRaw = (insightsMatch?.[1] ?? "").trim()
+  const suggestionsRaw = (suggestionsMatch?.[1] ?? "").trim()
+
+  const insights = insightsRaw
+    .split(/\n\s*\n/)
+    .map((p) => p.replace(/\s+/g, " ").trim())
+    .filter(Boolean)
+
+  let suggestions = suggestionsRaw
+    .split(/\n+/)
+    .map((l) => l.replace(/^[-•*]\s*/, "").replace(/^\d+[.)]\s*/, "").trim())
+    .filter(Boolean)
+
+  // The model didn't break suggestions onto separate lines at all -- split
+  // the one run-on block into sentences instead of showing a single giant
+  // bullet (still the model's own sentences, just separated for scanning).
+  if (suggestions.length <= 1 && suggestionsRaw) {
+    const sentences = suggestionsRaw.match(/[^.!?]+[.!?]+(?=\s|$)/g)
+    if (sentences && sentences.length > 1) suggestions = sentences.map((s) => s.trim())
+  }
+
+  // Neither label matched at all (e.g. the AI-unavailable fallback string,
+  // or a malformed response) -- fall back to showing the whole thing as a
+  // single insight rather than silently dropping it.
+  if (insights.length === 0 && suggestions.length === 0 && text.trim()) {
+    return { insights: [text.trim()], suggestions: [] }
+  }
+  return { insights, suggestions }
+}
+
+/** Splits one suggestion into a bold actionable lead-in and the rest as
+ * supporting detail -- a presentation split only, every word is still
+ * there in `lead`+`rest` combined, nothing paraphrased or dropped.
+ * Prefers a real sentence boundary; confirmed live the model often
+ * writes one long comma-joined sentence per suggestion rather than two
+ * short ones, so a second pass splits at the first clause boundary
+ * (comma/semicolon/colon) instead of bolding the entire bullet whenever
+ * that happens -- still purely a presentation choice about where the
+ * bold/light split falls, not a rewrite. */
+function splitLeadIn(text: string): { lead: string; rest: string } {
+  const sentenceMatch = text.match(/^([\s\S]{8,100}?[.!?])\s+([\s\S]+)$/)
+  if (sentenceMatch) return { lead: sentenceMatch[1]!, rest: sentenceMatch[2]! }
+
+  const clauseMatch = text.match(/^([\s\S]{15,90}?[,;:])\s+([\s\S]+)$/)
+  if (clauseMatch) return { lead: clauseMatch[1]!, rest: clauseMatch[2]! }
+
+  return { lead: text, rest: "" }
+}
+
+function InsightsSuggestionsSection({ text }: { text: string }) {
+  const { insights, suggestions } = parseAiInsights(text)
+  if (insights.length === 0 && suggestions.length === 0) return null
+
+  return (
+    <div>
+      <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">AI insights &amp; suggestions</p>
+      <div className="grid gap-4 md:grid-cols-2">
+        {insights.length > 0 && (
+          <div className="rounded-2xl border bg-gradient-to-br from-violet-500/5 to-transparent p-5">
+            <div className="mb-3 flex items-center gap-2">
+              <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-violet-500/10 text-violet-600 dark:text-violet-400">
+                <Lightbulb className="h-3.5 w-3.5" />
+              </span>
+              <p className="text-sm font-semibold">Insights</p>
+            </div>
+            <div className="space-y-3">
+              {insights.map((p, i) => (
+                <p key={i} className="text-sm leading-relaxed text-foreground/90">{p}</p>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {suggestions.length > 0 && (
+          <div className="rounded-2xl border bg-gradient-to-br from-indigo-500/5 to-transparent p-5">
+            <div className="mb-3 flex items-center gap-2">
+              <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-indigo-500/10 text-indigo-600 dark:text-indigo-400">
+                <ListChecks className="h-3.5 w-3.5" />
+              </span>
+              <p className="text-sm font-semibold">Suggestions</p>
+            </div>
+            <ul className="space-y-3">
+              {suggestions.map((s, i) => {
+                const { lead, rest } = splitLeadIn(s)
+                return (
+                  <li key={i} className="flex gap-2.5">
+                    <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-indigo-500/10 text-indigo-600 dark:text-indigo-400">
+                      <Sparkles className="h-3 w-3" />
+                    </span>
+                    <p className="text-sm leading-relaxed">
+                      <span className="font-semibold text-foreground">{lead}</span>
+                      {rest && <span className="text-muted-foreground"> {rest}</span>}
+                    </p>
+                  </li>
+                )
+              })}
+            </ul>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ─── Main ───────────────────────────────────────────────────────────────────
 
 export function AnalyticsDashboard({ brandId }: { brandId: string }) {
@@ -450,12 +567,7 @@ export function AnalyticsDashboard({ brandId }: { brandId: string }) {
         )}
       </div>
 
-      {data.aiInsights && (
-        <div className="rounded-2xl bg-primary/5 border border-primary/10 p-4">
-          <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">AI insights &amp; suggestions</p>
-          <p className="whitespace-pre-wrap text-sm leading-relaxed">{data.aiInsights}</p>
-        </div>
-      )}
+      {data.aiInsights && <InsightsSuggestionsSection text={data.aiInsights} />}
 
       {/* Time saved — same stat-card visual language as the metrics above */}
       <div className="relative overflow-hidden rounded-2xl border bg-gradient-to-br from-violet-500/10 via-indigo-500/5 to-transparent p-5">
