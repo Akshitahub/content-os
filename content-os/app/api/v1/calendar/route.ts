@@ -130,6 +130,11 @@ export async function PATCH(request: Request) {
     status: z.enum(["planned", "content_ready", "scheduled", "published", "missed"]).optional(),
     caption_text: z.string().max(5000).optional().nullable(),
     hashtags: z.array(z.string().max(200)).optional(),
+    // Cancel-schedule sends this explicitly as null to clear the specific
+    // time a "scheduled" entry had set — distinct from omitting the field
+    // entirely (which leaves whatever's already there untouched, same as
+    // every other optional field here).
+    scheduled_time: z.string().nullable().optional(),
   })
 
   const parsed = patchSchema.safeParse(body)

@@ -122,6 +122,9 @@ export function CalendarEntryPanel({ entry, onClose, onUpdate, brandId }: Calend
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus | null>(null)
   const [isRegenerating, setIsRegenerating] = useState(false)
   const [regenerateError, setRegenerateError] = useState<string | null>(null)
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false)
+  const [isCancellingSchedule, setIsCancellingSchedule] = useState(false)
+  const [cancelScheduleError, setCancelScheduleError] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -146,6 +149,8 @@ export function CalendarEntryPanel({ entry, onClose, onUpdate, brandId }: Calend
       setEditHashtags((entry.hashtags ?? []).join(" "))
       setIsEditing(false)
       setRegenerateError(null)
+      setShowCancelConfirm(false)
+      setCancelScheduleError(null)
     }
   }, [entry])
 
@@ -219,6 +224,43 @@ export function CalendarEntryPanel({ entry, onClose, onUpdate, brandId }: Calend
       setRegenerateError("Network error. Please try again.")
     } finally {
       setIsRegenerating(false)
+    }
+  }
+
+  // Confirmed live: the cron job's own candidate query
+  // (app/api/v1/cron/publish-scheduled/route.ts) filters strictly on
+  // .eq("status", "scheduled"), so flipping status away from "scheduled"
+  // here is sufficient on its own to keep this entry from being picked up
+  // by the very next run -- no separate "cancelled" flag needed. Target
+  // status matches exactly what a freshly-generated, not-yet-scheduled
+  // entry already sits in (see app/api/v1/brands/[brandId]/calendar/
+  // bulk-schedule/route.ts's own `status === "content_ready"` eligibility
+  // filter), so this is a real, correct rollback rather than an invented
+  // in-between state. scheduled_time is cleared too -- it's a separate
+  // column (not derived from status), so leaving it set would let a stale
+  // specific time resurface if this entry is ever rescheduled without the
+  // user picking a fresh one.
+  async function handleCancelSchedule() {
+    if (!entry) return
+    setIsCancellingSchedule(true)
+    setCancelScheduleError(null)
+    try {
+      const res = await fetch("/api/v1/calendar", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: entry.id, status: "content_ready", scheduled_time: null }),
+      })
+      const json: unknown = await res.json()
+      if (!res.ok || isApiError(json)) {
+        setCancelScheduleError(isApiError(json) ? json.error.message : "Failed to cancel schedule. Please try again.")
+        return
+      }
+      onUpdate({ ...entry, status: "content_ready", scheduled_time: null })
+      setShowCancelConfirm(false)
+    } catch {
+      setCancelScheduleError("Network error. Please try again.")
+    } finally {
+      setIsCancellingSchedule(false)
     }
   }
 
@@ -310,6 +352,42 @@ export function CalendarEntryPanel({ entry, onClose, onUpdate, brandId }: Calend
                 </div>
               )}
               {regenerateError && <p className="text-xs text-destructive">{regenerateError}</p>}
+
+              {/* Cancel schedule — the only way today to un-schedule an
+                  entry short of letting it publish or waiting for a
+                  failed attempt to land on "missed". Same conditional-
+                  rendering pattern as Regenerate above (a bordered card,
+                  gated on the one status this only ever makes sense for). */}
+              {entry.status === "scheduled" && (
+                <div className="rounded-lg border p-3 space-y-2">
+                  {!showCancelConfirm ? (
+                    <div className="flex items-center justify-between gap-2">
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Changed your mind?</p>
+                        <p className="mt-0.5 text-xs text-muted-foreground">Cancel this scheduled post — it goes back to an editable draft.</p>
+                      </div>
+                      <Button size="sm" variant="outline" onClick={() => setShowCancelConfirm(true)} className="shrink-0">
+                        Cancel schedule
+                      </Button>
+                    </div>
+                  ) : (
+                    // Same inline "Are you sure?" confirm pattern already
+                    // used for brand deletion and Library content deletion
+                    // (components/shared/DeleteConfirmButton.tsx) — not a
+                    // native confirm().
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-xs text-muted-foreground">Are you sure?</span>
+                      <Button variant="destructive" size="sm" disabled={isCancellingSchedule} onClick={handleCancelSchedule}>
+                        {isCancellingSchedule ? "Cancelling…" : "Yes, cancel schedule"}
+                      </Button>
+                      <Button variant="ghost" size="sm" disabled={isCancellingSchedule} onClick={() => { setShowCancelConfirm(false); setCancelScheduleError(null) }}>
+                        Cancel
+                      </Button>
+                    </div>
+                  )}
+                  {cancelScheduleError && <p className="text-xs text-destructive">{cancelScheduleError}</p>}
+                </div>
+              )}
 
               {/* AI image or carousel preview */}
               {(() => {
