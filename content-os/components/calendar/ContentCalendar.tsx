@@ -354,7 +354,10 @@ export function ContentCalendar({ brandId, defaultView = "month" }: ContentCalen
         </div>
       )}
 
-      {/* Legend */}
+      {/* Legend -- confirmed live during a full app QA pass: STATUS_COLORS
+          already has a content_ready entry, which the map() below already
+          renders as "Content ready" -- this extra hardcoded block duplicated
+          it verbatim, showing the same label twice. */}
       <div className="mt-4 flex flex-wrap gap-3">
         {Object.entries(STATUS_COLORS).map(([status, classes]) => (
           <div key={status} className="flex items-center gap-1.5">
@@ -362,10 +365,6 @@ export function ContentCalendar({ brandId, defaultView = "month" }: ContentCalen
             <span className="text-xs text-muted-foreground capitalize">{status.replace("_", " ")}</span>
           </div>
         ))}
-        <div className="flex items-center gap-1.5">
-          <div className="h-3 w-3 rounded border bg-blue-100 border-blue-200 ring-1 ring-inset ring-blue-500/20" />
-          <span className="text-xs text-muted-foreground">Content ready</span>
-        </div>
       </div>
 
       {/* New entry modal */}

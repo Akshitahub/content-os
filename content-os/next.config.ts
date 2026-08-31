@@ -21,10 +21,20 @@ validateRequiredEnv();
 // which span several razorpay.com and cardinalcommerce.com subdomains).
 const CSP = [
   "default-src 'self'",
-  "script-src 'self' 'unsafe-inline' https://checkout.razorpay.com",
+  // https://cdn.razorpay.com added after a live QA pass found the checkout
+  // modal's own risk-detection/bundle.js (a real script Razorpay's SDK
+  // loads, not a third-party injection) getting CSP-blocked -- the modal
+  // still opened and was usable without it, but Razorpay's fraud-detection
+  // signal wasn't actually running, silently weakening the protection this
+  // policy's own comment above says it's meant to allow.
+  "script-src 'self' 'unsafe-inline' https://checkout.razorpay.com https://cdn.razorpay.com",
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "font-src 'self' https://fonts.gstatic.com",
-  "img-src 'self' data: blob: https://image.pollinations.ai https://*.supabase.co",
+  // https://www.socioposts.com added after the same QA pass found a
+  // brand-logo <img> (embedded in generated carousel HTML previews)
+  // CSP-blocked because this app's own marketing domain wasn't allowed as
+  // an image source.
+  "img-src 'self' data: blob: https://image.pollinations.ai https://*.supabase.co https://www.socioposts.com",
   "connect-src 'self' https://*.supabase.co https://app.posthog.com https://*.razorpay.com https://*.cardinalcommerce.com",
   "frame-src https://*.razorpay.com",
   "object-src 'none'",
