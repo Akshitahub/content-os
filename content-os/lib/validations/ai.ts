@@ -85,6 +85,22 @@ export const generateImageSchema = z.object({
 
 export type GenerateImageInput = z.infer<typeof generateImageSchema>
 
+export const generateImageFromUploadSchema = z.object({
+  brandId: z.string().uuid("Invalid brand ID"),
+  sceneDescription: z
+    .string()
+    .min(3, "Scene description is too short")
+    .max(300, "Scene description must be under 300 characters")
+    .transform((val) => val.replace(/<[^>]*>/g, "").trim()),
+  // 14MB base64 ceiling ≈ the remove-background route's existing 10MB
+  // raw-file limit after base64 inflation -- same size policy as that
+  // route (and generateAdMakerBackgroundSchema's productImageBase64), just
+  // expressed in base64 chars.
+  productImageBase64: z.string().max(14_000_000, "Product image is too large"),
+})
+
+export type GenerateImageFromUploadInput = z.infer<typeof generateImageFromUploadSchema>
+
 const contentFormatEnum = z.enum([
   "social_post",
   "reel_script",
