@@ -27,11 +27,11 @@ interface CardMeta {
 }
 
 const PRIMARY_CARDS: CardMeta[] = [
-  { tab: "content",   title: "Reel",        description: "Script plus AI voiceover video",       icon: Film,               presetReelScript: true, comingSoon: !REELS_ENABLED },
   { tab: "full_post", title: "Post",        description: "Hook, caption and visual in one click", icon: iconFor("full_post"), platforms: "Instagram · Facebook" },
+  { tab: "stories",   title: "Stories",     description: "3 to 5 connected story slides",         icon: iconFor("stories"), platforms: "Instagram" },
   { tab: "carousel",  title: "Carousel",    description: "Multi-slide story with AI copy per slide", icon: iconFor("carousel"), platforms: "Instagram" },
   { tab: "ad_maker",  title: "Ad",          description: "Product photo placed in an AI scene",   icon: iconFor("ad_maker") },
-  { tab: "stories",   title: "Stories",     description: "3 to 5 connected story slides",         icon: iconFor("stories"), platforms: "Instagram" },
+  { tab: "content",   title: "Reel",        description: "Script plus AI voiceover video",       icon: Film,               presetReelScript: true, comingSoon: !REELS_ENABLED },
   { tab: "blog",      title: "Blog Post",   description: "SEO article with AI suggestions",       icon: iconFor("blog") },
   { tab: "hooks",     title: "Hooks",       description: "Scroll-stopping opening lines, max 8 words", icon: iconFor("hooks") },
   { tab: "content",   title: "Deep Content", description: "Reel scripts, ad copy, email sequences and more", icon: iconFor("content") },
