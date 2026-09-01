@@ -34,6 +34,7 @@ export async function generateImage(
     style?: ImageStyle
     aspectRatio: AspectRatio
     product?: ProductRow | null
+    productImageUrl?: string | null
     plan: UserPlan
     isInternalUnlimitedUser: boolean
   }
@@ -53,7 +54,7 @@ export async function generateImage(
   // a Flux image-to-image reference the same way Commit 1 wired it into
   // the Create -> Full Post pipeline. Pollinations ignores it (no
   // image-to-image capability there).
-  const productImageUrl = options.product?.image_urls?.[0] ?? null
+  const productImageUrl = options.productImageUrl ?? options.product?.image_urls?.[0] ?? null
 
   const result = await fetchBackgroundImage(
     fullPrompt,
