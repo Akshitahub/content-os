@@ -108,6 +108,65 @@ function buildStoryTypeSequence(storyCount: number): string[] {
   return ["hook", "reveal", ...Array(buildupCount).fill("buildup"), "cta"]
 }
 
+// One example slide per type, reused however many times that type shows up
+// in typeSequence — building the JSON example dynamically (below) instead
+// of a hardcoded 4-slide array so the example the model sees always
+// matches the count it's told to produce, for every storyCount from 1-10.
+const EXAMPLE_SLIDE_BY_TYPE: Record<string, { text: string; subtext: string; background: StorySlide["background"]; text_position: StorySlide["text_position"]; has_poll: boolean; poll_options?: [string, string] }> = {
+  hook: {
+    text: "What if your inbox emptied itself",
+    subtext: "Most founders find out too late",
+    background: "gradient_violet",
+    text_position: "top",
+    has_poll: false,
+  },
+  reveal: {
+    text: "3 hours saved every single day",
+    subtext: "That's what automation actually buys back",
+    background: "gradient_pink",
+    text_position: "center",
+    has_poll: false,
+  },
+  buildup: {
+    text: "Manual replies vs. automated ones",
+    subtext: "18-minute average wait vs. instant",
+    background: "gradient_warm",
+    text_position: "bottom",
+    has_poll: true,
+    poll_options: ["Manual, always", "Ready to automate"],
+  },
+  cta: {
+    text: "Your inbox, handled",
+    subtext: "Link in bio",
+    background: "gradient_dark",
+    text_position: "center",
+    has_poll: false,
+  },
+}
+
+function buildExampleStoriesJson(typeSequence: string[]): string {
+  const exampleStories = typeSequence.map((type, i) => {
+    const example = EXAMPLE_SLIDE_BY_TYPE[type] ?? EXAMPLE_SLIDE_BY_TYPE.hook!
+    return {
+      story_number: i + 1,
+      type,
+      text: example.text,
+      subtext: example.subtext,
+      background: example.background,
+      text_position: example.text_position,
+      has_poll: example.has_poll,
+      ...(example.poll_options ? { poll_options: example.poll_options } : {}),
+    }
+  })
+  // Indented so nested lines line up under the "stories": key it gets
+  // interpolated into below — JSON.stringify's own indentation is
+  // 0-based, so every line but the opening "[" needs 2 extra spaces.
+  return JSON.stringify(exampleStories, null, 2)
+    .split("\n")
+    .map((line, i) => (i === 0 ? line : `  ${line}`))
+    .join("\n")
+}
+
 function buildStoriesPrompt(brand: BrandRow, topic: string, storyCount: number, vibe?: string, pastExamples: string[] = []): string {
   const brandCtx = [
     `Brand: ${brand.name}`,
@@ -179,45 +238,7 @@ ${QUALITY_BAR}
 
 Respond with ONLY this JSON:
 {
-  "stories": [
-    {
-      "story_number": 1,
-      "type": "hook",
-      "text": "What if your inbox emptied itself",
-      "subtext": "Most founders find out too late",
-      "background": "gradient_violet",
-      "text_position": "top",
-      "has_poll": false
-    },
-    {
-      "story_number": 2,
-      "type": "reveal",
-      "text": "3 hours saved every single day",
-      "subtext": "That's what automation actually buys back",
-      "background": "gradient_pink",
-      "text_position": "center",
-      "has_poll": false
-    },
-    {
-      "story_number": 3,
-      "type": "buildup",
-      "text": "Manual replies vs. automated ones",
-      "subtext": "18-minute average wait vs. instant",
-      "background": "gradient_warm",
-      "text_position": "bottom",
-      "has_poll": true,
-      "poll_options": ["Manual, always", "Ready to automate"]
-    },
-    {
-      "story_number": ${storyCount},
-      "type": "cta",
-      "text": "Your inbox, handled",
-      "subtext": "Link in bio",
-      "background": "gradient_dark",
-      "text_position": "center",
-      "has_poll": false
-    }
-  ],
+  "stories": ${buildExampleStoriesJson(typeSequence)},
   "caption": {
     "caption_text": "hook line, 1-2 lines of value, then ${ctaPhrase} and ${handle} on its own line — see CAPTION above",
     "hashtags": ["niche1", "niche2", "niche3", "niche4", "niche5", "brand1", "brand2", "brand3", "brand4", "brand5", "broad1", "broad2", "broad3", "broad4", "broad5"]
@@ -317,6 +338,22 @@ ${QUALITY_BAR}`,
 
     const d = data as Record<string, unknown>
     if (!Array.isArray(d.stories) || d.stories.length === 0) {
+      await refundGenerationUsage(supabase, user.id, STORY, logId)
+      return NextResponse.json(buildError(ErrorCodes.AI_GENERATION_FAILED, "Story generation failed. Please try again."), { status: 500 })
+    }
+
+    // Defensive backstop against the LLM ignoring "NUMBER OF STORIES" and
+    // returning the wrong slide count. Too many: truncate to what was
+    // actually requested and re-number sequentially, since the LLM's own
+    // story_number sequence may no longer be contiguous once a tail is
+    // cut. Too few: a genuine generation failure, not silently accepted —
+    // a slide sequence with broken story_number/type continuity would be
+    // worse than asking the user to retry, same as the empty-array case
+    // just above.
+    const storiesArr = d.stories as Record<string, unknown>[]
+    if (storiesArr.length > storyCount) {
+      d.stories = storiesArr.slice(0, storyCount).map((s, i) => ({ ...s, story_number: i + 1 }))
+    } else if (storiesArr.length < storyCount) {
       await refundGenerationUsage(supabase, user.id, STORY, logId)
       return NextResponse.json(buildError(ErrorCodes.AI_GENERATION_FAILED, "Story generation failed. Please try again."), { status: 500 })
     }
