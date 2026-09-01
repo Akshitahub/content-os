@@ -413,7 +413,7 @@ function SlidePreview({
         )}
         {slide.type === "cover" && (
           <>
-            <h2 className={`font-extrabold leading-tight ${textColor} ${isThumb ? "text-[8px] line-clamp-2" : "text-3xl line-clamp-3"} ${productImage && !isThumb ? "max-w-[55%]" : ""}`}>
+            <h2 className={`font-extrabold leading-tight ${textColor} ${isThumb ? "text-[8px] line-clamp-2" : "text-3xl line-clamp-3"} ${productImage && !isThumb && slide.background_image_provider !== "flux" ? "max-w-[55%]" : ""}`}>
               {slide.headline}
             </h2>
             {!isThumb && slide.subtext && (
@@ -438,7 +438,7 @@ function SlidePreview({
 
         {isCta && (
           <>
-            <h2 className={`font-extrabold leading-tight ${textColor} ${isThumb ? "text-[8px] line-clamp-2" : "text-2xl mb-3 line-clamp-3"} ${productImage && !isThumb ? "mt-[40%]" : ""}`}>
+            <h2 className={`font-extrabold leading-tight ${textColor} ${isThumb ? "text-[8px] line-clamp-2" : "text-2xl mb-3 line-clamp-3"} ${productImage && !isThumb && slide.background_image_provider !== "flux" ? "mt-[40%]" : ""}`}>
               {ctaSlide.headline}
             </h2>
             {!isThumb && (
