@@ -70,7 +70,7 @@ export function CreditGiftBoxes() {
           return (
             <div
               key={packId}
-              className={`relative overflow-hidden rounded-2xl border p-5 text-center ${styles.card}`}
+              className={`relative overflow-hidden rounded-2xl border p-4 text-center ${styles.card}`}
             >
               {justPurchased ? (
                 <div className="flex flex-col items-center justify-center gap-1 py-8">
@@ -89,22 +89,22 @@ export function CreditGiftBoxes() {
 
                   {/* Bow — two overlapping rotated rounded rectangles, not a
                       full-width ribbon bar. */}
-                  <div className="relative mx-auto mb-2 h-3 w-8">
-                    <div className={`absolute left-1/2 top-1/2 h-3 w-5 -translate-x-1/2 -translate-y-1/2 -rotate-12 rounded-full ${styles.ribbon}`} />
-                    <div className={`absolute left-1/2 top-1/2 h-3 w-5 -translate-x-1/2 -translate-y-1/2 rotate-12 rounded-full ${styles.ribbon}`} />
+                  <div className="relative mx-auto mb-2 h-2.5 w-7">
+                    <div className={`absolute left-1/2 top-1/2 h-2.5 w-4 -translate-x-1/2 -translate-y-1/2 -rotate-12 rounded-full ${styles.ribbon}`} />
+                    <div className={`absolute left-1/2 top-1/2 h-2.5 w-4 -translate-x-1/2 -translate-y-1/2 rotate-12 rounded-full ${styles.ribbon}`} />
                   </div>
 
-                  <Gift className={`mx-auto h-7 w-7 ${styles.icon}`} />
+                  <Gift className={`mx-auto h-6 w-6 ${styles.icon}`} />
 
-                  <p className="mt-2 text-sm font-medium text-foreground">{pack.name}</p>
-                  <p className="text-2xl font-bold text-foreground">{pack.credits.toLocaleString("en-IN")}</p>
-                  <p className="text-sm text-muted-foreground">₹{pack.price.toLocaleString("en-IN")}</p>
+                  <p className="mt-1.5 text-xs font-medium text-foreground">{pack.name}</p>
+                  <p className="text-lg font-semibold text-foreground">{pack.credits.toLocaleString("en-IN")}</p>
+                  <p className="text-xs text-muted-foreground">₹{pack.price.toLocaleString("en-IN")}</p>
 
-                  <div className="mt-4">
+                  <div className="mt-3">
                     {!isConfirming ? (
                       <button
                         type="button"
-                        className={`h-9 w-full rounded-md text-sm font-medium text-white transition-colors ${styles.button}`}
+                        className={`h-8 w-full rounded-md text-sm font-medium text-white transition-colors ${styles.button}`}
                         disabled={topupState === "loading"}
                         onClick={() => {
                           setActivePackId(packId)
@@ -122,7 +122,7 @@ export function CreditGiftBoxes() {
                         <div className="flex gap-1.5">
                           <button
                             type="button"
-                            className={`h-9 flex-1 rounded-md text-sm font-medium text-white transition-colors ${styles.button}`}
+                            className={`h-8 flex-1 rounded-md text-sm font-medium text-white transition-colors ${styles.button}`}
                             disabled={topupState === "loading"}
                             onClick={() => handleBuyTopup(packId)}
                           >
@@ -130,7 +130,7 @@ export function CreditGiftBoxes() {
                           </button>
                           <button
                             type="button"
-                            className="h-9 rounded-md px-3 text-sm font-medium text-muted-foreground hover:bg-secondary"
+                            className="h-8 rounded-md px-3 text-sm font-medium text-muted-foreground hover:bg-secondary"
                             disabled={topupState === "loading"}
                             onClick={() => setTopupConfirming(null)}
                           >
