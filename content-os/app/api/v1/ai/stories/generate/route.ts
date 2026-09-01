@@ -64,6 +64,20 @@ export type StorySlide = {
    * `left/top + translate(-50%,-50%)` anchor used to render it. */
   text_position_x?: number
   text_position_y?: number
+  /** Client-only, never set by this route. Overrides the default "hide the
+   * product overlay once background_image_provider is 'flux'" rule (see
+   * StorySequence.tsx's PhoneStory) -- lets a user turn the raw product
+   * photo back on (or off) regardless of provider, e.g. when a Flux
+   * generation dropped the product from the scene. Absent means "use the
+   * provider-based default", not "off". */
+  show_product_overlay?: boolean
+  /** Free-drag override for where the product photo overlay sits on the
+   * slide -- same percentage-of-frame-center convention as
+   * text_position_x/y above, just for the separate draggable image block
+   * instead of the text block. Absent falls back to a fixed default
+   * position (see StorySequence.tsx's PhoneStory). */
+  product_position_x?: number
+  product_position_y?: number
 }
 
 // The actual Instagram caption text for this story sequence — separate

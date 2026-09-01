@@ -69,6 +69,13 @@ function toExportSlide(story: StorySlide, productImageSource: string | null | un
     productImageSource: productImageSource ?? null,
     text_position_x: story.text_position_x,
     text_position_y: story.text_position_y,
+    // Resolved here (not left for the server to guess) since the
+    // provider-based default -- hide once background_image_provider is
+    // "flux" -- depends on a field the export/compositor side never sees.
+    // Same default PhoneStory's own render condition uses.
+    show_product_overlay: story.show_product_overlay ?? story.background_image_provider !== "flux",
+    product_position_x: story.product_position_x,
+    product_position_y: story.product_position_y,
   }
 }
 
@@ -168,6 +175,12 @@ async function fetchSlideBackground(
 const STORY_SAFE_ZONE_PCT = (250 / 1920) * 100
 const STORY_TEXT_BOUNDS = { minX: 15, maxX: 85, minY: STORY_SAFE_ZONE_PCT + 4, maxY: 100 - STORY_SAFE_ZONE_PCT - 4 }
 
+// Wider than STORY_TEXT_BOUNDS -- the product photo box is meant to roam
+// more freely than the text block (it's not centered dead-center by
+// default the way text is), just still kept clear of Instagram's own
+// top/bottom UI overlay.
+const PRODUCT_IMAGE_BOUNDS = { minX: 10, maxX: 90, minY: STORY_SAFE_ZONE_PCT, maxY: 100 - STORY_SAFE_ZONE_PCT }
+
 // Starting point for a freshly generated slide that's never been dragged
 // -- approximates where the old fixed top/center/bottom flex layout used
 // to land text, so switching to free drag positioning doesn't jump
@@ -179,6 +192,12 @@ function defaultStoryTextPosition(pos: StorySlide["text_position"]): TextPositio
   if (pos === "bottom") return { x: 50, y: STORY_TEXT_BOUNDS.maxY - 6 }
   return { x: 50, y: 50 }
 }
+
+// Roughly where the old full-bleed object-contain image visually centered
+// -- a freshly generated slide that's never had its product photo dragged
+// starts here rather than dead-center, so it doesn't sit directly on top
+// of the text block's own default position.
+const DEFAULT_PRODUCT_POSITION: TextPosition = { x: 50, y: 65 }
 
 // ─── Phone frame story card ────────────────────────────────────────────────────
 
@@ -200,6 +219,7 @@ function PhoneStory({
   const [showColors, setShowColors] = useState(false)
   const frameRef = useRef<HTMLDivElement>(null)
   const textBlockRef = useRef<HTMLDivElement>(null)
+  const productBlockRef = useRef<HTMLDivElement>(null)
   const s = STORY_BG[story.background] ?? STORY_BG.gradient_violet
   const elementId = `story-card-${index}`
   const hasBg = !!story.background_image_url
@@ -254,6 +274,30 @@ function PhoneStory({
     onCommit: (p) => onUpdateSlide({ text_position_x: p.x, text_position_y: p.y }),
   })
 
+  // Same generic drag hook as the text block above, for the separate
+  // product-photo overlay -- useDraggableText has nothing text-specific
+  // about it (just position/bounds/onCommit). Called unconditionally
+  // (hooks can't be conditional) even on slides where the overlay itself
+  // never renders; it's inert until its handle actually exists in the DOM.
+  const storedProductPosition: TextPosition | null =
+    story.product_position_x !== undefined && story.product_position_y !== undefined
+      ? { x: story.product_position_x, y: story.product_position_y }
+      : null
+  const { onPointerDown: onProductDragHandleDown, current: productPos } = useDraggableText({
+    containerRef: frameRef,
+    measureRef: productBlockRef,
+    position: storedProductPosition ?? DEFAULT_PRODUCT_POSITION,
+    bounds: PRODUCT_IMAGE_BOUNDS,
+    onCommit: (p) => onUpdateSlide({ product_position_x: p.x, product_position_y: p.y }),
+  })
+
+  // Default: hidden once a "flux" background already has the product
+  // realistically placed in the scene itself; shown otherwise. Overridable
+  // per-slide via the "Product" toggle button below, regardless of
+  // provider -- e.g. when a Flux generation dropped the product from the
+  // scene despite the reference photo.
+  const productOverlayOn = story.show_product_overlay ?? story.background_image_provider !== "flux"
+
   function copyText() {
     navigator.clipboard.writeText(`${story.text}\n${story.subtext}`)
     setCopied(true)
@@ -294,13 +338,38 @@ function PhoneStory({
               fallback, so the image is guaranteed to show up somewhere. */}
           {/* A "flux" background_image_url already has the real product
               realistically placed into the scene itself (see
-              lib/ai/story-slide-background.ts's reference-image path) --
-              this raw full-bleed cutout + dark scrim would just double it
-              up. "pollinations" (no image-to-image capability) and slides
-              with no AI background at all keep this exactly as before. */}
-          {slideShowsProduct(story.type, total) && uploadedImage && story.background_image_provider !== "flux" && (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={uploadedImage} alt="" crossOrigin="anonymous" className="absolute inset-0 z-10 h-full w-full object-contain" style={{ background: "rgba(0,0,0,0.35)" }} />
+              lib/ai/story-slide-background.ts's reference-image path), so
+              this defaults to hidden there -- "pollinations" (no
+              image-to-image capability) and slides with no AI background
+              default to shown, same as before. productOverlayOn lets the
+              "Product" toggle button below override that default either
+              way per slide. Free-drag positioned (see the second
+              useDraggableText above) instead of a fixed full-bleed image,
+              same left/top+translate(-50%,-50%) anchor convention the text
+              block already uses. */}
+          {slideShowsProduct(story.type, total) && uploadedImage && productOverlayOn && (
+            <div
+              ref={productBlockRef}
+              className="absolute z-10 flex flex-col items-center"
+              style={{
+                left: `${productPos.x}%`,
+                top: `${productPos.y}%`,
+                transform: "translate(-50%, -50%)",
+                width: "55%",
+                touchAction: "none",
+              }}
+            >
+              <button
+                type="button"
+                onPointerDown={onProductDragHandleDown}
+                title="Drag to reposition"
+                className="mb-1.5 flex h-5 w-8 shrink-0 cursor-grab items-center justify-center rounded-full bg-black/40 text-white transition-colors hover:bg-black/60 active:cursor-grabbing"
+              >
+                <Move className="h-3 w-3" />
+              </button>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={uploadedImage} alt="" crossOrigin="anonymous" className="h-auto w-full object-contain drop-shadow-lg" />
+            </div>
           )}
           {/* No progress bars or handle row here on purpose — if this
               design gets scheduled and posted as a real Instagram Story,
@@ -391,6 +460,17 @@ function PhoneStory({
           className={`flex items-center gap-1 rounded-full border px-3 py-1.5 text-[11px] font-medium hover:bg-secondary ${showColors ? "border-violet-300 bg-violet-50 text-violet-700" : ""}`}>
           <Palette className="h-3 w-3" /> Color
         </button>
+        {/* Only offered where the product overlay could ever actually show
+            (see slideShowsProduct) and there's a real photo to show at
+            all -- lets a user turn it back on (or off) regardless of
+            provider, e.g. when a Flux generation dropped the product from
+            the scene despite the reference photo. */}
+        {uploadedImage && slideShowsProduct(story.type, total) && (
+          <button onClick={() => onUpdateSlide({ show_product_overlay: !productOverlayOn })}
+            className={`flex items-center gap-1 rounded-full border px-3 py-1.5 text-[11px] font-medium hover:bg-secondary ${productOverlayOn ? "border-violet-300 bg-violet-50 text-violet-700" : ""}`}>
+            <Image className="h-3 w-3" /> Product
+          </button>
+        )}
         <button onClick={async () => {
           setDlErr(false)
           const ok = await downloadStorySlideAsImage(toExportSlide(story, uploadedImage), `story-${index + 1}`)

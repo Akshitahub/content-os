@@ -181,20 +181,66 @@ function shouldShowProductImage(type: StoryCompositeSlide["type"], total: number
   return type === "reveal" || type === "cta" || (total === 1 && type === "hook")
 }
 
-/** object-contain equivalent: the photo is letterboxed to fit the full
- * canvas without cropping, with the same rgba(0,0,0,0.35) fill the live
- * preview uses behind it, visible in the letterbox bars. */
-async function buildProductLayer(source: string): Promise<Buffer | null> {
+// Matches PhoneStory's own default -- see StorySequence.tsx's
+// DEFAULT_PRODUCT_POSITION and PRODUCT_IMAGE_BOUNDS comments.
+const PRODUCT_BOX_WIDTH_RATIO = 0.55
+const DEFAULT_PRODUCT_POSITION = { x: 50, y: 65 }
+const PRODUCT_SHADOW_OFFSET_PX = 6
+
+/** Resized to PRODUCT_BOX_WIDTH_RATIO of the canvas width with auto height
+ * (aspect-ratio preserved) -- object-contain equivalent for a box whose
+ * height isn't fixed, matching PhoneStory's `width: 55%; height: auto`
+ * live-preview box exactly, instead of the old full-bleed letterboxed
+ * layer. Also builds a soft drop-shadow silhouette (blurred, zeroed-out
+ * RGB, alpha preserved) approximating the live preview's CSS
+ * `drop-shadow-lg` on the same cutout. */
+async function buildProductLayer(source: string): Promise<{ image: Buffer; shadow: Buffer; width: number; height: number } | null> {
   const photo = await fetchImageBuffer(source)
   if (!photo) return null
   try {
-    return await sharp(photo)
-      .resize(CANVAS_WIDTH, CANVAS_HEIGHT, { fit: "contain", background: { r: 0, g: 0, b: 0, alpha: 0.35 } })
-      .png()
-      .toBuffer()
+    const boxWidthPx = Math.round(CANVAS_WIDTH * PRODUCT_BOX_WIDTH_RATIO)
+    const image = await sharp(photo).resize({ width: boxWidthPx }).png().toBuffer()
+    const meta = await sharp(image).metadata()
+    const width = meta.width ?? boxWidthPx
+    const height = meta.height ?? boxWidthPx
+
+    // linear(0, 0) zeroes RGB (without touching alpha) -- a black
+    // silhouette in the cutout's exact shape, then blurred into a shadow.
+    const shadow = await sharp(image).linear(0, 0).blur(10).png().toBuffer()
+
+    return { image, shadow, width, height }
   } catch {
     return null
   }
+}
+
+/** sharp's composite() throws unless an overlay is fully contained within
+ * the base image -- but PRODUCT_IMAGE_BOUNDS (StorySequence.tsx) deliberately
+ * lets the box's drag position push it partway off-canvas (minX/maxX of
+ * 10/90 against a box half-width of ~27.5%), the same way the live editor
+ * preview just clips the overflow via the phone frame's own
+ * overflow-hidden. Crops to whatever slice actually falls on-canvas and
+ * re-anchors it there, instead of erroring or silently refusing to render
+ * the whole slide. Returns null when nothing is left on-canvas at all. */
+async function clampLayerForComposite(buffer: Buffer, left: number, top: number): Promise<{ input: Buffer; top: number; left: number } | null> {
+  const meta = await sharp(buffer).metadata()
+  const w = meta.width ?? 0
+  const h = meta.height ?? 0
+  if (w === 0 || h === 0) return null
+
+  const visibleLeft = Math.max(0, left)
+  const visibleTop = Math.max(0, top)
+  const visibleRight = Math.min(CANVAS_WIDTH, left + w)
+  const visibleBottom = Math.min(CANVAS_HEIGHT, top + h)
+  const visibleWidth = Math.round(visibleRight - visibleLeft)
+  const visibleHeight = Math.round(visibleBottom - visibleTop)
+  if (visibleWidth <= 0 || visibleHeight <= 0) return null
+
+  const cropped = await sharp(buffer)
+    .extract({ left: Math.round(visibleLeft - left), top: Math.round(visibleTop - top), width: visibleWidth, height: visibleHeight })
+    .png()
+    .toBuffer()
+  return { input: cropped, top: Math.round(visibleTop), left: Math.round(visibleLeft) }
 }
 
 // ─── Text ───────────────────────────────────────────────────────────────────
@@ -292,6 +338,20 @@ export interface StoryCompositeSlide {
    * live preview's own fallback -- see buildTextOverlaySvg below. */
   text_position_x?: number
   text_position_y?: number
+  /** Whether to actually composite productImageSource -- resolved by the
+   * client (StorySequence.tsx's toExportSlide) from
+   * StorySlide.show_product_overlay ?? background_image_provider !==
+   * "flux", since this file has no idea what provider generated
+   * background_image_url. Absent (an older cached slide from before this
+   * field existed) defaults to shown, same as this file's own prior
+   * always-on behavior. */
+  show_product_overlay?: boolean
+  /** Free-drag override for where the product photo overlay sits --
+   * percentages (0-100, marking the box's center), same convention as
+   * text_position_x/y above. Absent falls back to DEFAULT_PRODUCT_POSITION,
+   * matching PhoneStory's own fallback. */
+  product_position_x?: number
+  product_position_y?: number
 }
 
 /**
@@ -315,9 +375,23 @@ export async function renderStorySlidesToPng(slides: StoryCompositeSlide[]): Pro
 
       const layers: { input: Buffer; top: number; left: number }[] = []
 
-      if (shouldShowProductImage(slide.type, total) && slide.productImageSource) {
+      // show_product_overlay !== false (not a plain truthiness check) so
+      // an older cached/persisted slide from before this field existed --
+      // absent, not explicitly false -- still defaults to shown, matching
+      // this file's own prior always-on behavior.
+      if (shouldShowProductImage(slide.type, total) && slide.show_product_overlay !== false && slide.productImageSource) {
         const productLayer = await buildProductLayer(slide.productImageSource)
-        if (productLayer) layers.push({ input: productLayer, top: 0, left: 0 })
+        if (productLayer) {
+          const center = slide.product_position_x !== undefined && slide.product_position_y !== undefined
+            ? { x: slide.product_position_x, y: slide.product_position_y }
+            : DEFAULT_PRODUCT_POSITION
+          const left = Math.round((center.x / 100) * CANVAS_WIDTH - productLayer.width / 2)
+          const top = Math.round((center.y / 100) * CANVAS_HEIGHT - productLayer.height / 2)
+          const shadowLayer = await clampLayerForComposite(productLayer.shadow, left + PRODUCT_SHADOW_OFFSET_PX, top + PRODUCT_SHADOW_OFFSET_PX)
+          if (shadowLayer) layers.push(shadowLayer)
+          const imageLayer = await clampLayerForComposite(productLayer.image, left, top)
+          if (imageLayer) layers.push(imageLayer)
+        }
       }
 
       const textOverlayPng = await svgToPngBuffer(buildTextOverlaySvg(slide, textColor, subColor))

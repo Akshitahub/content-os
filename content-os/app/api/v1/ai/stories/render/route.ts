@@ -30,6 +30,13 @@ const slideSchema = z.object({
   // to text_position above, same as the live editor preview.
   text_position_x: z.number().min(0).max(100).optional(),
   text_position_y: z.number().min(0).max(100).optional(),
+  // See StorySlide.show_product_overlay/product_position_x/y's own
+  // comments (app/api/v1/ai/stories/generate/route.ts) -- resolved
+  // client-side (StorySequence.tsx's toExportSlide) before this ever
+  // reaches the compositor.
+  show_product_overlay: z.boolean().optional(),
+  product_position_x: z.number().min(0).max(100).optional(),
+  product_position_y: z.number().min(0).max(100).optional(),
 })
 // Matches the generate route's own storyCount cap (1-10).
 const schema = z.object({ slides: z.array(slideSchema).min(1).max(10) })

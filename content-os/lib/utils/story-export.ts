@@ -29,6 +29,18 @@ export interface StoryExportSlide {
    * preview. */
   text_position_x?: number
   text_position_y?: number
+  /** Whether to actually render productImageSource, already resolved by
+   * the caller (StorySequence.tsx's toExportSlide) from
+   * StorySlide.show_product_overlay ?? background_image_provider !==
+   * "flux" -- the server-side compositor has no idea what provider
+   * generated the background, so the default has to be decided
+   * client-side before this ever reaches it. */
+  show_product_overlay?: boolean
+  /** Free-drag override for the product photo overlay's position -- same
+   * convention as text_position_x/y, just for the separate image block.
+   * See StorySlide.product_position_x/y's own comment. */
+  product_position_x?: number
+  product_position_y?: number
 }
 
 /** Returns one data: URL PNG per slide, or null on any failure. */
