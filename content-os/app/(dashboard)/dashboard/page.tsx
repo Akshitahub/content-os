@@ -1,5 +1,5 @@
 import Link from "next/link"
-import { Calendar } from "lucide-react"
+import { Calendar, Sparkles } from "lucide-react"
 import { createClient } from "@/lib/supabase/server"
 import { OnboardingWizard } from "@/components/onboarding/OnboardingWizard"
 import { DashboardStats } from "@/components/dashboard/DashboardStats"
@@ -8,7 +8,12 @@ import { PlatformIcon } from "@/components/shared/PlatformIcon"
 import { getUpcomingOccasions } from "@/lib/occasions/get-upcoming-occasions"
 import type { UserRow, CalendarEntryRow } from "@/types/database"
 
-export default async function DashboardPage() {
+export default async function DashboardPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>
+}) {
+  const { onboarding } = await searchParams
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return null
@@ -25,16 +30,24 @@ export default async function DashboardPage() {
   const firstBrandId = brands.find((b) => b.is_active)?.id ?? brands[0]?.id ?? null
   const brandIds = brands.map((b) => b.id)
 
-  if (brandCount === 0) {
+  // A user who explicitly skipped onboarding (see OnboardingWizard's
+  // handleSkipNoBrand) still has brandCount===0, but re-gating them back
+  // onto OnboardingWizard here would make "Skip" look like it did nothing.
+  // ?onboarding=skip lets them fall through to the normal dashboard shell
+  // instead, with its own inline "add a brand" prompt below.
+  const skippedOnboarding = onboarding === "skip"
+
+  if (brandCount === 0 && !skippedOnboarding) {
     return <OnboardingWizard />
   }
 
   // Started here (not awaited yet) so it runs concurrently with the big
   // Promise.all batch below instead of serially blocking the page on a DB
   // round-trip that has nothing to do with the rest of this page's data --
-  // deferred past the brandCount===0 check above so the onboarding path
-  // never fires this query at all.
-  const occasionsPromise = getUpcomingOccasions(14)
+  // skipped entirely for a brandless user (the real onboarding path above,
+  // or a skipped one rendering the "add a brand" prompt below) since
+  // there's no occasions card to show either way.
+  const occasionsPromise = brandCount > 0 ? getUpcomingOccasions(14) : null
 
   const now = new Date()
   const todayStr = now.toISOString().split("T")[0]!
@@ -270,20 +283,40 @@ export default async function DashboardPage() {
         )}
       </div>
 
-      <DashboardStats
-        generationsThisMonth={generationsThisMonth}
-        generationsLastMonth={generationsLastMonth}
-        savedContentCount={savedContentCount}
-        calendarEntriesThisWeek={calendarEntriesThisWeek}
-        activeBrands={activeBrandCount}
-        recentCalendar={recentCalendar}
-        firstBrandId={firstBrandId}
-        dailyActivity={dailyActivity}
-      />
+      {brandCount === 0 ? (
+        <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-muted-foreground/25 px-6 py-16 text-center">
+          <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-violet-100 dark:bg-violet-900/30">
+            <Sparkles className="h-6 w-6 text-violet-600 dark:text-violet-400" />
+          </div>
+          <h2 className="text-lg font-semibold">Add a brand to get started</h2>
+          <p className="mt-1.5 max-w-sm text-sm text-muted-foreground">
+            Your stats, calendar, and upcoming occasions will show up here once you&apos;ve added a brand.
+          </p>
+          <Link
+            href="/brands/new"
+            className="mt-6 inline-flex h-10 items-center gap-1.5 rounded-md bg-gradient-to-r from-violet-600 to-fuchsia-600 px-4 text-sm font-medium text-white shadow-sm shadow-violet-500/30 transition-colors hover:from-violet-700 hover:to-fuchsia-700"
+          >
+            + Add your first brand
+          </Link>
+        </div>
+      ) : (
+        <>
+          <DashboardStats
+            generationsThisMonth={generationsThisMonth}
+            generationsLastMonth={generationsLastMonth}
+            savedContentCount={savedContentCount}
+            calendarEntriesThisWeek={calendarEntriesThisWeek}
+            activeBrands={activeBrandCount}
+            recentCalendar={recentCalendar}
+            firstBrandId={firstBrandId}
+            dailyActivity={dailyActivity}
+          />
 
-      <div className="mt-6">
-        <UpcomingOccasions brandId={firstBrandId} occasions={await occasionsPromise} />
-      </div>
+          <div className="mt-6">
+            <UpcomingOccasions brandId={firstBrandId} occasions={(await occasionsPromise) ?? []} />
+          </div>
+        </>
+      )}
     </div>
   )
 }

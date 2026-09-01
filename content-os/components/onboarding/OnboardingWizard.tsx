@@ -288,6 +288,18 @@ function Step3Fastlane({ brand }: Step3Props) {
     router.refresh()
   }, [router])
 
+  // Distinct from handleSkip above: this fires when there's still no brand
+  // at all, so router.refresh() would just re-run this same page's
+  // brandCount===0 check and land back on this exact "One more step"
+  // screen -- looked like the button did nothing. Routing to
+  // ?onboarding=skip tells dashboard/page.tsx to render the real dashboard
+  // shell (with its own "add a brand" prompt) instead of re-gating on
+  // OnboardingWizard.
+  const handleSkipNoBrand = useCallback(() => {
+    try { if (POSTHOG_KEY) posthog.capture("onboarding_completed", { fastlane: false, brand: false }) } catch {}
+    router.push("/dashboard?onboarding=skip")
+  }, [router])
+
   if (!brand) {
     return (
       <div className="text-center">
@@ -301,7 +313,7 @@ function Step3Fastlane({ brand }: Step3Props) {
           <Link href="/brands/new">Add your first brand</Link>
         </Button>
         <div className="mt-4">
-          <button onClick={handleSkip} className="text-sm text-muted-foreground hover:text-foreground underline">
+          <button onClick={handleSkipNoBrand} className="text-sm text-muted-foreground hover:text-foreground underline">
             Skip, I&apos;ll do this later
           </button>
         </div>
