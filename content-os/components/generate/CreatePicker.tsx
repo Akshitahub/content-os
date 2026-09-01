@@ -1,11 +1,9 @@
 "use client"
 
-import { useRouter } from "next/navigation"
 import { Film } from "lucide-react"
 import { TABS, type Tab } from "./tabsConfig"
 import { REELS_ENABLED } from "@/lib/constants"
 import { ComingSoonBadge } from "@/components/shared/ComingSoonBadge"
-import { AgencyBadge } from "@/components/shared/AgencyBadge"
 import { useUserCredits } from "@/hooks/useUserCredits"
 import { cn } from "@/lib/utils"
 
@@ -27,7 +25,7 @@ interface CardMeta {
   /** Platforms this format can actually be scheduled/published to today — omit if no schedule/publish path exists yet. */
   platforms?: string
   comingSoon?: boolean
-  /** Gated to the Agency plan — locked (same disabled treatment as comingSoon) for any other plan. */
+  /** Gated to the Agency plan — hidden from the grid entirely for any other plan. */
   agencyOnly?: boolean
 }
 
@@ -36,8 +34,8 @@ const PRIMARY_CARDS: CardMeta[] = [
   { tab: "stories",   title: "Stories",     description: "3 to 5 connected story slides",         icon: iconFor("stories"), platforms: "Instagram" },
   { tab: "carousel",  title: "Carousel",    description: "Multi-slide story with AI copy per slide", icon: iconFor("carousel"), platforms: "Instagram" },
   { tab: "ad_maker",  title: "Ad",          description: "Product photo placed in an AI scene",   icon: iconFor("ad_maker") },
-  { tab: "content",   title: "Reel",        description: "Script plus AI voiceover video",       icon: Film,               presetReelScript: true, comingSoon: !REELS_ENABLED },
   { tab: "blog",      title: "Blog Post",   description: "SEO article with AI suggestions",       icon: iconFor("blog") },
+  { tab: "content",   title: "Reel",        description: "Script plus AI voiceover video",       icon: Film,               presetReelScript: true, comingSoon: !REELS_ENABLED },
   { tab: "hooks",     title: "Hooks",       description: "Scroll-stopping opening lines, max 8 words", icon: iconFor("hooks") },
   { tab: "content",   title: "Deep Content", description: "Reel scripts, ad copy, email sequences and more", icon: iconFor("content"), agencyOnly: true },
   { tab: "images",    title: "Visuals",     description: "AI-generated images in your brand style", icon: iconFor("images"), agencyOnly: true },
@@ -45,12 +43,15 @@ const PRIMARY_CARDS: CardMeta[] = [
 ]
 
 export function CreatePicker({ onSelect }: CreatePickerProps) {
-  const router = useRouter()
   // Shared cache with Header.tsx's own useUserCredits() call — no new fetch,
   // just reading the plan off the query every credit display already keeps
   // in sync.
   const { data: credits } = useUserCredits()
   const isAgency = credits?.plan === "agency"
+  // agencyOnly cards (Deep Content, Visuals, Repurpose) are hidden entirely
+  // for non-Agency plans, rather than shown locked -- there's nothing to
+  // click through to, so filtering them out is simpler than a disabled state.
+  const visibleCards = PRIMARY_CARDS.filter((card) => !card.agencyOnly || isAgency)
 
   return (
     <div className="space-y-6">
@@ -60,23 +61,17 @@ export function CreatePicker({ onSelect }: CreatePickerProps) {
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {PRIMARY_CARDS.map((card) => {
+        {visibleCards.map((card) => {
           const Icon = card.icon
-          const agencyLocked = !!card.agencyOnly && !isAgency
-          const locked = card.comingSoon || agencyLocked
           return (
             <button
               key={card.title}
               type="button"
               disabled={card.comingSoon}
-              onClick={() =>
-                agencyLocked
-                  ? router.push("/settings#plan-usage")
-                  : onSelect(card.tab!, card.presetReelScript ? { presetReelScript: true } : undefined)
-              }
+              onClick={() => onSelect(card.tab!, card.presetReelScript ? { presetReelScript: true } : undefined)}
               className={cn(
                 "flex flex-col items-start gap-3 rounded-xl border bg-card p-6 text-left shadow-sm transition-all duration-200",
-                locked
+                card.comingSoon
                   ? "cursor-not-allowed opacity-60"
                   : "hover:-translate-y-1 hover:border-violet-300 hover:shadow-lg hover:shadow-violet-100"
               )}
@@ -88,7 +83,6 @@ export function CreatePicker({ onSelect }: CreatePickerProps) {
                 <div className="flex items-center gap-1.5">
                   <p className="text-sm font-semibold text-foreground">{card.title}</p>
                   {card.comingSoon && <ComingSoonBadge />}
-                  {agencyLocked && <AgencyBadge />}
                 </div>
                 <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{card.description}</p>
               </div>
