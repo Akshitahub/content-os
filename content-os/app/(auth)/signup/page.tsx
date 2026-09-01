@@ -11,6 +11,7 @@ import { Loader2 } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { PasswordInput } from "@/components/ui/password-input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Separator } from "@/components/ui/separator"
@@ -177,9 +178,8 @@ function SignupForm() {
 
           <div className="space-y-2">
             <Label htmlFor="password">Password</Label>
-            <Input
+            <PasswordInput
               id="password"
-              type="password"
               placeholder="Min. 8 characters"
               autoComplete="new-password"
               {...register("password")}
@@ -192,9 +192,8 @@ function SignupForm() {
 
           <div className="space-y-2">
             <Label htmlFor="confirmPassword">Confirm password</Label>
-            <Input
+            <PasswordInput
               id="confirmPassword"
-              type="password"
               placeholder="Repeat your password"
               autoComplete="new-password"
               {...register("confirmPassword")}
