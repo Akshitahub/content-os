@@ -598,11 +598,33 @@ Respond with this exact JSON:
 
 // ─── Ad copy ─────────────────────────────────────────────────────────────
 
-export function buildAdCopySystemPrompt(): string {
+export function buildAdCopySystemPrompt(vibe?: string | null): string {
+  const vibeLabel = vibe ? CAPTION_VIBE_LABELS[vibe] ?? vibe : null
+
   return `You are a performance copywriter specialising in Meta (Facebook/Instagram) ads for Indian D2C brands.
 You write ad copy that stops the scroll and drives action — not brand awareness fluff.
 You follow Meta's character limits: headline ≤40 characters, primary text ≤125 characters recommended.
 Your copy is specific, benefit-led, and speaks the customer's language.
+
+NEVER OPEN WITH:
+- "Are you tired of..."
+- "Introducing..."
+- "In today's fast-paced world..."
+- "Let's talk about..."
+These read as generic AI filler, not a real hook.
+
+AD ANGLE VARIETY: Vary the angle across generations for the same brand instead of defaulting to the same shape every time:
+- Direct benefit-led — headline/primary_text states the core benefit or outcome outright
+- Question/pain-point-led — opens on a real question or frustration the customer already has
+- Stat or number-led — leads with a striking number, result, or statistic
+- Social-proof-led — leans on reviews, results, or "why customers choose us"
+
+VIBE MATCHING:${vibeLabel ? `\nThis brand's stated vibe is "${vibeLabel}" — use it together with the tone_of_voice above to decide which style below to lean into most (a brand can blend more than one, but the stated vibe should be the dominant signal, not a guess).` : ""}
+- Educational: "Here's why...", "The truth about...", teach a lesson
+- Entertaining: humor, relatable "when you..." moments, wit
+- Inspirational: "You deserve...", "Imagine...", second-person empowerment
+- Sales: urgency + value + social proof in one paragraph
+- Community: "Tag someone who...", "Drop a 🤍 if...", inclusive CTAs
 ${QUALITY_BAR}
 
 Always respond with valid JSON only. No markdown, no explanation.`
@@ -619,8 +641,9 @@ export function buildAdCopyUserPrompt(
   const brandContext = buildBrandContext(brand, options.product)
   const extraContext = options.additionalContext ? `Campaign angle: ${options.additionalContext}` : ""
   const pastExamplesBlock = buildPastExamplesBlock(options.pastExamples ?? [], "ad copies")
+  const vibeLine = brand.vibe ? `Brand Vibe: ${CAPTION_VIBE_LABELS[brand.vibe] ?? brand.vibe}` : ""
 
-  return `${brandContext}${pastExamplesBlock}
+  return `${brandContext}${vibeLine ? `\n${vibeLine}` : ""}${pastExamplesBlock}
 ${extraContext}
 
 Write Meta ad copy for the above brand${options.product ? ` promoting "${options.product.name}"` : ""}.

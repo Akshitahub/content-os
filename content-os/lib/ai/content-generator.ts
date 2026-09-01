@@ -92,7 +92,7 @@ function buildPrompts(
       }
     case "ad_copy":
       return {
-        system: buildAdCopySystemPrompt(),
+        system: buildAdCopySystemPrompt(brand.vibe),
         user: buildAdCopyUserPrompt(brand, options),
         reasoningEffort: "low",
         maxTokens: 1200,
