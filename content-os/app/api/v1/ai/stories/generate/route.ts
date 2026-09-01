@@ -31,6 +31,15 @@ export type StorySlide = {
    * so it round-trips through the existing whole-array sessionStorage
    * persistence for free. */
   background_image_url?: string
+  /** Client-only, set alongside background_image_url above from the same
+   * /api/v1/ai/stories/slide-image/generate response — which provider
+   * actually produced it. Used by PhoneStory to skip the redundant
+   * full-bleed product-photo overlay for a "flux" background, since a
+   * Flux image-to-image reference generation already has the real
+   * product realistically placed in the scene itself (unlike
+   * "pollinations", which has no image-to-image capability and still
+   * needs that overlay). */
+  background_image_provider?: "pollinations" | "flux"
   /** "Custom color" mode (see components/shared/VibePicker.tsx +
    * ColorWheelPicker) -- an exact user-picked flat/gradient, applied
    * uniformly to every slide when active. Client-only, same as

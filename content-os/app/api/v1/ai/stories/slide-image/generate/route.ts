@@ -136,5 +136,5 @@ export async function POST(request: Request) {
     latency_ms: latencyMs, success: true,
   })
 
-  return NextResponse.json({ data: { public_url: uploadResult.publicUrl, role } }, { status: 200 })
+  return NextResponse.json({ data: { public_url: uploadResult.publicUrl, role, provider } }, { status: 200 })
 }

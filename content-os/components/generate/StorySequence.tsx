@@ -98,19 +98,38 @@ const QUICK_TOPICS = [
 // distinction; fetchSlideBackground wraps it back down to the simpler
 // null-on-any-failure shape hook/cta (which are never credit-gated) have
 // always used. Mirrors CarouselBuilder.tsx's identical pair exactly.
-type SlideBackgroundResult = { url: string } | { error: "insufficient_credits" | "failed" }
+// A selected product's photo is only ever actually shown on reveal/cta
+// slides (and a hook slide when it's the *only* slide in the sequence) —
+// see PhoneStory's identical gating for the raw-photo overlay below. Reused
+// here so a story-background request only asks for a photorealistic
+// reference-image scene on the same slides the product itself appears on.
+function slideShowsProduct(type: StorySlide["type"], total: number): boolean {
+  return type === "reveal" || type === "cta" || (total === 1 && type === "hook")
+}
 
-async function fetchSlideBackgroundResult(brandId: string, vibe: Vibe | undefined, role: "hook" | "cta" | "body"): Promise<SlideBackgroundResult> {
+type SlideBackgroundResult = { url: string; provider?: "pollinations" | "flux" } | { error: "insufficient_credits" | "failed" }
+
+async function fetchSlideBackgroundResult(
+  brandId: string,
+  vibe: Vibe | undefined,
+  role: "hook" | "cta" | "body",
+  productImageUrl?: string | null,
+  textPosition?: StorySlide["text_position"]
+): Promise<SlideBackgroundResult> {
   try {
     const res = await fetch("/api/v1/ai/stories/slide-image/generate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ brandId, vibe, role }),
+      // Converts a null productImageUrl (the "no image on this product" or
+      // "no product selected" case) to undefined so JSON.stringify omits
+      // the key entirely -- the route's schema accepts productImageUrl as
+      // optional, not nullable.
+      body: JSON.stringify({ brandId, vibe, role, productImageUrl: productImageUrl ?? undefined, textPosition }),
     })
     if (res.status === 429) return { error: "insufficient_credits" }
     if (!res.ok) return { error: "failed" }
-    const json = await res.json() as { data?: { public_url?: string } }
-    return json.data?.public_url ? { url: json.data.public_url } : { error: "failed" }
+    const json = await res.json() as { data?: { public_url?: string; provider?: "pollinations" | "flux" } }
+    return json.data?.public_url ? { url: json.data.public_url, provider: json.data.provider } : { error: "failed" }
   } catch {
     return { error: "failed" }
   }
@@ -121,9 +140,15 @@ async function fetchSlideBackgroundResult(brandId: string, vibe: Vibe | undefine
 // error or network failure. Available to every plan, no tiering. Neither
 // role is credit-gated, so the insufficient_credits/failed distinction
 // never matters here.
-async function fetchSlideBackground(brandId: string, vibe: Vibe | undefined, role: "hook" | "cta"): Promise<string | null> {
-  const result = await fetchSlideBackgroundResult(brandId, vibe, role)
-  return "url" in result ? result.url : null
+async function fetchSlideBackground(
+  brandId: string,
+  vibe: Vibe | undefined,
+  role: "hook" | "cta",
+  productImageUrl?: string | null,
+  textPosition?: StorySlide["text_position"]
+): Promise<{ url: string; provider?: "pollinations" | "flux" } | null> {
+  const result = await fetchSlideBackgroundResult(brandId, vibe, role, productImageUrl, textPosition)
+  return "url" in result ? { url: result.url, provider: result.provider } : null
 }
 
 // ─── Draggable text positioning ────────────────────────────────────────────────
@@ -263,7 +288,13 @@ function PhoneStory({
               "cta" always exists whenever storyCount >= 2, and for a
               single-slide sequence ("hook" only) that hook slide is the
               fallback, so the image is guaranteed to show up somewhere. */}
-          {(story.type === "reveal" || story.type === "cta" || (total === 1 && story.type === "hook")) && uploadedImage && (
+          {/* A "flux" background_image_url already has the real product
+              realistically placed into the scene itself (see
+              lib/ai/story-slide-background.ts's reference-image path) --
+              this raw full-bleed cutout + dark scrim would just double it
+              up. "pollinations" (no image-to-image capability) and slides
+              with no AI background at all keep this exactly as before. */}
+          {slideShowsProduct(story.type, total) && uploadedImage && story.background_image_provider !== "flux" && (
             // eslint-disable-next-line @next/next/no-img-element
             <img src={uploadedImage} alt="" crossOrigin="anonymous" className="absolute inset-0 z-10 h-full w-full object-contain" style={{ background: "rgba(0,0,0,0.35)" }} />
           )}
@@ -618,17 +649,27 @@ export function StorySequence({ brandId }: { brandId: string }) {
           // slow/failed image call never blocks or breaks story generation
           // itself. fetchSlideBackground never throws, so Promise.all here
           // always resolves.
+          const total = savedStories.length
           const bgTargets = savedStories
             .map((slide, i) => ({ slide, i }))
             .filter((t): t is { slide: StorySlide & { type: "hook" | "cta" }; i: number } => t.slide.type === "hook" || t.slide.type === "cta")
 
-          const urls = await Promise.all(bgTargets.map(({ slide }) => fetchSlideBackground(brandId, vibe, slide.type)))
+          const results = await Promise.all(bgTargets.map(({ slide }) => {
+            const usesProduct = !!selectedProduct && slideShowsProduct(slide.type, total)
+            return fetchSlideBackground(
+              brandId,
+              vibe,
+              slide.type,
+              usesProduct ? (selectedProduct?.imageUrl ?? null) : undefined,
+              usesProduct ? slide.text_position : undefined
+            )
+          }))
           if (generationIdRef.current !== genId) return
 
           const updated = [...savedStories]
           bgTargets.forEach(({ i }, idx) => {
-            const url = urls[idx]
-            if (url) updated[i] = { ...updated[i]!, background_image_url: url }
+            const result = results[idx]
+            if (result) updated[i] = { ...updated[i]!, background_image_url: result.url, background_image_provider: result.provider }
           })
 
           // Reveal/buildup slides are credit-metered (unlike hook/cta
@@ -646,10 +687,18 @@ export function StorySequence({ brandId }: { brandId: string }) {
 
           for (let n = 0; n < bodyIndices.length; n++) {
             setBodyBgProgress({ current: n + 1, total: bodyIndices.length })
-            const result = await fetchSlideBackgroundResult(brandId, vibe, "body")
+            const bodySlide = savedStories[bodyIndices[n]!]!
+            const usesProduct = !!selectedProduct && slideShowsProduct(bodySlide.type, total)
+            const result = await fetchSlideBackgroundResult(
+              brandId,
+              vibe,
+              "body",
+              usesProduct ? (selectedProduct?.imageUrl ?? null) : undefined,
+              usesProduct ? bodySlide.text_position : undefined
+            )
             if (generationIdRef.current !== genId) { setBodyBgProgress(null); return }
             if ("url" in result) {
-              updated[bodyIndices[n]!] = { ...updated[bodyIndices[n]!]!, background_image_url: result.url }
+              updated[bodyIndices[n]!] = { ...updated[bodyIndices[n]!]!, background_image_url: result.url, background_image_provider: result.provider }
             } else if (result.error === "insufficient_credits") {
               setBodyBgWarning(
                 `Ran out of credits after ${n} of ${bodyIndices.length} extra slide backgrounds — the rest kept their flat color.`
@@ -662,7 +711,7 @@ export function StorySequence({ brandId }: { brandId: string }) {
           }
           setBodyBgProgress(null)
 
-          if (!urls.some((u) => u) && bodyIndices.length === 0) return
+          if (!results.some((r) => r) && bodyIndices.length === 0) return
 
           setStories(updated)
           // Same reasoning as the generation-time assignment above -- this
