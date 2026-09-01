@@ -2,6 +2,7 @@ import Link from "next/link"
 import { Calendar, Sparkles } from "lucide-react"
 import { createClient } from "@/lib/supabase/server"
 import { OnboardingWizard } from "@/components/onboarding/OnboardingWizard"
+import { CreditGiftBoxes } from "@/components/dashboard/CreditGiftBoxes"
 import { DashboardStats } from "@/components/dashboard/DashboardStats"
 import { UpcomingOccasions } from "@/components/dashboard/UpcomingOccasions"
 import { PlatformIcon } from "@/components/shared/PlatformIcon"
@@ -282,6 +283,17 @@ export default async function DashboardPage({
           </div>
         )}
       </div>
+
+      {/* Sits right under the hero -- the same card the "Xd left · Y
+       * credits remaining" line is visually anchored near up in the top
+       * nav, so a top-up entry point here reads as a natural continuation
+       * of that, not a random mid-page insert. Skipped for the brandless/
+       * onboarding branch below, same as the stats/calendar section. */}
+      {brandCount > 0 && (
+        <div className="mb-6">
+          <CreditGiftBoxes />
+        </div>
+      )}
 
       {brandCount === 0 ? (
         <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-muted-foreground/25 px-6 py-16 text-center">
