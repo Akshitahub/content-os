@@ -51,9 +51,14 @@ function loadImage(src: string): Promise<HTMLImageElement> {
   })
 }
 
+interface AdVariation {
+  url: string
+  provider: string
+}
+
 async function compositeAd(
   productDataUrl: string,
-  backgroundUrls: string[],
+  variations: AdVariation[],
   hookText: string,
   showText: boolean,
   textPosition: TextPosition,
@@ -75,13 +80,13 @@ async function compositeAd(
   // concurrently server-side (see .../ad-maker/generate/route.ts), instead
   // of the old per-variation client-side Pollinations fetch with its own
   // bespoke retry loop.
-  for (const backgroundUrl of backgroundUrls) {
+  for (const variation of variations) {
     const canvas = document.createElement("canvas")
     canvas.width = w
     canvas.height = h
     const ctx = canvas.getContext("2d")!
 
-    const bg = await loadImage(backgroundUrl)
+    const bg = await loadImage(variation.url)
     ctx.drawImage(bg, 0, 0, w, h)
 
     if (showText && hookText) {
@@ -89,15 +94,22 @@ async function compositeAd(
       ctx.fillRect(0, 0, w, h)
     }
 
-    const product = await loadImage(productDataUrl)
-    const maxW = w * 0.75
-    const maxH = h * 0.65
-    const scale = Math.min(maxW / product.width, maxH / product.height)
-    const pw = product.width * scale
-    const ph = product.height * scale
-    const px = (w - pw) / 2
-    const py = h - ph - (h * 0.1)
-    ctx.drawImage(product, px, py, pw, ph)
+    // Flux variations already have the product realistically placed in the
+    // photo itself (see ad-maker-background.ts's reference-image path) --
+    // pasting the cutout again on top would double it up. Only Pollinations
+    // (no image-to-image capability) still needs the client-side paste.
+    let py = h - (h * 0.1)
+    if (variation.provider === "pollinations") {
+      const product = await loadImage(productDataUrl)
+      const maxW = w * 0.75
+      const maxH = h * 0.65
+      const scale = Math.min(maxW / product.width, maxH / product.height)
+      const pw = product.width * scale
+      const ph = product.height * scale
+      const px = (w - pw) / 2
+      py = h - ph - (h * 0.1)
+      ctx.drawImage(product, px, py, pw, ph)
+    }
 
     if (showText && hookText) {
       const colors: Record<TextColor, string> = { white: "#ffffff", dark: "#111111", violet: "#818cf8" }
@@ -423,7 +435,7 @@ export function AdMaker({ brandId }: AdMakerProps) {
       const chargeRes = await fetch(`/api/v1/brands/${brandId}/ai/ad-maker/generate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ scene, customScene, format }),
+        body: JSON.stringify({ scene, customScene, format, productImageBase64: productDataUrl }),
       })
       const chargeJson: unknown = await chargeRes.json()
       if (!chargeRes.ok || isApiError(chargeJson)) {
@@ -435,9 +447,9 @@ export function AdMaker({ brandId }: AdMakerProps) {
 
       const brandName = brand?.name ?? "Brand"
       const handle = brand?.instagram_handle ?? ""
-      const backgroundUrls = (chargeJson as { data: { background_urls: string[] } }).data.background_urls
-      const variations = await compositeAd(productDataUrl, backgroundUrls, hookText, showText, textPosition, textColor, format, brandName, handle)
-      setResults(variations)
+      const variations = (chargeJson as { data: { variations: { url: string; provider: string }[] } }).data.variations
+      const composited = await compositeAd(productDataUrl, variations, hookText, showText, textPosition, textColor, format, brandName, handle)
+      setResults(composited)
       setExpandedIdx(0)
       setShowSuccess(true)
       setTimeout(() => setShowSuccess(false), 4000)

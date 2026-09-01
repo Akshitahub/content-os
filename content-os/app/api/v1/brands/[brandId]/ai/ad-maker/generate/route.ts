@@ -111,7 +111,14 @@ export async function POST(request: Request, { params }: RouteParams) {
   let productImageUrl: string | undefined
   if (productImageBase64) {
     try {
-      const productImageBuffer = Buffer.from(productImageBase64, "base64")
+      // The client sends whichever form productDataUrl is already holding
+      // (a data: URL from FileReader/remove-background, same as the
+      // upload-variation route's dataUrl) -- strip that prefix when
+      // present so this doesn't try to decode "data:image/png;base64,"
+      // itself as image bytes; falls back to treating the whole string as
+      // raw base64 if there's no data: prefix to strip.
+      const base64Payload = productImageBase64.match(/^data:[^;]+;base64,(.+)$/)?.[1] ?? productImageBase64
+      const productImageBuffer = Buffer.from(base64Payload, "base64")
       const productImagePath = `${user.id}/${brandId}/ad-maker-product-${Date.now()}-${crypto.randomUUID()}.png`
       const { error: productUploadError } = await admin.storage
         .from(BUCKET)
