@@ -47,6 +47,12 @@ export type StorySlide = {
    * named `background` enum wherever a slide is rendered. 1 hex = solid,
    * 2 = a gradient. */
   custom_background_colors?: string[] | null
+  /** Client-only, never set by this route. Exact user-picked hex for the
+   * headline/subtext text itself (see StorySequence.tsx's PhoneStory) --
+   * a single color, not an array like custom_background_colors above,
+   * since text has no gradient mode. Absent means "use the normal
+   * background-derived text color", not a specific color. */
+  custom_text_color?: string | null
   /** Free-drag override for where the headline+subtext block sits on the
    * slide -- confirmed live (2026-08-29): the fixed top/center/bottom
    * choice above looks awkward against an AI-generated background whose

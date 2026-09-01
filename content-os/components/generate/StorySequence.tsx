@@ -15,6 +15,8 @@ import { STORY as STORY_CREDIT_COST, STORY_SLIDE_AI_BACKGROUND } from "@/lib/usa
 import { VibePicker, type Vibe } from "@/components/shared/VibePicker"
 import { cssBackgroundFromColors, ColorWheelPicker } from "@/components/shared/ColorWheelPicker"
 import { useDraggableText, type TextPosition } from "@/components/shared/useDraggableText"
+import { useBrand } from "@/hooks/useBrand"
+import type { BrandRow } from "@/types/database"
 import Link from "next/link"
 
 // ─── Story background gradients ────────────────────────────────────────────────
@@ -76,7 +78,25 @@ function toExportSlide(story: StorySlide, productImageSource: string | null | un
     show_product_overlay: story.show_product_overlay ?? story.background_image_provider !== "flux",
     product_position_x: story.product_position_x,
     product_position_y: story.product_position_y,
+    custom_text_color: story.custom_text_color,
   }
+}
+
+// Up to 3 of the brand's own colors, offered as text-color presets
+// alongside plain white/black in PhoneStory's text-color swatch row --
+// same source (primary_color + color_palette) lib/ai/story-slide-background.ts's
+// resolveBrandColors reads for backgrounds, just capped tighter since this
+// is a compact swatch row, not a full palette.
+function resolveBrandTextColorPresets(brand: BrandRow | undefined): string[] {
+  if (!brand) return []
+  const colors: string[] = []
+  if (brand.primary_color) colors.push(brand.primary_color)
+  if (Array.isArray(brand.color_palette)) {
+    for (const c of brand.color_palette) {
+      if (typeof c === "string" && c && !colors.includes(c)) colors.push(c)
+    }
+  }
+  return colors.slice(0, 3)
 }
 
 // ─── TOPIC CHIPS ────────────────────────────────────────────────────────────────
@@ -206,17 +226,22 @@ function PhoneStory({
   index,
   total,
   uploadedImage,
+  brandColors,
   onUpdateSlide,
 }: {
   story: StorySlide
   index: number
   total: number
   uploadedImage?: string
+  /** Up to 3 of the brand's own colors, offered as text-color presets --
+   * see resolveBrandTextColorPresets above. */
+  brandColors?: string[]
   onUpdateSlide: (updates: Partial<StorySlide>) => void
 }) {
   const [copied, setCopied] = useState(false)
   const [dlErr, setDlErr] = useState(false)
   const [showColors, setShowColors] = useState(false)
+  const [showTextColorWheel, setShowTextColorWheel] = useState(false)
   const frameRef = useRef<HTMLDivElement>(null)
   const textBlockRef = useRef<HTMLDivElement>(null)
   const productBlockRef = useRef<HTMLDivElement>(null)
@@ -254,6 +279,14 @@ function PhoneStory({
   // text pairing.
   const textColor = hasBg || customBg ? "text-white" : s.text
   const subColor = hasBg || customBg ? "text-white/70" : s.sub
+  // Exact user-picked hex, applied as an inline style (not a Tailwind
+  // class -- it's an arbitrary value) so it overrides textColor/subColor
+  // above via normal CSS cascade rather than replacing them outright.
+  // Absent falls back to exactly the background-derived logic above, on
+  // both the headline and subtext (and the poll line, which already
+  // shares subColor's styling) -- unlike custom_background_colors, there's
+  // no separate lighter/darker variant for text, just one color.
+  const customTextStyle = story.custom_text_color ? { color: story.custom_text_color } : undefined
 
   // Free-drag text positioning -- text_position (top/center/bottom) only
   // still matters as the starting point for a slide that's never been
@@ -422,6 +455,7 @@ function PhoneStory({
               onBlur={(e) => commitEdit("text", e)}
               onKeyDown={commitOnEnter}
               className={`text-center text-lg font-black leading-tight outline-none rounded px-1 -mx-1 cursor-text hover:bg-white/10 focus:bg-white/10 focus:ring-1 focus:ring-white/40 ${textColor}`}
+              style={customTextStyle}
             >
               {story.text}
             </p>
@@ -431,6 +465,7 @@ function PhoneStory({
               onBlur={(e) => commitEdit("subtext", e)}
               onKeyDown={commitOnEnter}
               className={`mt-2 text-center text-xs font-medium outline-none rounded px-1 -mx-1 cursor-text hover:bg-white/10 focus:bg-white/10 focus:ring-1 focus:ring-white/40 min-h-[1em] ${subColor}`}
+              style={customTextStyle}
             >
               {story.subtext}
             </p>
@@ -441,7 +476,7 @@ function PhoneStory({
                 addable natively through Instagram's own app/API afterward),
                 so it shouldn't be styled to look like one. */}
             {story.has_poll && story.poll_options && (
-              <p className={`mt-4 text-center text-xs font-semibold ${subColor}`}>
+              <p className={`mt-4 text-center text-xs font-semibold ${subColor}`} style={customTextStyle}>
                 {story.poll_options.join("  ·  ")}
               </p>
             )}
@@ -495,36 +530,86 @@ function PhoneStory({
           get its own different color afterward, per-slide, exactly like
           Carousel's SlideEditor. */}
       {showColors && (
-        <div className="flex flex-col items-center gap-2">
-          <div className="flex items-center gap-1.5">
-            {STORY_BG_PRESETS.map((preset) => (
+        <div className="flex flex-col items-center gap-3">
+          <div className="flex flex-col items-center gap-1.5">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Background</p>
+            <div className="flex items-center gap-1.5">
+              {STORY_BG_PRESETS.map((preset) => (
+                <button
+                  key={preset.key}
+                  type="button"
+                  title={preset.label}
+                  onClick={() => onUpdateSlide({ background: preset.key as StorySlide["background"], background_image_url: undefined, custom_background_colors: undefined })}
+                  className={`h-6 w-6 rounded-full ${preset.swatch} transition-transform hover:scale-110 ${story.background === preset.key && !hasBg && !customBg ? "ring-2 ring-offset-2 ring-violet-500" : ""}`}
+                />
+              ))}
               <button
-                key={preset.key}
                 type="button"
-                title={preset.label}
-                onClick={() => onUpdateSlide({ background: preset.key as StorySlide["background"], background_image_url: undefined, custom_background_colors: undefined })}
-                className={`h-6 w-6 rounded-full ${preset.swatch} transition-transform hover:scale-110 ${story.background === preset.key && !hasBg && !customBg ? "ring-2 ring-offset-2 ring-violet-500" : ""}`}
-              />
-            ))}
-            <button
-              type="button"
-              title="Custom color"
-              onClick={() => onUpdateSlide({ custom_background_colors: story.custom_background_colors?.length ? story.custom_background_colors : ["#6366F1", "#EC4899"], background_image_url: undefined })}
-              className={`flex h-6 w-6 items-center justify-center rounded-full border border-black/10 transition-transform hover:scale-110 ${customBg ? "ring-2 ring-offset-2 ring-violet-500" : ""}`}
-              style={{ background: customBg ?? "linear-gradient(135deg, #6366F1, #EC4899)" }}
-            >
-              <Palette className="h-3 w-3 text-white drop-shadow" />
-            </button>
+                title="Custom color"
+                onClick={() => onUpdateSlide({ custom_background_colors: story.custom_background_colors?.length ? story.custom_background_colors : ["#6366F1", "#EC4899"], background_image_url: undefined })}
+                className={`flex h-6 w-6 items-center justify-center rounded-full border border-black/10 transition-transform hover:scale-110 ${customBg ? "ring-2 ring-offset-2 ring-violet-500" : ""}`}
+                style={{ background: customBg ?? "linear-gradient(135deg, #6366F1, #EC4899)" }}
+              >
+                <Palette className="h-3 w-3 text-white drop-shadow" />
+              </button>
+            </div>
+
+            {customBg && (
+              <div className="w-56 rounded-lg border bg-card p-3">
+                <ColorWheelPicker
+                  colors={story.custom_background_colors ?? ["#6366F1", "#EC4899"]}
+                  onChange={(colors) => onUpdateSlide({ custom_background_colors: colors, background_image_url: undefined })}
+                />
+              </div>
+            )}
           </div>
 
-          {customBg && (
-            <div className="w-56 rounded-lg border bg-card p-3">
-              <ColorWheelPicker
-                colors={story.custom_background_colors ?? ["#6366F1", "#EC4899"]}
-                onChange={(colors) => onUpdateSlide({ custom_background_colors: colors, background_image_url: undefined })}
-              />
+          {/* Text color -- same swatch-circle convention as Background
+              above, just writing custom_text_color (a single hex, no
+              gradient mode) instead of custom_background_colors. White,
+              black, and up to 3 of the brand's own palette colors as
+              quick presets; the last swatch opens the same ColorWheelPicker
+              in single-color mode for anything else. */}
+          <div className="flex flex-col items-center gap-1.5">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Text color</p>
+            <div className="flex items-center gap-1.5">
+              {[
+                { hex: "#FFFFFF", label: "White" },
+                { hex: "#000000", label: "Black" },
+                ...(brandColors ?? []).map((hex) => ({ hex, label: "Brand color" })),
+              ].map((preset) => (
+                <button
+                  key={preset.hex}
+                  type="button"
+                  title={preset.label}
+                  onClick={() => onUpdateSlide({ custom_text_color: preset.hex })}
+                  className={`h-6 w-6 rounded-full border border-black/10 transition-transform hover:scale-110 ${story.custom_text_color === preset.hex ? "ring-2 ring-offset-2 ring-violet-500" : ""}`}
+                  style={{ backgroundColor: preset.hex }}
+                />
+              ))}
+              <button
+                type="button"
+                title="Custom text color"
+                onClick={() => {
+                  onUpdateSlide({ custom_text_color: story.custom_text_color ?? "#FFFFFF" })
+                  setShowTextColorWheel(true)
+                }}
+                className={`flex h-6 w-6 items-center justify-center rounded-full border border-black/10 transition-transform hover:scale-110 ${showTextColorWheel ? "ring-2 ring-offset-2 ring-violet-500" : ""}`}
+                style={{ background: story.custom_text_color ?? "linear-gradient(135deg, #ffffff, #000000)" }}
+              >
+                <Palette className="h-3 w-3 text-violet-600 drop-shadow" />
+              </button>
             </div>
-          )}
+
+            {showTextColorWheel && (
+              <div className="w-56 rounded-lg border bg-card p-3">
+                <ColorWheelPicker
+                  colors={story.custom_text_color ? [story.custom_text_color] : ["#FFFFFF"]}
+                  onChange={(colors) => onUpdateSlide({ custom_text_color: colors[0] })}
+                />
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>
@@ -535,6 +620,11 @@ function PhoneStory({
 
 export function StorySequence({ brandId }: { brandId: string }) {
   const STORAGE_KEY = `stories_${brandId}`
+
+  // Only read for its palette (see resolveBrandTextColorPresets) -- the
+  // rest of this component never needed brand data before now.
+  const { data: brand } = useBrand(brandId)
+  const brandTextColorPresets = resolveBrandTextColorPresets(brand)
 
   const [topic, setTopic] = useState("")
   const [storyCount, setStoryCount] = useState(3)
@@ -1113,6 +1203,7 @@ export function StorySequence({ brandId }: { brandId: string }) {
                 index={i}
                 total={stories.length}
                 uploadedImage={selectedProduct?.imageUrl ?? uploadedImages[i]?.preview}
+                brandColors={brandTextColorPresets}
                 onUpdateSlide={(updates) => updateSlide(i, updates)}
               />
             ))}

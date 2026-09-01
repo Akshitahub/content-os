@@ -41,6 +41,11 @@ export interface StoryExportSlide {
    * See StorySlide.product_position_x/y's own comment. */
   product_position_x?: number
   product_position_y?: number
+  /** Exact user-picked hex for the headline/subtext text -- see
+   * StorySlide.custom_text_color's own comment. Threaded through here so
+   * the real server-side render reflects a custom text color instead of
+   * only the live editor preview. */
+  custom_text_color?: string | null
 }
 
 /** Returns one data: URL PNG per slide, or null on any failure. */

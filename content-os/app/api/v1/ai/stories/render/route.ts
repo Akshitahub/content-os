@@ -37,6 +37,9 @@ const slideSchema = z.object({
   show_product_overlay: z.boolean().optional(),
   product_position_x: z.number().min(0).max(100).optional(),
   product_position_y: z.number().min(0).max(100).optional(),
+  // See StorySlide.custom_text_color's own comment
+  // (app/api/v1/ai/stories/generate/route.ts).
+  custom_text_color: z.string().max(20).nullish(),
 })
 // Matches the generate route's own storyCount cap (1-10).
 const schema = z.object({ slides: z.array(slideSchema).min(1).max(10) })

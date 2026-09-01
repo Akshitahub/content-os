@@ -352,6 +352,11 @@ export interface StoryCompositeSlide {
    * matching PhoneStory's own fallback. */
   product_position_x?: number
   product_position_y?: number
+  /** Exact user-picked hex for the headline/subtext/poll text -- overrides
+   * the background-derived textColor/subColor buildBackgroundLayer
+   * computes below when set. See StorySlide.custom_text_color's own
+   * comment. */
+  custom_text_color?: string | null
 }
 
 /**
@@ -371,7 +376,15 @@ export async function renderStorySlidesToPng(slides: StoryCompositeSlide[]): Pro
 
   return Promise.all(
     slides.map(async (slide) => {
-      const { buffer: backgroundLayer, textColor, subColor } = await buildBackgroundLayer(slide)
+      const { buffer: backgroundLayer, textColor: bgTextColor, subColor: bgSubColor } = await buildBackgroundLayer(slide)
+      // Exact user-picked hex overrides the background-derived pairing for
+      // headline, subtext, AND poll text (buildTextOverlaySvg applies
+      // textColor to the headline and subColor to both subtext and poll) --
+      // unlike custom_background_colors there's no separate lighter/darker
+      // variant for text, just one color, matching PhoneStory's own
+      // customTextStyle applied uniformly across all three.
+      const textColor = slide.custom_text_color ?? bgTextColor
+      const subColor = slide.custom_text_color ?? bgSubColor
 
       const layers: { input: Buffer; top: number; left: number }[] = []
 
