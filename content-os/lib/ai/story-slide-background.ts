@@ -99,7 +99,15 @@ function buildStorySlidePrompt(niche: string | null, vibe: Vibe, colors: string[
   ].filter(Boolean).join(", ")
 }
 
-function simplifyStorySlidePrompt(vibe: Vibe): string {
+function simplifyStorySlidePrompt(vibe: Vibe, productImageUrl?: string | null): string {
+  // Same shorter/simplified spirit as the abstract-only fallback below,
+  // just reference-aware -- a retry with a real product photo attached
+  // still needs to stay in the photorealistic reference-image path (see
+  // buildStorySlidePrompt above), not fall back to an abstract gradient
+  // that would drop the product from the scene entirely.
+  if (productImageUrl) {
+    return wrapForReferenceImage([PHOTOGRAPHY_STYLE, REFERENCE_IMAGE_PEOPLE_GUARD, VIBE_BACKGROUND_STYLES[vibe]].join(", "))
+  }
   return [
     "abstract atmospheric vertical gradient background",
     VIBE_BACKGROUND_STYLES[vibe],
@@ -153,7 +161,7 @@ export async function generateStorySlideBackground(
   const colors = brandColors.length > 0 ? brandColors : VIBE_FALLBACK_COLORS[vibe]
 
   const prompt = buildStorySlidePrompt(options.brand.niche, vibe, colors, options.productImageUrl, options.textPosition)
-  const fallbackPrompt = simplifyStorySlidePrompt(vibe)
+  const fallbackPrompt = simplifyStorySlidePrompt(vibe, options.productImageUrl)
 
   return fetchBackgroundImage(prompt, fallbackPrompt, options.plan, options.isInternalUnlimitedUser, STORY_DIMENSIONS, options.productImageUrl)
 }

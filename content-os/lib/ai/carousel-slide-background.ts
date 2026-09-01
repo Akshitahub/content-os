@@ -111,7 +111,15 @@ function buildSlidePrompt(niche: string | null, vibe: Vibe, colors: string[], ro
   ].filter(Boolean).join(", ")
 }
 
-function simplifySlidePrompt(vibe: Vibe): string {
+function simplifySlidePrompt(vibe: Vibe, productImageUrl?: string | null): string {
+  // Same shorter/simplified spirit as the abstract-only fallback below,
+  // just reference-aware -- a retry with a real product photo attached
+  // still needs to stay in the photorealistic reference-image path (see
+  // buildSlidePrompt above), not fall back to an abstract gradient that
+  // would drop the product from the scene entirely.
+  if (productImageUrl) {
+    return wrapForReferenceImage([PHOTOGRAPHY_STYLE, REFERENCE_IMAGE_PEOPLE_GUARD, VIBE_BACKGROUND_STYLES[vibe]].join(", "))
+  }
   return [
     "abstract atmospheric gradient background",
     VIBE_BACKGROUND_STYLES[vibe],
@@ -165,7 +173,7 @@ export async function generateCarouselSlideBackground(
   const colors = brandColors.length > 0 ? brandColors : VIBE_FALLBACK_COLORS[vibe]
 
   const prompt = buildSlidePrompt(options.brand.niche, vibe, colors, options.role, options.productImageUrl, options.slideType)
-  const fallbackPrompt = simplifySlidePrompt(vibe)
+  const fallbackPrompt = simplifySlidePrompt(vibe, options.productImageUrl)
 
   return fetchBackgroundImage(prompt, fallbackPrompt, options.plan, options.isInternalUnlimitedUser, undefined, options.productImageUrl)
 }
