@@ -1,4 +1,14 @@
-import { fetchBackgroundImage, type BackgroundImageResult, type ImageDimensions } from "./post-image-pipeline"
+import {
+  fetchBackgroundImage,
+  wrapForReferenceImage,
+  PHOTOGRAPHY_STYLE,
+  NO_PEOPLE_BY_DEFAULT_GUARD,
+  REFERENCE_IMAGE_PEOPLE_GUARD,
+  POST_IMAGE_QUALITY_AND_NEGATIVE_GUARD,
+  CENTERED_COMPOSITION_GUARD,
+  type BackgroundImageResult,
+  type ImageDimensions,
+} from "./post-image-pipeline"
 import type { UserPlan } from "@/types/app"
 
 // Kept in sync with the SCENE_PROMPTS dict in components/generate/AdMaker.tsx
@@ -39,6 +49,14 @@ export interface GenerateAdMakerBackgroundOptions {
   format: AdMakerFormat
   plan: UserPlan
   isInternalUnlimitedUser: boolean
+  /** Real uploaded product photo (products.image_urls[0]), if the user picked
+   * a product for this ad. Only actually usable as a Flux image-to-image
+   * reference (see fetchAndCheckFluxImage in post-image-pipeline.ts) —
+   * still passed through even on plans that resolve to Pollinations, since
+   * it also switches the assembled prompt onto the reference-aware
+   * REFERENCE_IMAGE_PEOPLE_GUARD/wrapForReferenceImage path below, same as
+   * generatePostImage. */
+  productImageUrl?: string | null
 }
 
 /**
@@ -53,9 +71,36 @@ export async function generateAdMakerBackground(
 ): Promise<BackgroundImageResult> {
   const sceneDesc = resolveSceneDescription(options.scene, options.customScene)
   const niche = options.brandNiche || "lifestyle brand"
-  const prompt = `${sceneDesc}, ${niche} brand, no people, no text, no watermarks, no logos, photorealistic, 8K`
-  const fallbackPrompt = `${sceneDesc}, ${niche} brand, no text, no watermarks`
+  const hasReferenceImage = !!options.productImageUrl
   const dimensions = FORMAT_DIMENSIONS[options.format] ?? FORMAT_DIMENSIONS.square
 
-  return fetchBackgroundImage(prompt, fallbackPrompt, options.plan, options.isInternalUnlimitedUser, dimensions)
+  // Same reference-aware prompt assembly generatePostImage uses
+  // (post-image-pipeline.ts) — deterministic photography style + people/
+  // quality/composition guards layered on top of the scene description,
+  // wrapped for a real product reference photo when one's attached.
+  const sceneDescription = [
+    sceneDesc,
+    `${niche} brand`,
+    PHOTOGRAPHY_STYLE,
+    hasReferenceImage ? REFERENCE_IMAGE_PEOPLE_GUARD : NO_PEOPLE_BY_DEFAULT_GUARD,
+    CENTERED_COMPOSITION_GUARD,
+    POST_IMAGE_QUALITY_AND_NEGATIVE_GUARD,
+  ].filter(Boolean).join(", ")
+  const prompt = hasReferenceImage ? wrapForReferenceImage(sceneDescription) : sceneDescription
+
+  // Mirrors generatePostImage's retryPrompt/simplifyPrompt pattern: same
+  // guard stack, but built from a shorter core (the scene preset's first
+  // comma-separated segment) instead of its full description.
+  const core = sceneDesc.split(",")[0]?.trim() || sceneDesc.slice(0, 150)
+  const fallbackSceneDescription = [
+    core,
+    `${niche} brand`,
+    PHOTOGRAPHY_STYLE,
+    hasReferenceImage ? REFERENCE_IMAGE_PEOPLE_GUARD : NO_PEOPLE_BY_DEFAULT_GUARD,
+    CENTERED_COMPOSITION_GUARD,
+    POST_IMAGE_QUALITY_AND_NEGATIVE_GUARD,
+  ].filter(Boolean).join(", ")
+  const fallbackPrompt = hasReferenceImage ? wrapForReferenceImage(fallbackSceneDescription) : fallbackSceneDescription
+
+  return fetchBackgroundImage(prompt, fallbackPrompt, options.plan, options.isInternalUnlimitedUser, dimensions, options.productImageUrl)
 }

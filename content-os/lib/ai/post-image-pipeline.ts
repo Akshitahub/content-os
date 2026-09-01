@@ -366,7 +366,7 @@ const TECH_NICHE_KEYWORDS = ["tech", "software", "saas", "app", "digital product
 // the diffusion model something specific to aim for rather than falling
 // back to its generic stock-photo default. See
 // docs/research/post-imagery-diagnosis.md, issue 2.
-const PHOTOGRAPHY_STYLE = "professional product photography shot on a full-frame DSLR with an 85mm lens at f/2.8 for natural background blur, soft directional key light from the upper left with gentle fill, premium D2C brand aesthetic, high-detail commercial quality"
+export const PHOTOGRAPHY_STYLE = "professional product photography shot on a full-frame DSLR with an 85mm lens at f/2.8 for natural background blur, soft directional key light from the upper left with gentle fill, premium D2C brand aesthetic, high-detail commercial quality"
 
 // The single most effective lever against anatomy anomalies: a shot with
 // no people in it can't have an extra-limb problem at all. Biases every
@@ -376,7 +376,7 @@ const PHOTOGRAPHY_STYLE = "professional product photography shot on a full-frame
 // counting-language strengthening of POST_IMAGE_QUALITY_AND_NEGATIVE_GUARD
 // below is the second layer of defense for the cases where a person is
 // still shown, not the only one.
-const NO_PEOPLE_BY_DEFAULT_GUARD = "prefer product-only or environmental/lifestyle framing with no visible people, unless the product or scene specifically requires a person (e.g. an apparel item worn on a body, a hand actively demonstrating product use) — when a person isn't genuinely needed, exclude people from the frame entirely rather than including one incidentally"
+export const NO_PEOPLE_BY_DEFAULT_GUARD = "prefer product-only or environmental/lifestyle framing with no visible people, unless the product or scene specifically requires a person (e.g. an apparel item worn on a body, a hand actively demonstrating product use) — when a person isn't genuinely needed, exclude people from the frame entirely rather than including one incidentally"
 
 // Used instead of NO_PEOPLE_BY_DEFAULT_GUARD on the reference-image path
 // only. Confirmed live (2026-08-26): for a real product whose only
@@ -392,7 +392,7 @@ const NO_PEOPLE_BY_DEFAULT_GUARD = "prefer product-only or environmental/lifesty
 // proportions from an attached photo rather than hallucinating a person —
 // so relaxing the bias specifically here doesn't reintroduce the problem
 // that guard exists to prevent.
-const REFERENCE_IMAGE_PEOPLE_GUARD = "if the reference photo shows the product being worn, held, or used by a person, you may keep a person wearing or holding it in the new scene to preserve the product's real fit, drape, and appearance — do not try to isolate or extract the product away from a person if that would change how it naturally appears; if the reference photo shows the product on its own with no person, keep the new scene product-only as well"
+export const REFERENCE_IMAGE_PEOPLE_GUARD = "if the reference photo shows the product being worn, held, or used by a person, you may keep a person wearing or holding it in the new scene to preserve the product's real fit, drape, and appearance — do not try to isolate or extract the product away from a person if that would change how it naturally appears; if the reference photo shows the product on its own with no person, keep the new scene product-only as well"
 
 // Posts-specific quality + negative-artifact language — deliberately NOT
 // lib/ai/prompts.ts's shared IMAGE_QUALITY_SAFETY_BOILERPLATE (also used by
@@ -432,14 +432,14 @@ const REFERENCE_IMAGE_PEOPLE_GUARD = "if the reference photo shows the product b
 // correctness phrasing, which reportedly wasn't enough to reliably prevent
 // extra-limb anomalies (e.g. a woman with three hands). Also adds general
 // surface-cleanliness language the guard previously lacked entirely.
-const POST_IMAGE_QUALITY_AND_NEGATIVE_GUARD = "no text, no watermarks, no logos, no illegible text or symbols, no social media UI elements, no usernames or @handles, no URLs or website addresses, no 'link in bio' or similar caption-style text, no fake app interface elements, if any people are shown: exactly two arms and two hands per person, five fingers per hand, no extra or duplicated limbs, no merged or fused body parts, no distorted or extra fingers, anatomically normal human proportions, natural hand positioning, authentic unretouched skin texture with natural imperfections, not a 3D render, not CGI, not a digital illustration, not an AI-generated look, avoid airbrushed or over-smoothed skin, avoid plastic or waxy-looking surfaces, avoid unnaturally perfect symmetry, no blemishes, no visual artifacts, no compression artifacts, no random marks or smudges, no color banding, clean unmarked surface, the main subject rendered in crisp sharp focus with clearly resolved fine detail, not soft, hazy, or out of focus"
+export const POST_IMAGE_QUALITY_AND_NEGATIVE_GUARD = "no text, no watermarks, no logos, no illegible text or symbols, no social media UI elements, no usernames or @handles, no URLs or website addresses, no 'link in bio' or similar caption-style text, no fake app interface elements, if any people are shown: exactly two arms and two hands per person, five fingers per hand, no extra or duplicated limbs, no merged or fused body parts, no distorted or extra fingers, anatomically normal human proportions, natural hand positioning, authentic unretouched skin texture with natural imperfections, not a 3D render, not CGI, not a digital illustration, not an AI-generated look, avoid airbrushed or over-smoothed skin, avoid plastic or waxy-looking surfaces, avoid unnaturally perfect symmetry, no blemishes, no visual artifacts, no compression artifacts, no random marks or smudges, no color banding, clean unmarked surface, the main subject rendered in crisp sharp focus with clearly resolved fine detail, not soft, hazy, or out of focus"
 
 // Now that the target canvas is 4:5 portrait (see PORTRAIT_DIMENSIONS
 // above), Instagram's profile-grid preview crops it further to 3:4 — tighter
 // than the 4:5 feed view. Keeping the subject and any key visual detail
 // centered means it survives that extra crop instead of being clipped at
 // the top/bottom edges.
-const CENTERED_COMPOSITION_GUARD = "keep the main subject, text, logos, and key visual elements centered in the frame — avoid placing them in the outer ~10% margin on any side"
+export const CENTERED_COMPOSITION_GUARD = "keep the main subject, text, logos, and key visual elements centered in the frame — avoid placing them in the outer ~10% margin on any side"
 
 // The only two genuinely unbounded pieces of the assembled prompt below —
 // everything else (niche setting, negative guard, photography style,
@@ -525,7 +525,7 @@ function buildNegativeGuard(niche: string | null): string {
 // something the model must not drop), with explicit negative language
 // against the product being omitted, obscured, or swapped — same
 // positive+negative pairing convention as the rest of this file.
-function wrapForReferenceImage(sceneDescription: string): string {
+export function wrapForReferenceImage(sceneDescription: string): string {
   return `The attached reference photo shows the real product — replicate its exact appearance (shape, color, packaging, and label) faithfully into a single new photograph of this scene: ${sceneDescription}. The reference product must be clearly visible, in focus, and recognizable as the central subject — do not omit it, crop it out of frame, obscure it behind other objects, or substitute a different item in its place. Output must be ONE seamless photograph only, photographed once from a single camera angle — not a comparison, not a before/after, not a split image, not a side-by-side, not a collage, not multiple panels or frames; one continuous scene with the exact reference product naturally placed in it and clearly visible.`
 }
 
