@@ -16,6 +16,8 @@ const schema = z.object({
   brandId: z.string().uuid(),
   vibe: z.enum(STORY_VIBES).optional(),
   role: z.enum(["hook", "cta", "body"]),
+  productImageUrl: z.string().url().optional(),
+  textPosition: z.enum(["top", "center", "bottom"]).optional(),
 })
 
 // Chains up to 3 sequential external calls (first attempt, retry, and a
@@ -37,9 +39,12 @@ export const maxDuration = 60
  * generation — the client just keeps the existing flat vibe-color slide.
  *
  * hook/cta stay unmetered (bundled into the story generation's own
- * charge, as before) — only "body" spends real credits
- * (STORY_SLIDE_AI_BACKGROUND per slide), since that's the genuinely new,
- * uncapped-count cost surface a user opts into. Neither role is gated by
+ * charge, as before) in the no-product case — only "body" spends real
+ * credits (STORY_SLIDE_AI_BACKGROUND per slide), since that's the
+ * genuinely new, uncapped-count cost surface a user opts into. A real
+ * productImageUrl reference photo charges regardless of role, though —
+ * a photorealistic reference-image generation is that same new cost
+ * surface no matter which slide it's attached to. Neither role is gated by
  * plan (Stories has never gated either slide — see carouselCtaAiBackground
  * for the carousel equivalent that does gate its CTA slide).
  */
@@ -56,7 +61,7 @@ export async function POST(request: Request) {
   const parsed = schema.safeParse(body)
   if (!parsed.success) return NextResponse.json(buildError(ErrorCodes.VALIDATION_ERROR, "Validation failed.", parsed.error.message), { status: 400 })
 
-  const { brandId, vibe, role } = parsed.data
+  const { brandId, vibe, role, productImageUrl, textPosition } = parsed.data
 
   const { data: brand } = await supabase.from("brands").select("*").eq("id", brandId).eq("user_id", user.id).single<BrandRow>()
   if (!brand) return NextResponse.json(buildError(ErrorCodes.BRAND_NOT_FOUND, "Brand not found."), { status: 404 })
@@ -65,11 +70,16 @@ export async function POST(request: Request) {
   const plan: UserPlan = userData?.plan ?? "starter"
   const isUnlimited = isInternalUnlimited(user.id)
 
-  // "body" is the only role that actually spends credits — checked and
-  // charged up front, same pattern as every other paid generation route,
-  // refunded below if generation or upload ends up failing.
+  // "body" always spends credits, same as before. A hook/cta slide is
+  // still free in the no-product case (bundled into the story generation's
+  // own charge), but a real product reference photo is a genuinely new,
+  // uncapped-count cost surface regardless of which slide it's attached
+  // to — so it charges here too. Checked and charged up front, same
+  // pattern as every other paid generation route, refunded below if
+  // generation or upload ends up failing.
+  const isChargeable = role === "body" || !!productImageUrl
   let usageLogId: string | null = null
-  if (role === "body") {
+  if (isChargeable) {
     const usageCheck = await checkAndIncrementUsage(user.id, STORY_SLIDE_AI_BACKGROUND, "story_slide_bg_body")
     if (!usageCheck.ok) {
       const code = usageCheck.status === 429 ? ErrorCodes.USAGE_LIMIT_EXCEEDED : ErrorCodes.INTERNAL_ERROR
@@ -85,12 +95,14 @@ export async function POST(request: Request) {
     plan,
     isInternalUnlimitedUser: isUnlimited,
     role,
+    productImageUrl,
+    textPosition,
   })
   const latencyMs = Date.now() - startTime
 
   if (!result.success) {
     console.error(`[ai/stories/slide-image/generate] generation failed after ${latencyMs}ms (role=${role}):`, result.error)
-    if (role === "body") await refundGenerationUsage(supabase, user.id, STORY_SLIDE_AI_BACKGROUND, usageLogId)
+    if (isChargeable) await refundGenerationUsage(supabase, user.id, STORY_SLIDE_AI_BACKGROUND, usageLogId)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await (supabase.from("ai_generation_logs") as any).insert({
       user_id: user.id, brand_id: brandId, feature: `story_slide_bg_${role}`, model: "unknown",
@@ -108,7 +120,7 @@ export async function POST(request: Request) {
 
   if ("error" in uploadResult) {
     console.error(`[ai/stories/slide-image/generate] upload failed (role=${role}):`, uploadResult.error)
-    if (role === "body") await refundGenerationUsage(supabase, user.id, STORY_SLIDE_AI_BACKGROUND, usageLogId)
+    if (isChargeable) await refundGenerationUsage(supabase, user.id, STORY_SLIDE_AI_BACKGROUND, usageLogId)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await (supabase.from("ai_generation_logs") as any).insert({
       user_id: user.id, brand_id: brandId, feature: `story_slide_bg_${role}`, model: provider,

@@ -1,4 +1,12 @@
-import { fetchBackgroundImage, type BackgroundImageResult, type ImageDimensions } from "./post-image-pipeline"
+import {
+  fetchBackgroundImage,
+  wrapForReferenceImage,
+  PHOTOGRAPHY_STYLE,
+  REFERENCE_IMAGE_PEOPLE_GUARD,
+  POST_IMAGE_QUALITY_AND_NEGATIVE_GUARD,
+  type BackgroundImageResult,
+  type ImageDimensions,
+} from "./post-image-pipeline"
 import { type Vibe, DEFAULT_VIBE, VIBE_BACKGROUND_STYLES, VIBE_FALLBACK_COLORS, ABSTRACT_SAFETY_BOILERPLATE, describeColor } from "./vibe-background-styles"
 import type { UserPlan } from "@/types/app"
 import type { BrandRow } from "@/types/database"
@@ -35,11 +43,49 @@ function resolveBrandColors(brand: BrandRow): string[] {
 // niche (a short, generic category descriptor, not a message anyone
 // would expect rendered as text) replaces the slide's own text for
 // whatever topical grounding is still useful.
-function buildStorySlidePrompt(niche: string | null, vibe: Vibe, colors: string[]): string {
+// Names the region OPPOSITE the slide's own text_position as the one to
+// keep visually calm — a "top" slide overlays its text near the top, so
+// the product/scene detail is free to be busier there as long as the top
+// stays clear, and vice versa. Mirrors the abstract prompt's "keep the
+// vertical center calm" line, just position-aware instead of always
+// centering, since a real photograph (unlike an abstract gradient) has
+// actual subject detail worth NOT flattening everywhere.
+function resolveTextSafeZoneGuard(textPosition?: "top" | "center" | "bottom"): string {
+  if (textPosition === "top") {
+    return "leave the lower two-thirds of the frame simpler so the product remains the visual focus, keeping the top third calm and uncluttered for a text overlay"
+  }
+  if (textPosition === "bottom") {
+    return "leave the upper two-thirds of the frame simpler so the product remains the visual focus, keeping the bottom third calm and uncluttered for a text overlay"
+  }
+  return "leave generous calm negative space around the vertical center for a text overlay"
+}
+
+function buildStorySlidePrompt(niche: string | null, vibe: Vibe, colors: string[], productImageUrl?: string | null, textPosition?: "top" | "center" | "bottom"): string {
   // Descriptive color names, not raw hex — diffusion models reliably follow
   // "a vibrant orange-red" but ignore "#FF5733" outright, confirmed via real
   // testing (see docs/research/seedream-5-lite-evaluation.md).
   const colorNames = colors.map(describeColor).filter((c): c is string => !!c).slice(0, 3)
+
+  // A real uploaded product photo switches this from an abstract gradient
+  // background to a genuine photorealistic scene with the product placed
+  // in it (same reference-image prompt pieces Post/Ad Maker already use,
+  // see lib/ai/post-image-pipeline.ts) — the slide's own text is still
+  // overlaid client-side afterward (StorySequence.tsx), so this only needs
+  // to keep the text's own safe zone calm, not avoid rendering text itself
+  // the way the abstract-only prompt below does.
+  if (productImageUrl) {
+    const sceneDescription = [
+      PHOTOGRAPHY_STYLE,
+      REFERENCE_IMAGE_PEOPLE_GUARD,
+      niche ? `${niche} brand` : "",
+      VIBE_BACKGROUND_STYLES[vibe],
+      colorNames.length > 0 ? `color palette inspired by ${colorNames.join(" and ")}` : "",
+      resolveTextSafeZoneGuard(textPosition),
+      POST_IMAGE_QUALITY_AND_NEGATIVE_GUARD,
+    ].filter(Boolean).join(", ")
+    return wrapForReferenceImage(sceneDescription)
+  }
+
   return [
     "abstract atmospheric vertical background image for a full-screen phone story slide",
     VIBE_BACKGROUND_STYLES[vibe],
@@ -75,6 +121,16 @@ export interface GenerateStorySlideBackgroundOptions {
    * closing-mood line, Stories' prompt has never varied by role) — kept
    * only so the route can log/meter by role. */
   role: "hook" | "cta" | "body"
+  /** Real uploaded product photo, if the user attached one — switches the
+   * prompt from abstract-only to a photorealistic reference-image scene
+   * (see buildStorySlidePrompt) and is passed through to
+   * fetchBackgroundImage as a genuine Flux image-to-image reference. */
+  productImageUrl?: string | null
+  /** The slide's own text_position, already known by the caller before
+   * this request fires — used only to pick which region of the
+   * photorealistic scene to keep calm for the text overlay (see
+   * resolveTextSafeZoneGuard); has no effect on the abstract-only prompt. */
+  textPosition?: "top" | "center" | "bottom"
 }
 
 /**
@@ -96,8 +152,8 @@ export async function generateStorySlideBackground(
   const brandColors = resolveBrandColors(options.brand)
   const colors = brandColors.length > 0 ? brandColors : VIBE_FALLBACK_COLORS[vibe]
 
-  const prompt = buildStorySlidePrompt(options.brand.niche, vibe, colors)
+  const prompt = buildStorySlidePrompt(options.brand.niche, vibe, colors, options.productImageUrl, options.textPosition)
   const fallbackPrompt = simplifyStorySlidePrompt(vibe)
 
-  return fetchBackgroundImage(prompt, fallbackPrompt, options.plan, options.isInternalUnlimitedUser, STORY_DIMENSIONS)
+  return fetchBackgroundImage(prompt, fallbackPrompt, options.plan, options.isInternalUnlimitedUser, STORY_DIMENSIONS, options.productImageUrl)
 }
