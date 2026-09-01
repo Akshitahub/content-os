@@ -107,7 +107,7 @@ function slideShowsProduct(type: StorySlide["type"], total: number): boolean {
   return type === "reveal" || type === "cta" || (total === 1 && type === "hook")
 }
 
-type SlideBackgroundResult = { url: string; provider?: "pollinations" | "flux" } | { error: "insufficient_credits" | "failed" }
+type SlideBackgroundResult = { url: string; provider: "pollinations" | "flux" } | { error: "insufficient_credits" | "failed" }
 
 async function fetchSlideBackgroundResult(
   brandId: string,
@@ -129,7 +129,11 @@ async function fetchSlideBackgroundResult(
     if (res.status === 429) return { error: "insufficient_credits" }
     if (!res.ok) return { error: "failed" }
     const json = await res.json() as { data?: { public_url?: string; provider?: "pollinations" | "flux" } }
-    return json.data?.public_url ? { url: json.data.public_url, provider: json.data.provider } : { error: "failed" }
+    // A public_url with no provider would be an incomplete/malformed
+    // response -- treated the same as any other failure rather than
+    // storing a background with an unknown provider (which PhoneStory's
+    // "!== flux" overlay gating needs to be trustworthy either way).
+    return json.data?.public_url && json.data.provider ? { url: json.data.public_url, provider: json.data.provider } : { error: "failed" }
   } catch {
     return { error: "failed" }
   }
@@ -146,7 +150,7 @@ async function fetchSlideBackground(
   role: "hook" | "cta",
   productImageUrl?: string | null,
   textPosition?: StorySlide["text_position"]
-): Promise<{ url: string; provider?: "pollinations" | "flux" } | null> {
+): Promise<{ url: string; provider: "pollinations" | "flux" } | null> {
   const result = await fetchSlideBackgroundResult(brandId, vibe, role, productImageUrl, textPosition)
   return "url" in result ? { url: result.url, provider: result.provider } : null
 }
@@ -649,21 +653,19 @@ export function StorySequence({ brandId }: { brandId: string }) {
           // slow/failed image call never blocks or breaks story generation
           // itself. fetchSlideBackground never throws, so Promise.all here
           // always resolves.
-          const total = savedStories.length
           const bgTargets = savedStories
             .map((slide, i) => ({ slide, i }))
             .filter((t): t is { slide: StorySlide & { type: "hook" | "cta" }; i: number } => t.slide.type === "hook" || t.slide.type === "cta")
 
-          const results = await Promise.all(bgTargets.map(({ slide }) => {
-            const usesProduct = !!selectedProduct && slideShowsProduct(slide.type, total)
-            return fetchSlideBackground(
+          const results = await Promise.all(bgTargets.map(({ slide }) =>
+            fetchSlideBackground(
               brandId,
               vibe,
               slide.type,
-              usesProduct ? (selectedProduct?.imageUrl ?? null) : undefined,
-              usesProduct ? slide.text_position : undefined
+              selectedProduct?.imageUrl ?? undefined,
+              slide.text_position
             )
-          }))
+          ))
           if (generationIdRef.current !== genId) return
 
           const updated = [...savedStories]
@@ -688,7 +690,10 @@ export function StorySequence({ brandId }: { brandId: string }) {
           for (let n = 0; n < bodyIndices.length; n++) {
             setBodyBgProgress({ current: n + 1, total: bodyIndices.length })
             const bodySlide = savedStories[bodyIndices[n]!]!
-            const usesProduct = !!selectedProduct && slideShowsProduct(bodySlide.type, total)
+            // Matches PhoneStory's existing product-overlay condition
+            // exactly -- it never shows the product on "buildup" slides
+            // today, and this shouldn't change that.
+            const usesProduct = bodySlide.type === "reveal" && !!selectedProduct
             const result = await fetchSlideBackgroundResult(
               brandId,
               vibe,
