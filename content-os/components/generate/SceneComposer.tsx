@@ -4,6 +4,7 @@ import { useState, useRef, useCallback, useEffect } from "react"
 import { Upload, Wand2, Download, Loader2, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
+import { isApiError } from "@/types/api"
 
 const SCENE_PRESETS = [
   "Studio white",
@@ -18,7 +19,7 @@ interface SceneComposerProps {
   brandId: string
 }
 
-export function SceneComposer({ brandId: _brandId }: SceneComposerProps) {
+export function SceneComposer({ brandId }: SceneComposerProps) {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   // This tab stays mounted even while a different Create tab is active
@@ -121,9 +122,27 @@ export function SceneComposer({ brandId: _brandId }: SceneComposerProps) {
     setComposeError(null)
     setResultDataUrl(null)
 
+    // Routes through the billed generate-from-upload pipeline (plan-based
+    // Pollinations/Flux resolution, quality checks, a real reference-image
+    // path for Flux) instead of a raw client-side Pollinations fetch — this
+    // tab previously never called a billed route at all.
     try {
-      const bgPrompt = encodeURIComponent(`${sceneDescription.trim()}, product photography background, high quality, 8k`)
-      const bgUrl = `https://image.pollinations.ai/prompt/${bgPrompt}?width=1080&height=1080&seed=${Date.now() % 9999}&nologo=true&model=flux`
+      const res = await fetch("/api/v1/ai/images/generate-from-upload", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          brandId,
+          sceneDescription: sceneDescription.trim(),
+          productImageBase64: removedBgDataUrl,
+        }),
+      })
+      const json: unknown = await res.json()
+      if (!res.ok || isApiError(json)) {
+        setComposeError(isApiError(json) ? json.error.message : "Couldn't compose the scene. Please try again.")
+        setCompositing(false)
+        return
+      }
+      const { public_url, provider } = (json as { data: { public_url: string; provider: string } }).data
 
       await new Promise<void>((resolve, reject) => {
         const canvas = canvasRef.current
@@ -135,9 +154,21 @@ export function SceneComposer({ brandId: _brandId }: SceneComposerProps) {
 
         const bg = new Image()
         bg.crossOrigin = "anonymous"
-        bg.src = bgUrl
+        bg.src = public_url
         bg.onload = () => {
           ctx.drawImage(bg, 0, 0, 1080, 1080)
+
+          // Flux already places the product realistically in the scene
+          // itself (see the route's reference-image prompt path) — pasting
+          // the cutout again on top would double it up, same as
+          // AdMaker.tsx's Flux branch. Pollinations has no image-to-image
+          // capability, so it still needs today's client-side paste.
+          if (provider === "flux") {
+            setResultDataUrl(canvas.toDataURL("image/png"))
+            resolve()
+            return
+          }
+
           const fg = new Image()
           fg.src = removedBgDataUrl
           fg.onload = () => {
@@ -153,14 +184,14 @@ export function SceneComposer({ brandId: _brandId }: SceneComposerProps) {
           }
           fg.onerror = () => reject(new Error("Failed to load product image"))
         }
-        bg.onerror = () => reject(new Error("Failed to load background. Pollinations may be slow, try again"))
+        bg.onerror = () => reject(new Error("Failed to load the generated scene. Please try again."))
       })
     } catch (err) {
       setComposeError(err instanceof Error ? err.message : "Composition failed")
     } finally {
       setCompositing(false)
     }
-  }, [removedBgDataUrl, sceneDescription])
+  }, [removedBgDataUrl, sceneDescription, brandId])
 
   function handleDownload() {
     if (!resultDataUrl) return
