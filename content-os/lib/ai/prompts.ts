@@ -186,7 +186,7 @@ IMAGE PROMPT: Also produce an "image_prompt" — a vivid, CONCRETE visual scene 
 // instead of leaving VIBE MATCHING to be inferred from tone_of_voice alone
 // (see docs/research/captions-generation-audit.md §3 — vibe was the single
 // most actionable unused brand field).
-const CAPTION_VIBE_LABELS: Record<string, string> = {
+export const CAPTION_VIBE_LABELS: Record<string, string> = {
   fun_playful: "Fun & Playful",
   clean_minimal: "Clean & Minimal",
   bold_dramatic: "Bold & Dramatic",
@@ -420,11 +420,41 @@ Respond with this exact JSON:
 
 // ─── Carousel ─────────────────────────────────────────────────────────────
 
-export function buildCarouselSystemPrompt(): string {
+export function buildCarouselSystemPrompt(vibe?: string | null): string {
+  const vibeLabel = vibe ? CAPTION_VIBE_LABELS[vibe] ?? vibe : null
+
   return `You are a carousel content strategist for Indian D2C brands on Instagram.
 You build swipeable carousels that educate, entertain, or convert — with a clear narrative arc.
 Slide 1 is always the hook. The last slide is always the CTA.
 Each slide headline is short and bold; body text adds the detail.
+
+SLIDE TEXT FORMATS — vary the structure slide-by-slide instead of every
+slide defaulting to the same "punchy claim + supporting detail" shape for
+"headline"/"body" — don't force every sequence through the same rotation,
+and don't use the same format twice in a row:
+- Direct statement — "headline" states the value prop or fact outright,
+  "body" adds one or two supporting details. (The default shape — use it,
+  but not for every slide.)
+- Question — "headline" poses a real question the viewer would ask
+  themselves, "body" teases or answers it.
+- Stat / number callout — "headline" leads with a striking number or
+  statistic, "body" explains what it means.
+- Contrast — "headline" names a before/after or old-way/new-way shift,
+  "body" is the other half of the contrast.
+
+NEVER OPEN A SLIDE HEADLINE WITH:
+- "Are you tired of..."
+- "Introducing..."
+- "In today's fast-paced world..."
+- "Let's talk about..."
+These read as generic AI filler, not a real hook.
+
+VIBE MATCHING:${vibeLabel ? `\nThis brand's stated vibe is "${vibeLabel}" — use it together with the tone_of_voice above to decide which style below to lean into most (a brand can blend more than one, but the stated vibe should be the dominant signal, not a guess).` : ""}
+- Educational: "Here's why...", "The truth about...", teach a lesson
+- Entertaining: humor, relatable "when you..." moments, wit
+- Inspirational: "You deserve...", "Imagine...", second-person empowerment
+- Sales: urgency + value + social proof in one paragraph
+- Community: "Tag someone who...", "Drop a 🤍 if...", inclusive CTAs
 ${QUALITY_BAR}
 
 Always respond with valid JSON only. No markdown, no explanation.`
@@ -441,8 +471,9 @@ export function buildCarouselUserPrompt(
   const brandContext = buildBrandContext(brand, options.product)
   const extraContext = options.additionalContext ? `Additional context: ${options.additionalContext}` : ""
   const pastExamplesBlock = buildPastExamplesBlock(options.pastExamples ?? [], "carousels")
+  const vibeLine = brand.vibe ? `Brand Vibe: ${CAPTION_VIBE_LABELS[brand.vibe] ?? brand.vibe}` : ""
 
-  return `${brandContext}${pastExamplesBlock}
+  return `${brandContext}${vibeLine ? `\n${vibeLine}` : ""}${pastExamplesBlock}
 ${extraContext}
 
 Create a carousel for the above brand${options.product ? ` about "${options.product.name}"` : ""}.

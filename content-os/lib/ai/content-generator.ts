@@ -78,7 +78,7 @@ function buildPrompts(
       }
     case "carousel":
       return {
-        system: buildCarouselSystemPrompt(),
+        system: buildCarouselSystemPrompt(brand.vibe),
         user: buildCarouselUserPrompt(brand, options),
         reasoningEffort: "medium",
         maxTokens: 3000,
