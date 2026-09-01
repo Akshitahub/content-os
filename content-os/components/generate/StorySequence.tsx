@@ -342,14 +342,6 @@ function PhoneStory({
               </p>
             )}
           </div>
-
-          {/* Tap to continue hint -- pinned to the bottom edge directly
-              now that the content block above is out of normal flow
-              (absolutely positioned for free dragging), rather than
-              relying on a flex-1 sibling pushing it down. */}
-          {index < total - 1 && (
-            <p className={`absolute z-10 bottom-0 inset-x-0 pb-3 text-center text-[9px] ${subColor}`}>Tap to continue →</p>
-          )}
         </div>
       </div>
 
