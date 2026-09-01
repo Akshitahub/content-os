@@ -16,6 +16,8 @@ const schema = z.object({
   brandId: z.string().uuid(),
   vibe: z.enum(CAROUSEL_VIBES).optional(),
   role: z.enum(["hook", "cta", "body"]),
+  productImageUrl: z.string().url().optional(),
+  slideType: z.enum(["cover", "content", "cta"]).optional(),
 })
 
 // Chains up to 3 sequential external calls (first attempt, retry, and a
@@ -37,9 +39,13 @@ export const maxDuration = 60
  * existing flat vibe-color slide.
  *
  * hook/cta stay unmetered (bundled into the carousel generation's own
- * charge, as before) — only "body" spends real credits
- * (CAROUSEL_SLIDE_AI_BACKGROUND per slide), since that's the genuinely
- * new, uncapped-count cost surface a user opts into.
+ * charge, as before) in the no-product case — only "body" spends real
+ * credits (CAROUSEL_SLIDE_AI_BACKGROUND per slide), since that's the
+ * genuinely new, uncapped-count cost surface a user opts into. A real
+ * productImageUrl reference photo charges regardless of role, though —
+ * a photorealistic reference-image generation is that same new cost
+ * surface no matter which slide it's attached to (same reasoning as
+ * Stories' equivalent route).
  */
 export async function POST(request: Request) {
   const supabase = await createClient()
@@ -54,7 +60,7 @@ export async function POST(request: Request) {
   const parsed = schema.safeParse(body)
   if (!parsed.success) return NextResponse.json(buildError(ErrorCodes.VALIDATION_ERROR, "Validation failed.", parsed.error.message), { status: 400 })
 
-  const { brandId, vibe, role } = parsed.data
+  const { brandId, vibe, role, productImageUrl, slideType } = parsed.data
 
   const { data: brand } = await supabase.from("brands").select("*").eq("id", brandId).eq("user_id", user.id).single<BrandRow>()
   if (!brand) return NextResponse.json(buildError(ErrorCodes.BRAND_NOT_FOUND, "Brand not found."), { status: 404 })
@@ -75,11 +81,16 @@ export async function POST(request: Request) {
     )
   }
 
-  // "body" is the only role that actually spends credits — checked and
-  // charged up front, same pattern as every other paid generation route,
-  // refunded below if generation or upload ends up failing.
+  // "body" always spends credits, same as before. A hook/cta slide is
+  // still free in the no-product case (bundled into the carousel
+  // generation's own charge), but a real product reference photo is a
+  // genuinely new, uncapped-count cost surface regardless of which slide
+  // it's attached to — so it charges here too. Checked and charged up
+  // front, same pattern as every other paid generation route, refunded
+  // below if generation or upload ends up failing.
+  const isChargeable = role === "body" || !!productImageUrl
   let usageLogId: string | null = null
-  if (role === "body") {
+  if (isChargeable) {
     const usageCheck = await checkAndIncrementUsage(user.id, CAROUSEL_SLIDE_AI_BACKGROUND, "carousel_slide_bg_body")
     if (!usageCheck.ok) {
       const code = usageCheck.status === 429 ? ErrorCodes.USAGE_LIMIT_EXCEEDED : ErrorCodes.INTERNAL_ERROR
@@ -95,12 +106,14 @@ export async function POST(request: Request) {
     plan,
     isInternalUnlimitedUser: isUnlimited,
     role,
+    productImageUrl,
+    slideType,
   })
   const latencyMs = Date.now() - startTime
 
   if (!result.success) {
     console.error(`[ai/carousel/slide-image/generate] generation failed after ${latencyMs}ms (role=${role}):`, result.error)
-    if (role === "body") await refundGenerationUsage(supabase, user.id, CAROUSEL_SLIDE_AI_BACKGROUND, usageLogId)
+    if (isChargeable) await refundGenerationUsage(supabase, user.id, CAROUSEL_SLIDE_AI_BACKGROUND, usageLogId)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await (supabase.from("ai_generation_logs") as any).insert({
       user_id: user.id, brand_id: brandId, feature: `carousel_slide_bg_${role}`, model: "unknown",
@@ -123,7 +136,7 @@ export async function POST(request: Request) {
 
   if ("error" in uploadResult) {
     console.error(`[ai/carousel/slide-image/generate] upload failed (role=${role}):`, uploadResult.error)
-    if (role === "body") await refundGenerationUsage(supabase, user.id, CAROUSEL_SLIDE_AI_BACKGROUND, usageLogId)
+    if (isChargeable) await refundGenerationUsage(supabase, user.id, CAROUSEL_SLIDE_AI_BACKGROUND, usageLogId)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await (supabase.from("ai_generation_logs") as any).insert({
       user_id: user.id, brand_id: brandId, feature: `carousel_slide_bg_${role}`, model: provider,
@@ -143,5 +156,5 @@ export async function POST(request: Request) {
     latency_ms: latencyMs, success: true,
   })
 
-  return NextResponse.json({ data: { public_url: uploadResult.publicUrl, role } }, { status: 200 })
+  return NextResponse.json({ data: { public_url: uploadResult.publicUrl, role, provider } }, { status: 200 })
 }
