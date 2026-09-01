@@ -38,6 +38,15 @@ interface CarouselSlideRich {
    * back to the carousels row, so a saved carousel in the Library never
    * actually had its images in the database. */
   image_url?: string | null
+  /** Client-only, set alongside image_url above from the same
+   * /api/v1/ai/carousel/slide-image/generate response — which provider
+   * actually produced it. Used by SlidePreview to skip the redundant
+   * productImage corner overlay for a "flux" background, since a Flux
+   * image-to-image reference generation already has the real product
+   * realistically placed in the scene itself (unlike "pollinations",
+   * which has no image-to-image capability and still needs that
+   * overlay). Same field/reasoning as Stories' StorySlide.background_image_provider. */
+  background_image_provider?: "pollinations" | "flux"
   /** Set when this slide (or, from the "Custom color" Vibe option, every
    * slide in the carousel at once) uses an exact user-picked flat/gradient
    * color instead of an AI-generated image or a named background_style --
@@ -176,19 +185,27 @@ function withCtaSlideMerged(data: GeneratedCarousel): GeneratedCarousel {
 // distinction; fetchSlideBackground wraps it back down to the simpler
 // null-on-any-failure shape hook/cta (which are never credit-gated) have
 // always used.
-type SlideBackgroundResult = { url: string } | { error: "insufficient_credits" | "failed" }
+type SlideBackgroundResult = { url: string; provider?: "pollinations" | "flux" } | { error: "insufficient_credits" | "failed" }
 
-async function fetchSlideBackgroundResult(brandId: string, vibe: Vibe | undefined, role: "hook" | "cta" | "body"): Promise<SlideBackgroundResult> {
+async function fetchSlideBackgroundResult(
+  brandId: string,
+  vibe: Vibe | undefined,
+  role: "hook" | "cta" | "body",
+  productImageUrl?: string | null,
+  slideType?: SlideType
+): Promise<SlideBackgroundResult> {
   try {
     const res = await fetch("/api/v1/ai/carousel/slide-image/generate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ brandId, vibe, role }),
+      // Converts a null productImageUrl (no product selected) to
+      // undefined so JSON.stringify omits the key entirely.
+      body: JSON.stringify({ brandId, vibe, role, productImageUrl: productImageUrl ?? undefined, slideType }),
     })
     if (res.status === 429) return { error: "insufficient_credits" }
     if (!res.ok) return { error: "failed" }
-    const json = await res.json() as { data?: { public_url?: string } }
-    return json.data?.public_url ? { url: json.data.public_url } : { error: "failed" }
+    const json = await res.json() as { data?: { public_url?: string; provider?: "pollinations" | "flux" } }
+    return json.data?.public_url ? { url: json.data.public_url, provider: json.data.provider } : { error: "failed" }
   } catch {
     return { error: "failed" }
   }
@@ -201,9 +218,15 @@ async function fetchSlideBackgroundResult(brandId: string, vibe: Vibe | undefine
 // background gets a 403, handled the same as any other failure here
 // rather than as a special case). Neither role is credit-gated, so the
 // insufficient_credits/failed distinction never matters here.
-async function fetchSlideBackground(brandId: string, vibe: Vibe | undefined, role: "hook" | "cta"): Promise<string | null> {
-  const result = await fetchSlideBackgroundResult(brandId, vibe, role)
-  return "url" in result ? result.url : null
+async function fetchSlideBackground(
+  brandId: string,
+  vibe: Vibe | undefined,
+  role: "hook" | "cta",
+  productImageUrl?: string | null,
+  slideType?: SlideType
+): Promise<{ url: string; provider?: "pollinations" | "flux" } | null> {
+  const result = await fetchSlideBackgroundResult(brandId, vibe, role, productImageUrl, slideType)
+  return "url" in result ? { url: result.url, provider: result.provider } : null
 }
 
 // ─── Draggable text positioning ────────────────────────────────────────────────
@@ -307,8 +330,14 @@ function SlidePreview({
         <div className="absolute inset-0 z-0 bg-gradient-to-t from-black/75 via-black/25 to-black/45" />
       )}
 
-      {/* Product image — cover: right side; content: top-right badge; cta: centered top */}
-      {productImage && !isThumb && (
+      {/* Product image — cover: right side; content: top-right badge; cta: centered top.
+       * Skipped for a "flux" background: that image already has the real
+       * product realistically placed in the scene itself (see
+       * lib/ai/carousel-slide-background.ts's reference-image path), so
+       * this corner overlay would just double it up. "pollinations" (no
+       * image-to-image capability) and slides with no AI background at
+       * all render this exactly as before. */}
+      {productImage && !isThumb && slide.background_image_provider !== "flux" && (
         <>
           {slide.type === "cover" && (
             // eslint-disable-next-line @next/next/no-img-element
@@ -748,10 +777,19 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
         setCarousel((prev) => (prev && prev.id === merged.id ? { ...prev, slides: coloredSlides } : prev))
       } else {
         (async () => {
-          const [hookBg, ctaBg] = await Promise.all([
-            hookSlide ? fetchSlideBackground(brandId, vibe, "hook") : Promise.resolve(null),
-            hasCtaSlide ? fetchSlideBackground(brandId, vibe, "cta") : Promise.resolve(null),
+          // productImageUrl/slideType only actually sent when a product is
+          // selected -- see fetchSlideBackgroundResult, which drops a null
+          // productImageUrl before it reaches the request body.
+          const [hookResult, ctaResult] = await Promise.all([
+            hookSlide
+              ? fetchSlideBackground(brandId, vibe, "hook", productImage ?? undefined, productImage ? "cover" : undefined)
+              : Promise.resolve(null),
+            hasCtaSlide
+              ? fetchSlideBackground(brandId, vibe, "cta", productImage ?? undefined, productImage ? "cta" : undefined)
+              : Promise.resolve(null),
           ])
+          const hookBg = hookResult?.url ?? null
+          const ctaBg = ctaResult?.url ?? null
           setHookBackgroundUrl(hookBg)
           setCtaBackgroundUrl(ctaBg)
 
@@ -763,12 +801,21 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
           // per IP (confirmed live: concurrent hook+cta calls already
           // occasionally 429 each other), so real parallelism here would
           // mostly just trade one slow path for a bunch of failed ones.
-          const bodyUpdates: Record<number, string> = {}
+          const bodyUpdates: Record<number, { url: string; provider?: "pollinations" | "flux" }> = {}
           for (let n = 0; n < bodyIndices.length; n++) {
             setBodyBgProgress({ current: n + 1, total: bodyIndices.length })
-            const result = await fetchSlideBackgroundResult(brandId, vibe, "body")
+            // Every body-loop slide is already type "content" -- unlike
+            // Stories' reveal/buildup split, no per-slide filtering needed
+            // beyond "is a product actually selected".
+            const result = await fetchSlideBackgroundResult(
+              brandId,
+              vibe,
+              "body",
+              productImage ?? undefined,
+              productImage ? "content" : undefined
+            )
             if ("url" in result) {
-              bodyUpdates[bodyIndices[n]!] = result.url
+              bodyUpdates[bodyIndices[n]!] = { url: result.url, provider: result.provider }
             } else if (result.error === "insufficient_credits") {
               setBodyBgWarning(
                 `Ran out of credits after ${n} of ${bodyIndices.length} extra slide backgrounds — the rest kept their flat color.`
@@ -784,9 +831,9 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
           if (!merged.id || (!hookBg && !ctaBg && Object.keys(bodyUpdates).length === 0)) return
 
           const slidesWithImages = merged.slides.map((s, i) => {
-            if (i === 0 && hookBg) return { ...s, image_url: hookBg }
-            if (i === merged.slides.length - 1 && hasCtaSlide && ctaBg) return { ...s, image_url: ctaBg }
-            if (bodyUpdates[i]) return { ...s, image_url: bodyUpdates[i] }
+            if (i === 0 && hookBg) return { ...s, image_url: hookBg, background_image_provider: hookResult?.provider }
+            if (i === merged.slides.length - 1 && hasCtaSlide && ctaBg) return { ...s, image_url: ctaBg, background_image_provider: ctaResult?.provider }
+            if (bodyUpdates[i]) return { ...s, image_url: bodyUpdates[i]!.url, background_image_provider: bodyUpdates[i]!.provider }
             return s
           })
           setCarousel((prev) => (prev && prev.id === merged.id ? { ...prev, slides: slidesWithImages } : prev))
