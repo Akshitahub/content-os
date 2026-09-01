@@ -177,6 +177,10 @@ export const generateAdMakerBackgroundSchema = z.object({
     .optional()
     .transform((val) => val?.replace(/<[^>]*>/g, "").trim()),
   format: adMakerFormatEnum.default("square"),
+  // 14MB base64 ceiling ≈ the remove-background route's existing 10MB raw-file
+  // limit after base64 inflation -- same size policy as that route, just
+  // expressed in base64 chars.
+  productImageBase64: z.string().max(14_000_000, "Product image is too large").optional(),
 })
 
 export type GenerateAdMakerBackgroundInput = z.infer<typeof generateAdMakerBackgroundSchema>

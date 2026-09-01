@@ -81,7 +81,7 @@ export async function POST(request: Request, { params }: RouteParams) {
 
   const parsed = generateAdMakerBackgroundSchema.safeParse(body)
   if (!parsed.success) return NextResponse.json(buildError(ErrorCodes.VALIDATION_ERROR, "Validation failed.", parsed.error.message), { status: 400 })
-  const { scene, customScene, format } = parsed.data
+  const { scene, customScene, format, productImageBase64 } = parsed.data
 
   const usageCheck = await checkAndIncrementUsage(user.id, AD_MAKER, FEATURE)
   if (!usageCheck.ok) {
@@ -96,6 +96,36 @@ export async function POST(request: Request, { params }: RouteParams) {
   const plan: UserPlan = userData?.plan ?? "starter"
 
   const startTime = Date.now()
+
+  // Upload via the admin client -- storage RLS expects the path to start
+  // with the user's auth uid, admin bypasses RLS safely here since brand
+  // ownership is already verified above (same pattern as images/generate).
+  // Created here (not just below, where background uploads happen) so the
+  // product reference photo can be uploaded before generation kicks off.
+  const admin = await createAdminClient()
+
+  // A real uploaded product photo, used as a Flux image-to-image reference
+  // (see generateAdMakerBackground/fetchAndCheckFluxImage) -- optional, so
+  // an upload failure here degrades to the old background-only behavior
+  // rather than failing the whole request.
+  let productImageUrl: string | undefined
+  if (productImageBase64) {
+    try {
+      const productImageBuffer = Buffer.from(productImageBase64, "base64")
+      const productImagePath = `${user.id}/${brandId}/ad-maker-product-${Date.now()}-${crypto.randomUUID()}.png`
+      const { error: productUploadError } = await admin.storage
+        .from(BUCKET)
+        .upload(productImagePath, productImageBuffer, { contentType: "image/png", upsert: false })
+      if (productUploadError) {
+        console.error(`[ai/ad-maker/generate] product image upload failed, continuing without a reference image:`, productUploadError)
+      } else {
+        productImageUrl = admin.storage.from(BUCKET).getPublicUrl(productImagePath).data.publicUrl
+      }
+    } catch (err) {
+      console.error(`[ai/ad-maker/generate] product image decode/upload threw, continuing without a reference image:`, err)
+    }
+  }
+
   const backgroundOptions = {
     scene,
     customScene,
@@ -103,6 +133,7 @@ export async function POST(request: Request, { params }: RouteParams) {
     format,
     plan,
     isInternalUnlimitedUser: isInternalUnlimited(user.id),
+    productImageUrl,
   }
   const results = await Promise.all(
     Array.from({ length: VARIATION_COUNT }, async (_, i) => {
@@ -128,10 +159,6 @@ export async function POST(request: Request, { params }: RouteParams) {
     return NextResponse.json(buildError(ErrorCodes.AI_GENERATION_FAILED, "Couldn't generate a background. Please try again."), { status: 500 })
   }
 
-  // Upload via the admin client -- storage RLS expects the path to start
-  // with the user's auth uid, admin bypasses RLS safely here since brand
-  // ownership is already verified above (same pattern as images/generate).
-  const admin = await createAdminClient()
   const uploadedPaths = (
     await Promise.all(
       successes.map(async (result, i) => {
@@ -165,5 +192,7 @@ export async function POST(request: Request, { params }: RouteParams) {
     latency_ms: Date.now() - startTime, success: true,
   })
 
-  return NextResponse.json({ data: { background_urls: backgroundUrls } }, { status: 200 })
+  const variations = successes.map((r, i) => ({ url: backgroundUrls[i], provider: r.provider }))
+
+  return NextResponse.json({ data: { variations } }, { status: 200 })
 }
