@@ -8,12 +8,13 @@ import { CREDIT_PACKS, CREDIT_PACK_IDS, type CreditPackId } from "@/lib/usage/cr
 // One color family per pack -- literal, complete class strings (not
 // template-built from a bare color name) since Tailwind's JIT scanner only
 // picks up classes it can find written out somewhere in the source.
-const PACK_STYLES: Record<CreditPackId, { card: string; ribbon: string; icon: string; button: string }> = {
+const PACK_STYLES: Record<CreditPackId, { card: string; ribbon: string; icon: string; button: string; glow: string }> = {
   quick_topup: {
     card: "bg-amber-50/60 dark:bg-amber-950/20 border-amber-200/60 dark:border-amber-800/30",
     ribbon: "bg-amber-300 dark:bg-amber-700",
     icon: "text-amber-600 dark:text-amber-400",
     button: "bg-amber-600 hover:bg-amber-700",
+    glow: "hover:shadow-amber-200/50 dark:hover:shadow-amber-900/30",
   },
   power_pack: {
     // Violet — matches the brand's own primary/accent color used
@@ -22,12 +23,14 @@ const PACK_STYLES: Record<CreditPackId, { card: string; ribbon: string; icon: st
     ribbon: "bg-violet-300 dark:bg-violet-700",
     icon: "text-violet-600 dark:text-violet-400",
     button: "bg-violet-600 hover:bg-violet-700",
+    glow: "hover:shadow-violet-200/50 dark:hover:shadow-violet-900/30",
   },
   mega_pack: {
     card: "bg-emerald-50/60 dark:bg-emerald-950/20 border-emerald-200/60 dark:border-emerald-800/30",
     ribbon: "bg-emerald-300 dark:bg-emerald-700",
     icon: "text-emerald-600 dark:text-emerald-400",
     button: "bg-emerald-600 hover:bg-emerald-700",
+    glow: "hover:shadow-emerald-200/50 dark:hover:shadow-emerald-900/30",
   },
 }
 
@@ -70,7 +73,7 @@ export function CreditGiftBoxes() {
           return (
             <div
               key={packId}
-              className={`relative overflow-hidden rounded-2xl border p-4 text-center ${styles.card}`}
+              className={`relative overflow-hidden rounded-2xl border p-4 text-center transition-all duration-200 hover:z-10 hover:-translate-y-1 hover:scale-[1.03] hover:shadow-xl ${styles.card} ${styles.glow}`}
             >
               {justPurchased ? (
                 <div className="flex flex-col items-center justify-center gap-1 py-8">
