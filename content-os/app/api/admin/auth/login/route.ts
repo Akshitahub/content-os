@@ -85,7 +85,11 @@ export async function POST(request: Request) {
     httpOnly: true,
     secure: true,
     sameSite: "lax",
-    path: "/admin",
+    // path: "/" (not "/admin") -- httpOnly + secure + sameSite=lax already
+    // keep this cookie scoped to this domain; a narrower path added no
+    // real protection and just meant the browser never sent it to
+    // /api/admin/* routes (a different path prefix than /admin itself).
+    path: "/",
     maxAge: SESSION_MAX_AGE_SECONDS,
   })
   return response
