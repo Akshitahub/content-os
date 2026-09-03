@@ -1,7 +1,28 @@
-import { type NextRequest } from "next/server"
+import { type NextRequest, NextResponse } from "next/server"
 import { updateSession } from "@/lib/supabase/middleware"
+import { ADMIN_SESSION_COOKIE, verifyAdminSession } from "@/lib/admin/session"
 
 export async function proxy(request: NextRequest) {
+  const { pathname } = request.nextUrl
+
+  // Admin panel session check — fully independent of the Supabase
+  // user/isDashboardRoute logic in updateSession below (lib/supabase/
+  // middleware.ts). admin_users is a separate credential store with no
+  // relationship to Supabase auth at all (see lib/admin/session.ts's own
+  // doc comment), so this reads/verifies its own cookie rather than
+  // touching anything updateSession already computed.
+  if (pathname.startsWith("/admin")) {
+    const token = request.cookies.get(ADMIN_SESSION_COOKIE)?.value
+    const session = token ? await verifyAdminSession(token) : null
+
+    if (pathname !== "/admin/login" && !session) {
+      return NextResponse.redirect(new URL("/admin/login", request.url))
+    }
+    if (pathname === "/admin/login" && session) {
+      return NextResponse.redirect(new URL("/admin", request.url))
+    }
+  }
+
   return await updateSession(request)
 }
 
@@ -28,6 +49,12 @@ export const config = {
   // most likely to already be past its refresh margin. Excluding /api
   // here doesn't remove any real protection (see above) and roughly
   // halves how many independent clients can race per page load.
+  // Verified this already covers /admin and /admin/login (the two paths
+  // the admin session check above cares about): neither starts with
+  // "api/", "_next/static", or "_next/image", isn't "favicon.ico", and
+  // doesn't end in an excluded image extension, so the negative lookahead
+  // matches them same as any other page route — no separate matcher entry
+  // needed for /admin/*.
   matcher: [
     "/((?!api/|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
   ],
