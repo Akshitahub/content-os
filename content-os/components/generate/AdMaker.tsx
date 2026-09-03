@@ -7,7 +7,9 @@ import {
 } from "lucide-react"
 import { useBrand } from "@/hooks/useBrand"
 import { GenerationWarning } from "@/components/shared/GenerationWarning"
+import { UsageLimitBanner } from "@/components/generate/UsageLimitBanner"
 import { isApiError } from "@/types/api"
+import { ApiResponseError } from "@/hooks/useGeneration"
 import { ScheduleAction } from "@/components/shared/ScheduleAction"
 import { AD_MAKER as AD_MAKER_CREDIT_COST } from "@/lib/usage/credit-costs"
 
@@ -241,7 +243,7 @@ export function AdMaker({ brandId }: AdMakerProps) {
 
   // Results
   const [generating, setGenerating] = useState(false)
-  const [genError, setGenError] = useState("")
+  const [genError, setGenError] = useState<unknown>(null)
   const [results, setResults] = useState<string[]>([])
   const [expandedIdx, setExpandedIdx] = useState<number | null>(0)
   const [showSuccess, setShowSuccess] = useState(false)
@@ -421,7 +423,7 @@ export function AdMaker({ brandId }: AdMakerProps) {
   async function handleGenerate() {
     if (!productDataUrl) return
     setGenerating(true)
-    setGenError("")
+    setGenError(null)
     setResults([])
     setExpandedIdx(null)
 
@@ -439,7 +441,15 @@ export function AdMaker({ brandId }: AdMakerProps) {
       })
       const chargeJson: unknown = await chargeRes.json()
       if (!chargeRes.ok || isApiError(chargeJson)) {
-        setGenError(isApiError(chargeJson) ? chargeJson.error.message : "Couldn't start generation. Please try again.")
+        // Preserves the real error code (e.g. USAGE_LIMIT_EXCEEDED) instead
+        // of collapsing straight to a message string -- needed so
+        // UsageLimitBanner below can actually tell a credit shortage apart
+        // from any other generation failure.
+        setGenError(
+          isApiError(chargeJson)
+            ? new ApiResponseError(chargeJson.error.code, chargeJson.error.message)
+            : new Error("Couldn't start generation. Please try again.")
+        )
         setGenerating(false)
         return
       }
@@ -454,7 +464,7 @@ export function AdMaker({ brandId }: AdMakerProps) {
       setShowSuccess(true)
       setTimeout(() => setShowSuccess(false), 4000)
     } catch (err) {
-      setGenError(err instanceof Error ? err.message : "Generation failed. Try again.")
+      setGenError(err)
       // Credits were already charged above but no usable output came out
       // of it — undo the charge rather than let a failed local generation
       // silently cost the user credits. Best-effort: a failed refund here
@@ -506,7 +516,7 @@ export function AdMaker({ brandId }: AdMakerProps) {
     setBgError("")
     setResults([])
     setExpandedIdx(null)
-    setGenError("")
+    setGenError(null)
     setPasteUrl("")
     sessionStorage.removeItem(STORAGE_KEY)
     if (fileInputRef.current) fileInputRef.current.value = ""
@@ -725,17 +735,7 @@ export function AdMaker({ brandId }: AdMakerProps) {
             </>
           )}
 
-          {genError && (
-            <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 flex items-start gap-3">
-              <AlertCircle className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
-              <div className="flex-1">
-                <p className="text-sm text-amber-900 font-medium">{genError}</p>
-                <button onClick={handleGenerate} className="mt-2 flex items-center gap-1.5 text-xs font-semibold text-amber-700 hover:text-amber-900">
-                  🔄 Try again
-                </button>
-              </div>
-            </div>
-          )}
+          {!!genError && <UsageLimitBanner error={genError} onRetry={handleGenerate} />}
 
           <GenerationWarning isPending={generating} />
           <button onClick={handleGenerate}
@@ -791,7 +791,7 @@ export function AdMaker({ brandId }: AdMakerProps) {
                   {uploadingForSchedule ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CalendarClock className="h-3.5 w-3.5" />}
                   Schedule
                 </button>
-                <button onClick={() => { setResults([]); setGenError(""); setStep(2) }}
+                <button onClick={() => { setResults([]); setGenError(null); setStep(2) }}
                   className="flex items-center justify-center gap-1.5 rounded-full border border-input py-2 text-xs font-medium hover:bg-secondary">
                   <RefreshCw className="h-3.5 w-3.5" /> Try different scene
                 </button>

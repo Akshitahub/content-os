@@ -6,7 +6,7 @@ import { ProductPicker, type PickedProduct } from "@/components/shared/ProductPi
 import type { StorySlide, StoryCaption } from "@/app/api/v1/ai/stories/generate/route"
 import { downloadStorySlideAsImage, downloadStorySlidesAsImages, type StoryExportSlide } from "@/lib/utils/story-export"
 import { GenerationWarning } from "@/components/shared/GenerationWarning"
-import { getFriendlyError } from "@/lib/utils/error-messages"
+import { UsageLimitBanner } from "@/components/generate/UsageLimitBanner"
 import { TopicSuggestButton } from "@/components/shared/TopicSuggestButton"
 import { ScheduleAction } from "@/components/shared/ScheduleAction"
 import { isApiError } from "@/types/api"
@@ -1094,24 +1094,7 @@ export function StorySequence({ brandId }: { brandId: string }) {
           {loading ? <><Loader2 className="h-4 w-4 animate-spin" /> Generating stories…</> : "✨ Generate stories"}
         </button>
 
-        {!!apiError && (
-          apiError instanceof ApiResponseError && apiError.code === "USAGE_LIMIT_EXCEEDED" ? (
-            <div className="rounded-lg border border-amber-500/30 bg-amber-50 p-3 text-center space-y-0.5">
-              <p className="text-sm font-semibold text-amber-900">{apiError.message}</p>
-              <p className="text-xs text-amber-700">Upgrade your plan to keep creating.</p>
-            </div>
-          ) : (
-            <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 flex items-start gap-3">
-              <AlertCircle className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
-              <div className="flex-1">
-                <p className="text-sm text-amber-900 font-medium">{getFriendlyError(apiError)}</p>
-                <button onClick={generate} className="mt-2 flex items-center gap-1.5 text-xs font-semibold text-amber-700 hover:text-amber-900">
-                  🔄 Try again
-                </button>
-              </div>
-            </div>
-          )
-        )}
+        {!!apiError && <UsageLimitBanner error={apiError} onRetry={generate} />}
         {showStaleCue && stories.length > 0 && (
           <p className="text-xs text-amber-600">Showing your last successful result below.</p>
         )}

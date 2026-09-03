@@ -1,12 +1,13 @@
 "use client"
 
 import { useState, useRef, useEffect } from "react"
-import { Sparkles, RefreshCw, Check, ChevronLeft, ChevronRight, Copy, RotateCcw, AlertCircle } from "lucide-react"
+import { Sparkles, RefreshCw, Check, ChevronLeft, ChevronRight, Copy, RotateCcw } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { GeneratingState } from "@/components/shared/GeneratingState"
 import { PostPreviewCard } from "@/components/shared/PostPreviewCard"
 import { QuickCopyButton } from "@/components/shared/QuickCopyButton"
+import { UsageLimitBanner } from "@/components/generate/UsageLimitBanner"
 import { useGenerateHooks, ApiResponseError } from "@/hooks/useGeneration"
 import { useGenerationStore } from "@/stores/generationStore"
 import { useBrand } from "@/hooks/useBrand"
@@ -250,24 +251,7 @@ export function HookGenerator({ brandId, products }: HookGeneratorProps) {
           )}
         </Button>
 
-        {error && (
-          error instanceof ApiResponseError && error.code === "USAGE_LIMIT_EXCEEDED" ? (
-            <div className="rounded-lg border border-amber-500/30 bg-amber-50 p-3 text-center space-y-0.5">
-              <p className="text-sm font-semibold text-amber-900">{error.message}</p>
-              <p className="text-xs text-amber-700">Upgrade your plan to keep creating.</p>
-            </div>
-          ) : (
-            <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 flex items-start gap-3">
-              <AlertCircle className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
-              <div className="flex-1">
-                <p className="text-sm text-amber-900 font-medium">{error.message}</p>
-                <button onClick={handleGenerate} className="mt-2 flex items-center gap-1.5 text-xs font-semibold text-amber-700 hover:text-amber-900">
-                  🔄 Try again
-                </button>
-              </div>
-            </div>
-          )
-        )}
+        {error && <UsageLimitBanner error={error} onRetry={handleGenerate} />}
         {error && !(error instanceof ApiResponseError && error.code === "USAGE_LIMIT_EXCEEDED") && hooks.length > 0 && (
           <p className="text-xs text-amber-600">Showing your last successful result below.</p>
         )}

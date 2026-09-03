@@ -8,12 +8,13 @@ import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import Link from "next/link"
 import { GeneratingState } from "@/components/shared/GeneratingState"
+import { UsageLimitBanner } from "@/components/generate/UsageLimitBanner"
 import { POST_TEMPLATES, DEFAULT_POST_TEMPLATE_ID } from "@/lib/design/post-templates"
 import type { PostTemplateId } from "@/lib/design/post-templates"
 import { resolveColorThemes } from "@/lib/design/color-themes"
 import { resolveFonts, DEFAULT_FONT_ID } from "@/lib/design/fonts"
 import type { FontId } from "@/lib/design/fonts"
-import { useGenerateFullPost, useGeneratePostImage, useGenerateFullPostFromPhoto, ApiResponseError } from "@/hooks/useGeneration"
+import { useGenerateFullPost, useGeneratePostImage, useGenerateFullPostFromPhoto } from "@/hooks/useGeneration"
 import { POST as POST_CREDIT_COST, PHOTO_CAPTION } from "@/lib/usage/credit-costs"
 import { useGenerationStore } from "@/stores/generationStore"
 import { useBrand } from "@/hooks/useBrand"
@@ -645,24 +646,7 @@ export function FullPostGenerator({ brandId, products }: Props) {
           )}
         </Button>
 
-        {activeError && (
-          activeError instanceof ApiResponseError && activeError.code === "USAGE_LIMIT_EXCEEDED" ? (
-            <div className="rounded-lg border border-amber-500/30 bg-amber-50 p-3 text-center space-y-0.5">
-              <p className="text-sm font-semibold text-amber-900">{activeError.message}</p>
-              <p className="text-xs text-amber-700">Upgrade your plan to keep creating.</p>
-            </div>
-          ) : (
-            <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 flex items-start gap-3">
-              <AlertCircle className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
-              <div className="flex-1">
-                <p className="text-sm text-amber-900 font-medium">{activeError.message}</p>
-                <button onClick={activeGenerate} className="mt-2 flex items-center gap-1.5 text-xs font-semibold text-amber-700 hover:text-amber-900">
-                  🔄 Try again
-                </button>
-              </div>
-            </div>
-          )
-        )}
+        {activeError && <UsageLimitBanner error={activeError} onRetry={activeGenerate} />}
       </div>
 
       {activeIsPending && (

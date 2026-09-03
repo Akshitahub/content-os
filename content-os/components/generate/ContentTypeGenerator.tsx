@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect } from "react"
 import {
   FileText, Film, LayoutGrid, Zap, BookOpen, Megaphone,
-  RefreshCw, Copy, Check, AlertCircle, ChevronDown,
+  RefreshCw, Copy, Check, ChevronDown,
 } from "lucide-react"
 import Link from "next/link"
 import { cn } from "@/lib/utils"
@@ -12,7 +12,8 @@ import { Label } from "@/components/ui/label"
 import { Separator } from "@/components/ui/separator"
 import { GeneratingState } from "@/components/shared/GeneratingState"
 import { GenerateVideoAction } from "@/components/shared/GenerateVideoAction"
-import { useGenerateContent, ApiResponseError, type ContentResult } from "@/hooks/useGeneration"
+import { UsageLimitBanner } from "@/components/generate/UsageLimitBanner"
+import { useGenerateContent, type ContentResult } from "@/hooks/useGeneration"
 import { useGenerationStore } from "@/stores/generationStore"
 import type { ProductRow } from "@/types/database"
 import type { ContentFormat, Platform } from "@/types/app"
@@ -454,24 +455,7 @@ export function ContentTypeGenerator({ brandId, products }: ContentTypeGenerator
           )}
         </Button>
 
-        {error && (
-          error instanceof ApiResponseError && error.code === "USAGE_LIMIT_EXCEEDED" ? (
-            <div className="rounded-lg border border-amber-500/30 bg-amber-50 p-3 text-center space-y-0.5">
-              <p className="text-sm font-semibold text-amber-900">{error.message}</p>
-              <p className="text-xs text-amber-700">Upgrade your plan to keep creating.</p>
-            </div>
-          ) : (
-            <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 flex items-start gap-3">
-              <AlertCircle className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
-              <div className="flex-1">
-                <p className="text-sm text-amber-900 font-medium">{error.message}</p>
-                <button onClick={handleGenerate} className="mt-2 flex items-center gap-1.5 text-xs font-semibold text-amber-700 hover:text-amber-900">
-                  🔄 Try again
-                </button>
-              </div>
-            </div>
-          )
-        )}
+        {error && <UsageLimitBanner error={error} onRetry={handleGenerate} />}
       </div>
 
       {isPending && <GeneratingState message={`Writing your ${activeConfig.label.toLowerCase()}…`} />}

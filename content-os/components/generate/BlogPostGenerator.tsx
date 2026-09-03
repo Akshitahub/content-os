@@ -4,7 +4,9 @@ import { useState, useCallback } from "react"
 import Link from "next/link"
 import { Loader2, Copy, Check, RefreshCw, AlertCircle, Sparkles, Star } from "lucide-react"
 import { GenerationWarning } from "@/components/shared/GenerationWarning"
-import { getFriendlyError } from "@/lib/utils/error-messages"
+import { UsageLimitBanner } from "@/components/generate/UsageLimitBanner"
+import { ApiResponseError } from "@/hooks/useGeneration"
+import { isApiError } from "@/types/api"
 
 interface BlogPostResult {
   id: string | null
@@ -85,7 +87,7 @@ export function BlogPostGenerator({ brandId }: { brandId: string }) {
   const [prompt, setPrompt] = useState("")
   const [inputError, setInputError] = useState("")
   const [loading, setLoading] = useState(false)
-  const [apiError, setApiError] = useState("")
+  const [apiError, setApiError] = useState<unknown>(null)
   const [post, setPost] = useState<BlogPostResult | null>(null)
   const [copied, setCopied] = useState(false)
   const [rating, setRating] = useState<number | null>(null)
@@ -119,7 +121,7 @@ export function BlogPostGenerator({ brandId }: { brandId: string }) {
     }
     setLoading(true)
     setInputError("")
-    setApiError("")
+    setApiError(null)
     setPost(null)
     setRating(null)
     setShowEditor(false)
@@ -129,11 +131,18 @@ export function BlogPostGenerator({ brandId }: { brandId: string }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ brandId, prompt: prompt.trim(), wordLimit }),
       })
-      const json = await res.json() as { data?: BlogPostResult; error?: { message?: string } }
-      if (!res.ok || !json.data) throw new Error(json.error?.message ?? "Generation failed")
-      setPost(json.data)
+      const json: unknown = await res.json()
+      // Preserves the real error code (e.g. USAGE_LIMIT_EXCEEDED) instead
+      // of collapsing straight to a message string -- same pattern
+      // CarouselBuilder.tsx/StorySequence.tsx already use, needed so
+      // UsageLimitBanner below can actually tell a credit shortage apart
+      // from any other generation failure.
+      if (isApiError(json)) throw new ApiResponseError(json.error.code, json.error.message)
+      const data = (json as { data?: BlogPostResult }).data
+      if (!data) throw new Error("Generation failed")
+      setPost(data)
     } catch (err) {
-      setApiError(getFriendlyError(err))
+      setApiError(err)
     } finally {
       setLoading(false)
     }
@@ -248,17 +257,7 @@ export function BlogPostGenerator({ brandId }: { brandId: string }) {
           {loading ? <><Loader2 className="h-4 w-4 animate-spin" /> Writing your post…</> : "✨ Generate blog post"}
         </button>
 
-        {apiError && (
-          <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 flex items-start gap-3">
-            <AlertCircle className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
-            <div className="flex-1">
-              <p className="text-sm text-amber-900 font-medium">{apiError}</p>
-              <button onClick={generate} className="mt-2 flex items-center gap-1.5 text-xs font-semibold text-amber-700 hover:text-amber-900">
-                🔄 Try again
-              </button>
-            </div>
-          </div>
-        )}
+        {!!apiError && <UsageLimitBanner error={apiError} onRetry={generate} />}
       </div>
 
       {loading && (
