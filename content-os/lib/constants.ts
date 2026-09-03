@@ -27,3 +27,8 @@ export const REELS_ENABLED = false
  * cost; the UI check alone wouldn't stop a direct API call.
  */
 export const ENABLED_SOCIAL_PLATFORMS: readonly string[] = ["instagram"]
+
+export const WHATSAPP_NUMBER = "917827774878" // +91 78277 74878, no leading +
+// Single source for the support WhatsApp link — other components should import this rather than hand-building their own wa.me URL.
+export const WHATSAPP_LINK = `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent("Hi SocioPosts, I'd like to know more.")}`
+export const CONTACT_EMAIL = "support@socioposts.com"
