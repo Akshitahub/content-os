@@ -69,6 +69,9 @@ export default async function RootPage() {
               <span className="font-semibold tracking-tight text-gray-900" style={{ fontSize: "0.95rem" }}>SocioPosts</span>
             </span>
             <div className="flex items-center gap-4 sm:gap-6">
+              <Link href="/admin/login" className="nav-link text-sm font-medium transition-colors" style={{ color: "#ffffff" }}>
+                Admin
+              </Link>
               <Link href="/login" className="nav-link text-sm font-medium transition-colors" style={{ color: "#ffffff" }}>
                 Sign in
               </Link>
