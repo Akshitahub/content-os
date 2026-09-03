@@ -481,7 +481,7 @@ export default async function RootPage() {
               </div>
             </div>
             <div className="mt-10 border-t pt-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between" style={{ borderColor: "#1f1f1f" }}>
-              <p className="text-xs text-gray-600">&copy; {new Date().getFullYear()} SocioPosts. Made with ❤️ in India 🇮🇳. All rights reserved.</p>
+              <p className="text-xs text-gray-600">&copy; {new Date().getFullYear()} SocioPosts. All rights reserved.</p>
             </div>
           </div>
         </footer>
