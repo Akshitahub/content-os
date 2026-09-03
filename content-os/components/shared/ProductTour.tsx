@@ -1,7 +1,6 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
-import { useRouter } from "next/navigation"
 import { Tag, Plane, Calendar, Sparkles, type LucideIcon } from "lucide-react"
 
 const TOUR_KEY = "contentos_tour_completed"
@@ -154,35 +153,9 @@ function TooltipCard({
   )
 }
 
-function FinishedCard({ onRunAutopilot, brandId }: { onRunAutopilot: () => void; brandId?: string }) {
-  return (
-    <div
-      className="fixed bottom-6 right-6 z-[9999] w-80 rounded-2xl border border-violet-200 bg-white shadow-2xl p-5"
-      role="dialog"
-      aria-modal="false"
-    >
-      <div className="text-center space-y-2 mb-4">
-        <p className="text-2xl">🎉</p>
-        <h3 className="font-bold text-gray-900">You&apos;re ready!</h3>
-        <p className="text-sm text-gray-500">SocioPosts is set up and ready to go. The easiest first step is to run Autopilot.</p>
-      </div>
-      <button onClick={onRunAutopilot}
-        className="w-full rounded-full bg-violet-600 py-2.5 text-sm font-semibold text-white hover:bg-violet-700">
-        Run Autopilot now ✈️
-      </button>
-    </div>
-  )
-}
-
-interface ProductTourProps {
-  brandId?: string
-}
-
-export function ProductTour({ brandId }: ProductTourProps) {
-  const router = useRouter()
+export function ProductTour() {
   const [step, setStep] = useState(0)
   const [visible, setVisible] = useState(false)
-  const [finished, setFinished] = useState(false)
 
   useEffect(() => {
     try {
@@ -196,14 +169,13 @@ export function ProductTour({ brandId }: ProductTourProps) {
   }, [])
 
   useEffect(() => {
-    if (!visible || finished) return
+    if (!visible) return
     highlightTarget(STEPS[step].targetId)
-  }, [visible, step, finished])
+  }, [visible, step])
 
   const complete = useCallback(() => {
     clearHighlights()
     setVisible(false)
-    setFinished(true)
     try { localStorage.setItem(TOUR_KEY, "true") } catch {}
   }, [])
 
@@ -225,20 +197,7 @@ export function ProductTour({ brandId }: ProductTourProps) {
     setStep((s) => Math.max(0, s - 1))
   }, [])
 
-  if (!visible && !finished) return null
-
-  if (finished) {
-    return (
-      <FinishedCard
-        brandId={brandId}
-        onRunAutopilot={() => {
-          setFinished(false)
-          if (brandId) router.push(`/brands/${brandId}/fastlane`)
-          else router.push("/dashboard")
-        }}
-      />
-    )
-  }
+  if (!visible) return null
 
   return (
     <>
