@@ -1,12 +1,12 @@
 import Link from "next/link"
-import { Globe, Zap, Sparkles, Star, ArrowRight, Check, Gem, Leaf, Shirt, Home, Film, LayoutGrid, Mail, Plane } from "lucide-react"
+import { Globe, Zap, Sparkles, Star, ArrowRight, Check, Gem, Leaf, Shirt, Home, Film, LayoutGrid, Mail, Plane, MessageCircle } from "lucide-react"
 import { createClient } from "@/lib/supabase/server"
 import { ScrollNavHandler } from "@/components/landing/ScrollNavHandler"
 import { LiveDemo } from "@/components/landing/LiveDemo"
 import { FaqAccordion } from "@/components/landing/FaqAccordion"
 import { PricingSection } from "@/components/landing/PricingSection"
 import { LogoIcon } from "@/components/shared/LogoIcon"
-import { REELS_ENABLED } from "@/lib/constants"
+import { REELS_ENABLED, WHATSAPP_LINK, CONTACT_EMAIL } from "@/lib/constants"
 
 export default async function RootPage() {
   let primaryHref = "/signup"
@@ -430,7 +430,7 @@ export default async function RootPage() {
         {/* FOOTER */}
         <footer className="border-t px-6 py-12 sm:px-8" style={{ backgroundColor: "#0f0f0f", borderColor: "#1f1f1f" }}>
           <div className="mx-auto max-w-6xl">
-            <div className="grid gap-10 sm:grid-cols-4">
+            <div className="grid gap-10 sm:grid-cols-5">
               <div className="sm:col-span-1">
                 <div className="flex items-center gap-2">
                   <LogoIcon size={20} />
@@ -460,6 +460,23 @@ export default async function RootPage() {
                   {[{ label: "Privacy Policy", href: "/privacy" }, { label: "Terms of Service", href: "/terms" }].map(({ label, href }) => (
                     <li key={label}><Link href={href} className="text-sm text-gray-400 hover:text-white transition-colors">{label}</Link></li>
                   ))}
+                </ul>
+              </div>
+              <div>
+                <p className="mb-4 text-xs font-semibold uppercase tracking-widest text-gray-500">Contact</p>
+                <ul className="space-y-3">
+                  <li>
+                    <a href={WHATSAPP_LINK} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-sm text-gray-400 hover:text-white transition-colors">
+                      <MessageCircle className="h-4 w-4 shrink-0" />
+                      <span>WhatsApp us<br />+91 78277 74878</span>
+                    </a>
+                  </li>
+                  <li>
+                    <a href={`mailto:${CONTACT_EMAIL}`} className="flex items-center gap-2 text-sm text-gray-400 hover:text-white transition-colors">
+                      <Mail className="h-4 w-4 shrink-0" />
+                      <span>{CONTACT_EMAIL}</span>
+                    </a>
+                  </li>
                 </ul>
               </div>
             </div>
