@@ -73,11 +73,11 @@ export default function TermsPage() {
           <li>Provide accurate billing information</li>
           <li>Automatic renewal of your subscription until cancelled</li>
         </ul>
-        <p>Refunds are considered on a case-by-case basis. To request a refund, contact us at support@socioposts.com within 7 days of a charge. We reserve the right to change pricing with 30 days&rsquo; notice.</p>
+        <p>Refunds are considered on a case-by-case basis. To request a refund, contact us at socioposts@gmail.com within 7 days of a charge. We reserve the right to change pricing with 30 days&rsquo; notice.</p>
       </Section>
 
       <Section title="9. Cancellation">
-        <p>You may cancel your subscription at any time through the Settings page or by contacting support@socioposts.com. Cancellation takes effect at the end of the current billing period. You will retain access to paid features until that date.</p>
+        <p>You may cancel your subscription at any time through the Settings page or by contacting socioposts@gmail.com. Cancellation takes effect at the end of the current billing period. You will retain access to paid features until that date.</p>
       </Section>
 
       <Section title="10. Disclaimers">
@@ -90,7 +90,7 @@ export default function TermsPage() {
 
       <Section title="12. Governing Law and Disputes">
         <p>These Terms are governed by and construed in accordance with the laws of India. Any disputes arising from these Terms or your use of the Service shall be subject to the exclusive jurisdiction of the courts of Delhi, India.</p>
-        <p>For any questions or disputes, please contact us first at support@socioposts.com. We&rsquo;ll do our best to resolve things informally before any formal proceedings.</p>
+        <p>For any questions or disputes, please contact us first at socioposts@gmail.com. We&rsquo;ll do our best to resolve things informally before any formal proceedings.</p>
       </Section>
     </article>
   )

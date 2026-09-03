@@ -12,12 +12,12 @@ export default function PrivacyPage() {
         Privacy Policy
       </h1>
       <p style={{ color: "#6b7280", fontSize: "0.9rem", marginBottom: "2.5rem" }}>
-        Last updated: August 2026 &nbsp;·&nbsp; Contact: privacy@socioposts.com
+        Last updated: August 2026 &nbsp;·&nbsp; Contact: socioposts@gmail.com
       </p>
 
       <Section title="1. Who We Are">
         <p>SocioPosts is operated by Akshita Singh. This Privacy Policy explains how we collect, use, and protect your personal data when you use our Service. &ldquo;We,&rdquo; &ldquo;us,&rdquo; and &ldquo;our&rdquo; refer to SocioPosts/Akshita Singh. &ldquo;You&rdquo; refers to you, the user of our Service.</p>
-        <p>For privacy-related queries, contact us at <a href="mailto:privacy@socioposts.com" style={{ color: "#6366f1" }}>privacy@socioposts.com</a>.</p>
+        <p>For privacy-related queries, contact us at <a href="mailto:socioposts@gmail.com" style={{ color: "#6366f1" }}>socioposts@gmail.com</a>.</p>
       </Section>
 
       <Section title="2. Information We Collect">
@@ -81,7 +81,7 @@ export default function PrivacyPage() {
           <li><strong>Portability:</strong> Request an export of your data in a machine-readable format</li>
           <li><strong>Objection:</strong> Object to certain processing activities</li>
         </ul>
-        <p>To exercise any of these rights, email us at <a href="mailto:privacy@socioposts.com" style={{ color: "#6366f1" }}>privacy@socioposts.com</a>. We will respond within 30 days.</p>
+        <p>To exercise any of these rights, email us at <a href="mailto:socioposts@gmail.com" style={{ color: "#6366f1" }}>socioposts@gmail.com</a>. We will respond within 30 days.</p>
       </Section>
 
       <Section title="7. Cookies and Tracking">
@@ -100,7 +100,7 @@ export default function PrivacyPage() {
 
       <Section title="9. Changes to This Policy">
         <p>We may update this Privacy Policy from time to time. We will notify you of material changes by email or by posting a notice on the Service at least 14 days before the changes take effect. Your continued use of the Service after the effective date constitutes your acceptance of the updated policy.</p>
-        <p>For questions about this Privacy Policy, contact us at <a href="mailto:privacy@socioposts.com" style={{ color: "#6366f1" }}>privacy@socioposts.com</a>.</p>
+        <p>For questions about this Privacy Policy, contact us at <a href="mailto:socioposts@gmail.com" style={{ color: "#6366f1" }}>socioposts@gmail.com</a>.</p>
       </Section>
     </article>
   )

@@ -6,6 +6,7 @@ import { X, Search, ChevronDown, Mail } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
+import { CONTACT_EMAIL } from "@/lib/constants"
 
 interface FaqEntry {
   q: string
@@ -99,8 +100,6 @@ const FAQ_CATEGORIES: FaqCategory[] = [
     ],
   },
 ]
-
-const SUPPORT_EMAIL = "support@socioposts.com"
 
 function FaqItem({ entry }: { entry: FaqEntry }) {
   const [open, setOpen] = useState(false)
@@ -209,7 +208,7 @@ export function HelpDrawer({ open, onClose }: HelpDrawerProps) {
               <div className="rounded-md border bg-muted/30 p-3 text-center">
                 <p className="text-xs text-muted-foreground">Still stuck?</p>
                 <a
-                  href={`mailto:${SUPPORT_EMAIL}`}
+                  href={`mailto:${CONTACT_EMAIL}`}
                   className="inline-flex items-center gap-1.5 text-sm font-medium text-primary underline underline-offset-2"
                 >
                   <Mail className="h-3.5 w-3.5" /> Contact us
