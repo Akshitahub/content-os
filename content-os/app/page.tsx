@@ -449,7 +449,7 @@ export default async function RootPage() {
               <div>
                 <p className="mb-4 text-xs font-semibold uppercase tracking-widest text-gray-500">Account</p>
                 <ul className="space-y-3">
-                  {[{ label: "Sign in", href: "/login" }, { label: "Sign up", href: "/signup" }, { label: "Dashboard", href: "/dashboard" }].map(({ label, href }) => (
+                  {[{ label: "Sign in", href: "/login" }, { label: "Sign up", href: "/signup" }, { label: "Dashboard", href: "/dashboard" }, { label: "Admin", href: "/admin/login" }].map(({ label, href }) => (
                     <li key={label}><Link href={href} className="text-sm text-gray-400 hover:text-white transition-colors">{label}</Link></li>
                   ))}
                 </ul>
