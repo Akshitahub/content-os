@@ -2,6 +2,7 @@ import type { Metadata } from "next"
 import { Geist, Geist_Mono } from "next/font/google"
 import { QueryProvider } from "@/components/providers/QueryProvider"
 import { PostHogProvider } from "@/components/providers/PostHogProvider"
+import { WhatsappButton } from "@/components/shared/WhatsappButton"
 import "./globals.css"
 
 const geistSans = Geist({
@@ -75,6 +76,14 @@ export default function RootLayout({
         <QueryProvider>
           <PostHogProvider>{children}</PostHogProvider>
         </QueryProvider>
+        {/* Renders on every route by default -- hides itself on dashboard
+         * routes (see WhatsappButton's own DASHBOARD_ROUTE_PREFIXES),
+         * since logged-in users there already have HelpDrawer for
+         * support. Kept in the true root layout (not duplicated into
+         * (auth)/(legal)/onboarding's own layouts) so it's one component,
+         * one place, covering the landing page and every non-dashboard
+         * route at once. */}
+        <WhatsappButton />
       </body>
     </html>
   )
