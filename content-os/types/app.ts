@@ -257,8 +257,8 @@ export interface AutopilotTier {
 // not a pricing decision), so this field only matters again once that
 // list expands.
 export const PLAN_LIMITS: Record<UserPlan, { price: number; annualPrice: number; generations: number; brands: number; products: number; zernioSocialPlatforms: boolean; reelsPerWeek: number; autopilot: AutopilotTier; carouselCtaAiBackground: boolean }> = {
-  starter: { price: 499,  annualPrice: 5389,   generations: 150,  brands: 2, products: 30,   zernioSocialPlatforms: false, reelsPerWeek: 0, autopilot: { days: 14, slots: 14, creditCost: 74,  maxRunsPerMonth: 1 }, carouselCtaAiBackground: true },
-  pro:     { price: 1999, annualPrice: 21589,  generations: 600,  brands: 3, products: 200,  zernioSocialPlatforms: true,  reelsPerWeek: 1, autopilot: { days: 30, slots: 30, creditCost: 162, maxRunsPerMonth: 3 }, carouselCtaAiBackground: true },
+  starter: { price: 499,  annualPrice: 5389,   generations: 150,  brands: 1, products: 30,   zernioSocialPlatforms: false, reelsPerWeek: 0, autopilot: { days: 14, slots: 14, creditCost: 74,  maxRunsPerMonth: 1 }, carouselCtaAiBackground: true },
+  pro:     { price: 1999, annualPrice: 21589,  generations: 600,  brands: 2, products: 200,  zernioSocialPlatforms: true,  reelsPerWeek: 1, autopilot: { days: 30, slots: 30, creditCost: 162, maxRunsPerMonth: 3 }, carouselCtaAiBackground: true },
   agency:  { price: 4999, annualPrice: 53989,  generations: 1600, brands: 5, products: 1000, zernioSocialPlatforms: true,  reelsPerWeek: 4, autopilot: { days: 30, slots: 30, creditCost: 162, maxRunsPerMonth: 4 }, carouselCtaAiBackground: true },
 }
 

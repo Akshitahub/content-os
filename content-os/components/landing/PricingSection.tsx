@@ -71,6 +71,14 @@ function autopilotSpanNote(planId: "starter" | "pro" | "agency"): string {
   return `Autopilot: ${days}-day plan, ${slots} pieces per run`
 }
 
+// Brand count straight from PLAN_LIMITS rather than hand-typed, so this
+// bullet can't drift from the real gate the next time a plan's brand
+// limit changes — same singular/plural handling as autopilotNote below.
+function brandsNote(planId: "starter" | "pro" | "agency"): string {
+  const { brands } = PLAN_LIMITS[planId]
+  return `${brands} brand${brands === 1 ? "" : "s"}`
+}
+
 function creditsLine(planId: "starter" | "pro" | "agency"): string {
   const { generations: credits, brands, autopilot } = PLAN_LIMITS[planId]
   const posts = MANUAL_POSTS_TARGET[planId]
@@ -102,7 +110,7 @@ const TIERS: PricingTier[] = [
     name: "Starter",
     tagline: "For getting serious",
     features: [
-      "2 brands",
+      brandsNote("starter"),
       creditsLine("starter"),
       "Download-ready posts — publish manually",
       autopilotSpanNote("starter"),
@@ -115,7 +123,7 @@ const TIERS: PricingTier[] = [
     tagline: "For brands ready to grow",
     highlighted: true,
     features: [
-      "3 brands",
+      brandsNote("pro"),
       creditsLine("pro"),
       `Auto-post & schedule to ${ENABLED_PLATFORMS_LABEL} (more platforms coming soon)`,
       autopilotSpanNote("pro"),
@@ -128,7 +136,7 @@ const TIERS: PricingTier[] = [
     name: "Agency",
     tagline: "For managing multiple brands",
     features: [
-      "5 brands",
+      brandsNote("agency"),
       creditsLine("agency"),
       `Auto-post & schedule to ${ENABLED_PLATFORMS_LABEL} (more platforms coming soon)`,
       autopilotSpanNote("agency"),
