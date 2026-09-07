@@ -17,6 +17,8 @@ import { CAROUSEL as CAROUSEL_CREDIT_COST, CAROUSEL_SLIDE_AI_BACKGROUND } from "
 import { CAROUSEL_BG_STYLES, type CarouselBackgroundStyle } from "@/lib/design/carousel-slide-styles"
 import { cssBackgroundFromColors, ColorWheelPicker } from "@/components/shared/ColorWheelPicker"
 import { useDraggableText, type TextPosition } from "@/components/shared/useDraggableText"
+import { resolveFonts, DEFAULT_FONT_ID, TEXT_SIZE_OPTIONS, DEFAULT_TEXT_SIZE_SCALE } from "@/lib/design/fonts"
+import type { FontId } from "@/lib/design/fonts"
 import Link from "next/link"
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
@@ -85,6 +87,15 @@ interface CarouselSlideRich {
    * functions have somewhere to actually put it. */
   cta?: string
   handle?: string
+  /** Which curated font (lib/design/fonts.ts) renders this slide's text --
+   * absent means the compositor's own DEFAULT_FONT_ID (Anton). Per-slide,
+   * same as custom_background_colors above -- picking a font on one slide
+   * never touches its siblings. */
+  font_id?: FontId | null
+  /** Uniform font-size multiplier for this slide -- absent means 1.0 (the
+   * compositor's pre-existing fixed sizes). Per-slide, same convention as
+   * font_id above. */
+  text_size_scale?: number | null
 }
 
 interface CtaSlide {
@@ -129,6 +140,8 @@ function toExportSlide(slide: CarouselSlideRich, ctaSlide: CtaSlide | undefined,
     text_position_x: slide.text_position_x,
     text_position_y: slide.text_position_y,
     productImageSource: productImage,
+    font_id: slide.font_id,
+    text_size_scale: slide.text_size_scale,
   }
 }
 
@@ -566,6 +579,50 @@ function SlideEditor({
               <option value="dark_navy">Dark Navy</option>
             </select>
           )}
+        </div>
+
+        {/* Font family + text size -- same per-slide onChange({...slide, ...})
+            pattern as Background above, just picking font_id/text_size_scale
+            instead of a color. Pill buttons rather than a select/swatch grid
+            since these are plain labeled options, not colors. The curated
+            @fontsource files are only ever loaded server-side
+            (lib/image/carousel-compositor.ts) -- there's no live in-browser
+            preview of the actual typeface here, same as Post Maker's
+            identical picker. */}
+        <div>
+          <label className="text-xs text-muted-foreground">Font</label>
+          <div className="mt-1 flex flex-wrap gap-1.5">
+            {resolveFonts().map((font) => (
+              <button
+                key={font.id}
+                type="button"
+                onClick={() => onChange({ ...slide, font_id: font.id })}
+                className={`rounded-full border-2 px-2.5 py-1 text-xs font-medium transition-all ${
+                  (slide.font_id ?? DEFAULT_FONT_ID) === font.id ? "border-violet-500 bg-violet-50 text-violet-700 dark:bg-violet-950/30" : "border-border hover:border-violet-300"
+                }`}
+              >
+                {font.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <label className="text-xs text-muted-foreground">Text size</label>
+          <div className="mt-1 flex gap-1.5">
+            {TEXT_SIZE_OPTIONS.map((size) => (
+              <button
+                key={size.scale}
+                type="button"
+                onClick={() => onChange({ ...slide, text_size_scale: size.scale })}
+                className={`flex-1 rounded-full border-2 py-1 text-xs font-medium transition-all ${
+                  (slide.text_size_scale ?? DEFAULT_TEXT_SIZE_SCALE) === size.scale ? "border-violet-500 bg-violet-50 text-violet-700 dark:bg-violet-950/30" : "border-border hover:border-violet-300"
+                }`}
+              >
+                {size.label}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
     </div>

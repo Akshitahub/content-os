@@ -50,3 +50,24 @@ export function resolveFonts(): FontOption[] {
 export function findFont(fonts: FontOption[], id: string | undefined): FontOption {
   return fonts.find((f) => f.id === id) ?? fonts.find((f) => f.id === DEFAULT_FONT_ID) ?? fonts[0]!
 }
+
+// Shared text-size scale options for every text_size_scale-aware picker
+// (Post Maker, Story, Carousel) — a single multiplier applied to whatever
+// base font sizes that surface's own compositor already computes, not an
+// absolute pixel size (each surface's templates have very different base
+// sizes). Server-side validation (lib/validations/ai.ts) allows a wider
+// 0.7-1.5 range than these four presets for headroom, but the picker itself
+// only ever offers these curated stops.
+export const DEFAULT_TEXT_SIZE_SCALE = 1.0
+
+export interface TextSizeOption {
+  scale: number
+  label: string
+}
+
+export const TEXT_SIZE_OPTIONS: TextSizeOption[] = [
+  { scale: 0.85, label: "Small" },
+  { scale: 1.0, label: "Default" },
+  { scale: 1.15, label: "Large" },
+  { scale: 1.3, label: "XL" },
+]

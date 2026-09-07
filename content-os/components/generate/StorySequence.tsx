@@ -1,7 +1,8 @@
 "use client"
 
 import { useState, useEffect, useRef } from "react"
-import { Loader2, Download, Copy, Check, RefreshCw, AlertCircle, Image, Upload, X, Plus, Minus, Palette, Move } from "lucide-react"
+import { Loader2, Download, Copy, Check, RefreshCw, AlertCircle, Image, Upload, X, Plus, Minus, Palette, Move, Type } from "lucide-react"
+import { resolveFonts, DEFAULT_FONT_ID, TEXT_SIZE_OPTIONS, DEFAULT_TEXT_SIZE_SCALE } from "@/lib/design/fonts"
 import { ProductPicker, type PickedProduct } from "@/components/shared/ProductPicker"
 import type { StorySlide, StoryCaption } from "@/app/api/v1/ai/stories/generate/route"
 import { downloadStorySlideAsImage, downloadStorySlidesAsImages, type StoryExportSlide } from "@/lib/utils/story-export"
@@ -79,6 +80,8 @@ function toExportSlide(story: StorySlide, productImageSource: string | null | un
     product_position_x: story.product_position_x,
     product_position_y: story.product_position_y,
     custom_text_color: story.custom_text_color,
+    font_id: story.font_id,
+    text_size_scale: story.text_size_scale,
   }
 }
 
@@ -242,6 +245,7 @@ function PhoneStory({
   const [dlErr, setDlErr] = useState(false)
   const [showColors, setShowColors] = useState(false)
   const [showTextColorWheel, setShowTextColorWheel] = useState(false)
+  const [showFont, setShowFont] = useState(false)
   const frameRef = useRef<HTMLDivElement>(null)
   const textBlockRef = useRef<HTMLDivElement>(null)
   const productBlockRef = useRef<HTMLDivElement>(null)
@@ -495,6 +499,10 @@ function PhoneStory({
           className={`flex items-center gap-1 rounded-full border px-3 py-1.5 text-[11px] font-medium hover:bg-secondary ${showColors ? "border-violet-300 bg-violet-50 text-violet-700" : ""}`}>
           <Palette className="h-3 w-3" /> Color
         </button>
+        <button onClick={() => setShowFont((v) => !v)}
+          className={`flex items-center gap-1 rounded-full border px-3 py-1.5 text-[11px] font-medium hover:bg-secondary ${showFont ? "border-violet-300 bg-violet-50 text-violet-700" : ""}`}>
+          <Type className="h-3 w-3" /> Font
+        </button>
         {/* Only offered where the product overlay could ever actually show
             (see slideShowsProduct) and there's a real photo to show at
             all -- lets a user turn it back on (or off) regardless of
@@ -609,6 +617,53 @@ function PhoneStory({
                 />
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Font family + text size -- same per-slide onUpdateSlide pattern as
+          Color above, just picking font_id/text_size_scale instead of a
+          color. Text pill buttons rather than swatches since fonts have no
+          color to show, and the curated @fontsource files are only ever
+          loaded server-side (lib/image/story-compositor.ts) -- there's no
+          live in-browser preview of the actual typeface here, same as
+          Post Maker's identical picker. */}
+      {showFont && (
+        <div className="flex flex-col items-center gap-3">
+          <div className="flex flex-col items-center gap-1.5">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Font</p>
+            <div className="flex flex-wrap justify-center gap-1.5">
+              {resolveFonts().map((font) => (
+                <button
+                  key={font.id}
+                  type="button"
+                  onClick={() => onUpdateSlide({ font_id: font.id })}
+                  className={`rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors hover:bg-secondary ${
+                    (story.font_id ?? DEFAULT_FONT_ID) === font.id ? "border-violet-300 bg-violet-50 text-violet-700" : ""
+                  }`}
+                >
+                  {font.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="flex flex-col items-center gap-1.5">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Size</p>
+            <div className="flex items-center gap-1.5">
+              {TEXT_SIZE_OPTIONS.map((size) => (
+                <button
+                  key={size.scale}
+                  type="button"
+                  onClick={() => onUpdateSlide({ text_size_scale: size.scale })}
+                  className={`rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors hover:bg-secondary ${
+                    (story.text_size_scale ?? DEFAULT_TEXT_SIZE_SCALE) === size.scale ? "border-violet-300 bg-violet-50 text-violet-700" : ""
+                  }`}
+                >
+                  {size.label}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
       )}

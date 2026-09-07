@@ -168,6 +168,11 @@ export const generatePostImageSchema = z.object({
   // lib/design/fonts.ts's DEFAULT_FONT_ID) so omitting this doesn't
   // silently change behavior for anyone not using the picker yet.
   fontId: postFontEnum.optional(),
+  // Uniform multiplier applied to the template's headline font size before
+  // compositePostImage's own fitText auto-shrink loop runs -- optional,
+  // defaults to 1.0 (the pre-existing fixed sizes) server-side. Same
+  // 0.7-1.5 range as the Story/Carousel text_size_scale fields.
+  textSizeScale: z.number().min(0.7, "Text size is out of range").max(1.5, "Text size is out of range").nullish(),
   // Ties this call to the session created by /api/v1/ai/fullpost/generate,
   // so the server (not any client-supplied flag) can determine whether this
   // is the chargeable initial generation, the free first regenerate, or a

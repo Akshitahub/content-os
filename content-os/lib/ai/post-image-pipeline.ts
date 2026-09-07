@@ -642,6 +642,10 @@ export interface GeneratePostImageOptions {
   /** Which curated font (lib/design/fonts.ts) renders captionText, if any
    * is provided — falls back to the pre-existing Anton font when omitted. */
   fontId?: string
+  /** Multiplies captionText's headline font size — falls back to 1.0 (the
+   * pre-existing fixed sizes) when omitted. See CompositePostImageOptions'
+   * own comment for why this can't overflow the template's box. */
+  textSizeScale?: number | null
   logoUrl: string | null
   /** Determines the image provider (resolveImageProvider) — Starter stays
    * on Pollinations, Pro/Agency get Flux. */
@@ -739,6 +743,7 @@ export async function generatePostImage(options: GeneratePostImageOptions): Prom
       captionText,
       logoUrl: options.logoUrl,
       fontId: options.fontId,
+      textSizeScale: options.textSizeScale ?? undefined,
     })
     console.log(`[post-image-pipeline] composited successfully: ${composited.length} bytes`)
     return { success: true, buffer: composited, mimeType: "image/png", fullPrompt, provider: result.provider, attempts: result.attempts, textComposited: true }

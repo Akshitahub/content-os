@@ -12,7 +12,7 @@ import { UsageLimitBanner } from "@/components/generate/UsageLimitBanner"
 import { POST_TEMPLATES, DEFAULT_POST_TEMPLATE_ID } from "@/lib/design/post-templates"
 import type { PostTemplateId } from "@/lib/design/post-templates"
 import { resolveColorThemes } from "@/lib/design/color-themes"
-import { resolveFonts, DEFAULT_FONT_ID } from "@/lib/design/fonts"
+import { resolveFonts, DEFAULT_FONT_ID, TEXT_SIZE_OPTIONS, DEFAULT_TEXT_SIZE_SCALE } from "@/lib/design/fonts"
 import type { FontId } from "@/lib/design/fonts"
 import { useGenerateFullPost, useGeneratePostImage, useGenerateFullPostFromPhoto } from "@/hooks/useGeneration"
 import { POST as POST_CREDIT_COST, PHOTO_CAPTION } from "@/lib/usage/credit-costs"
@@ -156,6 +156,7 @@ export function FullPostGenerator({ brandId, products }: Props) {
   // from brand.cta_phrase.
   const [imageCaptionText, setImageCaptionText] = useState("")
   const [selectedFontId, setSelectedFontId] = useState<FontId>(DEFAULT_FONT_ID)
+  const [selectedTextSizeScale, setSelectedTextSizeScale] = useState<number>(DEFAULT_TEXT_SIZE_SCALE)
   const [postImageUrl, setPostImageUrl] = useState<string | null>(null)
   const [imageSource, setImageSource] = useState<"ai" | "product_photo" | "user_upload" | null>(null)
   // Full Post's real charge depends on which path actually ran, not a
@@ -210,6 +211,7 @@ export function FullPostGenerator({ brandId, products }: Props) {
         colorThemeId: effectiveColorThemeId,
         captionText,
         fontId: captionText ? selectedFontId : undefined,
+        textSizeScale: captionText ? selectedTextSizeScale : undefined,
         postSessionId: sessionId,
         contentProjectId: data.contentProjectId ?? undefined,
       },
@@ -223,7 +225,7 @@ export function FullPostGenerator({ brandId, products }: Props) {
         },
       }
     )
-  }, [brand, brandId, selectedProductId, selectedLayout, effectiveColorThemeId, imageCaptionText, selectedFontId, generatePostImageMutate])
+  }, [brand, brandId, selectedProductId, selectedLayout, effectiveColorThemeId, imageCaptionText, selectedFontId, selectedTextSizeScale, generatePostImageMutate])
 
   // FIX 3: a failed product-photo load (commonly CORS) used to silently
   // fall back to a photo-less gradient card and still report success — the
@@ -607,20 +609,36 @@ export function FullPostGenerator({ brandId, products }: Props) {
                 onChange={(e) => setImageCaptionText(e.target.value)}
               />
               {imageCaptionText.trim() && (
-                <div className="flex flex-wrap gap-2 pt-1">
-                  {fonts.map((font) => (
-                    <button
-                      key={font.id}
-                      type="button"
-                      onClick={() => setSelectedFontId(font.id)}
-                      className={`rounded-full border-2 px-2.5 py-1.5 text-xs font-medium transition-all ${
-                        selectedFontId === font.id ? "border-primary shadow-sm" : "border-muted hover:border-primary/40"
-                      }`}
-                    >
-                      {font.label}
-                    </button>
-                  ))}
-                </div>
+                <>
+                  <div className="flex flex-wrap gap-2 pt-1">
+                    {fonts.map((font) => (
+                      <button
+                        key={font.id}
+                        type="button"
+                        onClick={() => setSelectedFontId(font.id)}
+                        className={`rounded-full border-2 px-2.5 py-1.5 text-xs font-medium transition-all ${
+                          selectedFontId === font.id ? "border-primary shadow-sm" : "border-muted hover:border-primary/40"
+                        }`}
+                      >
+                        {font.label}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="flex flex-wrap gap-2 pt-1">
+                    {TEXT_SIZE_OPTIONS.map((size) => (
+                      <button
+                        key={size.scale}
+                        type="button"
+                        onClick={() => setSelectedTextSizeScale(size.scale)}
+                        className={`rounded-full border-2 px-2.5 py-1.5 text-xs font-medium transition-all ${
+                          selectedTextSizeScale === size.scale ? "border-primary shadow-sm" : "border-muted hover:border-primary/40"
+                        }`}
+                      >
+                        {size.label}
+                      </button>
+                    ))}
+                  </div>
+                </>
               )}
             </div>
           </>

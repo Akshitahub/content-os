@@ -6,27 +6,34 @@ import { Resvg } from "@resvg/resvg-js"
 import { decompress } from "wawoff2"
 import { getPrimaryColor, getSecondaryColor } from "@/lib/design/post-card-generator"
 import type { CarouselSlide } from "@/lib/design/post-card-generator"
+import { CURATED_FONTS, DEFAULT_FONT_ID, findFont } from "@/lib/design/fonts"
+import type { FontId } from "@/lib/design/fonts"
 import type { BrandRow } from "@/types/database"
 
 const CANVAS_SIZE = 1080
 
-// Same cached-TTF pattern as lib/image/meme-compositor.ts and
-// lib/image/post-compositor.ts — resvg-js's font loader only accepts raw
-// TrueType, not the woff2 @fontsource/anton ships, so it's decompressed
-// once and cached in /tmp across warm serverless invocations. Reuses Anton
-// rather than adding a second font family (same project decision as
-// post-compositor.ts — no fonts besides Anton are bundled).
-let cachedFontPath: string | null = null
+// Same cached-TTF pattern as lib/image/post-compositor.ts — resvg-js's font
+// loader only accepts raw TrueType, not the woff2 @fontsource ships, so
+// each curated font is decompressed to a TTF once and cached in /tmp across
+// warm serverless invocations. Keyed by font id (was a single global when
+// Anton was the only option) so all five curated fonts cache independently.
+// Shared by BOTH renderers below (the plain Autopilot slide renderer and
+// the rich CarouselBuilder.tsx renderer) -- only the rich one actually lets
+// a caller pick a font per slide; the plain renderer keeps always resolving
+// DEFAULT_FONT_ID, unchanged behavior.
+const fontPathCache = new Map<string, string>()
 
-async function getFontPath(): Promise<string> {
-  if (cachedFontPath && existsSync(cachedFontPath)) return cachedFontPath
+async function getFontPath(fontId: string): Promise<string> {
+  const cached = fontPathCache.get(fontId)
+  if (cached && existsSync(cached)) return cached
 
-  const woff2Path = join(process.cwd(), "node_modules/@fontsource/anton/files/anton-latin-400-normal.woff2")
+  const font = findFont(CURATED_FONTS, fontId)
+  const woff2Path = join(process.cwd(), `node_modules/@fontsource/${font.packageName}/files/${font.fileName}`)
   const ttfBuffer = await decompress(readFileSync(woff2Path))
 
-  const ttfPath = join(tmpdir(), "carousel-compositor-anton.ttf")
+  const ttfPath = join(tmpdir(), `carousel-compositor-${font.id}.ttf`)
   writeFileSync(ttfPath, ttfBuffer)
-  cachedFontPath = ttfPath
+  fontPathCache.set(fontId, ttfPath)
   return ttfPath
 }
 
@@ -140,7 +147,10 @@ export async function renderCarouselSlidesToPng(options: RenderCarouselSlidesOpt
   const secondary = getSecondaryColor(brand)
   const brandName = brand.name
   const total = slides.length
-  const fontPath = await getFontPath()
+  // Plain Autopilot slides have no per-slide font_id field (font pickers
+  // only exist on CarouselBuilder.tsx's rich manual flow below) -- always
+  // DEFAULT_FONT_ID, unchanged from this renderer's pre-existing behavior.
+  const fontPath = await getFontPath(DEFAULT_FONT_ID)
 
   return Promise.all(
     slides.map((slide, i) => {
@@ -282,9 +292,26 @@ export interface CarouselCompositeSlide {
    * slide type (cover: bottom-right; content: top-right badge; cta:
    * top-center), replicated exactly below. */
   productImageSource?: string | null
+  /** Which curated font (lib/design/fonts.ts) renders this slide's text --
+   * falls back to DEFAULT_FONT_ID (Anton, this renderer's pre-existing
+   * sole font) when absent, so behavior doesn't silently change for any
+   * slide saved before this field existed. */
+  font_id?: FontId | null
+  /** Uniform multiplier applied to every font size this slide renders --
+   * 1.0 (default) reproduces the pre-existing fixed sizes exactly. See
+   * headlineStyleFor below for how this interacts with the per-length
+   * maxChars wrap budget to avoid overflow. */
+  text_size_scale?: number | null
 }
 
-function headlineStyleFor(type: CarouselCompositeSlide["type"], text: string): { fontSize: number; maxChars: number } {
+// scale multiplies every tier's font size directly and inversely shrinks
+// its maxChars wrap budget -- without that inverse adjustment, a larger
+// scale would keep wrapping at the same character count while rendering
+// wider, overflowing the canvas. This approximates the real per-pixel
+// width check post-compositor.ts's fitText() does (this compositor's
+// wrapText is char-count-based, not glyph-measured), while still
+// respecting the existing length-tiered "shrink for longer text" table.
+function headlineStyleFor(type: CarouselCompositeSlide["type"], text: string, scale: number): { fontSize: number; maxChars: number } {
   // Roughly mirrors SlidePreview's text-3xl (cover) / text-xl (content) /
   // text-2xl (cta) Tailwind classes, tiered by length the same way
   // story-compositor.ts's headlineStyle already is -- not a pixel-exact
@@ -297,7 +324,7 @@ function headlineStyleFor(type: CarouselCompositeSlide["type"], text: string): {
       : [{ max: 20, size: 54 }, { max: 40, size: 44 }, { max: 70, size: 36 }, { max: Infinity, size: 30 }]
   const tier = tiers.find((t) => text.length < t.max) ?? tiers[tiers.length - 1]!
   const maxChars = Math.round(tier.size < 45 ? 26 : tier.size < 60 ? 20 : 16)
-  return { fontSize: tier.size, maxChars }
+  return { fontSize: Math.round(tier.size * scale), maxChars: Math.max(6, Math.round(maxChars / scale)) }
 }
 
 const RICH_SUBTEXT_FONT_SIZE = 34
@@ -317,7 +344,10 @@ async function buildRichBackgroundLayer(slide: CarouselCompositeSlide): Promise<
     const photo = await fetchRichImageBuffer(slide.image_url)
     if (photo) {
       const base = await sharp(photo).resize(RICH_CANVAS_WIDTH, RICH_CANVAS_HEIGHT, { fit: "cover" }).png().toBuffer()
-      const scrimPng = await svgToRichPngBuffer(`<svg width="${RICH_CANVAS_WIDTH}" height="${RICH_CANVAS_HEIGHT}" xmlns="http://www.w3.org/2000/svg">${RICH_SCRIM_SVG}</svg>`)
+      // No text in any of this function's SVGs (pure background shapes) --
+      // the font choice is inconsequential here, DEFAULT_FONT_ID just needs
+      // to point at a font file that's guaranteed to exist.
+      const scrimPng = await svgToRichPngBuffer(`<svg width="${RICH_CANVAS_WIDTH}" height="${RICH_CANVAS_HEIGHT}" xmlns="http://www.w3.org/2000/svg">${RICH_SCRIM_SVG}</svg>`, DEFAULT_FONT_ID)
       const buffer = await sharp(base).composite([{ input: scrimPng, top: 0, left: 0 }]).png().toBuffer()
       return { buffer, textColor: "#ffffff", subtextColor: "rgba(255,255,255,0.7)" }
     }
@@ -327,13 +357,13 @@ async function buildRichBackgroundLayer(slide: CarouselCompositeSlide): Promise<
 
   if (customColors.length > 0) {
     const svg = `<svg width="${RICH_CANVAS_WIDTH}" height="${RICH_CANVAS_HEIGHT}" xmlns="http://www.w3.org/2000/svg">${richCustomBackgroundFill(customColors)}${RICH_SCRIM_SVG}</svg>`
-    const buffer = await svgToRichPngBuffer(svg)
+    const buffer = await svgToRichPngBuffer(svg, DEFAULT_FONT_ID)
     return { buffer, textColor: "#ffffff", subtextColor: "rgba(255,255,255,0.7)" }
   }
 
   const [c1, c2, c3] = preset.stops
   const svg = `<svg width="${RICH_CANVAS_WIDTH}" height="${RICH_CANVAS_HEIGHT}" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="richPreset" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="${c1}"/><stop offset="50%" stop-color="${c2}"/><stop offset="100%" stop-color="${c3}"/></linearGradient></defs><rect width="${RICH_CANVAS_WIDTH}" height="${RICH_CANVAS_HEIGHT}" fill="url(#richPreset)"/></svg>`
-  const buffer = await svgToRichPngBuffer(svg)
+  const buffer = await svgToRichPngBuffer(svg, DEFAULT_FONT_ID)
   return { buffer, textColor: preset.text, subtextColor: preset.subtext }
 }
 
@@ -368,8 +398,8 @@ async function buildRichProductLayer(slide: CarouselCompositeSlide): Promise<{ i
   }
 }
 
-async function svgToRichPngBuffer(svg: string): Promise<Buffer> {
-  const fontPath = await getFontPath()
+async function svgToRichPngBuffer(svg: string, fontId: string): Promise<Buffer> {
+  const fontPath = await getFontPath(fontId)
   const resvg = new Resvg(svg, {
     font: { fontFiles: [fontPath], loadSystemFonts: false, defaultFontFamily: "CarouselFont" },
   })
@@ -377,23 +407,28 @@ async function svgToRichPngBuffer(svg: string): Promise<Buffer> {
 }
 
 function buildRichTextOverlaySvg(slide: CarouselCompositeSlide, brandName: string, textColor: string, subtextColor: string): string {
-  const maxWidthChars = headlineStyleFor(slide.type, slide.headline).maxChars
-  const { fontSize: headlineFontSize } = headlineStyleFor(slide.type, slide.headline)
+  const scale = slide.text_size_scale ?? 1.0
+  const maxWidthChars = headlineStyleFor(slide.type, slide.headline, scale).maxChars
+  const { fontSize: headlineFontSize } = headlineStyleFor(slide.type, slide.headline, scale)
   const headlineLines = wrapText(slide.headline, maxWidthChars, 4)
   const headlineLineHeight = headlineFontSize * 1.18
 
-  const subtextLines = slide.type === "cover" && slide.subtext?.trim() ? wrapText(slide.subtext, 34, 3) : []
-  const subtextLineHeight = RICH_SUBTEXT_FONT_SIZE * 1.4
+  const subtextFontSize = Math.round(RICH_SUBTEXT_FONT_SIZE * scale)
+  const subtextLines = slide.type === "cover" && slide.subtext?.trim() ? wrapText(slide.subtext, Math.max(10, Math.round(34 / scale)), 3) : []
+  const subtextLineHeight = subtextFontSize * 1.4
 
+  const pointFontSize = Math.round(RICH_POINT_FONT_SIZE * scale)
   const pointLines = slide.type === "content" && slide.points?.length
-    ? slide.points.flatMap((p) => wrapText(p, 42, 2))
+    ? slide.points.flatMap((p) => wrapText(p, Math.max(10, Math.round(42 / scale)), 2))
     : []
-  const pointLineHeight = RICH_POINT_FONT_SIZE * 1.6
+  const pointLineHeight = pointFontSize * 1.6
 
-  const ctaTextLines = slide.type === "cta" && slide.ctaText?.trim() ? wrapText(slide.ctaText, 40, 2) : []
-  const ctaTextLineHeight = RICH_CTA_TEXT_FONT_SIZE * 1.4
+  const ctaTextFontSize = Math.round(RICH_CTA_TEXT_FONT_SIZE * scale)
+  const ctaTextLines = slide.type === "cta" && slide.ctaText?.trim() ? wrapText(slide.ctaText, Math.max(10, Math.round(40 / scale)), 2) : []
+  const ctaTextLineHeight = ctaTextFontSize * 1.4
+  const ctaHandleFontSize = Math.round(RICH_CTA_HANDLE_FONT_SIZE * scale)
   const ctaHandleLines = slide.type === "cta" && slide.ctaHandle?.trim() ? [slide.ctaHandle] : []
-  const ctaHandleLineHeight = RICH_CTA_HANDLE_FONT_SIZE * 1.4
+  const ctaHandleLineHeight = ctaHandleFontSize * 1.4
 
   const headlineBlockHeight = headlineLines.length * headlineLineHeight
   const subtextBlockHeight = subtextLines.length * subtextLineHeight
@@ -422,7 +457,7 @@ function buildRichTextOverlaySvg(slide: CarouselCompositeSlide, brandName: strin
   cursorY += headlineBlockHeight + gapToSubtext
 
   const subtextSvg = subtextLines.length > 0
-    ? textLines(subtextLines, cursorY + RICH_SUBTEXT_FONT_SIZE * 0.85, subtextLineHeight, RICH_SUBTEXT_FONT_SIZE, subtextColor, 500, centerXAttr)
+    ? textLines(subtextLines, cursorY + subtextFontSize * 0.85, subtextLineHeight, subtextFontSize, subtextColor, 500, centerXAttr)
     : ""
   cursorY += subtextBlockHeight + gapToPoints
 
@@ -433,21 +468,21 @@ function buildRichTextOverlaySvg(slide: CarouselCompositeSlide, brandName: strin
   // block when dragged.
   const pointsSvg = pointLines.length > 0
     ? pointLines.map((line, i) => {
-        const y = cursorY + i * pointLineHeight + RICH_POINT_FONT_SIZE * 0.85
+        const y = cursorY + i * pointLineHeight + pointFontSize * 0.85
         const dotX = centerX - 21
         const textX = centerX - 14
-        return `<circle cx="${dotX}%" cy="${y - RICH_POINT_FONT_SIZE * 0.35}" r="5" fill="#a78bfa"/><text x="${textX}%" y="${y}" text-anchor="start" font-family="CarouselFont, sans-serif" font-weight="400" font-size="${RICH_POINT_FONT_SIZE}" fill="${subtextColor}">${escapeXml(line)}</text>`
+        return `<circle cx="${dotX}%" cy="${y - pointFontSize * 0.35}" r="5" fill="#a78bfa"/><text x="${textX}%" y="${y}" text-anchor="start" font-family="CarouselFont, sans-serif" font-weight="400" font-size="${pointFontSize}" fill="${subtextColor}">${escapeXml(line)}</text>`
       }).join("")
     : ""
   cursorY += pointsBlockHeight + gapToCtaText
 
   const ctaTextSvg = ctaTextLines.length > 0
-    ? textLines(ctaTextLines, cursorY + RICH_CTA_TEXT_FONT_SIZE * 0.85, ctaTextLineHeight, RICH_CTA_TEXT_FONT_SIZE, subtextColor, 500, centerXAttr)
+    ? textLines(ctaTextLines, cursorY + ctaTextFontSize * 0.85, ctaTextLineHeight, ctaTextFontSize, subtextColor, 500, centerXAttr)
     : ""
   cursorY += ctaTextBlockHeight + gapToCtaHandle
 
   const ctaHandleSvg = ctaHandleLines.length > 0
-    ? textLines(ctaHandleLines, cursorY + RICH_CTA_HANDLE_FONT_SIZE * 0.85, ctaHandleLineHeight, RICH_CTA_HANDLE_FONT_SIZE, textColor, 700, centerXAttr)
+    ? textLines(ctaHandleLines, cursorY + ctaHandleFontSize * 0.85, ctaHandleLineHeight, ctaHandleFontSize, textColor, 700, centerXAttr)
     : ""
 
   const brandSvg = brandName
@@ -480,7 +515,7 @@ export async function renderRichCarouselSlidesToPng(brandName: string, slides: C
       const productLayer = await buildRichProductLayer(slide)
       if (productLayer) layers.push(productLayer)
 
-      const textOverlayPng = await svgToRichPngBuffer(buildRichTextOverlaySvg(slide, brandName, textColor, subtextColor))
+      const textOverlayPng = await svgToRichPngBuffer(buildRichTextOverlaySvg(slide, brandName, textColor, subtextColor), slide.font_id ?? DEFAULT_FONT_ID)
       layers.push({ input: textOverlayPng, top: 0, left: 0 })
 
       return sharp(backgroundLayer).composite(layers).png().toBuffer()

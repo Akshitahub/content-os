@@ -11,6 +11,11 @@ import { z } from "zod"
 // preview (see lib/image/story-compositor.ts). Used by both "Save as PNG"
 // and the real Zernio schedule/publish path (via ScheduleAction.tsx).
 
+// Matches lib/design/fonts.ts's CURATED_FONTS ids exactly -- kept as a
+// static literal here rather than importing from lib/design, same
+// convention lib/validations/ai.ts's own postFontEnum already follows.
+const fontIdEnum = z.enum(["anton", "inter", "playfair", "quicksand", "caveat"])
+
 const slideSchema = z.object({
   type: z.enum(["hook", "reveal", "buildup", "cta"]),
   text: z.string().min(1).max(300),
@@ -40,6 +45,12 @@ const slideSchema = z.object({
   // See StorySlide.custom_text_color's own comment
   // (app/api/v1/ai/stories/generate/route.ts).
   custom_text_color: z.string().max(20).nullish(),
+  // Which curated font renders this slide's text -- see
+  // StoryCompositeSlide.font_id's own comment (lib/image/story-compositor.ts).
+  font_id: fontIdEnum.nullish(),
+  // Uniform font-size multiplier for this slide -- see
+  // StoryCompositeSlide.text_size_scale's own comment.
+  text_size_scale: z.number().min(0.7).max(1.5).nullish(),
 })
 // Matches the generate route's own storyCount cap (1-10).
 const schema = z.object({ slides: z.array(slideSchema).min(1).max(10) })

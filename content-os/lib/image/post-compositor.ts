@@ -217,9 +217,9 @@ interface OverlayResult {
   logoBox: { x: number; y: number; size: number } | null
 }
 
-function buildBoldStatement(captionText: string, theme: ColorTheme, font: fontkit.Font, hasLogo: boolean): OverlayResult {
+function buildBoldStatement(captionText: string, theme: ColorTheme, font: fontkit.Font, hasLogo: boolean, scale: number): OverlayResult {
   const { lines, fontSize, lineHeight, blockHeight } = fitText(font, captionText.toUpperCase(), {
-    startFontSize: 92,
+    startFontSize: 92 * scale,
     minFontSize: MIN_HEADLINE_FONT_SIZE,
     lineHeightMultiplier: 1.12,
     maxWidthPx: 960,
@@ -248,9 +248,9 @@ function buildBoldStatement(captionText: string, theme: ColorTheme, font: fontki
   return { svg, logoBox: { x: 66, y: 66, size: 80 } }
 }
 
-function buildProductFocus(captionText: string, theme: ColorTheme, font: fontkit.Font, hasLogo: boolean): OverlayResult {
+function buildProductFocus(captionText: string, theme: ColorTheme, font: fontkit.Font, hasLogo: boolean, scale: number): OverlayResult {
   const { lines, fontSize, lineHeight } = fitText(font, captionText.toUpperCase(), {
-    startFontSize: 62,
+    startFontSize: 62 * scale,
     minFontSize: MIN_HEADLINE_FONT_SIZE,
     lineHeightMultiplier: 1.15,
     maxWidthPx: 960,
@@ -283,9 +283,9 @@ function buildProductFocus(captionText: string, theme: ColorTheme, font: fontkit
   return { svg, logoBox: { x: 71, y: bandTop + (CANVAS_HEIGHT - bandTop) / 2 - 35, size: 70 } }
 }
 
-function buildQuoteCard(captionText: string, theme: ColorTheme, font: fontkit.Font, hasLogo: boolean): OverlayResult {
+function buildQuoteCard(captionText: string, theme: ColorTheme, font: fontkit.Font, hasLogo: boolean, scale: number): OverlayResult {
   const { lines, fontSize, lineHeight, blockHeight } = fitText(font, captionText, {
-    startFontSize: 72,
+    startFontSize: 72 * scale,
     minFontSize: MIN_HEADLINE_FONT_SIZE,
     lineHeightMultiplier: 1.2,
     maxWidthPx: 940,
@@ -309,10 +309,10 @@ function buildQuoteCard(captionText: string, theme: ColorTheme, font: fontkit.Fo
   return { svg, logoBox: { x: CANVAS_WIDTH / 2 - 30, y: CANVAS_HEIGHT - 95, size: 60 } }
 }
 
-function buildMinimal(captionText: string, theme: ColorTheme, font: fontkit.Font, hasLogo: boolean): OverlayResult {
+function buildMinimal(captionText: string, theme: ColorTheme, font: fontkit.Font, hasLogo: boolean, scale: number): OverlayResult {
   const padX = 70
   const { lines, fontSize, lineHeight, blockHeight } = fitText(font, captionText.toUpperCase(), {
-    startFontSize: 54,
+    startFontSize: 54 * scale,
     minFontSize: MIN_HEADLINE_FONT_SIZE,
     lineHeightMultiplier: 1.15,
     maxWidthPx: CANVAS_WIDTH - padX - 60,
@@ -370,6 +370,12 @@ export interface CompositePostImageOptions {
    * back to DEFAULT_FONT_ID (the pre-existing Anton) when omitted, so
    * behavior doesn't silently change for any caller not passing this yet. */
   fontId?: string
+  /** Multiplies every template's headline startFontSize before fitText's
+   * own auto-shrink loop runs — 1.0 (default, omitted) reproduces the
+   * pre-existing fixed sizes exactly. fitText already re-measures real
+   * glyph widths and shrinks back down to MIN_HEADLINE_FONT_SIZE if a
+   * scaled-up size doesn't fit, so this can't overflow the template's box. */
+  textSizeScale?: number
 }
 
 /**
@@ -411,7 +417,8 @@ export async function compositePostImage(
 
   const fontId = options.fontId ?? DEFAULT_FONT_ID
   const font = await getFont(fontId)
-  const { svg: overlaySvg, logoBox } = builder(captionText, options.colorTheme, font, hasLogo)
+  const scale = options.textSizeScale ?? 1.0
+  const { svg: overlaySvg, logoBox } = builder(captionText, options.colorTheme, font, hasLogo, scale)
   const svg = `<svg width="${CANVAS_WIDTH}" height="${CANVAS_HEIGHT}" xmlns="http://www.w3.org/2000/svg">${overlaySvg}</svg>`
 
   const fontPath = await getFontPath(fontId)

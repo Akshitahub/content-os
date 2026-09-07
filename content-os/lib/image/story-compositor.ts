@@ -4,6 +4,8 @@ import { tmpdir } from "os"
 import sharp from "sharp"
 import { Resvg } from "@resvg/resvg-js"
 import { decompress } from "wawoff2"
+import { CURATED_FONTS, DEFAULT_FONT_ID, findFont } from "@/lib/design/fonts"
+import type { FontId } from "@/lib/design/fonts"
 
 // Real Instagram Story canvas — confirmed against Meta's own Stories spec
 // (1080x1920, 9:16) and already documented as the intended target in
@@ -21,27 +23,29 @@ const CANVAS_HEIGHT = 1920
 // (250/1920 of total height).
 const SAFE_ZONE = 250
 
-// Same cached-TTF pattern as lib/image/carousel-compositor.ts — resvg-js's
-// font loader only accepts raw TrueType, not the woff2 @fontsource ships,
-// so it's decompressed once and cached in /tmp across warm serverless
-// invocations. Reuses Anton (no new font family), same as every other
-// compositor in this codebase.
-let cachedFontPath: string | null = null
+// Same cached-TTF pattern as lib/image/post-compositor.ts — resvg-js's font
+// loader only accepts raw TrueType, not the woff2 @fontsource ships, so
+// each curated font is decompressed to a TTF once and cached in /tmp across
+// warm serverless invocations. Keyed by font id (was a single global when
+// Anton was the only option) so all five curated fonts cache independently.
+const fontPathCache = new Map<string, string>()
 
-async function getFontPath(): Promise<string> {
-  if (cachedFontPath && existsSync(cachedFontPath)) return cachedFontPath
+async function getFontPath(fontId: string): Promise<string> {
+  const cached = fontPathCache.get(fontId)
+  if (cached && existsSync(cached)) return cached
 
-  const woff2Path = join(process.cwd(), "node_modules/@fontsource/anton/files/anton-latin-400-normal.woff2")
+  const font = findFont(CURATED_FONTS, fontId)
+  const woff2Path = join(process.cwd(), `node_modules/@fontsource/${font.packageName}/files/${font.fileName}`)
   const ttfBuffer = await decompress(readFileSync(woff2Path))
 
-  const ttfPath = join(tmpdir(), "story-compositor-anton.ttf")
+  const ttfPath = join(tmpdir(), `story-compositor-${font.id}.ttf`)
   writeFileSync(ttfPath, ttfBuffer)
-  cachedFontPath = ttfPath
+  fontPathCache.set(fontId, ttfPath)
   return ttfPath
 }
 
-async function svgToPngBuffer(svg: string): Promise<Buffer> {
-  const fontPath = await getFontPath()
+async function svgToPngBuffer(svg: string, fontId: string): Promise<Buffer> {
+  const fontPath = await getFontPath(fontId)
   const resvg = new Resvg(svg, {
     font: { fontFiles: [fontPath], loadSystemFonts: false, defaultFontFamily: "StoryFont" },
   })
@@ -153,7 +157,10 @@ async function buildBackgroundLayer(slide: StoryCompositeSlide): Promise<{ buffe
     const photo = await fetchImageBuffer(slide.background_image_url)
     if (photo) {
       const base = await sharp(photo).resize(CANVAS_WIDTH, CANVAS_HEIGHT, { fit: "cover" }).png().toBuffer()
-      const scrimPng = await svgToPngBuffer(`<svg width="${CANVAS_WIDTH}" height="${CANVAS_HEIGHT}" xmlns="http://www.w3.org/2000/svg">${SCRIM_SVG}</svg>`)
+      // No text in any of this function's SVGs (pure background shapes) --
+      // the font choice is inconsequential here, DEFAULT_FONT_ID just needs
+      // to point at a font file that's guaranteed to exist.
+      const scrimPng = await svgToPngBuffer(`<svg width="${CANVAS_WIDTH}" height="${CANVAS_HEIGHT}" xmlns="http://www.w3.org/2000/svg">${SCRIM_SVG}</svg>`, DEFAULT_FONT_ID)
       const buffer = await sharp(base).composite([{ input: scrimPng, top: 0, left: 0 }]).png().toBuffer()
       return { buffer, textColor: "#ffffff", subColor: "rgba(255,255,255,0.7)" }
     }
@@ -163,13 +170,13 @@ async function buildBackgroundLayer(slide: StoryCompositeSlide): Promise<{ buffe
 
   if (customColors.length > 0) {
     const svg = `<svg width="${CANVAS_WIDTH}" height="${CANVAS_HEIGHT}" xmlns="http://www.w3.org/2000/svg">${customBackgroundFill(customColors)}${SCRIM_SVG}</svg>`
-    const buffer = await svgToPngBuffer(svg)
+    const buffer = await svgToPngBuffer(svg, DEFAULT_FONT_ID)
     return { buffer, textColor: "#ffffff", subColor: "rgba(255,255,255,0.7)" }
   }
 
   const [c1, c2, c3] = preset.stops
   const svg = `<svg width="${CANVAS_WIDTH}" height="${CANVAS_HEIGHT}" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="preset" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="${c1}"/><stop offset="50%" stop-color="${c2}"/><stop offset="100%" stop-color="${c3}"/></linearGradient></defs><rect width="${CANVAS_WIDTH}" height="${CANVAS_HEIGHT}" fill="url(#preset)"/></svg>`
-  const buffer = await svgToPngBuffer(svg)
+  const buffer = await svgToPngBuffer(svg, DEFAULT_FONT_ID)
   return { buffer, textColor: preset.text, subColor: preset.sub }
 }
 
@@ -245,25 +252,41 @@ async function clampLayerForComposite(buffer: Buffer, left: number, top: number)
 
 // ─── Text ───────────────────────────────────────────────────────────────────
 
-function headlineStyle(text: string): { fontSize: number; maxChars: number } {
-  if (text.length < 20) return { fontSize: 92, maxChars: 15 }
-  if (text.length < 40) return { fontSize: 72, maxChars: 19 }
-  if (text.length < 70) return { fontSize: 56, maxChars: 24 }
-  return { fontSize: 44, maxChars: 30 }
+// scale multiplies every font size directly and inversely shrinks each
+// wrap width's maxChars budget -- without that inverse adjustment, a
+// larger scale would keep wrapping at the same character count while
+// rendering wider, overflowing the canvas. This approximates the real
+// per-pixel width check post-compositor.ts's fitText() does (this
+// compositor's wrapText is char-count-based, not glyph-measured), while
+// still respecting the existing length-tiered "shrink for longer text"
+// table below.
+function headlineStyle(text: string, scale: number): { fontSize: number; maxChars: number } {
+  const base =
+    text.length < 20 ? { fontSize: 92, maxChars: 15 } :
+    text.length < 40 ? { fontSize: 72, maxChars: 19 } :
+    text.length < 70 ? { fontSize: 56, maxChars: 24 } :
+    { fontSize: 44, maxChars: 30 }
+  return { fontSize: Math.round(base.fontSize * scale), maxChars: Math.max(6, Math.round(base.maxChars / scale)) }
 }
 
 const SUBTEXT_FONT_SIZE = 42
 const POLL_FONT_SIZE = 34
 
 function buildTextOverlaySvg(slide: StoryCompositeSlide, textColor: string, subColor: string): string {
-  const maxWidthChars = { headline: headlineStyle(slide.text).maxChars, subtext: 36, poll: 40 }
+  const scale = slide.text_size_scale ?? 1.0
+  const maxWidthChars = {
+    headline: headlineStyle(slide.text, scale).maxChars,
+    subtext: Math.max(10, Math.round(36 / scale)),
+    poll: Math.max(10, Math.round(40 / scale)),
+  }
 
-  const { fontSize: headlineFontSize } = headlineStyle(slide.text)
+  const { fontSize: headlineFontSize } = headlineStyle(slide.text, scale)
   const headlineLines = wrapText(slide.text, maxWidthChars.headline, 4)
   const headlineLineHeight = headlineFontSize * 1.15
 
+  const subtextFontSize = Math.round(SUBTEXT_FONT_SIZE * scale)
   const subtextLines = slide.subtext.trim() ? wrapText(slide.subtext, maxWidthChars.subtext, 3) : []
-  const subtextLineHeight = SUBTEXT_FONT_SIZE * 1.4
+  const subtextLineHeight = subtextFontSize * 1.4
 
   // Plain centered text, not an interactive sticker -- baked into the
   // image file, this can't actually collect taps/votes once published, so
@@ -272,8 +295,9 @@ function buildTextOverlaySvg(slide: StoryCompositeSlide, textColor: string, subC
   const pollText = slide.has_poll && slide.poll_options && slide.poll_options.length > 0
     ? slide.poll_options.join("  ·  ")
     : ""
+  const pollFontSize = Math.round(POLL_FONT_SIZE * scale)
   const pollLines = pollText ? wrapText(pollText, maxWidthChars.poll, 2) : []
-  const pollLineHeight = POLL_FONT_SIZE * 1.4
+  const pollLineHeight = pollFontSize * 1.4
 
   const headlineBlockHeight = headlineLines.length * headlineLineHeight
   const subtextBlockHeight = subtextLines.length * subtextLineHeight
@@ -300,12 +324,12 @@ function buildTextOverlaySvg(slide: StoryCompositeSlide, textColor: string, subC
   cursorY += headlineBlockHeight + gapToSubtext
 
   const subtextSvg = subtextLines.length > 0
-    ? textLines(subtextLines, cursorY + SUBTEXT_FONT_SIZE * 0.85, subtextLineHeight, SUBTEXT_FONT_SIZE, subColor, 600, centerXAttr)
+    ? textLines(subtextLines, cursorY + subtextFontSize * 0.85, subtextLineHeight, subtextFontSize, subColor, 600, centerXAttr)
     : ""
   cursorY += subtextBlockHeight + gapToPoll
 
   const pollSvg = pollLines.length > 0
-    ? textLines(pollLines, cursorY + POLL_FONT_SIZE * 0.85, pollLineHeight, POLL_FONT_SIZE, subColor, 700, centerXAttr)
+    ? textLines(pollLines, cursorY + pollFontSize * 0.85, pollLineHeight, pollFontSize, subColor, 700, centerXAttr)
     : ""
 
   return `<svg width="${CANVAS_WIDTH}" height="${CANVAS_HEIGHT}" xmlns="http://www.w3.org/2000/svg">${headlineSvg}${subtextSvg}${pollSvg}</svg>`
@@ -357,6 +381,16 @@ export interface StoryCompositeSlide {
    * computes below when set. See StorySlide.custom_text_color's own
    * comment. */
   custom_text_color?: string | null
+  /** Which curated font (lib/design/fonts.ts) renders this slide's headline/
+   * subtext/poll text -- falls back to DEFAULT_FONT_ID (Anton, this file's
+   * pre-existing sole font) when absent, so behavior doesn't silently
+   * change for any slide saved before this field existed. */
+  font_id?: FontId | null
+  /** Uniform multiplier applied to every font size this slide renders
+   * (headline/subtext/poll) -- 1.0 (default) reproduces the pre-existing
+   * fixed sizes exactly. See headlineStyle above for how this interacts
+   * with the per-length maxChars wrap budget to avoid overflow. */
+  text_size_scale?: number | null
 }
 
 /**
@@ -407,7 +441,7 @@ export async function renderStorySlidesToPng(slides: StoryCompositeSlide[]): Pro
         }
       }
 
-      const textOverlayPng = await svgToPngBuffer(buildTextOverlaySvg(slide, textColor, subColor))
+      const textOverlayPng = await svgToPngBuffer(buildTextOverlaySvg(slide, textColor, subColor), slide.font_id ?? DEFAULT_FONT_ID)
       layers.push({ input: textOverlayPng, top: 0, left: 0 })
 
       return sharp(backgroundLayer).composite(layers).png().toBuffer()

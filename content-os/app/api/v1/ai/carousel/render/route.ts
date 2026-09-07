@@ -25,6 +25,11 @@ import { z } from "zod"
 // either. This only re-renders slide data the user already
 // generated/edited.
 
+// Matches lib/design/fonts.ts's CURATED_FONTS ids exactly -- kept as a
+// static literal here rather than importing from lib/design, same
+// convention lib/validations/ai.ts's own postFontEnum already follows.
+const fontIdEnum = z.enum(["anton", "inter", "playfair", "quicksand", "caveat"])
+
 const slideSchema = z.object({
   type: z.enum(["cover", "content", "cta"]),
   headline: z.string().min(1).max(300),
@@ -41,6 +46,12 @@ const slideSchema = z.object({
   text_position_x: z.number().min(0).max(100).nullish(),
   text_position_y: z.number().min(0).max(100).nullish(),
   productImageSource: z.string().max(6_000_000).nullish(),
+  // Which curated font renders this slide's text -- see
+  // CarouselCompositeSlide.font_id's own comment (lib/image/carousel-compositor.ts).
+  font_id: fontIdEnum.nullish(),
+  // Uniform font-size multiplier for this slide -- see
+  // CarouselCompositeSlide.text_size_scale's own comment.
+  text_size_scale: z.number().min(0.7).max(1.5).nullish(),
 })
 // Matches CarouselBuilder.tsx's slideCount cap.
 const schema = z.object({

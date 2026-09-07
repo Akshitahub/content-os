@@ -26,6 +26,12 @@ export interface CarouselExportSlide {
   /** Product/uploaded photo for this specific slide -- an http(s) URL or a
    * data: URL, either works. */
   productImageSource?: string | null
+  /** Which curated font renders this slide's text -- see
+   * CarouselSlideRich.font_id's own comment. */
+  font_id?: string | null
+  /** Uniform font-size multiplier for this slide -- see
+   * CarouselSlideRich.text_size_scale's own comment. */
+  text_size_scale?: number | null
 }
 
 /** Returns one data: URL PNG per slide, or null on any failure. */

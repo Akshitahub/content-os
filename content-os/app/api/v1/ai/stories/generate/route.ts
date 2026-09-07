@@ -7,6 +7,7 @@ import { STORY } from "@/lib/usage/credit-costs"
 import { buildPastExamplesBlock, QUALITY_BAR } from "@/lib/ai/prompts"
 import { z } from "zod"
 import type { BrandRow } from "@/types/database"
+import type { FontId } from "@/lib/design/fonts"
 
 const schema = z.object({
   brandId: z.string().uuid(),
@@ -84,6 +85,17 @@ export type StorySlide = {
    * position (see StorySequence.tsx's PhoneStory). */
   product_position_x?: number
   product_position_y?: number
+  /** Client-only, never set by this route. Which curated font
+   * (lib/design/fonts.ts) renders this slide's text -- set by
+   * StorySequence.tsx's font picker, same per-slide pattern as
+   * custom_text_color above. Absent means the compositor's own
+   * DEFAULT_FONT_ID (Anton). */
+  font_id?: FontId | null
+  /** Client-only, never set by this route. Uniform font-size multiplier
+   * for this slide -- set by StorySequence.tsx's size picker, same
+   * per-slide pattern as custom_text_color above. Absent means 1.0 (the
+   * compositor's pre-existing fixed sizes). */
+  text_size_scale?: number | null
 }
 
 // The actual Instagram caption text for this story sequence — separate

@@ -46,6 +46,13 @@ export interface StoryExportSlide {
    * the real server-side render reflects a custom text color instead of
    * only the live editor preview. */
   custom_text_color?: string | null
+  /** Which curated font renders this slide's text -- see
+   * StorySlide.font_id's own comment. Threaded through here so the real
+   * server-side render reflects the picked font. */
+  font_id?: string | null
+  /** Uniform font-size multiplier for this slide -- see
+   * StorySlide.text_size_scale's own comment. */
+  text_size_scale?: number | null
 }
 
 /** Returns one data: URL PNG per slide, or null on any failure. */
