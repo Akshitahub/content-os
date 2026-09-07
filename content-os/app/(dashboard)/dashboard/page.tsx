@@ -7,7 +7,20 @@ import { DashboardStats } from "@/components/dashboard/DashboardStats"
 import { UpcomingOccasions } from "@/components/dashboard/UpcomingOccasions"
 import { PlatformIcon } from "@/components/shared/PlatformIcon"
 import { getUpcomingOccasions } from "@/lib/occasions/get-upcoming-occasions"
+import { getISTDateString, getISTNow } from "@/lib/utils/ist"
 import type { UserRow, CalendarEntryRow } from "@/types/database"
+
+/** d is built via local-field arithmetic (setDate/setHours) on an
+ * IST-simulated Date from getISTNow() -- toISOString() would reinterpret
+ * that as a real UTC instant and risk shifting the date by a day depending
+ * on the server's own timezone. Reading the local date components back out
+ * avoids that (same pattern as lib/ai/fastlane.ts's formatLocalDate). */
+function formatLocalDate(date: Date): string {
+  const yyyy = date.getFullYear()
+  const mm = String(date.getMonth() + 1).padStart(2, "0")
+  const dd = String(date.getDate()).padStart(2, "0")
+  return `${yyyy}-${mm}-${dd}`
+}
 
 export default async function DashboardPage({
   searchParams,
@@ -51,21 +64,28 @@ export default async function DashboardPage({
   const occasionsPromise = brandCount > 0 ? getUpcomingOccasions(14) : null
 
   const now = new Date()
-  const todayStr = now.toISOString().split("T")[0]!
+  const todayStr = getISTDateString(now)
   const firstOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
   const firstOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1)
-  const dayOfWeek = now.getDay()
-  const startOfWeek = new Date(now)
-  startOfWeek.setDate(now.getDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1))
+
+  // "Today" for week/activity-window purposes must be India's calendar day,
+  // not the server's own local day (a UTC host would otherwise roll the
+  // week over ~5.5 hours early/late) -- getISTNow() gives a Date whose
+  // local fields already reflect IST, safe to drive setDate()/setHours()
+  // arithmetic on directly (see formatLocalDate above for reading it back).
+  const istNow = getISTNow()
+  const dayOfWeek = istNow.getDay()
+  const startOfWeek = new Date(istNow)
+  startOfWeek.setDate(istNow.getDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1))
   startOfWeek.setHours(0, 0, 0, 0)
   const endOfWeek = new Date(startOfWeek)
   endOfWeek.setDate(startOfWeek.getDate() + 6)
-  const startOfWeekStr = startOfWeek.toISOString().split("T")[0]!
-  const endOfWeekStr = endOfWeek.toISOString().split("T")[0]!
+  const startOfWeekStr = formatLocalDate(startOfWeek)
+  const endOfWeekStr = formatLocalDate(endOfWeek)
 
   const ACTIVITY_CHART_DAYS = 14
-  const activityWindowStart = new Date(now)
-  activityWindowStart.setDate(now.getDate() - (ACTIVITY_CHART_DAYS - 1))
+  const activityWindowStart = new Date(istNow)
+  activityWindowStart.setDate(istNow.getDate() - (ACTIVITY_CHART_DAYS - 1))
   activityWindowStart.setHours(0, 0, 0, 0)
 
   // Three cheap, independent user_id-scoped queries run together: the
@@ -104,7 +124,7 @@ export default async function DashboardPage({
   const dailyActivity = Array.from({ length: ACTIVITY_CHART_DAYS }, (_, i) => {
     const d = new Date(activityWindowStart)
     d.setDate(activityWindowStart.getDate() + i)
-    return { date: d.toISOString().split("T")[0]!, label: DAY_LABELS[d.getDay()]!, count: 0 }
+    return { date: formatLocalDate(d), label: DAY_LABELS[d.getDay()]!, count: 0 }
   })
   const dailyActivityIndex = new Map(dailyActivity.map((d, i) => [d.date, i]))
   for (const row of activityRowsResult.data ?? []) {

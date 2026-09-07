@@ -6,6 +6,7 @@ import { generatePostImage } from "@/lib/ai/post-image-pipeline"
 import { DEFAULT_POST_TEMPLATE_ID } from "@/lib/design/post-templates"
 import { resolveColorThemes } from "@/lib/design/color-themes"
 import { mergeCaptionWithHookAndCta } from "@/lib/utils/caption-merge"
+import { getISTNow } from "@/lib/utils/ist"
 import { submitSceneAssetJobs } from "@/lib/video/reel-scene-assets"
 import type { KlingWebhookConfig } from "@/lib/video/kling-client"
 import { MUSIC_OPTIONS, resolveMusicTrackId } from "@/lib/video/music-options"
@@ -762,7 +763,11 @@ async function executeFastlaneInner(
   const createdEntries: CalendarEntryRow[] = []
 
   const batchSize = 3
-  const baseDate = new Date()
+  // Slot 1 must land on "today" in India, not the server's own local day
+  // (a UTC host would otherwise start the plan a day early/late around the
+  // IST/UTC boundary) -- getISTNow() gives a Date whose local fields already
+  // reflect IST, safe to drive setDate()/setHours() arithmetic on directly.
+  const baseDate = getISTNow()
   baseDate.setHours(0, 0, 0, 0)
 
   for (let i = 0; i < slots.length; i += batchSize) {
@@ -777,7 +782,12 @@ async function executeFastlaneInner(
 
         const slotDate = new Date(baseDate)
         slotDate.setDate(baseDate.getDate() + slot.day - 1)
-        const scheduledDate = slotDate.toISOString().split("T")[0]
+        // formatLocalDate, not slotDate.toISOString() -- slotDate's local
+        // fields already hold the correct IST calendar day (see baseDate
+        // above); toISOString() would reinterpret it as UTC and risk
+        // shifting the date, exactly the bug formatLocalDate's own comment
+        // describes.
+        const scheduledDate = formatLocalDate(slotDate)
 
         const generated = await generateSlotContent(brand, slot, product, totalSlots)
 

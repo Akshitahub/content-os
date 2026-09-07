@@ -8,6 +8,7 @@ import type { UserPlan } from "@/types/app"
 import { isInternalUnlimited } from "@/lib/usage/is-internal-unlimited"
 import { checkAndIncrementUsage, refundGenerationUsage } from "@/lib/usage/check-and-increment-usage"
 import { resolveGenerationLimit } from "@/lib/usage/trial-status"
+import { getISTDateString } from "@/lib/utils/ist"
 
 // Reel-script slots defer video generation into after() callbacks that run
 // once this response is sent — see lib/ai/fastlane.ts's submitAutopilotReel.
@@ -103,8 +104,15 @@ export async function POST(request: Request) {
     // (focusAreas, tier.slots) that the strategy generation itself uses.
     const estimatedCost = estimateAutopilotCreditCost(focusAreas, tier.slots)
 
-    const today = new Date().toISOString().split("T")[0]!
-    const windowEnd = new Date(Date.now() + tier.days * 24 * 60 * 60 * 1000).toISOString().split("T")[0]!
+    // scheduled_date is a plain calendar-date column keyed to India's
+    // calendar day (see lib/ai/fastlane.ts's baseDate) -- these must be
+    // computed the same way, not the server's own local/UTC day.
+    const today = getISTDateString()
+    // Real UTC-offset math on "now" is safe here (no local-Date-simulation
+    // needed): IST has no DST, so adding tier.days worth of whole-day
+    // milliseconds to the current instant always lands on the calendar day
+    // that's exactly tier.days days later in IST.
+    const windowEnd = getISTDateString(new Date(Date.now() + tier.days * 24 * 60 * 60 * 1000))
 
     if (clearAndRegenerate) {
       // Delete all upcoming entries before regenerating
