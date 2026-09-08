@@ -69,9 +69,6 @@ export default async function RootPage() {
               <span className="font-semibold tracking-tight text-gray-900" style={{ fontSize: "0.95rem" }}>SocioPosts</span>
             </span>
             <div className="flex items-center gap-4 sm:gap-6">
-              <Link href="/admin/login" className="nav-link text-sm font-medium transition-colors" style={{ color: "#ffffff" }}>
-                Admin
-              </Link>
               <Link href="/login" className="nav-link text-sm font-medium transition-colors" style={{ color: "#ffffff" }}>
                 Sign in
               </Link>
@@ -452,7 +449,7 @@ export default async function RootPage() {
               <div>
                 <p className="mb-4 text-xs font-semibold uppercase tracking-widest text-gray-500">Account</p>
                 <ul className="space-y-3">
-                  {[{ label: "Sign in", href: "/login" }, { label: "Sign up", href: "/signup" }, { label: "Dashboard", href: "/dashboard" }, { label: "Admin", href: "/admin/login" }].map(({ label, href }) => (
+                  {[{ label: "Sign in", href: "/login" }, { label: "Sign up", href: "/signup" }, { label: "Dashboard", href: "/dashboard" }].map(({ label, href }) => (
                     <li key={label}><Link href={href} className="text-sm text-gray-400 hover:text-white transition-colors">{label}</Link></li>
                   ))}
                 </ul>
