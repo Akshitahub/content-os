@@ -536,6 +536,13 @@ function PlanSection({ user, autoUpgradePlan }: { user: UserProps; autoUpgradePl
           <p className="text-sm text-destructive">{billingError}</p>
         )}
 
+        <p className="text-xs text-muted-foreground">
+          All payments are processed securely through Razorpay. Please note
+          that funds will be settled to the registered account holder of
+          SocioPosts, Akshita Singh, in accordance with our current payment
+          gateway registration.
+        </p>
+
         <Separator />
 
         {/* Buy more credits — a one-time top-up, independent of the plan
