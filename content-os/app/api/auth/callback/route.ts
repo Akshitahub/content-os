@@ -6,6 +6,21 @@ export async function GET(request: Request) {
   console.log("[auth/callback] GET called")
 
   const { searchParams, origin } = new URL(request.url)
+
+  // Supabase rejects some links (expired, already used, etc.) before they
+  // ever reach us as a `code` -- it redirects here with `?error=...&
+  // error_description=...` instead. Surfacing that real reason (both in
+  // logs and in the redirect URL) instead of collapsing straight to the
+  // generic message below is the whole point of this route's error
+  // handling -- otherwise every failure mode looks identical.
+  const oauthError = searchParams.get("error")
+  const oauthErrorDescription = searchParams.get("error_description")
+  if (oauthError || oauthErrorDescription) {
+    console.error("[auth/callback] Supabase redirected with error:", { error: oauthError, error_description: oauthErrorDescription })
+    const message = oauthErrorDescription || oauthError || "Could not authenticate. Please try again."
+    return NextResponse.redirect(`${origin}/login?error=${encodeURIComponent(message)}`)
+  }
+
   const code = searchParams.get("code")
   let next = searchParams.get("next") ?? "/dashboard"
 
@@ -30,6 +45,11 @@ export async function GET(request: Request) {
     }
 
     const { error } = await supabase.auth.exchangeCodeForSession(code)
+
+    if (error) {
+      console.error("[auth/callback] exchangeCodeForSession failed:", error.message)
+      return NextResponse.redirect(`${origin}/login?error=${encodeURIComponent(error.message)}`)
+    }
 
     if (!error) {
       // Get user to determine if they're new and send welcome email
