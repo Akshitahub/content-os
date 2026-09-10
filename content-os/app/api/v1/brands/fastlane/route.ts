@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import { buildError, ErrorCodes } from "@/types/api"
 import { fastlaneSchema } from "@/lib/validations/fastlane"
-import { executeFastlane, estimateAutopilotCreditCost } from "@/lib/ai/fastlane"
+import { executeFastlane, estimateAutopilotCreditCost, computeAutopilotSlotCount } from "@/lib/ai/fastlane"
 import { PLAN_LIMITS } from "@/types/app"
 import type { UserPlan } from "@/types/app"
 import { isInternalUnlimited } from "@/lib/usage/is-internal-unlimited"
@@ -94,6 +94,12 @@ export async function POST(request: Request) {
     // "the full tier," not a plan change.
     const tier = isUnlimited ? PLAN_LIMITS.agency.autopilot : PLAN_LIMITS[plan].autopilot
 
+    // This run's real slot count from the chosen posting frequency, capped
+    // at the tier's own max — a 3x/week run on a 30-day tier should
+    // generate/charge ~13 slots, not the full 30, matching the "~13 posts"/
+    // "~22 posts"/"30 posts" figures already shown in the UI.
+    const totalSlots = computeAutopilotSlotCount(frequency, tier.days, tier.slots)
+
     // Real weighted cost for THIS run's actual slot mix (see
     // lib/usage/credit-costs.ts) — replaces the old flat tier.creditCost,
     // which charged the same number regardless of whether the run's slots
@@ -101,8 +107,8 @@ export async function POST(request: Request) {
     // once and reused for both the pre-flight affordability check below
     // and the real charge after the run completes, so the two can never
     // disagree — both derive from the exact same buildContentMix inputs
-    // (focusAreas, tier.slots) that the strategy generation itself uses.
-    const estimatedCost = estimateAutopilotCreditCost(focusAreas, tier.slots)
+    // (focusAreas, totalSlots) that the strategy generation itself uses.
+    const estimatedCost = estimateAutopilotCreditCost(focusAreas, totalSlots)
 
     // scheduled_date is a plain calendar-date column keyed to India's
     // calendar day (see lib/ai/fastlane.ts's baseDate) -- these must be
@@ -255,7 +261,7 @@ export async function POST(request: Request) {
     // happened.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { data: runStatusRow, error: runStatusError } = await (supabase.from("autopilot_run_status") as any)
-      .insert({ brand_id: brandId, user_id: user.id, status: "running", total_slots: tier.slots })
+      .insert({ brand_id: brandId, user_id: user.id, status: "running", total_slots: totalSlots })
       .select("id")
       .single() as { data: { id: string } | null; error: { message: string } | null }
 
@@ -265,7 +271,7 @@ export async function POST(request: Request) {
 
     // Execute autopilot with user preferences, scaled to this plan's tier
     const result = await executeFastlane(supabase, user.id, brandId, {
-      frequency, platforms, vibe, focusAreas, totalSlots: tier.slots,
+      frequency, platforms, vibe, focusAreas, totalSlots: totalSlots,
       plan, isInternalUnlimitedUser: isUnlimited,
     }, runStatusRow?.id)
 

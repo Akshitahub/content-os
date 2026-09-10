@@ -232,6 +232,19 @@ function buildContentMix(focusAreas?: string[], totalSlots = 30): typeof CONTENT
   return totalSlots === 30 ? base : scaleMix(base, totalSlots)
 }
 
+/**
+ * A run's real slot count from the user's chosen posting frequency, capped
+ * at the plan tier's own max — matching the "~13 posts" / "~22 posts" /
+ * "30 posts" figures already shown in the UI (PricingSection.tsx's
+ * MANUAL_POSTS_TARGET and the Autopilot setup screen's own frequency copy),
+ * rather than always running every tier at its full tierMaxSlots regardless
+ * of what frequency was actually picked.
+ */
+export function computeAutopilotSlotCount(frequency: string | undefined, tierDays: number, tierMaxSlots: number): number {
+  const postsPerWeek = frequency === "3x_week" ? 3 : frequency === "5x_week" ? 5 : 7
+  return Math.min(tierMaxSlots, Math.ceil((tierDays / 7) * postsPerWeek))
+}
+
 // Real per-slot-type credit cost — line 762 below shows every content_type
 // EXCEPT "carousel" and "reel_script" routes through generatePostImage,
 // i.e. is really a full bundled Post regardless of what its content_type
