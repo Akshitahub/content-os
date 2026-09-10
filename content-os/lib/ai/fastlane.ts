@@ -311,7 +311,7 @@ async function buildStrategyUserPrompt(brand: BrandRow, products: ProductRow[], 
   const vibeNote = params?.vibe ? `Overall content vibe preference: ${params.vibe}` : ""
 
   const platformPref = params?.platforms?.length
-    ? `Preferred platforms: ${params.platforms.join(", ")} (weight these more heavily)`
+    ? `ONLY use these platforms for every single slot, in no other combination: ${params.platforms.join(", ")}. Never output a platform outside this list.`
     : "Vary platforms: 40% instagram, 20% tiktok, 15% linkedin, rest facebook/youtube/twitter"
 
   return `Create a ${totalSlots}-day content strategy for this brand.
@@ -466,6 +466,18 @@ export async function generateContentStrategy(brand: BrandRow, products: Product
   if (!Array.isArray(parsed.slots) || parsed.slots.length === 0) {
     console.error("[fastlane] No slots in response:", JSON.stringify(parsed).slice(0, 300))
     throw new Error("AI returned strategy with no content slots")
+  }
+
+  // Safety net for the "ONLY use these platforms" instruction above --
+  // guarantees the constraint even if the model ignores it. Any slot whose
+  // platform isn't in the allowed list gets round-robin reassigned to one
+  // that is, rather than dropped or left violating the user's explicit
+  // platform selection.
+  if (params?.platforms?.length) {
+    const allowed = params.platforms
+    parsed.slots = parsed.slots.map((slot, i) =>
+      allowed.includes(slot.platform) ? slot : { ...slot, platform: allowed[i % allowed.length] as Platform }
+    )
   }
 
   return parsed

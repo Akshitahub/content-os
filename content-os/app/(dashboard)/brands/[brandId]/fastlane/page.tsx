@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from "react"
 import { useParams } from "next/navigation"
 import {
   Loader2, CheckCircle2, XCircle, Calendar, BarChart2, AlertTriangle, Trash2, Plane,
-  Camera, Music2, Briefcase, Users, PlayCircle, AtSign, BookOpen, Theater, Sparkles, IndianRupee, Handshake,
+  Camera, Music2, Briefcase, Users, PlayCircle, AtSign, BookOpen, Theater, Sparkles, IndianRupee, Handshake, Shuffle,
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -37,6 +37,18 @@ const POLL_INTERVAL_MS = 4500
 // route's own maxDuration=300s cap, so a genuinely still-running row
 // should never actually reach this age.
 const STALE_THRESHOLD_MS = 10 * 60 * 1000
+
+// Mirrors lib/ai/fastlane.ts's computeAutopilotSlotCount exactly -- that
+// module can't be imported into this client component (it pulls in the
+// Groq client and other server-only deps), so the same small formula is
+// duplicated here just to seed the progress bar with this run's real
+// per-frequency total instead of the plan's flat max, for the brief window
+// before the first status poll (which already reflects the real total from
+// autopilot_run_status) has a chance to fire.
+function computeRunSlotCount(frequency: string, tierDays: number, tierMaxSlots: number): number {
+  const postsPerWeek = frequency === "3x_week" ? 3 : frequency === "5x_week" ? 5 : 7
+  return Math.min(tierMaxSlots, Math.ceil((tierDays / 7) * postsPerWeek))
+}
 
 interface RunCapData {
   message: string
@@ -75,6 +87,7 @@ const PLATFORM_OPTIONS = [
   { id: "facebook", label: "Facebook", Icon: Users },
   { id: "youtube", label: "YouTube", Icon: PlayCircle },
   { id: "twitter", label: "Twitter / X", Icon: AtSign },
+  { id: "mix", label: "Mix (All Platforms)", Icon: Shuffle },
 ]
 
 const VIBE_OPTIONS = [
@@ -251,9 +264,14 @@ export default function AutopilotPage() {
   }, [brandId])
 
   function togglePlatform(id: string) {
-    setSelectedPlatforms(prev =>
-      prev.includes(id) ? prev.filter(p => p !== id) : [...prev, id]
-    )
+    if (id === "mix") {
+      setSelectedPlatforms(prev => prev.includes("mix") ? [] : ["mix"])
+      return
+    }
+    setSelectedPlatforms(prev => {
+      const withoutMix = prev.filter(p => p !== "mix")
+      return withoutMix.includes(id) ? withoutMix.filter(p => p !== id) : [...withoutMix, id]
+    })
   }
 
   function toggleFocusArea(id: string) {
@@ -278,7 +296,7 @@ export default function AutopilotPage() {
         body: JSON.stringify({
           brandId,
           frequency,
-          platforms: selectedPlatforms.length > 0 ? selectedPlatforms : ["instagram"],
+          platforms: selectedPlatforms.includes("mix") ? [] : (selectedPlatforms.length > 0 ? selectedPlatforms : ["instagram"]),
           vibe,
           focusAreas,
         }),
@@ -313,7 +331,7 @@ export default function AutopilotPage() {
     setScheduleSummary(null)
     setScheduleError(null)
     setCompletedSlots(0)
-    setTotalSlotsRunning(tier.slots)
+    setTotalSlotsRunning(computeRunSlotCount(frequency, tier.days, tier.slots))
     setIsStale(false)
     // The POST below blocks for the whole run (up to maxDuration=300s) --
     // this polls the real completed_slots/total_slots the route wrote to
@@ -329,7 +347,7 @@ export default function AutopilotPage() {
         body: JSON.stringify({
           brandId,
           frequency,
-          platforms: selectedPlatforms.length > 0 ? selectedPlatforms : ["instagram"],
+          platforms: selectedPlatforms.includes("mix") ? [] : (selectedPlatforms.length > 0 ? selectedPlatforms : ["instagram"]),
           vibe,
           focusAreas,
           ...opts,
