@@ -18,6 +18,10 @@ interface ColorWheelPickerProps {
    * ever one source of truth for what's actually selected. */
   colors: string[]
   onChange: (colors: string[]) => void
+  /** When false, drop the Gradient/Solid toggle and the gradient-stop
+   * selector entirely — a solid-only picker. Used where a gradient makes
+   * no sense (e.g. per-slide text color). Defaults to true. */
+  allowGradient?: boolean
 }
 
 const DEFAULT_SOLID = "#6366F1"
@@ -29,7 +33,7 @@ export function cssBackgroundFromColors(colors: string[] | null | undefined): st
   return `linear-gradient(135deg, ${colors.join(", ")})`
 }
 
-export function ColorWheelPicker({ colors, onChange }: ColorWheelPickerProps) {
+export function ColorWheelPicker({ colors, onChange, allowGradient = true }: ColorWheelPickerProps) {
   const mode: ColorWheelMode = colors.length >= 2 ? "gradient" : "solid"
   const [activeStop, setActiveStop] = useState<0 | 1>(0)
 
@@ -52,20 +56,22 @@ export function ColorWheelPicker({ colors, onChange }: ColorWheelPickerProps) {
 
   return (
     <div className="space-y-3">
-      <div className="flex gap-2">
-        {(["gradient", "solid"] as const).map((m) => (
-          <button
-            key={m}
-            type="button"
-            onClick={() => setMode(m)}
-            className={`flex-1 rounded-md border-2 py-1.5 text-xs font-semibold capitalize transition-all ${
-              mode === m ? "border-violet-500 bg-violet-50 text-violet-700 dark:bg-violet-950/30" : "border-border hover:border-violet-300"
-            }`}
-          >
-            {m}
-          </button>
-        ))}
-      </div>
+      {allowGradient && (
+        <div className="flex gap-2">
+          {(["gradient", "solid"] as const).map((m) => (
+            <button
+              key={m}
+              type="button"
+              onClick={() => setMode(m)}
+              className={`flex-1 rounded-md border-2 py-1.5 text-xs font-semibold capitalize transition-all ${
+                mode === m ? "border-violet-500 bg-violet-50 text-violet-700 dark:bg-violet-950/30" : "border-border hover:border-violet-300"
+              }`}
+            >
+              {m}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Live preview */}
       <div
@@ -74,7 +80,7 @@ export function ColorWheelPicker({ colors, onChange }: ColorWheelPickerProps) {
       />
 
       {/* Gradient stop selector — which color the wheel below is editing */}
-      {mode === "gradient" && (
+      {allowGradient && mode === "gradient" && (
         <div className="flex gap-2">
           {[0, 1].map((i) => (
             <button

@@ -623,6 +623,7 @@ function PhoneStory({
                 <ColorWheelPicker
                   colors={story.custom_text_color ? [story.custom_text_color] : ["#FFFFFF"]}
                   onChange={(colors) => onUpdateSlide({ custom_text_color: colors[0] })}
+                  allowGradient={false}
                 />
               </div>
             )}
