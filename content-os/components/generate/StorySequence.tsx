@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from "react"
 import { Loader2, Download, Copy, Check, RefreshCw, AlertCircle, Image, Upload, X, Plus, Minus, Palette, Move, Type } from "lucide-react"
 import { resolveFonts, DEFAULT_FONT_ID, TEXT_SIZE_OPTIONS, DEFAULT_TEXT_SIZE_SCALE } from "@/lib/design/fonts"
+import { PREVIEW_FONT_CLASS } from "@/lib/design/preview-fonts"
 import { ProductPicker, type PickedProduct } from "@/components/shared/ProductPicker"
 import type { StorySlide, StoryCaption } from "@/app/api/v1/ai/stories/generate/route"
 import { downloadStorySlideAsImage, downloadStorySlidesAsImages, type StoryExportSlide } from "@/lib/utils/story-export"
@@ -290,7 +291,15 @@ function PhoneStory({
   // both the headline and subtext (and the poll line, which already
   // shares subColor's styling) -- unlike custom_background_colors, there's
   // no separate lighter/darker variant for text, just one color.
-  const customTextStyle = story.custom_text_color ? { color: story.custom_text_color } : undefined
+  // font_id/text_size_scale mirror the same defaults the server-side
+  // compositor falls back to (lib/image/story-compositor.ts) -- previewFontClass
+  // approximates the curated @fontsource face via next/font/google so the
+  // editor actually shows what's selected; the real exported/scheduled PNG
+  // was already correct before this, only the in-editor preview was stale.
+  const scale = story.text_size_scale ?? DEFAULT_TEXT_SIZE_SCALE
+  const previewFontClass = PREVIEW_FONT_CLASS[story.font_id ?? DEFAULT_FONT_ID]
+  const headlineStyle = { ...(story.custom_text_color ? { color: story.custom_text_color } : {}), fontSize: `${1.125 * scale}rem` }
+  const subtextStyle = { ...(story.custom_text_color ? { color: story.custom_text_color } : {}), fontSize: `${0.75 * scale}rem` }
 
   // Free-drag text positioning -- text_position (top/center/bottom) only
   // still matters as the starting point for a slide that's never been
@@ -458,8 +467,8 @@ function PhoneStory({
               suppressContentEditableWarning
               onBlur={(e) => commitEdit("text", e)}
               onKeyDown={commitOnEnter}
-              className={`text-center text-lg font-black leading-tight outline-none rounded px-1 -mx-1 cursor-text hover:bg-white/10 focus:bg-white/10 focus:ring-1 focus:ring-white/40 ${textColor}`}
-              style={customTextStyle}
+              className={`text-center text-lg font-black leading-tight outline-none rounded px-1 -mx-1 cursor-text hover:bg-white/10 focus:bg-white/10 focus:ring-1 focus:ring-white/40 ${textColor} ${previewFontClass}`}
+              style={headlineStyle}
             >
               {story.text}
             </p>
@@ -468,8 +477,8 @@ function PhoneStory({
               suppressContentEditableWarning
               onBlur={(e) => commitEdit("subtext", e)}
               onKeyDown={commitOnEnter}
-              className={`mt-2 text-center text-xs font-medium outline-none rounded px-1 -mx-1 cursor-text hover:bg-white/10 focus:bg-white/10 focus:ring-1 focus:ring-white/40 min-h-[1em] ${subColor}`}
-              style={customTextStyle}
+              className={`mt-2 text-center text-xs font-medium outline-none rounded px-1 -mx-1 cursor-text hover:bg-white/10 focus:bg-white/10 focus:ring-1 focus:ring-white/40 min-h-[1em] ${subColor} ${previewFontClass}`}
+              style={subtextStyle}
             >
               {story.subtext}
             </p>
@@ -480,7 +489,7 @@ function PhoneStory({
                 addable natively through Instagram's own app/API afterward),
                 so it shouldn't be styled to look like one. */}
             {story.has_poll && story.poll_options && (
-              <p className={`mt-4 text-center text-xs font-semibold ${subColor}`} style={customTextStyle}>
+              <p className={`mt-4 text-center text-xs font-semibold ${subColor} ${previewFontClass}`} style={subtextStyle}>
                 {story.poll_options.join("  ·  ")}
               </p>
             )}
