@@ -649,11 +649,13 @@ export function FullPostGenerator({ brandId, products }: Props) {
           <Label className="text-xs">Additional context (optional)</Label>
           <textarea
             rows={2}
+            maxLength={500}
             placeholder="e.g. 'Weekend flash sale, 20% off' or 'New packaging launch'"
             className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring resize-none"
             value={additionalContext}
             onChange={(e) => setAdditionalContext(e.target.value)}
           />
+          <p className="text-xs text-muted-foreground text-right">{additionalContext.length}/500</p>
         </div>
 
         <Button className="w-full" onClick={activeGenerate} disabled={activeIsPending}>

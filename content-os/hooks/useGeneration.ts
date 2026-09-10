@@ -59,7 +59,7 @@ export type GeneratedPostImage = {
 }
 
 function throwApiError(json: unknown, fallback: string): never {
-  if (isApiError(json)) throw new ApiResponseError(json.error.code, json.error.message)
+  if (isApiError(json)) throw new ApiResponseError(json.error.code, json.error.details ?? json.error.message)
   throw new Error(fallback)
 }
 

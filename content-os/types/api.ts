@@ -68,7 +68,7 @@ export function buildError(
       code,
       message,
       correlationId,
-      ...(details && process.env.NODE_ENV === "development" ? { details } : {}),
+      ...(details && code === ErrorCodes.VALIDATION_ERROR ? { details } : {}),
     },
   }
 }
