@@ -85,15 +85,24 @@ async function fetchCaption(input: GenerateCaptionsInput): Promise<GeneratedCapt
   return json.data
 }
 
-async function fetchImage(input: GenerateImageInput): Promise<GeneratedImageWithId> {
+// The images/generate route can respond 200 with { warning: true, message }
+// when the prompt asks for rendered text (AI can't do that legibly) --
+// surfaced as its own outcome kind so the component can show the choice
+// instead of it looking like a broken success.
+export type GenerateImageOutcome =
+  | { kind: "success"; data: GeneratedImageWithId }
+  | { kind: "warning"; message: string }
+
+async function fetchImage(input: GenerateImageInput): Promise<GenerateImageOutcome> {
   const res = await fetch("/api/v1/ai/images/generate", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input),
   })
   const json = await res.json()
+  if (json?.warning) return { kind: "warning", message: json.message }
   if (!res.ok || isApiError(json)) throwApiError(json, "Image generation failed")
-  return json.data
+  return { kind: "success", data: json.data }
 }
 
 export function useGenerateHooks() {

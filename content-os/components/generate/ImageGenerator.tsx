@@ -5,7 +5,7 @@ import { ImageIcon, Download, RefreshCw, Info, Check, AlertCircle } from "lucide
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { GeneratingState } from "@/components/shared/GeneratingState"
-import { useGenerateImage, ApiResponseError } from "@/hooks/useGeneration"
+import { useGenerateImage, ApiResponseError, type GenerateImageOutcome } from "@/hooks/useGeneration"
 import { useGenerationStore } from "@/stores/generationStore"
 import type { ProductRow } from "@/types/database"
 import type { ImageStyle, AspectRatio } from "@/types/app"
@@ -49,6 +49,7 @@ export function ImageGenerator({ brandId, products }: ImageGeneratorProps) {
 
   const [justSaved, setJustSaved] = useState(false)
   const [promptError, setPromptError] = useState("")
+  const [textWarning, setTextWarning] = useState<string | null>(null)
   const [variations, setVariations] = useState<string[]>([])
   const abortControllerRef = useRef<AbortController | null>(null)
 
@@ -71,39 +72,55 @@ export function ImageGenerator({ brandId, products }: ImageGeneratorProps) {
 
   useEffect(() => () => { abortControllerRef.current?.abort() }, [])
 
+  // Shared success handler for both the normal generate and the
+  // "Generate anyway" override -- a warning outcome (prompt asked for
+  // rendered text) surfaces the choice instead of looking like a broken
+  // success; a real success runs the existing variation logic unchanged.
+  function handleImageOutcome(outcome: GenerateImageOutcome) {
+    if (outcome.kind === "warning") {
+      setTextWarning(outcome.message)
+      return
+    }
+    setTextWarning(null)
+    const data = outcome.data
+    addImage(data)
+    setJustSaved(true)
+    setTimeout(() => setJustSaved(false), 6000)
+
+    // Generate 2 additional Pollinations variants with different seeds
+    const fp = data.full_prompt ?? data.prompt
+    const dims = DIMS[aspectRatio]
+    const encoded = encodeURIComponent(fp)
+    const s1 = Math.floor(Math.random() * 99999)
+    const s2 = Math.floor(Math.random() * 99999)
+    setVariations([
+      data.public_url,
+      `https://image.pollinations.ai/prompt/${encoded}?${dims}&seed=${s1}&nologo=true&model=flux&enhance=true`,
+      `https://image.pollinations.ai/prompt/${encoded}?${dims}&seed=${s2}&nologo=true&model=flux&enhance=true`,
+    ])
+  }
+
+  function runGenerate(allowTextInImage: boolean) {
+    abortControllerRef.current?.abort()
+    abortControllerRef.current = new AbortController()
+    setJustSaved(false)
+    setVariations([])
+    generateImage(
+      allowTextInImage
+        ? { brandId, productId: selectedProductId ?? undefined, prompt: prompt.trim(), style, aspectRatio, allowTextInImage: true }
+        : { brandId, productId: selectedProductId ?? undefined, prompt: prompt.trim(), style, aspectRatio },
+      { onSuccess: handleImageOutcome }
+    )
+  }
+
   function handleGenerate() {
     if (!prompt.trim()) {
       setPromptError("Please describe what you want to generate")
       return
     }
     setPromptError("")
-    abortControllerRef.current?.abort()
-    abortControllerRef.current = new AbortController()
-    setJustSaved(false)
-    setVariations([])
-
-    generateImage(
-      { brandId, productId: selectedProductId ?? undefined, prompt: prompt.trim(), style, aspectRatio },
-      {
-        onSuccess: (data) => {
-          addImage(data)
-          setJustSaved(true)
-          setTimeout(() => setJustSaved(false), 6000)
-
-          // Generate 2 additional Pollinations variants with different seeds
-          const fp = data.full_prompt ?? data.prompt
-          const dims = DIMS[aspectRatio]
-          const encoded = encodeURIComponent(fp)
-          const s1 = Math.floor(Math.random() * 99999)
-          const s2 = Math.floor(Math.random() * 99999)
-          setVariations([
-            data.public_url,
-            `https://image.pollinations.ai/prompt/${encoded}?${dims}&seed=${s1}&nologo=true&model=flux&enhance=true`,
-            `https://image.pollinations.ai/prompt/${encoded}?${dims}&seed=${s2}&nologo=true&model=flux&enhance=true`,
-          ])
-        },
-      }
-    )
+    setTextWarning(null)
+    runGenerate(false)
   }
 
   return (
@@ -183,6 +200,29 @@ export function ImageGenerator({ brandId, products }: ImageGeneratorProps) {
             <><ImageIcon className="h-4 w-4 mr-2" /> Generate image</>
           )}
         </Button>
+
+        {textWarning && !isPending && (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 flex items-start gap-3">
+            <AlertCircle className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
+            <div className="flex-1 space-y-2">
+              <p className="text-sm text-amber-900 font-medium">{textWarning}</p>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  onClick={handleGenerate}
+                  className="rounded-full border border-amber-300 bg-white px-3 py-1 text-xs font-semibold text-amber-800 hover:bg-amber-100"
+                >
+                  Generate background only
+                </button>
+                <button
+                  onClick={() => runGenerate(true)}
+                  className="rounded-full px-3 py-1 text-xs font-semibold text-amber-700 hover:text-amber-900"
+                >
+                  Generate anyway
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {error && (
           error instanceof ApiResponseError && error.code === "USAGE_LIMIT_EXCEEDED" ? (

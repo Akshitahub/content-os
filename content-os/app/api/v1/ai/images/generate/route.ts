@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { createClient, createAdminClient } from "@/lib/supabase/server"
 import { generateImageSchema } from "@/lib/validations/ai"
-import { generateImage } from "@/lib/ai/image-generator"
+import { generateImage, promptRequestsRenderedText } from "@/lib/ai/image-generator"
 import { buildError, ErrorCodes } from "@/types/api"
 import { checkAndIncrementUsage, refundGenerationUsage, logGenerationOutcome } from "@/lib/usage/check-and-increment-usage"
 import { IMAGE } from "@/lib/usage/credit-costs"
@@ -33,9 +33,22 @@ export async function POST(request: Request) {
   if (!parsed.success) return NextResponse.json(buildError(ErrorCodes.VALIDATION_ERROR, "Validation failed.", parsed.error.message), { status: 400 })
 
   const { brandId, productId, prompt, style, aspectRatio } = parsed.data
+  const { allowTextInImage } = parsed.data
 
   const { data: brand } = await supabase.from("brands").select("*").eq("id", brandId).eq("user_id", user.id).single<BrandRow>()
   if (!brand) return NextResponse.json(buildError(ErrorCodes.BRAND_NOT_FOUND, "Brand not found."), { status: 404 })
+
+  // AI diffusion models can't render legible text -- warn (and refund the
+  // usage charged above) instead of silently producing garbled output,
+  // unless the user already saw this warning and chose to proceed.
+  if (promptRequestsRenderedText(prompt) && !allowTextInImage) {
+    await refundGenerationUsage(supabase, user.id, IMAGE, logId)
+    return NextResponse.json({
+      warning: true,
+      message: "AI images can't reliably render readable text or labels — it usually comes out garbled or misspelled. For a graphic with real text, Carousel or Post composite your actual words on top so they're always spelled correctly. You can still generate this as a background-only image if you'd like.",
+      can_override: true,
+    }, { status: 200 })
+  }
 
   let product: ProductRow | null = null
   if (productId) {
@@ -55,6 +68,7 @@ export async function POST(request: Request) {
   const result = await generateImage(brand, {
     prompt, style, aspectRatio, product, plan,
     isInternalUnlimitedUser: isInternalUnlimited(user.id),
+    textWasRequested: promptRequestsRenderedText(prompt),
   })
 
   if (!result.success) {

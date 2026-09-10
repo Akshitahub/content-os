@@ -712,6 +712,12 @@ export function buildImagePrompt(
      * tab's own style choices (e.g. ugc_style explicitly wants a
      * "handheld phone photography feel"). */
     simplified?: boolean
+    /** Set when the user was warned this prompt asks for rendered text and
+     * chose to proceed anyway (see promptRequestsRenderedText in
+     * lib/ai/image-generator.ts + the images/generate route's warning
+     * short-circuit) -- adds a stronger "keep any unavoidable text to one
+     * short word" guard below. */
+    textWasRequested?: boolean
   }
 ): string {
   // User's description ALWAYS comes first (shortened to its core clause
@@ -735,6 +741,10 @@ export function buildImagePrompt(
     const palette = brand.color_palette as Record<string, unknown>
     const colors = Object.values(palette).filter((v) => typeof v === "string")
     if (colors.length) lines.push(`color palette ${colors.join(", ")}`)
+  }
+
+  if (options.textWasRequested) {
+    lines.push("if any text, words, or labels are unavoidable given the description above, keep them to a single short word only, large and simple, never a sentence or multiple separate labels — do not attempt to render paragraphs, multiple distinct labels, or any small text, as it will not render legibly")
   }
 
   lines.push(IMAGE_QUALITY_SAFETY_BOILERPLATE)

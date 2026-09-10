@@ -81,9 +81,17 @@ export const generateImageSchema = z.object({
     .transform((val) => val.replace(/<[^>]*>/g, "").trim()),
   style: imageStyleEnum.optional(),
   aspectRatio: aspectRatioEnum.default("1:1"),
+  // Opt-in override for the "AI can't render legible text" warning --
+  // false (the default) means the route short-circuits with a warning
+  // when the prompt asks for rendered words/labels; true means the user
+  // saw that warning and chose to proceed anyway.
+  allowTextInImage: z.boolean().optional().default(false),
 })
 
-export type GenerateImageInput = z.infer<typeof generateImageSchema>
+// z.input (pre-parse), not z.infer/z.output -- this is the shape the
+// client sends in the request body, where aspectRatio's default and the
+// new allowTextInImage override are both genuinely optional to supply.
+export type GenerateImageInput = z.input<typeof generateImageSchema>
 
 export const generateImageFromUploadSchema = z.object({
   brandId: z.string().uuid("Invalid brand ID"),

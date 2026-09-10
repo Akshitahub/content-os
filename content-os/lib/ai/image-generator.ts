@@ -15,6 +15,22 @@ export type GenerateImageResult =
   | { success: true; buffer: Buffer; mimeType: string; fullPrompt: string; provider: "pollinations" | "flux" }
   | { success: false; error: string }
 
+// Diffusion models (Flux/Pollinations) can't reliably render legible
+// text — this catches prompts asking for rendered words/labels so the
+// route can warn instead of silently producing garbled output. Keyword
+// heuristic, not exhaustive — false negatives just mean no warning
+// shown, false positives just mean an unnecessary warning; both are
+// fine outcomes, unlike silently generating garbage text.
+const TEXT_REQUEST_SIGNALS = [
+  "text", "label", "labels", "caption", "captions", "saying", "says",
+  "quote", "infographic", "diagram", "words", "wording", "headline",
+  "title that says", "sign that says", "write \"", "with the text",
+]
+export function promptRequestsRenderedText(prompt: string): boolean {
+  const lower = prompt.toLowerCase()
+  return TEXT_REQUEST_SIGNALS.some((signal) => lower.includes(signal))
+}
+
 /**
  * Now routes through lib/ai/post-image-pipeline.ts's fetchBackgroundImage
  * instead of its own hand-rolled Pollinations-only fetch -- that duplicate
@@ -37,17 +53,20 @@ export async function generateImage(
     productImageUrl?: string | null
     plan: UserPlan
     isInternalUnlimitedUser: boolean
+    textWasRequested?: boolean
   }
 ): Promise<GenerateImageResult> {
   const fullPrompt = buildImagePrompt(brand, {
     prompt: options.prompt,
     style: options.style,
     product: options.product,
+    textWasRequested: options.textWasRequested,
   })
   const fallbackPrompt = buildImagePrompt(brand, {
     prompt: options.prompt,
     style: options.style,
     simplified: true,
+    textWasRequested: options.textWasRequested,
   })
 
   // products.image_urls[0] -- the real uploaded product photo, now used as
