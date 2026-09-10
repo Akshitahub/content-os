@@ -283,7 +283,8 @@ Respond with ONLY this JSON:
   "caption": {
     "caption_text": "hook line, 1-2 lines of value, then ${ctaPhrase} and ${handle} on its own line — see CAPTION above",
     "hashtags": ["niche1", "niche2", "niche3", "niche4", "niche5", "brand1", "brand2", "brand3", "brand4", "brand5", "broad1", "broad2", "broad3", "broad4", "broad5"]
-  }
+  },
+  "suggested_vibe": "one of: fun_playful | clean_minimal | bold_dramatic | warm_cozy | professional | trendy_genz — whichever best fits this topic and the brand's own tone_of_voice/vibe above"
 }
 
 Make the text punchy and emotion-led. Each story should make the viewer want to tap to the next one.`
@@ -401,9 +402,12 @@ ${QUALITY_BAR}`,
 
     // Override the LLM's per-slide background choice with one deterministic,
     // vibe-derived value applied to every slide -- see VIBE_TO_STORY_BACKGROUND
-    // above for why. No-op (keeps whatever the LLM picked) when no vibe was
-    // selected, matching the pre-existing default.
-    const vibeBackground = vibe ? VIBE_TO_STORY_BACKGROUND[vibe] : undefined
+    // above for why. A manual `vibe` from the request (the Customize
+    // override) still wins; otherwise the model now picks its own vibe as
+    // part of the same JSON response (suggested_vibe), so the user no
+    // longer has to choose one separately. Still a no-op if neither exists.
+    const effectiveVibe = vibe || (d.suggested_vibe as string | undefined)
+    const vibeBackground = effectiveVibe ? VIBE_TO_STORY_BACKGROUND[effectiveVibe] : undefined
     if (vibeBackground) {
       d.stories = (d.stories as Record<string, unknown>[]).map((s) => ({ ...s, background: vibeBackground }))
     }

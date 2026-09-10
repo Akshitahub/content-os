@@ -717,8 +717,14 @@ export function StorySequence({ brandId }: { brandId: string }) {
   // ever sent one), so this brings it to parity with CarouselBuilder
   // rather than only adding Custom color with nothing for it to sit
   // "alongside" the way the task describes.
+  // Vibe is no longer a primary picker -- the generate route's LLM is
+  // effectively vibe-blind for actual story content (two vibes produce
+  // byte-identical text), so it now picks its own vibe as part of the same
+  // JSON response (suggested_vibe). Kept as state + surfaced only inside
+  // the "Customize" disclosure below for anyone who wants to force one.
   const [vibe, setVibe] = useState<Vibe | undefined>()
   const [customColors, setCustomColors] = useState<string[]>([])
+  const [showCustomize, setShowCustomize] = useState(false)
   // Extends the hook/cta-only AI background to every reveal/buildup slide
   // too -- opt-in since, unlike hook/cta, each one spends real credits
   // (see STORY_SLIDE_AI_BACKGROUND). Only meaningful alongside a real
@@ -1117,15 +1123,30 @@ export function StorySequence({ brandId }: { brandId: string }) {
           </div>
         </div>
 
+        {/* Vibe used to be a primary picker; the generate route's LLM
+            ignores it for actual content, so it now picks its own vibe
+            (suggested_vibe in the same JSON). This is just a manual
+            override for anyone who wants to force one. */}
         <div className="space-y-1.5">
-          <label className="text-xs font-medium">Vibe</label>
-          <VibePicker
-            selected={vibe}
-            onSelect={setVibe}
-            compact
-            customColors={customColors}
-            onCustomColorsChange={setCustomColors}
-          />
+          <button
+            type="button"
+            onClick={() => setShowCustomize((v) => !v)}
+            className="text-xs font-medium text-violet-600 hover:text-violet-700"
+          >
+            {showCustomize ? "Hide options" : "Customize (optional)"}
+          </button>
+          {showCustomize && (
+            <div className="space-y-1.5 pt-1">
+              <label className="text-xs font-medium">Vibe</label>
+              <VibePicker
+                selected={vibe}
+                onSelect={setVibe}
+                compact
+                customColors={customColors}
+                onCustomColorsChange={setCustomColors}
+              />
+            </div>
+          )}
         </div>
 
         {/* Optional per-sequence upgrade: AI photo backgrounds for every

@@ -129,6 +129,7 @@ Respond with ONLY this JSON (no markdown, no explanation):
 {
   "title": "short carousel title",
   "cover_hook": "the scroll-stopping cover text — see COVER HOOK GUIDANCE above",
+  "suggested_vibe": "one of: fun_playful | clean_minimal | bold_dramatic | warm_cozy | professional | trendy_genz — whichever best fits this topic and the brand's own tone_of_voice/vibe above",
   "slides": [
     {
       "slide_number": 1,
@@ -354,7 +355,12 @@ export async function POST(request: Request) {
     // vibe-derived value — see VIBE_TO_CAROUSEL_BACKGROUND above. Applied
     // after the CTA merge so a synthesized CTA slide (which otherwise
     // always hardcodes "gradient_dark") also reflects the selected vibe.
-    const vibeBackground = vibe ? VIBE_TO_CAROUSEL_BACKGROUND[vibe] : undefined
+    // A manual `vibe` from the request (the Customize override) still
+    // wins; otherwise the model now picks its own vibe in the same JSON
+    // response (suggested_vibe), so the user no longer picks one
+    // separately.
+    const effectiveVibe = vibe || (d.suggested_vibe as string | undefined)
+    const vibeBackground = effectiveVibe ? VIBE_TO_CAROUSEL_BACKGROUND[effectiveVibe] : undefined
     if (vibeBackground) {
       mergedSlides = mergedSlides.map((s) =>
         s && typeof s === "object" ? { ...s, background_style: vibeBackground } : s
