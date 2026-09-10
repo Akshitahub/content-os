@@ -12,7 +12,10 @@ const DELAY_BETWEEN_POSTS_MS = 2000
 // /posts call — no more per-platform Graph API dances with their own wait
 // quirks (e.g. Threads' old hardcoded 30s container wait), so there's no
 // longer a reason to cap how many of one platform run per invocation.
-export const maxDuration = 60
+// Matches the precedent already set in app/api/v1/brands/fastlane/route.ts
+// (the plan already supports this) — needed once entries run concurrently
+// below rather than one at a time.
+export const maxDuration = 300
 
 type AdminClient = SupabaseClient<Database>
 
@@ -41,6 +44,21 @@ function isAuthorized(request: Request): boolean {
 
 function sleep(ms: number) {
   return new Promise(resolve => setTimeout(resolve, ms))
+}
+
+// Runs `worker` over `items` with at most `concurrency` in flight at once --
+// each entry publishes to a different brand's own Zernio-connected account,
+// so there's no shared per-account rate limit being violated by running
+// several at once, unlike the old fully-sequential loop this replaces.
+async function runWithConcurrency<T>(items: T[], worker: (item: T) => Promise<void>, concurrency: number): Promise<void> {
+  let index = 0
+  async function next(): Promise<void> {
+    const i = index++
+    if (i >= items.length) return
+    await worker(items[i]!)
+    return next()
+  }
+  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, () => next()))
 }
 
 async function recordFailure(admin: AdminClient, entry: CalendarEntryRow, reason: string): Promise<"failed"> {
@@ -398,6 +416,7 @@ export async function GET(request: Request) {
     .in("platform", ["instagram", "facebook", "threads", "pinterest", "linkedin", "youtube", "twitter"])
     .lte("scheduled_date", tomorrowStr)
     .order("scheduled_date", { ascending: true })
+    .limit(300)
     .returns<CalendarEntryRow[]>()
 
   if (fetchError) {
@@ -418,7 +437,7 @@ export async function GET(request: Request) {
 
   const summary = { processed: 0, published: 0, failed: 0, skipped: 0 }
 
-  for (const entry of dueEntries) {
+  await runWithConcurrency(dueEntries, async (entry) => {
     summary.processed++
     try {
       const result = await processEntry(admin, entry)
@@ -429,8 +448,7 @@ export async function GET(request: Request) {
       console.error(`[cron/publish-scheduled] entry ${entry.id} unexpected error:`, err instanceof Error ? err.message : err)
       summary.failed++
     }
-    await sleep(DELAY_BETWEEN_POSTS_MS)
-  }
+  }, 8)
 
   console.log("[cron/publish-scheduled] done:", summary)
   return NextResponse.json({ data: summary })

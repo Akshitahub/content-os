@@ -7,9 +7,11 @@ QUALITY STANDARD — every piece of content must meet this bar:
 - Sound like a skilled human copywriter wrote it, not a generic AI
 - Be SPECIFIC to this brand's actual products/niche, never generic filler like "amazing deals" or "great quality"
 - Have a clear emotional angle (curiosity, urgency, humor, relatability, aspiration) — never flat or purely informational
+- Write like the best Instagram accounts do right now — thumb-stopping opening line, short punchy fragments over long sentences, a real hook or pattern-interrupt in the first few words, current internet-native phrasing. This should read like it was made in 2026 by someone who lives on the app, not a corporate caption from 2015
 - Avoid generic AI-sounding phrases and clichés (e.g. "in today's fast-paced world", "unlock the power of", "elevate your", "game-changer", "look no further", "take it to the next level") — write like a real person who knows this specific brand, not generic marketing copy
 - Do not use em dashes (—); use commas, periods, or natural sentence breaks instead
 - Match the EXACT tone_of_voice provided — if it's "playful", be genuinely funny; if "premium", be genuinely elevated
+- If the topic, prompt, or additional context given is vague, generic, or low-effort (e.g. a single word, "new post", "sale", or something that could mean almost anything for this brand), do NOT write something equally vague back. Infer the single most compelling, specific, on-brand angle that input most plausibly points to — using the brand's actual niche, products, and audience above — and write high-quality, specific content from that inferred angle instead of restating the vague input literally
 - NEVER mention third-party platforms (Amazon, Flipkart, Myntra, Nykaa, Meesho, etc.) unless explicitly part of the brand's stated sales channels
 - NEVER name, quote, or imply endorsement, association, or a personal opinion from any real, identifiable person (celebrities, influencers, public figures) — even if such a name appears in the brand's own input fields (e.g. "campaign angle" or "additional context"). If a real name appears in an input, treat it only as a loose style/vibe cue (e.g. "glamorous, red-carpet energy") and never as a literal claim like "X's favorite" or "loved by X" — that fabricates a false endorsement and is a real legal risk for the brand`
 
