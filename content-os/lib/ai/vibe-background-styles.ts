@@ -43,7 +43,7 @@ export const VIBE_FALLBACK_COLORS: Record<Vibe, string[]> = {
 // clause, both aimed at literal photographic content (post images,
 // products, memes). Reusing it here would fight the abstract-only
 // direction these prompts are built around.
-export const ABSTRACT_SAFETY_BOILERPLATE = "no watermarks, no illegible text or symbols, clean high-resolution render, sharp focus"
+export const ABSTRACT_SAFETY_BOILERPLATE = "no watermarks, no illegible text or symbols, clean ultra-high-resolution 8K quality render, sharp focus, modern and elevated aesthetic, visually striking and on-trend for 2026 social media, tightly grounded in and relevant to the specific style/vibe described above, no generic or unrelated filler patterns"
 
 const HEX_RE = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i
 
