@@ -107,6 +107,7 @@ function buildStrategyOverviewUserPrompt(brand: BrandRow, params?: AutopilotPara
     brand.target_audience ? `Target audience: ${brand.target_audience}` : null,
     brand.tone_of_voice ? `Tone of voice: ${brand.tone_of_voice}` : null,
     brand.brand_values?.length ? `Brand values: ${brand.brand_values.join(", ")}` : null,
+    brand.positioning ? `Positioning / What makes this brand different: ${brand.positioning}` : null,
     brand.content_pillars?.length ? `Content pillars: ${brand.content_pillars.join(", ")}` : null,
     brand.target_emotion ? `Target emotion: ${brand.target_emotion}` : null,
     brand.vibe ? `Brand vibe: ${brand.vibe}` : null,
@@ -214,6 +215,7 @@ Brand: ${brand.name}
 Niche: ${brand.niche ?? "General"}
 Audience: ${brand.target_audience ?? "General audience"}
 Tone: ${brand.tone_of_voice ?? "Conversational"}
+${brand.positioning ? `Positioning / What makes this brand different: ${brand.positioning}` : ""}
 ${productNames ? `Products: ${productNames}` : ""}
 ${frequencyNote}
 ${vibeNote}

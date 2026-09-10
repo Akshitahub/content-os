@@ -32,8 +32,10 @@ export function buildBrandContext(brand: BrandRow, product?: ProductRow | null):
     target_emotion?: string | null
     cta_phrase?: string | null
     content_pillars?: string[]
+    positioning?: string | null
   }
   if (b.brand_personality) lines.push(`Brand Personality: ${b.brand_personality}`)
+  if (b.positioning) lines.push(`Positioning / What Makes This Brand Different: ${b.positioning}`)
   if (b.target_emotion) lines.push(`Target Emotion to Evoke: ${b.target_emotion}`)
   if (b.cta_phrase) lines.push(`CTA Phrase: ${b.cta_phrase}`)
   if (b.content_pillars?.length) lines.push(`Content Pillars: ${b.content_pillars.join(", ")}`)

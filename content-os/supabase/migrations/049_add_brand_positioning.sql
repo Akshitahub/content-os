@@ -1,0 +1,2 @@
+ALTER TABLE public.brands ADD COLUMN IF NOT EXISTS positioning TEXT;
+COMMENT ON COLUMN public.brands.positioning IS 'What makes this brand different from competitors / its unique selling proposition — used directly in content-generation prompts (lib/ai/prompts.ts buildBrandContext), distinct from the old dropped competitors column which only fed the removed Instagram competitor-discovery feature.';

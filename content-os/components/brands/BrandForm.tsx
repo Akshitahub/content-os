@@ -104,6 +104,7 @@ export function BrandForm({ defaultValues, onSubmit, submitLabel = "Save brand",
       niche: "",
       target_audience: "",
       tone_of_voice: "",
+      positioning: "",
       brand_values: [],
       website_url: "",
       instagram_handle: "",
@@ -134,6 +135,7 @@ export function BrandForm({ defaultValues, onSubmit, submitLabel = "Save brand",
           if (data.niche) setValue("niche", data.niche)
           if (data.target_audience) setValue("target_audience", data.target_audience)
           if (data.tone_of_voice) setValue("tone_of_voice", data.tone_of_voice)
+          if (data.positioning) setValue("positioning", data.positioning)
           if (data.brand_values?.length) setValue("brand_values", data.brand_values)
           if (data.instagram_handle) setValue("instagram_handle", data.instagram_handle)
           setValue("website_url", url)
@@ -200,6 +202,11 @@ export function BrandForm({ defaultValues, onSubmit, submitLabel = "Save brand",
             <Label htmlFor="tone_of_voice">Brand personality <span className="text-destructive">*</span></Label>
             <p className="text-xs text-muted-foreground">How should your brand sound when it talks to people?</p>
             <Input id="tone_of_voice" placeholder="e.g. Fun and casual, Bold and confident, Warm and friendly" {...register("tone_of_voice")} />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="positioning">What makes you different (optional)</Label>
+            <Input id="positioning" placeholder="e.g. Only handmade option in a mass-produced market" {...register("positioning")} />
           </div>
 
           <div className="space-y-2">

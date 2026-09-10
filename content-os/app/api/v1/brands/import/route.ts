@@ -63,6 +63,7 @@ export async function POST(request: Request) {
         primary_color: extracted.primary_color || null,
         cta_phrase: extracted.cta_phrase || "Shop now",
         brand_personality: extracted.brand_personality || null,
+        positioning: extracted.positioning || null,
         content_pillars: extracted.content_pillars ?? [],
         target_emotion: extracted.target_emotion || null,
         vibe: extracted.vibe || "fun_playful",

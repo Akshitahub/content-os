@@ -85,6 +85,7 @@ export interface ExtractedBrandData {
   cta_phrase: string
   logo_url: string
   brand_personality: string
+  positioning: string
   content_pillars: string[]
   target_emotion: string
   vibe: string
@@ -124,6 +125,7 @@ export async function extractBrandFromPage(page: FetchedPage): Promise<Extracted
   "cta_phrase": "the brand's call-to-action phrase visible on the page, e.g. 'Shop now', 'DM to order', 'Link in bio' — default to 'Shop now' if unclear",
   "logo_url": "absolute URL of the brand logo image if found on the page, else empty string",
   "brand_personality": "3 words describing the brand personality, e.g. 'Bold, fun, youthful'",
+  "positioning": "one sentence on what makes this brand different from competitors or alternatives — its unique angle, not just what it sells, e.g. 'The only handmade option in a market of mass-produced jewellery' or 'Priced for students, quality of premium brands'. Infer from the page's own claims (comparisons, 'why us' sections, differentiators called out); empty string if nothing on the page actually supports a specific claim — don't invent one",
   "content_pillars": ["3-5 main topics this brand would post about based on their niche, e.g. 'Product features', 'Customer stories', 'Behind the scenes'"],
   "target_emotion": "the primary emotion this brand evokes in customers, e.g. 'Empowered', 'Joyful', 'Confident'",
   "vibe": "one of: fun_playful | clean_minimal | bold_dramatic | warm_cozy | professional | trendy_genz — which best matches this brand's visual and content style"
@@ -162,6 +164,7 @@ export async function extractBrandFromPage(page: FetchedPage): Promise<Extracted
     cta_phrase: parsed.cta_phrase ?? "Shop now",
     logo_url: parsed.logo_url ?? "",
     brand_personality: parsed.brand_personality ?? "",
+    positioning: parsed.positioning ?? "",
     content_pillars: Array.isArray(parsed.content_pillars) ? parsed.content_pillars.slice(0, 5) : [],
     target_emotion: parsed.target_emotion ?? "",
     vibe: parsed.vibe ?? "fun_playful",

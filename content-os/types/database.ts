@@ -157,6 +157,7 @@ export type Database = {
           brand_personality: string | null
           content_pillars: string[]
           target_emotion: string | null
+          positioning: string | null
           vibe: string | null
           onboarding_type: string | null
           posting_frequency: string | null
@@ -184,6 +185,7 @@ export type Database = {
           brand_personality?: string | null
           content_pillars?: string[]
           target_emotion?: string | null
+          positioning?: string | null
           vibe?: string | null
           onboarding_type?: string | null
           posting_frequency?: string | null
@@ -209,6 +211,7 @@ export type Database = {
           brand_personality?: string | null
           content_pillars?: string[]
           target_emotion?: string | null
+          positioning?: string | null
           vibe?: string | null
           onboarding_type?: string | null
           posting_frequency?: string | null
