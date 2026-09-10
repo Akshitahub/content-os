@@ -34,8 +34,12 @@ export interface CarouselExportSlide {
   text_size_scale?: number | null
 }
 
-/** Returns one data: URL PNG per slide, or null on any failure. */
-export async function renderCarouselSlides(brandName: string, slides: CarouselExportSlide[]): Promise<string[] | null> {
+/** Returns one data: URL PNG per slide (imageUrls, for the download flow
+ * below) plus the same PNGs re-hosted as small public HTTPS URLs
+ * (hostedUrls, for ScheduleAction.tsx to send instead of several MB of
+ * base64) -- null on any failure. hostedUrls is itself null if the render
+ * succeeded but any individual upload failed. */
+export async function renderCarouselSlides(brandName: string, slides: CarouselExportSlide[]): Promise<{ imageUrls: string[]; hostedUrls: string[] | null } | null> {
   try {
     const res = await fetch("/api/v1/ai/carousel/render", {
       method: "POST",
@@ -43,8 +47,9 @@ export async function renderCarouselSlides(brandName: string, slides: CarouselEx
       body: JSON.stringify({ brandName, slides }),
     })
     if (!res.ok) return null
-    const json = await res.json() as { data?: { imageUrls?: string[] } }
-    return json.data?.imageUrls ?? null
+    const json = await res.json() as { data?: { imageUrls?: string[]; hostedUrls?: string[] | null } }
+    if (!json.data?.imageUrls) return null
+    return { imageUrls: json.data.imageUrls, hostedUrls: json.data.hostedUrls ?? null }
   } catch {
     return null
   }
@@ -60,15 +65,19 @@ function triggerDownload(dataUrl: string, filename: string) {
 }
 
 export async function downloadCarouselSlideAsImage(brandName: string, slide: CarouselExportSlide, filename: string): Promise<boolean> {
-  const urls = await renderCarouselSlides(brandName, [slide])
-  if (!urls || urls.length === 0) return false
-  triggerDownload(urls[0]!, `${filename}.png`)
+  const rendered = await renderCarouselSlides(brandName, [slide])
+  // triggerDownload needs a data: URL to force a same-tab download, so this
+  // always uses imageUrls -- never hostedUrls (a real https URL would just
+  // navigate the tab there instead of downloading).
+  if (!rendered || rendered.imageUrls.length === 0) return false
+  triggerDownload(rendered.imageUrls[0]!, `${filename}.png`)
   return true
 }
 
 export async function downloadCarouselSlidesAsImages(brandName: string, slides: CarouselExportSlide[], filenamePrefix: string): Promise<boolean> {
-  const urls = await renderCarouselSlides(brandName, slides)
-  if (!urls || urls.length !== slides.length) return false
+  const rendered = await renderCarouselSlides(brandName, slides)
+  if (!rendered || rendered.imageUrls.length !== slides.length) return false
+  const urls = rendered.imageUrls
   for (let i = 0; i < urls.length; i++) {
     triggerDownload(urls[i]!, `${filenamePrefix}-${i + 1}.png`)
     // Staggered the same way story-export.ts's downloadStorySlidesAsImages

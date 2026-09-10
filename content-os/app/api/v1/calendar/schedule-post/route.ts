@@ -6,6 +6,12 @@ import { checkAndIncrementScheduleUsage } from "@/lib/usage/check-and-increment-
 import type { CalendarEntryInsert, CalendarEntryRow, Json } from "@/types/database"
 import { z } from "zod"
 
+// Re-hosting a carousel/story's images (now usually just a fast
+// server-to-server copy of an already-hosted URL — see ScheduleAction.tsx —
+// but still a per-slide fallback for base64 data: URLs) can run past the
+// platform default for a longer sequence.
+export const maxDuration = 60
+
 const MIN_CAROUSEL_IMAGES = 2
 const MAX_CAROUSEL_IMAGES = 10
 const MIN_STORY_SLIDES = 1
@@ -91,30 +97,31 @@ export async function POST(request: Request) {
     // per-image since neither a carousel nor a story sequence can publish
     // with a missing slide).
     const sourceUrls = imageUrls!
-    const hostedUrls: string[] = []
-    const noun = contentFormat === "carousel" ? "carousel image" : "story slide"
 
-    for (let i = 0; i < sourceUrls.length; i++) {
-      const sourceUrl = sourceUrls[i]!
-      const uploadResult = await uploadMediaToStorage(
-        sourceUrl.startsWith("data:") ? { kind: "dataUrl", dataUrl: sourceUrl } : { kind: "remoteUrl", url: sourceUrl },
-        `${brandId}/scheduled-${Date.now()}-${i}`
-      )
-
-      if ("error" in uploadResult) {
-        console.error(`[calendar/schedule-post] failed to host ${noun} ${i + 1}/${sourceUrls.length}:`, uploadResult.error)
-        return NextResponse.json(
-          buildError(
-            ErrorCodes.INTERNAL_ERROR,
-            `Couldn't prepare ${noun} ${i + 1} of ${sourceUrls.length} for scheduling. Please try again.`,
-            uploadResult.error
-          ),
-          { status: 500 }
+    // Since ScheduleAction now passes already-hosted https URLs in the
+    // normal case, this mostly just re-hosts a same-project storage URL --
+    // fast, server-to-server -- rather than decoding multi-MB base64
+    // client payloads. Stays as a safety net for Library's
+    // pre-hosted-URL path and the base64 fallback case (an individual
+    // render-time upload failed) alike.
+    const uploadResults = await Promise.all(
+      sourceUrls.map((sourceUrl, i) =>
+        uploadMediaToStorage(
+          sourceUrl.startsWith("data:") ? { kind: "dataUrl", dataUrl: sourceUrl } : { kind: "remoteUrl", url: sourceUrl },
+          `${brandId}/scheduled-${Date.now()}-${i}`
         )
-      }
-
-      hostedUrls.push(uploadResult.publicUrl)
+      )
+    )
+    const failedIndex = uploadResults.findIndex(r => "error" in r)
+    if (failedIndex !== -1) {
+      const noun = contentFormat === "carousel" ? "carousel image" : "story slide"
+      console.error(`[calendar/schedule-post] failed to host ${noun} ${failedIndex + 1}/${sourceUrls.length}:`, (uploadResults[failedIndex] as { error: string }).error)
+      return NextResponse.json(
+        buildError(ErrorCodes.INTERNAL_ERROR, `Couldn't prepare ${noun} ${failedIndex + 1} of ${sourceUrls.length} for scheduling. Please try again.`, (uploadResults[failedIndex] as { error: string }).error),
+        { status: 500 }
+      )
     }
+    const hostedUrls = uploadResults.map(r => (r as { publicUrl: string }).publicUrl)
 
     platformSpecificData = { image_urls: sourceUrls, hosted_image_urls: hostedUrls, content_format: contentFormat }
   } else if (contentFormat === "video") {

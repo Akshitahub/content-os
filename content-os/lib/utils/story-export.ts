@@ -55,8 +55,12 @@ export interface StoryExportSlide {
   text_size_scale?: number | null
 }
 
-/** Returns one data: URL PNG per slide, or null on any failure. */
-export async function renderStorySlides(slides: StoryExportSlide[]): Promise<string[] | null> {
+/** Returns one data: URL PNG per slide (imageUrls, for the download flow
+ * below) plus the same PNGs re-hosted as small public HTTPS URLs
+ * (hostedUrls, for ScheduleAction.tsx to send instead of several MB of
+ * base64) -- null on any failure. hostedUrls is itself null if the render
+ * succeeded but any individual upload failed. */
+export async function renderStorySlides(slides: StoryExportSlide[]): Promise<{ imageUrls: string[]; hostedUrls: string[] | null } | null> {
   try {
     const res = await fetch("/api/v1/ai/stories/render", {
       method: "POST",
@@ -64,8 +68,9 @@ export async function renderStorySlides(slides: StoryExportSlide[]): Promise<str
       body: JSON.stringify({ slides }),
     })
     if (!res.ok) return null
-    const json = await res.json() as { data?: { imageUrls?: string[] } }
-    return json.data?.imageUrls ?? null
+    const json = await res.json() as { data?: { imageUrls?: string[]; hostedUrls?: string[] | null } }
+    if (!json.data?.imageUrls) return null
+    return { imageUrls: json.data.imageUrls, hostedUrls: json.data.hostedUrls ?? null }
   } catch {
     return null
   }
@@ -81,15 +86,19 @@ function triggerDownload(dataUrl: string, filename: string) {
 }
 
 export async function downloadStorySlideAsImage(slide: StoryExportSlide, filename: string): Promise<boolean> {
-  const urls = await renderStorySlides([slide])
-  if (!urls || urls.length === 0) return false
-  triggerDownload(urls[0]!, `${filename}.png`)
+  const rendered = await renderStorySlides([slide])
+  // triggerDownload needs a data: URL to force a same-tab download, so this
+  // always uses imageUrls -- never hostedUrls (a real https URL would just
+  // navigate the tab there instead of downloading).
+  if (!rendered || rendered.imageUrls.length === 0) return false
+  triggerDownload(rendered.imageUrls[0]!, `${filename}.png`)
   return true
 }
 
 export async function downloadStorySlidesAsImages(slides: StoryExportSlide[], filenamePrefix: string): Promise<boolean> {
-  const urls = await renderStorySlides(slides)
-  if (!urls || urls.length !== slides.length) return false
+  const rendered = await renderStorySlides(slides)
+  if (!rendered || rendered.imageUrls.length !== slides.length) return false
+  const urls = rendered.imageUrls
   for (let i = 0; i < urls.length; i++) {
     triggerDownload(urls[i]!, `${filenamePrefix}-${i + 1}.png`)
     // Staggered the same way downloadMultipleAsImages (download-as-image.ts)

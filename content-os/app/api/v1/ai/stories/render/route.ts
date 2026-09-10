@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import { buildError, ErrorCodes } from "@/types/api"
 import { renderStorySlidesToPng, type StoryCompositeSlide } from "@/lib/image/story-compositor"
+import { uploadMediaToStorage } from "@/lib/storage/upload-media"
 import { z } from "zod"
 
 // Not a generation call -- no checkAndIncrementUsage/credit cost here, same
@@ -10,6 +11,12 @@ import { z } from "zod"
 // clean server-side raster instead of a screenshot of the live editing
 // preview (see lib/image/story-compositor.ts). Used by both "Save as PNG"
 // and the real Zernio schedule/publish path (via ScheduleAction.tsx).
+
+// Compositing every slide plus (now) uploading each rendered PNG to storage
+// in parallel can run past the platform default for a longer sequence --
+// matches the precedent already set elsewhere (e.g.
+// app/api/v1/brands/fastlane/route.ts).
+export const maxDuration = 60
 
 // Matches lib/design/fonts.ts's CURATED_FONTS ids exactly -- kept as a
 // static literal here rather than importing from lib/design, same
@@ -75,7 +82,16 @@ export async function POST(request: Request) {
   try {
     const buffers = await renderStorySlidesToPng(parsed.data.slides as StoryCompositeSlide[])
     const imageUrls = buffers.map((buf) => `data:image/png;base64,${buf.toString("base64")}`)
-    return NextResponse.json({ data: { imageUrls } })
+    // Upload in parallel so the schedule path can send small hosted URLs
+    // instead of shuttling several MB of base64 back through the browser
+    // and re-uploading it — imageUrls (data: URLs) stays as-is so the
+    // existing "Save as PNG" download flow (story-export.ts's
+    // downloadStorySlideAsImage/downloadStorySlidesAsImages) is untouched.
+    const hostedResults = await Promise.all(
+      buffers.map((buf, i) => uploadMediaToStorage({ kind: "buffer", buffer: buf, mimeType: "image/png" }, `story-renders/${user.id}-${Date.now()}-${i}`))
+    )
+    const hostedUrls = hostedResults.every(r => "publicUrl" in r) ? hostedResults.map(r => (r as { publicUrl: string }).publicUrl) : null
+    return NextResponse.json({ data: { imageUrls, hostedUrls } })
   } catch (err) {
     console.error("[ai/stories/render] compositing failed:", err instanceof Error ? err.message : err)
     return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Couldn't render the story image. Please try again."), { status: 500 })

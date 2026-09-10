@@ -209,25 +209,31 @@ export function ScheduleAction(props: ScheduleActionProps) {
       // of a DOM screenshot -- this is the fix for a carousel scheduled
       // from Library previously publishing with no text and missing
       // slides (there was no live editor DOM to screenshot there at all).
-      const renderedUrls = await renderCarouselSlides(brandName ?? "", carouselSlides)
-      if (!renderedUrls || renderedUrls.length !== carouselSlides.length) {
+      const rendered = await renderCarouselSlides(brandName ?? "", carouselSlides)
+      if (!rendered || rendered.imageUrls.length !== carouselSlides.length) {
         setErrorMsg(`Couldn't render the ${itemLabel} images. Please try again.`)
         setSubmitState("error")
         return
       }
-      body = { brandId, platform: "instagram", imageUrls: renderedUrls, contentFormat, caption, hashtags: hashtags.map((h) => h.replace(/^#+/, "")), scheduledDate: date, scheduledTime: time }
+      // hostedUrls (small https URLs) over imageUrls (base64 data: URLs) --
+      // falls back to imageUrls only if hostedUrls somehow came back null
+      // (an individual storage upload failed), so nothing regresses.
+      body = { brandId, platform: "instagram", imageUrls: rendered.hostedUrls ?? rendered.imageUrls, contentFormat, caption, hashtags: hashtags.map((h) => h.replace(/^#+/, "")), scheduledDate: date, scheduledTime: time }
     } else if (storySlides) {
       setSubmitState("capturing")
       // Real server-side render (lib/image/story-compositor.ts) instead of
       // a DOM screenshot — this is the fix for rounded phone-frame corners
       // and low quality showing up in real published Instagram stories.
-      const renderedUrls = await renderStorySlides(storySlides)
-      if (!renderedUrls || renderedUrls.length !== storySlides.length) {
+      const rendered = await renderStorySlides(storySlides)
+      if (!rendered || rendered.imageUrls.length !== storySlides.length) {
         setErrorMsg(`Couldn't render the ${itemLabel} images. Please try again.`)
         setSubmitState("error")
         return
       }
-      body = { brandId, platform: "instagram", imageUrls: renderedUrls, contentFormat, caption, hashtags: hashtags.map((h) => h.replace(/^#+/, "")), scheduledDate: date, scheduledTime: time }
+      // hostedUrls (small https URLs) over imageUrls (base64 data: URLs) --
+      // falls back to imageUrls only if hostedUrls somehow came back null
+      // (an individual storage upload failed), so nothing regresses.
+      body = { brandId, platform: "instagram", imageUrls: rendered.hostedUrls ?? rendered.imageUrls, contentFormat, caption, hashtags: hashtags.map((h) => h.replace(/^#+/, "")), scheduledDate: date, scheduledTime: time }
     } else if (preHostedImageUrls) {
       // Already hosted (e.g. slides persisted from a saved Library item) —
       // no capture step needed, straight to scheduling.
