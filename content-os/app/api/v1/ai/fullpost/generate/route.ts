@@ -4,6 +4,7 @@ import { generateFullPostSchema } from "@/lib/validations/ai"
 import { generateHooks } from "@/lib/ai/hooks-generator"
 import { generateContent } from "@/lib/ai/content-generator"
 import { generatePostCardHtml } from "@/lib/design/post-card-generator"
+import { resolveColorThemes } from "@/lib/design/color-themes"
 import { mergeCaptionWithHookAndCta } from "@/lib/utils/caption-merge"
 import { buildError, ErrorCodes } from "@/types/api"
 import { checkAndIncrementUsage, refundGenerationUsage, logGenerationOutcome } from "@/lib/usage/check-and-increment-usage"
@@ -94,6 +95,7 @@ export async function POST(request: Request) {
           additionalContext,
           pastExamples,
           includeImagePrompt: true,
+          availableColorThemes: resolveColorThemes(brand).map(t => ({ id: t.id, label: t.label })),
         }),
         createPostImageSession(user.id),
       ])

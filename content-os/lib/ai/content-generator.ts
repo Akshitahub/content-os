@@ -26,6 +26,8 @@ export type GenerateContentOptions = {
   pastExamples?: string[]
   /** social_post only — asks the same Groq call to also produce an image_prompt grounded in this post's specific message, for the Create → Full Post AI image pipeline. */
   includeImagePrompt?: boolean
+  /** social_post + includeImagePrompt only — the brand's resolved color themes, so the same Groq call can pick a suggested_color_theme_id from real ids rather than guessing. */
+  availableColorThemes?: { id: string; label: string }[]
 }
 
 type ReasoningEffort = "none" | "low" | "medium" | "high"
@@ -56,6 +58,7 @@ function buildPrompts(
           product: options.product,
           pastExamples: options.pastExamples,
           includeImagePrompt: options.includeImagePrompt,
+          availableColorThemes: options.availableColorThemes,
         }),
         reasoningEffort: "low",
         // A bit more headroom when image_prompt is also being generated in

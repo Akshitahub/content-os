@@ -276,6 +276,7 @@ export function buildCaptionUserPrompt(
     product?: ProductRow | null
     pastExamples?: string[]
     includeImagePrompt?: boolean
+    availableColorThemes?: { id: string; label: string }[]
   }
 ): string {
   const brandContext = buildBrandContext(brand, options.product)
@@ -309,8 +310,9 @@ export function buildCaptionUserPrompt(
     ? `"${ctaPhrase} 👇\\n${handle}"`
     : `"${ctaPhrase} 👇"`
 
+  const themeList = (options.availableColorThemes ?? []).map(t => t.id).join(" | ") || "curated_violet | curated_sunset | curated_forest | curated_midnight"
   const imagePromptField = options.includeImagePrompt
-    ? `,\n  "image_prompt": "vivid scene description grounded in this post's specific message/topic above, no text or words in the image, lower third kept visually simpler for text overlay"`
+    ? `,\n  "image_prompt": "vivid scene description grounded in this post's specific message/topic above, no text or words in the image, lower third kept visually simpler for text overlay",\n  "suggested_template": "one of: bold_statement | product_focus | quote_card | minimal | blank — pick whichever best fits this post's specific message and mood, e.g. blank for a clean lifestyle photo that speaks for itself, bold_statement for a punchy claim, quote_card for something reflective",\n  "suggested_color_theme_id": "one of: ${themeList} — pick whichever best fits this brand's aesthetic and this post's mood",\n  "suggested_overlay_text": "a short punchy phrase (under 8 words) to overlay on the image IF this post genuinely benefits from on-image text, otherwise an empty string for a clean text-free image — most posts should get an empty string here, only use real overlay text when the post is making one sharp, standalone claim"`
     : ""
 
   const vibeLine = brand.vibe ? `Brand Vibe: ${CAPTION_VIBE_LABELS[brand.vibe] ?? brand.vibe}` : ""

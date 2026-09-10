@@ -9,11 +9,10 @@ import { Label } from "@/components/ui/label"
 import Link from "next/link"
 import { GeneratingState } from "@/components/shared/GeneratingState"
 import { UsageLimitBanner } from "@/components/generate/UsageLimitBanner"
-import { POST_TEMPLATES, DEFAULT_POST_TEMPLATE_ID } from "@/lib/design/post-templates"
+import { DEFAULT_POST_TEMPLATE_ID } from "@/lib/design/post-templates"
 import type { PostTemplateId } from "@/lib/design/post-templates"
 import { resolveColorThemes } from "@/lib/design/color-themes"
-import { resolveFonts, DEFAULT_FONT_ID, TEXT_SIZE_OPTIONS, DEFAULT_TEXT_SIZE_SCALE } from "@/lib/design/fonts"
-import type { FontId } from "@/lib/design/fonts"
+import { DEFAULT_FONT_ID, DEFAULT_TEXT_SIZE_SCALE } from "@/lib/design/fonts"
 import { useGenerateFullPost, useGeneratePostImage, useGenerateFullPostFromPhoto } from "@/hooks/useGeneration"
 import { POST as POST_CREDIT_COST, PHOTO_CAPTION } from "@/lib/usage/credit-costs"
 import { useGenerationStore } from "@/stores/generationStore"
@@ -143,20 +142,20 @@ export function FullPostGenerator({ brandId, products }: Props) {
   const brandName = brand?.name ?? "Brand"
 
   const colorThemes = useMemo(() => resolveColorThemes(brand ?? null), [brand])
-  const fonts = useMemo(() => resolveFonts(), [])
 
   const [additionalContext, setAdditionalContext] = useState("")
   const [copied, setCopied] = useState<string | null>(null)
   const [justSaved, setJustSaved] = useState(false)
-  const [selectedLayout, setSelectedLayout] = useState<PostTemplateId>(DEFAULT_POST_TEMPLATE_ID)
-  const [selectedColorThemeId, setSelectedColorThemeId] = useState<string>("")
-  // Fully opt-in — empty by default produces a clean, text-free image.
-  // Only what's typed here ever gets composited onto the generated photo;
-  // no more auto-filled headline from the picked hook or auto-filled CTA
-  // from brand.cta_phrase.
-  const [imageCaptionText, setImageCaptionText] = useState("")
-  const [selectedFontId, setSelectedFontId] = useState<FontId>(DEFAULT_FONT_ID)
-  const [selectedTextSizeScale, setSelectedTextSizeScale] = useState<number>(DEFAULT_TEXT_SIZE_SCALE)
+  // Layout / color / overlay font / overlay size no longer have their own
+  // pickers — the caption Groq call now decides layout, color, and whether
+  // to overlay any text (see suggested_template/suggested_color_theme_id/
+  // suggested_overlay_text on GeneratedCaption). These stay as fixed
+  // defaults, used only as fallbacks in runImageGeneration if the model
+  // ever omits a suggestion.
+  const selectedLayout: PostTemplateId = DEFAULT_POST_TEMPLATE_ID
+  const selectedColorThemeId = ""
+  const selectedFontId = DEFAULT_FONT_ID
+  const selectedTextSizeScale = DEFAULT_TEXT_SIZE_SCALE
   const [postImageUrl, setPostImageUrl] = useState<string | null>(null)
   const [imageSource, setImageSource] = useState<"ai" | "product_photo" | "user_upload" | null>(null)
   // Full Post's real charge depends on which path actually ran, not a
@@ -196,10 +195,12 @@ export function FullPostGenerator({ brandId, products }: Props) {
   const runImageGeneration = useCallback((data: FullPostResult, sessionId: string) => {
     const caption = data.content.content as GeneratedCaption
     const imagePrompt = (caption.image_prompt?.trim() || `${data.hook.hook_text}, ${brand?.niche ?? "brand"} product`).slice(0, 500)
-    // Fully opt-in — no auto-fill from the picked hook or brand.cta_phrase.
-    // Empty means a clean, text-free image; fontId only matters when
-    // there's actually text to render with it.
-    const captionText = imageCaptionText.trim() || undefined
+    // Layout / color / overlay text all come from the same Groq call that
+    // wrote the caption (suggested_*). The selected* values are just
+    // fallbacks for the rare case the model omits one. An empty
+    // suggested_overlay_text means "clean, text-free image" — the model
+    // decides, there's no toggle.
+    const overlayText = caption.suggested_overlay_text?.trim() || undefined
 
     setImageError(null)
     generatePostImageMutate(
@@ -207,11 +208,11 @@ export function FullPostGenerator({ brandId, products }: Props) {
         brandId,
         productId: selectedProductId ?? undefined,
         imagePrompt,
-        template: selectedLayout,
-        colorThemeId: effectiveColorThemeId,
-        captionText,
-        fontId: captionText ? selectedFontId : undefined,
-        textSizeScale: captionText ? selectedTextSizeScale : undefined,
+        template: (caption.suggested_template as PostTemplateId) || selectedLayout,
+        colorThemeId: caption.suggested_color_theme_id || effectiveColorThemeId,
+        captionText: overlayText,
+        fontId: overlayText ? selectedFontId : undefined,
+        textSizeScale: overlayText ? selectedTextSizeScale : undefined,
         postSessionId: sessionId,
         contentProjectId: data.contentProjectId ?? undefined,
       },
@@ -225,7 +226,7 @@ export function FullPostGenerator({ brandId, products }: Props) {
         },
       }
     )
-  }, [brand, brandId, selectedProductId, selectedLayout, effectiveColorThemeId, imageCaptionText, selectedFontId, selectedTextSizeScale, generatePostImageMutate])
+  }, [brand, brandId, selectedProductId, selectedLayout, effectiveColorThemeId, selectedFontId, selectedTextSizeScale, generatePostImageMutate])
 
   // FIX 3: a failed product-photo load (commonly CORS) used to silently
   // fall back to a photo-less gradient card and still report success — the
@@ -533,124 +534,28 @@ export function FullPostGenerator({ brandId, products }: Props) {
           {uploadedPhotoError && <p className="text-[11px] text-destructive">{uploadedPhotoError}</p>}
         </div>
 
+        {/* Product image for post graphic — composites onto the AI image. */}
         {!uploadedPhotoDataUrl && (
-          <>
-            {/* Product image for post graphic */}
-            <div className="space-y-1.5">
-              <Label className="text-xs">Product image for post graphic (optional)</Label>
-              <ProductPicker
-                brandId={brandId}
-                selected={selectedProduct}
-                onSelect={setSelectedProduct}
-                label="Add product photo (composites on your post graphic)"
-              />
-            </div>
-
-            {/* Layout + color theme — two independent choices, not preset combos.
-                Only affect the AI-generated image path below; the product-photo
-                path (compositeProductCard) keeps its own fixed look. */}
-            <div className="space-y-1.5">
-              <Label className="text-xs">Post image layout</Label>
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                {POST_TEMPLATES.map((t) => (
-                  <button
-                    key={t.id}
-                    type="button"
-                    onClick={() => setSelectedLayout(t.id)}
-                    className={`relative rounded-lg border-2 p-2.5 text-left transition-all ${
-                      selectedLayout === t.id ? "border-primary bg-primary/5 shadow-sm" : "border-muted hover:border-primary/40"
-                    }`}
-                  >
-                    <p className="text-xs font-semibold">{t.label}</p>
-                    <p className="mt-0.5 text-[10px] leading-snug text-muted-foreground">{t.description}</p>
-                    {selectedLayout === t.id && (
-                      <div className="absolute right-1.5 top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-primary">
-                        <Check className="h-2.5 w-2.5 text-white" />
-                      </div>
-                    )}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label className="text-xs">Color theme</Label>
-              <div className="flex flex-wrap gap-2">
-                {colorThemes.map((theme) => (
-                  <button
-                    key={theme.id}
-                    type="button"
-                    onClick={() => setSelectedColorThemeId(theme.id)}
-                    className={`flex items-center gap-1.5 rounded-full border-2 px-2.5 py-1.5 text-xs font-medium transition-all ${
-                      effectiveColorThemeId === theme.id ? "border-primary shadow-sm" : "border-muted hover:border-primary/40"
-                    }`}
-                  >
-                    <span
-                      className="h-4 w-4 shrink-0 rounded-full border border-black/10"
-                      style={{ background: `linear-gradient(135deg, ${theme.primary}, ${theme.secondary})` }}
-                    />
-                    {theme.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Image caption text — fully opt-in. Empty (the default) produces
-                a clean, text-free image; nothing auto-generated ever gets
-                stamped on it unless typed here. */}
-            <div className="space-y-1.5">
-              <Label className="text-xs">Add text to your image (optional)</Label>
-              <textarea
-                rows={2}
-                maxLength={150}
-                placeholder="Leave blank for a clean, text-free image — or type what you want shown on it"
-                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring resize-none"
-                value={imageCaptionText}
-                onChange={(e) => setImageCaptionText(e.target.value)}
-              />
-              {imageCaptionText.trim() && (
-                <>
-                  <div className="flex flex-wrap gap-2 pt-1">
-                    {fonts.map((font) => (
-                      <button
-                        key={font.id}
-                        type="button"
-                        onClick={() => setSelectedFontId(font.id)}
-                        className={`rounded-full border-2 px-2.5 py-1.5 text-xs font-medium transition-all ${
-                          selectedFontId === font.id ? "border-primary shadow-sm" : "border-muted hover:border-primary/40"
-                        }`}
-                      >
-                        {font.label}
-                      </button>
-                    ))}
-                  </div>
-                  <div className="flex flex-wrap gap-2 pt-1">
-                    {TEXT_SIZE_OPTIONS.map((size) => (
-                      <button
-                        key={size.scale}
-                        type="button"
-                        onClick={() => setSelectedTextSizeScale(size.scale)}
-                        className={`rounded-full border-2 px-2.5 py-1.5 text-xs font-medium transition-all ${
-                          selectedTextSizeScale === size.scale ? "border-primary shadow-sm" : "border-muted hover:border-primary/40"
-                        }`}
-                      >
-                        {size.label}
-                      </button>
-                    ))}
-                  </div>
-                </>
-              )}
-            </div>
-          </>
+          <div className="space-y-1.5">
+            <Label className="text-xs">Product image for post graphic (optional)</Label>
+            <ProductPicker
+              brandId={brandId}
+              selected={selectedProduct}
+              onSelect={setSelectedProduct}
+              label="Add product photo (composites on your post graphic)"
+            />
+          </div>
         )}
 
-        {/* Additional context */}
+        {/* The one input — the same Groq call that writes the hook/caption
+            now also picks the image layout, color theme, and whether to
+            overlay any text, purely from what's described here. */}
         <div className="space-y-1.5">
-          <Label className="text-xs">Additional context (optional)</Label>
+          <Label className="text-xs">What do you want to post</Label>
           <textarea
             rows={2}
             maxLength={500}
-            placeholder="e.g. 'Weekend flash sale, 20% off' or 'New packaging launch'"
+            placeholder="A festive Diwali offer post for our candle brand, warm and cozy"
             className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring resize-none"
             value={additionalContext}
             onChange={(e) => setAdditionalContext(e.target.value)}

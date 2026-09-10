@@ -1,4 +1,5 @@
 import type { BrandRow, ProductRow, CalendarEntryRow } from "./database"
+import type { PostTemplateId } from "@/lib/design/post-templates"
 
 /**
  * App-level types — these are what components and hooks work with.
@@ -60,6 +61,14 @@ export type GeneratedCaption = {
   pattern_note?: string | null
   /** Only populated when requested via includeImagePrompt (Create → Full Post flow) — a visual scene description grounded in this same caption's specific message, for the AI post-image pipeline. */
   image_prompt?: string | null
+  /** Only populated when includeImagePrompt is requested — the model's
+   * own pick of layout/color/overlay text for this specific post,
+   * replacing what used to be three separate manual pickers. */
+  suggested_template?: PostTemplateId | null
+  suggested_color_theme_id?: string | null
+  /** Short on-image overlay text, or empty string if a clean text-free
+   * image fits this post better — the model decides, not a toggle. */
+  suggested_overlay_text?: string | null
 }
 
 export type AspectRatio = "1:1" | "4:5" | "9:16" | "16:9"
