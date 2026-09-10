@@ -13,6 +13,7 @@ import Link from "next/link"
 import posthog from "posthog-js"
 import { POSTHOG_KEY } from "@/lib/analytics/posthog"
 import { PLAN_LIMITS } from "@/types/app"
+import { computeAutopilotSlotCount, estimateAutopilotCreditCost } from "@/lib/ai/autopilot-content-mix"
 import type { FastlaneResult } from "@/types/app"
 import type { CalendarEntryRow, AutopilotRunStatusRow } from "@/types/database"
 import { useQueryClient } from "@tanstack/react-query"
@@ -37,18 +38,6 @@ const POLL_INTERVAL_MS = 4500
 // route's own maxDuration=300s cap, so a genuinely still-running row
 // should never actually reach this age.
 const STALE_THRESHOLD_MS = 10 * 60 * 1000
-
-// Mirrors lib/ai/fastlane.ts's computeAutopilotSlotCount exactly -- that
-// module can't be imported into this client component (it pulls in the
-// Groq client and other server-only deps), so the same small formula is
-// duplicated here just to seed the progress bar with this run's real
-// per-frequency total instead of the plan's flat max, for the brief window
-// before the first status poll (which already reflects the real total from
-// autopilot_run_status) has a chance to fire.
-function computeRunSlotCount(frequency: string, tierDays: number, tierMaxSlots: number): number {
-  const postsPerWeek = frequency === "3x_week" ? 3 : frequency === "5x_week" ? 5 : 7
-  return Math.min(tierMaxSlots, Math.ceil((tierDays / 7) * postsPerWeek))
-}
 
 interface RunCapData {
   message: string
@@ -154,15 +143,6 @@ export default function AutopilotPage() {
   // conservative assumption (never shows a bigger promise than what might
   // actually be available).
   const tier = PLAN_LIMITS[userPlan ?? "starter"].autopilot
-  const hasEnoughCredits = userCredits === null || userCredits >= tier.creditCost
-  // Display-only rounding (nearest 10) -- tier.creditCost's real value
-  // (e.g. 162) is the precise output of estimateAutopilotCreditCost's
-  // weighted math (lib/ai/fastlane.ts) and looks like raw internal
-  // arithmetic leaking into the UI rather than a deliberately designed
-  // number. The actual charge (this same tier.creditCost, used in
-  // hasEnoughCredits above and sent to the server) is untouched -- only
-  // what's shown to the user in the three spots below is rounded.
-  const displayCreditCost = Math.round(tier.creditCost / 10) * 10
 
   // Review/approve-then-schedule step — Autopilot itself only ever
   // produces content_ready entries; nothing flips to scheduled without
@@ -186,6 +166,24 @@ export default function AutopilotPage() {
   const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>(["instagram"])
   const [vibe, setVibe] = useState<string>("educational")
   const [focusAreas, setFocusAreas] = useState<string[]>([])
+
+  // This run's real slot count/credit cost from the user's ACTUAL current
+  // selections (frequency + focus areas) -- shares lib/ai/autopilot-content-mix.ts's
+  // pure computeAutopilotSlotCount/estimateAutopilotCreditCost with the
+  // server, so the estimate shown before "Launch Autopilot" always matches
+  // what actually gets charged and generated, instead of a flat
+  // plan-tier number that never changed regardless of what was picked.
+  const runTotalSlots = computeAutopilotSlotCount(frequency, tier.days, tier.slots)
+  const runCreditCost = estimateAutopilotCreditCost(focusAreas, runTotalSlots)
+  const hasEnoughCredits = userCredits === null || userCredits >= runCreditCost
+  // Display-only rounding (nearest 10) -- runCreditCost's real value is the
+  // precise output of estimateAutopilotCreditCost's weighted math and looks
+  // like raw internal arithmetic leaking into the UI rather than a
+  // deliberately designed number. The actual charge (this same
+  // runCreditCost, used in hasEnoughCredits above and sent to the server)
+  // is untouched -- only what's shown to the user in the three spots below
+  // is rounded.
+  const displayCreditCost = Math.round(runCreditCost / 10) * 10
 
   function stopPolling() {
     if (pollRef.current) {
@@ -331,7 +329,7 @@ export default function AutopilotPage() {
     setScheduleSummary(null)
     setScheduleError(null)
     setCompletedSlots(0)
-    setTotalSlotsRunning(computeRunSlotCount(frequency, tier.days, tier.slots))
+    setTotalSlotsRunning(runTotalSlots)
     setIsStale(false)
     // The POST below blocks for the whole run (up to maxDuration=300s) --
     // this polls the real completed_slots/total_slots the route wrote to
@@ -639,7 +637,7 @@ export default function AutopilotPage() {
                 Launch Autopilot
               </Button>
               <p className="text-center text-xs text-muted-foreground">
-                Adds {tier.slots} entries to your content calendar
+                Adds {runTotalSlots} entries to your content calendar
               </p>
             </div>
           </div>
@@ -707,7 +705,7 @@ export default function AutopilotPage() {
               <div className="mt-6 space-y-3">
                 {!hasEnoughCredits && (
                   <p className="text-center text-xs text-amber-700">
-                    You don&apos;t have enough credits to run this ({tier.creditCost} needed). Go back to check, or upgrade.
+                    You don&apos;t have enough credits to run this ({runCreditCost} needed). Go back to check, or upgrade.
                   </p>
                 )}
                 <Button
@@ -771,7 +769,7 @@ export default function AutopilotPage() {
 
       {/* RUNNING */}
       {state === "RUNNING" && (() => {
-        const effectiveTotal = totalSlotsRunning || tier.slots
+        const effectiveTotal = totalSlotsRunning || runTotalSlots
         const pct = effectiveTotal > 0 ? Math.min(100, Math.round((completedSlots / effectiveTotal) * 100)) : 0
         const strategyDone = completedSlots > 0
         const slotsDone = effectiveTotal > 0 && completedSlots >= effectiveTotal
