@@ -182,11 +182,13 @@ export function FullPostGenerator({ brandId, products }: Props) {
   const [additionalContext, setAdditionalContext] = useState("")
   // Content angle / aspect ratio / visual style / headline overlay — new
   // input-panel controls. Angle is sent today only as a soft prompt hint
-  // folded into additionalContext (see handleGenerate below); aspect ratio,
-  // visual style, and the headline overlay field are UI-only for now and
-  // are NOT yet wired into generatePostImageMutate or the caption route —
-  // that's a follow-up commit once the image route accepts them and the
-  // overlay-compositing architecture is decoupled from the AI image itself.
+  // folded into additionalContext (see handleGenerate below). aspectRatio
+  // is now wired into generatePostImageMutate (Commit 2) -- honored fully
+  // when there's no text overlay, and silently ignored (stays 4:5) when
+  // there is one, since compositePostImage's SVG templates use fixed pixel
+  // anchors tuned for the 1080x1350 canvas (see post-image-pipeline.ts's
+  // generatePostImage). visualStyle and the headline overlay field remain
+  // UI-only pending the overlay-decoupling commit.
   const [contentAngle, setContentAngle] = useState<ContentAngle>("auto")
   const [aspectRatio, setAspectRatio] = useState<"4:5" | "1:1" | "9:16">("4:5")
   const [visualStyle, setVisualStyle] = useState<"studio_scene" | "editorial_graphic">("editorial_graphic")
@@ -262,6 +264,7 @@ export function FullPostGenerator({ brandId, products }: Props) {
         textSizeScale: overlayText ? selectedTextSizeScale : undefined,
         postSessionId: sessionId,
         contentProjectId: data.contentProjectId ?? undefined,
+        aspectRatio,
       },
       {
         onSuccess: (imgData) => {
@@ -273,7 +276,7 @@ export function FullPostGenerator({ brandId, products }: Props) {
         },
       }
     )
-  }, [brand, brandId, selectedProductId, selectedLayout, effectiveColorThemeId, selectedFontId, selectedTextSizeScale, generatePostImageMutate])
+  }, [brand, brandId, selectedProductId, selectedLayout, effectiveColorThemeId, selectedFontId, selectedTextSizeScale, aspectRatio, generatePostImageMutate])
 
   // FIX 3: a failed product-photo load (commonly CORS) used to silently
   // fall back to a photo-less gradient card and still report success — the
@@ -642,10 +645,8 @@ export function FullPostGenerator({ brandId, products }: Props) {
           <p className="text-xs text-muted-foreground text-right">{additionalContext.length}/500</p>
         </div>
 
-        {/* Aspect ratio + visual style — UI-only for now. Not yet passed to
-            generatePostImageMutate or the post-image/generate route, which
-            still hardcodes aspect_ratio: "1:1" server-side. Wiring this
-            through is a separate, follow-up commit. */}
+        {/* Aspect ratio is now wired through to the image route (Commit 2).
+            visualStyle below remains UI-only pending a follow-up commit. */}
         <div className="space-y-1.5">
           <Label className="text-xs">Aspect ratio</Label>
           <div className="flex gap-1.5">
@@ -668,6 +669,15 @@ export function FullPostGenerator({ brandId, products }: Props) {
               </button>
             ))}
           </div>
+          {/* Only relevant once a headline overlay is set — the templates
+              that composite text onto the image are locked to 4:5 for now
+              (see generatePostImage's own comment), so a non-4:5 pick here
+              silently renders at 4:5 whenever there's overlay text. */}
+          {aspectRatio !== "4:5" && headlineOverlay.trim() && (
+            <p className="text-[11px] text-amber-700">
+              Posts with a headline overlay still render at 4:5 for now — {aspectRatio} only applies once there&apos;s no overlay text.
+            </p>
+          )}
         </div>
 
         <div className="space-y-1.5">

@@ -70,7 +70,7 @@ export async function POST(request: Request) {
   const parsed = generatePostImageSchema.safeParse(body)
   if (!parsed.success) return NextResponse.json(buildError(ErrorCodes.VALIDATION_ERROR, "Validation failed.", parsed.error.message), { status: 400 })
 
-  const { brandId, productId, imagePrompt, template, colorThemeId, captionText, fontId, textSizeScale, postSessionId, contentProjectId } = parsed.data
+  const { brandId, productId, imagePrompt, template, colorThemeId, captionText, fontId, textSizeScale, postSessionId, contentProjectId, aspectRatio } = parsed.data
 
   const sessionCheck = await checkAndIncrementPostImageSession(user.id, postSessionId)
   const shouldCharge = sessionCheck.ok ? sessionCheck.shouldCharge : true
@@ -133,6 +133,7 @@ export async function POST(request: Request) {
     plan,
     isInternalUnlimitedUser: isInternalUnlimited(user.id),
     productImageUrl,
+    aspectRatio,
   })
 
   if (!result.success) {
@@ -196,7 +197,14 @@ export async function POST(request: Request) {
     content_project_id: contentProjectId ?? null,
     prompt: result.fullPrompt,
     style: null,
-    aspect_ratio: "1:1",
+    // Previously hardcoded to "1:1" regardless of what was actually
+    // generated (this app has never had a working aspect-ratio picker
+    // before this commit) -- now reflects what was actually requested.
+    // Note this is the requested ratio, not necessarily the effective one:
+    // a composited (captioned) image still renders at 4:5 regardless (see
+    // generatePostImage's own comment on why templates are locked to 4:5
+    // for now), so a captioned "1:1" row here describes intent, not pixels.
+    aspect_ratio: aspectRatio ?? "4:5",
     storage_path: storagePath,
     public_url: publicUrlData.publicUrl,
     model_used: modelLabel,

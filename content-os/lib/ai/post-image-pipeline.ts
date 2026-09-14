@@ -102,6 +102,22 @@ const SQUARE_DIMENSIONS: ImageDimensions = { width: CANVAS_SIZE, height: CANVAS_
 // params below are used directly, so this substitution only matters for Flux.
 const PORTRAIT_DIMENSIONS: ImageDimensions = { width: 1080, height: 1350, aspectRatio: "3:4" }
 
+// 9:16 — reuses the exact same dimensions Stories already generates at
+// (lib/ai/story-slide-background.ts's STORY_DIMENSIONS), kept as its own
+// constant here since that file's export isn't public API for this module.
+const STORY_LIKE_DIMENSIONS: ImageDimensions = { width: 1080, height: 1920, aspectRatio: "9:16" }
+
+// Maps the client-facing aspect ratio choice (generatePostImageSchema's
+// aspectRatio) to the actual pixel dimensions fetchBackgroundImage and the
+// no-composite resize path should target. Only consulted on the
+// non-composited (no caption text) path — see the willCompositeText branch
+// below for why the composited path stays locked to PORTRAIT_DIMENSIONS.
+function resolvePostImageDimensions(aspectRatio: "4:5" | "1:1" | "9:16" | undefined): ImageDimensions {
+  if (aspectRatio === "1:1") return SQUARE_DIMENSIONS
+  if (aspectRatio === "9:16") return STORY_LIKE_DIMENSIONS
+  return PORTRAIT_DIMENSIONS
+}
+
 export type PostImagePipelineResult =
   | { success: true; buffer: Buffer; mimeType: string; fullPrompt: string; provider: "pollinations" | "flux"; attempts: ImageGenerationAttempt[]; textComposited: boolean }
   | { success: false; error: string; attempts: ImageGenerationAttempt[] }
@@ -660,6 +676,11 @@ export interface GeneratePostImageOptions {
    * path below rather than re-describing the product's appearance from
    * scratch. */
   productImageUrl?: string | null
+  /** Client-chosen aspect ratio (generatePostImageSchema's aspectRatio) —
+   * only actually changes the output when there's no text overlay
+   * (captionText empty). See resolvePostImageDimensions and the
+   * willCompositeText branch below. Omitted defaults to 4:5 portrait. */
+  aspectRatio?: "4:5" | "1:1" | "9:16"
 }
 
 /**
@@ -713,7 +734,8 @@ export async function generatePostImage(options: GeneratePostImageOptions): Prom
   // the already-wrapped fullPrompt. simplifyPrompt applies the same
   // wrapping itself, once it has the real core.
   const retryPrompt = simplifyPrompt(sceneDescription, options.brandNiche, hasReferenceImage)
-  const result = await fetchBackgroundImage(fullPrompt, retryPrompt, options.plan, options.isInternalUnlimitedUser, undefined, options.productImageUrl)
+  const requestedDimensions = resolvePostImageDimensions(options.aspectRatio)
+  const result = await fetchBackgroundImage(fullPrompt, retryPrompt, options.plan, options.isInternalUnlimitedUser, requestedDimensions, options.productImageUrl)
   if (!result.success) return result
 
   // No caption text (the new default) — skip compositePostImage entirely
@@ -721,15 +743,28 @@ export async function generatePostImage(options: GeneratePostImageOptions): Prom
   // same resize-to-target-canvas normalization compositePostImage's own
   // sharp call does, so the output is consistent regardless of which path
   // ran (and regardless of what resolution the provider actually returned).
+  // This is the one path that actually honors a non-default aspectRatio —
+  // see requestedDimensions above and the composited branch's comment below.
   if (!willCompositeText) {
-    console.log(`[post-image-pipeline] no caption text provided -- skipping text compositing, returning plain background`)
+    console.log(`[post-image-pipeline] no caption text provided -- skipping text compositing, returning plain background at ${requestedDimensions.aspectRatio}`)
     try {
-      const normalized = await sharp(result.buffer).resize(PORTRAIT_DIMENSIONS.width, PORTRAIT_DIMENSIONS.height, { fit: "cover" }).png().toBuffer()
+      const normalized = await sharp(result.buffer).resize(requestedDimensions.width, requestedDimensions.height, { fit: "cover" }).png().toBuffer()
       return { success: true, buffer: normalized, mimeType: "image/png", fullPrompt, provider: result.provider, attempts: result.attempts, textComposited: false }
     } catch (err) {
       console.error("[post-image-pipeline] normalizing plain background failed:", err instanceof Error ? `${err.name}: ${err.message}` : err)
       return { success: false, error: "Couldn't finish preparing the generated image. Please try again.", attempts: result.attempts }
     }
+  }
+
+  // compositePostImage's SVG templates use fixed pixel anchors tuned for
+  // the 1080x1350 canvas (see lib/image/post-compositor.ts's CANVAS_WIDTH/
+  // CANVAS_HEIGHT) -- a requested 1:1 or 9:16 aspectRatio is silently
+  // ignored on this path until the templates themselves become
+  // dimension-aware. Logged (not surfaced as an error) since a captioned
+  // image at 4:5 is still a fully valid, working result -- just not the
+  // exact ratio asked for.
+  if (options.aspectRatio && options.aspectRatio !== "4:5") {
+    console.log(`[post-image-pipeline] aspectRatio=${options.aspectRatio} requested but ignored -- text compositing templates are locked to 4:5 for now`)
   }
 
   console.log(

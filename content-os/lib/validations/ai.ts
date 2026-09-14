@@ -162,6 +162,15 @@ export const generatePostImageSchema = z.object({
     .transform((val) => val.replace(/<[^>]*>/g, "").trim()),
   template: postTemplateEnum,
   colorThemeId: z.string().min(1, "Color theme is required"),
+  // Optional — defaults to the pre-existing 4:5 portrait server-side (see
+  // lib/ai/post-image-pipeline.ts's PORTRAIT_DIMENSIONS) so omitting this
+  // doesn't change behavior for any existing caller. Only actually affects
+  // output when there's no text overlay (captionText empty/omitted) —
+  // compositePostImage's SVG templates use fixed pixel anchors tuned for
+  // the 1080x1350 canvas, so a composited (captioned) image still renders
+  // at 4:5 regardless of this value until the templates themselves become
+  // dimension-aware. See generatePostImage in post-image-pipeline.ts.
+  aspectRatio: z.enum(["4:5", "1:1", "9:16"]).optional(),
   // Fully optional -- replaces the old separate headline/ctaText fields.
   // Omitted or empty means no text overlay at all: no auto-filled headline
   // from a picked hook, no auto-filled CTA from brand.cta_phrase. Only
