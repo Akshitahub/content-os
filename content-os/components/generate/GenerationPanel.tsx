@@ -123,7 +123,7 @@ export function GenerationPanel({ brandId, products }: GenerationPanelProps) {
           sessionStorage (cheap, local, idempotent), so mounting all of them
           upfront (even before a tab is first picked) doesn't newly trigger
           any network calls or timers. */}
-      <div style={{ display: activeTab === "ad_maker" ? undefined : "none" }}><AdMaker brandId={brandId} /></div>
+      <div style={{ display: activeTab === "ad_maker" ? undefined : "none" }}><AdMaker brandId={brandId} products={products} /></div>
       <div style={{ display: activeTab === "full_post" ? undefined : "none" }}><FullPostGenerator brandId={brandId} products={products} /></div>
       <div style={{ display: activeTab === "carousel" ? undefined : "none" }}><CarouselBuilder brandId={brandId} /></div>
       <div style={{ display: activeTab === "stories" ? undefined : "none" }}><StorySequence brandId={brandId} /></div>

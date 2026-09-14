@@ -12,6 +12,7 @@ import { isApiError } from "@/types/api"
 import { ApiResponseError } from "@/hooks/useGeneration"
 import { ScheduleAction } from "@/components/shared/ScheduleAction"
 import { AD_MAKER as AD_MAKER_CREDIT_COST } from "@/lib/usage/credit-costs"
+import type { ProductRow } from "@/types/database"
 
 // ─── Scene definitions ─────────────────────────────────────────────────────
 
@@ -200,9 +201,28 @@ function StepDot({ n, current }: { n: number; current: number }) {
 
 interface AdMakerProps {
   brandId: string
+  products: ProductRow[]
 }
 
-export function AdMaker({ brandId }: AdMakerProps) {
+// The generate flow's productDataUrl must be an actual base64 data URL --
+// app/api/v1/brands/[brandId]/ai/ad-maker/generate/route.ts strips the
+// `data:...;base64,` prefix via regex before decoding it, and a saved
+// product's image_urls[0] is a plain https:// storage URL, not a data URL.
+// Fetching + re-encoding it here client-side is what makes "select a saved
+// product" produce the exact same shape processImageFile already does for
+// a fresh upload.
+async function fetchRemoteImageAsDataUrl(url: string): Promise<string> {
+  const res = await fetch(url)
+  const blob = await res.blob()
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(reader.result as string)
+    reader.onerror = reject
+    reader.readAsDataURL(blob)
+  })
+}
+
+export function AdMaker({ brandId, products }: AdMakerProps) {
   const { data: brand } = useBrand(brandId)
   const fileInputRef = useRef<HTMLInputElement>(null)
   // Every Create tab now stays mounted for the life of the panel, hidden
@@ -229,6 +249,9 @@ export function AdMaker({ brandId }: AdMakerProps) {
   const [pasteUrl, setPasteUrl] = useState("")
   const [fetchingUrl, setFetchingUrl] = useState(false)
   const [isDragging, setIsDragging] = useState(false)
+  // Which saved-product thumbnail (if any) is mid-fetch -- scopes the
+  // loading spinner to just that thumbnail rather than the whole panel.
+  const [loadingProductId, setLoadingProductId] = useState<string | null>(null)
 
   // Step 2
   const [scene, setScene] = useState("white_studio")
@@ -420,6 +443,26 @@ export function AdMaker({ brandId }: AdMakerProps) {
     }
   }
 
+  async function handleSelectProduct(product: ProductRow) {
+    const imageUrl = product.image_urls?.[0]
+    if (!imageUrl) return
+    setBgError("")
+    setLoadingProductId(product.id)
+    try {
+      const dataUrl = await fetchRemoteImageAsDataUrl(imageUrl)
+      // Same post-upload state shape processImageFile produces for a fresh
+      // upload, so the existing "Remove Background" step works identically
+      // regardless of whether the photo came from a file or a saved product.
+      setOriginalPreview(dataUrl)
+      setSelectedFile(null)
+      setProductDataUrl(null)
+    } catch {
+      setBgError("Couldn't load that product's photo. Try uploading it directly instead.")
+    } finally {
+      setLoadingProductId(null)
+    }
+  }
+
   async function handleGenerate() {
     if (!productDataUrl) return
     setGenerating(true)
@@ -558,7 +601,35 @@ export function AdMaker({ brandId }: AdMakerProps) {
               </div>
               <p className="text-xs text-muted-foreground/60">JPG, PNG or WEBP · Max 10MB</p>
             </button>
-          ) : (
+          ) : null}
+
+          {!originalPreview && products.filter(p => p.image_urls?.[0]).length > 0 && (
+            <div className="space-y-2">
+              <p className="text-xs text-muted-foreground">or choose a saved product</p>
+              <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+                {products.filter(p => p.image_urls?.[0]).map(p => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => handleSelectProduct(p)}
+                    disabled={loadingProductId !== null}
+                    className="relative flex flex-col items-center gap-1 rounded-lg border p-2 text-center transition-colors hover:border-violet-400 hover:bg-violet-50/50 disabled:opacity-60"
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={p.image_urls![0]} alt={p.name} className="h-14 w-14 rounded-md border object-contain bg-white" />
+                    <p className="text-[10px] font-medium leading-tight line-clamp-2">{p.name}</p>
+                    {loadingProductId === p.id && (
+                      <div className="absolute inset-0 flex items-center justify-center rounded-lg bg-background/70">
+                        <Loader2 className="h-4 w-4 animate-spin text-violet-600" />
+                      </div>
+                    )}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {originalPreview && (
             <div className="space-y-3">
               <div className="flex gap-4">
                 <div className="space-y-1 flex-1">
