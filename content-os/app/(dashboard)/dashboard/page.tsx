@@ -270,7 +270,7 @@ export default async function DashboardPage({
             {firstBrandId && (
               <Link
                 href={`/brands/${firstBrandId}/fastlane`}
-                className="inline-flex h-9 items-center gap-1.5 rounded-md bg-gradient-to-r from-violet-600 to-fuchsia-600 px-3 text-sm font-medium text-white shadow-sm shadow-violet-500/30 transition-colors hover:from-violet-700 hover:to-fuchsia-700"
+                className="inline-flex h-9 items-center gap-1.5 rounded-md border border-violet-200/70 bg-white/90 px-3 text-sm font-medium backdrop-blur-sm transition-colors hover:bg-white dark:border-violet-800/40 dark:bg-white/5 dark:hover:bg-white/10"
               >
                 ✈️ Run Autopilot
               </Link>
@@ -278,55 +278,64 @@ export default async function DashboardPage({
           </div>
         </div>
 
-        {todayEntries.length > 0 && firstBrandId && (
-          <div className="mt-6 flex items-center justify-between gap-4 rounded-xl border border-violet-200/70 bg-white/70 px-4 py-3 backdrop-blur-sm dark:border-violet-800/40 dark:bg-black/20">
-            <div className="flex items-center gap-3">
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-violet-600 text-white">
-                <Calendar className="h-4 w-4" />
-              </div>
-              <div>
-                <p className="text-sm font-semibold text-violet-900 dark:text-violet-200">
-                  {todayEntries.length} post{todayEntries.length !== 1 ? "s" : ""} ready for today
-                </p>
-                <div className="mt-1 flex items-center gap-1.5">
-                  {todayEntries.map((e) => e.platform && (
-                    <PlatformIcon key={e.id} platform={e.platform} className="h-3.5 w-3.5" />
-                  ))}
+        {/* Single primary message below, chosen by condition rather than
+         * stacked as two separate cards: today's ready posts when there
+         * are any, else a lighter manual "generate one" nudge. The nudge
+         * is deliberately the lighter first pass, per Akshita's explicit
+         * choice -- a manual deep link into Create -> Post, not an auto-
+         * generated/cached draft. No new table, cron, or background
+         * generation trigger here -- a future contributor adding a real
+         * "today's draft" cache should treat this as the placeholder it
+         * is, not assume that architecture exists yet. */}
+        {firstBrandId && (
+          todayEntries.length > 0 ? (
+            <div className="mt-6 flex items-center justify-between gap-4 rounded-xl border border-violet-200/70 bg-white/70 px-4 py-3 backdrop-blur-sm dark:border-violet-800/40 dark:bg-black/20">
+              <div className="flex items-center gap-3">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-violet-600 text-white">
+                  <Calendar className="h-4 w-4" />
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-violet-900 dark:text-violet-200">
+                    {todayEntries.length} post{todayEntries.length !== 1 ? "s" : ""} ready for today
+                  </p>
+                  <div className="mt-1 flex items-center gap-1.5">
+                    {todayEntries.map((e) => e.platform && (
+                      <PlatformIcon key={e.id} platform={e.platform} className="h-3.5 w-3.5" />
+                    ))}
+                  </div>
                 </div>
               </div>
+              <Link
+                href={`/brands/${firstBrandId}/calendar`}
+                className="shrink-0 text-xs font-medium text-violet-700 hover:text-violet-900 dark:text-violet-300 dark:hover:text-violet-100 transition-colors"
+              >
+                View posts →
+              </Link>
             </div>
-            <Link
-              href={`/brands/${firstBrandId}/calendar`}
-              className="shrink-0 text-xs font-medium text-violet-700 hover:text-violet-900 dark:text-violet-300 dark:hover:text-violet-100 transition-colors"
-            >
-              View posts →
-            </Link>
-          </div>
+          ) : (
+            <div className="mt-6 flex flex-col items-start justify-between gap-3 rounded-xl border border-violet-200/70 bg-white/70 px-4 py-3 backdrop-blur-sm dark:border-violet-800/40 dark:bg-black/20 sm:flex-row sm:items-center">
+              <div className="flex items-center gap-3">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-violet-600 text-white">
+                  <Sparkles className="h-4 w-4" />
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-violet-900 dark:text-violet-200">Ready to post today?</p>
+                  <p className="text-xs text-violet-700/80 dark:text-violet-300/80">
+                    Generate something fresh for {firstBrand?.name}
+                    {firstBrand?.niche ? ` (${firstBrand.niche})` : ""}.
+                  </p>
+                </div>
+              </div>
+              <Link
+                href={`/brands/${firstBrandId}/generate?tab=full_post`}
+                className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md bg-violet-600 px-3 text-xs font-medium text-white transition-colors hover:bg-violet-700"
+              >
+                Generate a post
+              </Link>
+            </div>
+          )
         )}
       </div>
-
-      {/* Lighter first pass, per Akshita's explicit choice: a manual deep
-       * link into Create -> Post, not an auto-generated/cached draft. No
-       * new table, cron, or background generation trigger here -- a future
-       * contributor adding a real "today's draft" cache should treat this
-       * as the placeholder it is, not assume that architecture exists yet. */}
-      {brandCount > 0 && firstBrandId && (
-        <div className="mb-6 flex flex-col items-start justify-between gap-4 rounded-2xl border border-violet-200/60 bg-gradient-to-br from-white via-violet-50/60 to-white p-5 dark:border-violet-800/30 dark:from-background dark:via-violet-950/20 dark:to-background sm:flex-row sm:items-center">
-          <div>
-            <h2 className="text-base font-semibold">Ready to post today?</h2>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Generate something fresh for {firstBrand?.name}
-              {firstBrand?.niche ? ` (${firstBrand.niche})` : ""}.
-            </p>
-          </div>
-          <Link
-            href={`/brands/${firstBrandId}/generate?tab=full_post`}
-            className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-md bg-gradient-to-r from-violet-600 to-fuchsia-600 px-4 text-sm font-medium text-white shadow-sm shadow-violet-500/30 transition-colors hover:from-violet-700 hover:to-fuchsia-700"
-          >
-            <Sparkles className="h-4 w-4" /> Generate a post
-          </Link>
-        </div>
-      )}
 
       {/* Sits right under the hero -- the same card the "Xd left · Y
        * credits remaining" line is visually anchored near up in the top

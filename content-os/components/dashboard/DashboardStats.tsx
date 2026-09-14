@@ -1,11 +1,9 @@
 "use client"
 
 import Link from "next/link"
-import { useCallback, useState, useEffect } from "react"
-import { Zap, Bookmark, Calendar, Layers, Copy, Check, Sparkles, TrendingUp, TrendingDown, ArrowRight } from "lucide-react"
+import { useState, useEffect } from "react"
+import { Check, Sparkles, TrendingUp, TrendingDown } from "lucide-react"
 import type { CalendarEntryRow } from "@/types/database"
-import { STATUS_COLORS } from "@/lib/design/constants"
-import { PlatformIcon } from "@/components/shared/PlatformIcon"
 import { ActivityChart, type DailyActivityPoint } from "@/components/dashboard/ActivityChart"
 
 const ONBOARDING_KEY = "contentos_onboarding"
@@ -23,29 +21,17 @@ interface DashboardStatsProps {
   dailyActivity: DailyActivityPoint[]
 }
 
-function CopyBtn({ text }: { text: string }) {
-  const [copied, setCopied] = useState(false)
-  const handle = useCallback(async () => {
-    await navigator.clipboard.writeText(text)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 1600)
-  }, [text])
-  return (
-    <button
-      onClick={handle}
-      className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
-    >
-      {copied ? <Check className="h-3 w-3 text-green-500" /> : <Copy className="h-3 w-3" />}
-      {copied ? "Copied" : "Copy"}
-    </button>
-  )
+// Small solid dot per status, same colors as ContentCalendar.tsx's own
+// STATUS_DOT -- this list only needs a glance-level color cue, not the
+// full pale-badge treatment STATUS_COLORS (lib/design/constants.ts) is
+// meant for.
+const STATUS_DOT_COLORS: Record<string, string> = {
+  planned: "bg-gray-400",
+  content_ready: "bg-blue-500",
+  scheduled: "bg-violet-500",
+  published: "bg-emerald-500",
+  missed: "bg-red-500",
 }
-
-const QUICK_ACTIONS = [
-  { href: "fastlane", label: "Autopilot", sub: "Plan a month in one click", icon: Zap, color: "text-violet-600", bg: "from-violet-500/20 to-violet-500/5", ring: "hover:border-violet-300", hoverShadow: "hover:shadow-violet-100" },
-  { href: "generate", label: "Create", sub: "Hooks, posts, carousels & more", icon: Sparkles, color: "text-blue-600", bg: "from-blue-500/20 to-blue-500/5", ring: "hover:border-blue-300", hoverShadow: "hover:shadow-blue-100" },
-  { href: "calendar", label: "Calendar", sub: "See what's scheduled", icon: Calendar, color: "text-green-600", bg: "from-green-500/20 to-green-500/5", ring: "hover:border-green-300", hoverShadow: "hover:shadow-green-100" },
-] as const
 
 export function DashboardStats({
   generationsThisMonth,
@@ -83,14 +69,13 @@ export function DashboardStats({
     }
   }, [allDone])
 
-  // Month-over-month trend — the one stat card where "vs last period" is
-  // an honest, apples-to-apples number (a fixed-length calendar month
+  // Month-over-month trend — the one stat where "vs last period" is an
+  // honest, apples-to-apples number (a fixed-length calendar month
   // compared to the previous one). Saved content is a cumulative total
-  // (no natural time window to trend against), Calendar-this-week mixes
-  // already-published and not-yet-happened entries (a "vs last week"
-  // comparison there wouldn't mean what it looks like it means), and
-  // Active brands changes too rarely for a trend arrow to be meaningful
-  // -- all three skip a trend rather than fabricate one, per instruction.
+  // (no natural time window to trend against), and Calendar-this-week
+  // mixes already-published and not-yet-happened entries (a "vs last
+  // week" comparison there wouldn't mean what it looks like it means) --
+  // both skip a trend rather than fabricate one, per instruction.
   const generationsTrend = generationsLastMonth > 0
     ? Math.round(((generationsThisMonth - generationsLastMonth) / generationsLastMonth) * 100)
     : null
@@ -102,64 +87,22 @@ export function DashboardStats({
   const calendarThisWeekHref = firstBrandId ? `/brands/${firstBrandId}/calendar?view=week` : "/brands"
   const createHref = firstBrandId ? `/brands/${firstBrandId}/generate` : "/brands"
 
-  // hoverShadow tints each card's lift-on-hover shadow to match its own
-  // accent (violet/blue/green/amber) rather than one uniform tint --
-  // same "lift + colored shadow" motion Influencers/CreatePicker already
-  // use, just following each card's own hue instead of a single brand
-  // color, since these four cards are deliberately differently-accented.
+  // Active brands is deliberately not here -- it's already visible via the
+  // brand switcher/`/brands` page, not something that needs home-page
+  // real estate.
   const stats = [
     {
-      label: "Generated this month",
+      label: "generated this month",
       value: generationsThisMonth,
-      sub: "AI content pieces",
-      icon: Zap,
-      color: "text-violet-500",
-      bg: "bg-gradient-to-br from-violet-500/20 to-violet-500/5",
-      topBorder: "border-t-violet-400",
-      hoverShadow: "hover:shadow-violet-100",
       trend: generationsTrend,
-      // Same destination as "Saved content" below — both metrics live in
-      // the same place (My Content/Library), and there's no real "recent
-      // vs. all" distinction in the underlying data to justify two
-      // different query params here.
+      // Same destination as "saved" below — both metrics live in the same
+      // place (My Content/Library), and there's no real "recent vs. all"
+      // distinction in the underlying data to justify two different query
+      // params here.
       href: libraryHref,
     },
-    {
-      label: "Saved content",
-      value: savedContentCount,
-      sub: "across 7 types",
-      icon: Bookmark,
-      color: "text-blue-500",
-      bg: "bg-gradient-to-br from-blue-500/20 to-blue-500/5",
-      topBorder: "border-t-blue-400",
-      hoverShadow: "hover:shadow-blue-100",
-      trend: null,
-      href: libraryHref,
-    },
-    {
-      label: "Calendar this week",
-      value: calendarEntriesThisWeek,
-      sub: "content entries",
-      icon: Calendar,
-      color: "text-green-500",
-      bg: "bg-gradient-to-br from-green-500/20 to-green-500/5",
-      topBorder: "border-t-green-400",
-      hoverShadow: "hover:shadow-green-100",
-      trend: null,
-      href: calendarThisWeekHref,
-    },
-    {
-      label: "Active brands",
-      value: activeBrands,
-      sub: "imported & configured",
-      icon: Layers,
-      color: "text-amber-500",
-      bg: "bg-gradient-to-br from-amber-500/20 to-amber-500/5",
-      topBorder: "border-t-amber-400",
-      hoverShadow: "hover:shadow-amber-100",
-      trend: null,
-      href: "/brands",
-    },
+    { label: "saved", value: savedContentCount, trend: null, href: libraryHref },
+    { label: "this week", value: calendarEntriesThisWeek, trend: null, href: calendarThisWeekHref },
   ]
 
   return (
@@ -237,30 +180,23 @@ export function DashboardStats({
         </div>
       )}
 
-      {/* Stat cards — 2x2 on mobile, 4 across on desktop */}
-      <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
-        {stats.map(({ label, value, sub, icon: Icon, color, bg, topBorder, hoverShadow, trend, href }) => (
+      {/* Stats — a light row of number + label pairs rather than bordered
+       * cards; each still links to its existing destination. */}
+      <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+        {stats.map(({ label, value, trend, href }) => (
           <Link
             key={label}
             href={href}
-            className={`block cursor-pointer rounded-xl border border-t-2 bg-card p-5 shadow-sm transition-all duration-200 hover:-translate-y-1 hover:shadow-lg ${topBorder} ${hoverShadow}`}
+            className="flex items-baseline gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
           >
-            <div className="flex items-center justify-between mb-3">
-              <p className="text-xs font-medium text-muted-foreground">{label}</p>
-              <div className={`flex h-8 w-8 items-center justify-center rounded-lg ${bg}`}>
-                <Icon className={`h-4 w-4 ${color}`} />
-              </div>
-            </div>
-            <div className="flex items-baseline gap-2">
-              <p className="text-[22px] font-semibold leading-none">{value.toLocaleString()}</p>
-              {trend !== null && trend !== undefined && trend !== 0 && (
-                <span className={`flex items-center gap-0.5 text-[11px] font-semibold ${trend > 0 ? "text-green-600" : "text-red-500"}`}>
-                  {trend > 0 ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
-                  {Math.abs(trend)}%
-                </span>
-              )}
-            </div>
-            <p className="mt-1 text-[10px] text-muted-foreground/70">{sub}</p>
+            <span className="text-lg font-semibold text-foreground">{value.toLocaleString()}</span>
+            {label}
+            {trend !== null && trend !== undefined && trend !== 0 && (
+              <span className={`inline-flex items-center gap-0.5 text-xs font-semibold ${trend > 0 ? "text-green-600" : "text-red-500"}`}>
+                {trend > 0 ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
+                {Math.abs(trend)}%
+              </span>
+            )}
           </Link>
         ))}
       </div>
@@ -268,37 +204,12 @@ export function DashboardStats({
       {/* Activity chart */}
       <ActivityChart data={dailyActivity} createHref={createHref} />
 
-      {/* Quick actions — primary entry points, not an afterthought row */}
-      {firstBrandId && (
-        <div>
-          <h2 className="mb-4 text-base font-semibold">Quick actions</h2>
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            {QUICK_ACTIONS.map(({ href, label, sub, icon: Icon, color, bg, ring, hoverShadow }) => (
-              <Link
-                key={href}
-                href={`/brands/${firstBrandId}/${href}`}
-                className={`group flex flex-col gap-3 rounded-xl border bg-card p-4 shadow-sm transition-all duration-200 hover:-translate-y-1 hover:shadow-lg ${ring} ${hoverShadow}`}
-              >
-                <div className="flex items-center justify-between">
-                  <div className={`flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br ${bg}`}>
-                    <Icon className={`h-5 w-5 ${color}`} />
-                  </div>
-                  <ArrowRight className="h-3.5 w-3.5 text-muted-foreground/40 transition-transform group-hover:translate-x-0.5 group-hover:text-muted-foreground" />
-                </div>
-                <div>
-                  <p className="text-sm font-semibold text-foreground">{label}</p>
-                  <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground">{sub}</p>
-                </div>
-              </Link>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Content preview — ready to post this week */}
+      {/* Content preview — ready to post this week. A compact list, not a
+       * working surface -- full detail/copy/edit already lives on the
+       * Calendar page each row links to. */}
       {recentCalendar.length > 0 && firstBrandId && (
         <div>
-          <div className="mb-4 flex items-center justify-between">
+          <div className="mb-3 flex items-center justify-between">
             <h2 className="text-base font-semibold">Ready to post this week</h2>
             <Link
               href={`/brands/${firstBrandId}/calendar`}
@@ -307,57 +218,17 @@ export function DashboardStats({
               View calendar →
             </Link>
           </div>
-          <div className="grid gap-4 lg:grid-cols-2">
+          <div className="divide-y rounded-lg border">
             {recentCalendar.slice(0, 4).map((entry) => (
-              <div
+              <Link
                 key={entry.id}
-                className="rounded-xl border bg-card p-4 space-y-3 shadow-sm transition-all duration-200 hover:-translate-y-1 hover:shadow-lg hover:shadow-violet-100"
+                href={`/brands/${firstBrandId}/calendar`}
+                className="flex items-center gap-2.5 px-3 py-2.5 text-sm transition-colors hover:bg-muted/50"
               >
-                {/* Platform + date */}
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-1.5">
-                    {entry.platform && <PlatformIcon platform={entry.platform} className="h-3.5 w-3.5" />}
-                    <span className="text-xs font-medium capitalize text-muted-foreground">
-                      {entry.platform ?? ""}
-                    </span>
-                    <span className="text-xs text-muted-foreground/60">·</span>
-                    <span className="text-xs text-muted-foreground/60">{entry.scheduled_date}</span>
-                  </div>
-                  {entry.status && (
-                    <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-semibold ${STATUS_COLORS[entry.status] ?? STATUS_COLORS.planned}`}>
-                      <span className="h-1.5 w-1.5 rounded-full bg-current" />
-                      {entry.status.replace("_", " ")}
-                    </span>
-                  )}
-                </div>
-
-                {/* Hook */}
-                {entry.hook_text && (
-                  <p className="text-sm font-semibold leading-snug line-clamp-2">
-                    {entry.hook_text}
-                  </p>
-                )}
-
-                {/* Caption preview */}
-                {entry.caption_text && (
-                  <p className="text-xs text-muted-foreground leading-relaxed line-clamp-2">
-                    {entry.caption_text}
-                  </p>
-                )}
-
-                {/* Actions */}
-                <div className="flex items-center gap-1 pt-1 border-t">
-                  <CopyBtn
-                    text={[entry.hook_text, entry.caption_text].filter(Boolean).join("\n\n")}
-                  />
-                  <Link
-                    href={`/brands/${firstBrandId}/calendar`}
-                    className="ml-auto text-xs text-muted-foreground hover:text-foreground transition-colors"
-                  >
-                    Edit →
-                  </Link>
-                </div>
-              </div>
+                <span className={`h-2 w-2 shrink-0 rounded-full ${STATUS_DOT_COLORS[entry.status] ?? STATUS_DOT_COLORS.planned}`} />
+                <span className="flex-1 truncate">{entry.hook_text || entry.title}</span>
+                <span className="shrink-0 text-xs text-muted-foreground">{entry.scheduled_date}</span>
+              </Link>
             ))}
           </div>
         </div>

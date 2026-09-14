@@ -3,6 +3,9 @@
 import { useState } from "react"
 import { Gift } from "lucide-react"
 import { useCreditTopup } from "@/hooks/useCreditTopup"
+import { useUserCredits } from "@/hooks/useUserCredits"
+import { PLAN_LIMITS } from "@/types/app"
+import type { UserPlan } from "@/types/app"
 import { CREDIT_PACKS, CREDIT_PACK_IDS, type CreditPackId } from "@/lib/usage/credit-packs"
 
 // One color family per pack -- literal, complete class strings (not
@@ -41,6 +44,17 @@ const PACK_STYLES: Record<CreditPackId, { card: string; ribbon: string; icon: st
  * re-implementing checkout/verify-payment here.
  */
 export function CreditGiftBoxes() {
+  // Same low-balance derivation Header.tsx uses for its own upgrade nudge
+  // -- matched exactly (not reinvented) so this card and that nudge always
+  // agree on what "low" means.
+  const { data: credits } = useUserCredits()
+  const userPlan: UserPlan = credits?.plan && credits.plan in PLAN_LIMITS ? credits.plan : "starter"
+  const limit = credits?.limit ?? PLAN_LIMITS[userPlan].generations
+  const generationCount = credits?.used ?? 0
+  const remaining = credits?.remaining ?? Math.max(0, limit - generationCount)
+  const trialing = credits?.trialing ?? false
+  const showLowBalance = !trialing && userPlan !== "agency" && limit > 0 && remaining / limit <= 0.2
+
   const {
     topupConfirming,
     setTopupConfirming,
@@ -58,6 +72,11 @@ export function CreditGiftBoxes() {
   // failed/verify-failed error can even occur), so the error line always
   // has a card to render under instead of silently having nowhere to go.
   const [activePackId, setActivePackId] = useState<CreditPackId | null>(null)
+
+  // Only worth surfacing when the user is actually close to running out --
+  // not gating pack cards/pricing/purchase flow themselves, just whether
+  // this whole card renders.
+  if (!showLowBalance) return null
 
   return (
     <div className="space-y-3">
