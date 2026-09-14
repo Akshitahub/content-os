@@ -73,6 +73,11 @@ export function ContentCalendar({ brandId, defaultView = "month" }: ContentCalen
     title: "", scheduled_date: "", platform: "instagram",
     content_type: "reel", notes: "", status: "planned",
   })
+  // Drag-and-drop rescheduling (month view only). draggedEntryId drives the
+  // actual reschedule logic; dragOverDate is purely the visual
+  // drop-target highlight, never read for logic.
+  const [draggedEntryId, setDraggedEntryId] = useState<string | null>(null)
+  const [dragOverDate, setDragOverDate] = useState<string | null>(null)
 
   const month = format(currentDate, "yyyy-MM")
 
@@ -197,6 +202,37 @@ export function ContentCalendar({ brandId, defaultView = "month" }: ContentCalen
   function getEntriesForDay(date: Date): CalendarEntryRow[] {
     const dateStr = format(date, "yyyy-MM-dd")
     return entries.filter(e => e.scheduled_date === dateStr)
+  }
+
+  // Month-view drag-and-drop reschedule. e.dataTransfer.getData is the
+  // fallback source for the dragged id (e.g. if state was somehow lost
+  // between dragstart and drop); draggedEntryId is the primary source.
+  // Same silent-catch convention as fetchEntries/handleSave/handleDelete
+  // above -- no new toast/banner system -- but the optimistic update is
+  // always reverted on failure so a failed reschedule can never leave the
+  // UI showing a card that didn't actually move server-side.
+  async function handleDropOnDate(dateStr: string, e: React.DragEvent) {
+    const draggedId = draggedEntryId ?? e.dataTransfer.getData("text/plain")
+    setDraggedEntryId(null)
+    setDragOverDate(null)
+    if (!draggedId) return
+
+    const entry = entries.find(en => en.id === draggedId)
+    if (!entry || entry.scheduled_date === dateStr) return
+
+    const snapshot = entries
+    setEntries(prev => prev.map(en => en.id === draggedId ? { ...en, scheduled_date: dateStr } : en))
+
+    try {
+      const res = await fetch("/api/v1/calendar", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: draggedId, scheduled_date: dateStr }),
+      })
+      if (!res.ok) setEntries(snapshot)
+    } catch {
+      setEntries(snapshot)
+    }
   }
 
   return (
@@ -342,11 +378,27 @@ export function ContentCalendar({ brandId, defaultView = "month" }: ContentCalen
             const isCurrentMonth = isSameMonth(day, currentDate)
             const today = isToday(day)
 
+            const isDragOver = dragOverDate === dateStr
+
             return (
               <div
                 key={dateStr}
-                className={`bg-background min-h-[100px] p-1.5 cursor-pointer hover:bg-muted/30 transition-colors ${!isCurrentMonth ? "opacity-40" : ""}`}
+                className={`bg-background min-h-[100px] p-1.5 cursor-pointer hover:bg-muted/30 transition-colors ${!isCurrentMonth ? "opacity-40" : ""} ${isDragOver ? "ring-2 ring-inset ring-violet-500 bg-violet-50" : ""}`}
                 onClick={() => openNewEntry(dateStr)}
+                onDragOver={e => {
+                  if (!draggedEntryId) return
+                  const dragged = entries.find(en => en.id === draggedEntryId)
+                  if (dragged?.scheduled_date === dateStr) return
+                  e.preventDefault()
+                  setDragOverDate(dateStr)
+                }}
+                onDragLeave={() => {
+                  setDragOverDate(prev => (prev === dateStr ? null : prev))
+                }}
+                onDrop={e => {
+                  e.preventDefault()
+                  handleDropOnDate(dateStr, e)
+                }}
               >
                 <div className={`mb-1.5 flex h-6 w-6 items-center justify-center rounded-full text-xs font-medium ${today ? "bg-primary text-primary-foreground" : "text-foreground"}`}>
                   {format(day, "d")}
@@ -359,8 +411,18 @@ export function ContentCalendar({ brandId, defaultView = "month" }: ContentCalen
                     return (
                       <div
                         key={entry.id}
+                        draggable
                         className="group relative rounded-md overflow-hidden cursor-pointer"
                         onClick={e => { e.stopPropagation(); setSelectedEntry(entry) }}
+                        onDragStart={e => {
+                          setDraggedEntryId(entry.id)
+                          e.dataTransfer.setData("text/plain", entry.id)
+                          e.dataTransfer.effectAllowed = "move"
+                        }}
+                        onDragEnd={() => {
+                          setDraggedEntryId(null)
+                          setDragOverDate(null)
+                        }}
                         title={isMissed ? `${entry.title} (Missed)` : entry.title}
                       >
                         {/* Mini gradient card */}

@@ -135,6 +135,8 @@ export async function PATCH(request: Request) {
     // entirely (which leaves whatever's already there untouched, same as
     // every other optional field here).
     scheduled_time: z.string().nullable().optional(),
+    // Drag-and-drop rescheduling in ContentCalendar.tsx's month view.
+    scheduled_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   })
 
   const parsed = patchSchema.safeParse(body)
