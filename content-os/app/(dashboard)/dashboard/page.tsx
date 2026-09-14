@@ -1,14 +1,18 @@
 import Link from "next/link"
-import { Calendar, Sparkles } from "lucide-react"
+import { Sparkles, Plus } from "lucide-react"
 import { createClient } from "@/lib/supabase/server"
 import { OnboardingWizard } from "@/components/onboarding/OnboardingWizard"
 import { CreditGiftBoxes } from "@/components/dashboard/CreditGiftBoxes"
+import { CreditBalancePill } from "@/components/dashboard/CreditBalancePill"
+import { DetailedStatsToggle } from "@/components/dashboard/DetailedStatsToggle"
 import { DashboardStats } from "@/components/dashboard/DashboardStats"
 import { UpcomingOccasions } from "@/components/dashboard/UpcomingOccasions"
-import { PlatformIcon } from "@/components/shared/PlatformIcon"
+import { ScheduleAction } from "@/components/shared/ScheduleAction"
 import { getUpcomingOccasions } from "@/lib/occasions/get-upcoming-occasions"
+import { getOrCreateDailyDraft } from "@/lib/dashboard/get-or-create-daily-draft"
+import { getBestHookType } from "@/lib/dashboard/get-best-hook-type"
 import { getISTDateString, getISTNow } from "@/lib/utils/ist"
-import type { UserRow, CalendarEntryRow } from "@/types/database"
+import type { UserRow, BrandRow, CalendarEntryRow } from "@/types/database"
 
 /** d is built via local-field arithmetic (setDate/setHours) on an
  * IST-simulated Date from getISTNow() -- toISOString() would reinterpret
@@ -22,6 +26,8 @@ function formatLocalDate(date: Date): string {
   return `${yyyy}-${mm}-${dd}`
 }
 
+const MOMENTUM_DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+
 export default async function DashboardPage({
   searchParams,
 }: {
@@ -34,7 +40,7 @@ export default async function DashboardPage({
 
   const [profileResult, brandsResult] = await Promise.all([
     supabase.from("users").select("full_name, plan").eq("id", user.id).single<Pick<UserRow, "full_name" | "plan">>(),
-    supabase.from("brands").select("id, name, is_active, niche").eq("user_id", user.id).returns<Array<{ id: string; name: string; is_active: boolean; niche: string | null }>>(),
+    supabase.from("brands").select("*").eq("user_id", user.id).returns<BrandRow[]>(),
   ])
 
   const profile = profileResult.data
@@ -56,13 +62,21 @@ export default async function DashboardPage({
     return <OnboardingWizard />
   }
 
-  // Started here (not awaited yet) so it runs concurrently with the big
-  // Promise.all batch below instead of serially blocking the page on a DB
-  // round-trip that has nothing to do with the rest of this page's data --
-  // skipped entirely for a brandless user (the real onboarding path above,
-  // or a skipped one rendering the "add a brand" prompt below) since
-  // there's no occasions card to show either way.
-  const occasionsPromise = brandCount > 0 ? getUpcomingOccasions(14) : null
+  // Started here (not awaited yet), alongside the daily-draft and
+  // best-hook-type lookups just below -- all three run concurrently via
+  // the single Promise.all near the bottom of this function, rather than
+  // serially blocking the page on each in turn. Skipped entirely for a
+  // brandless user (the real onboarding path above, or a skipped one
+  // rendering the "add a brand" prompt below) since none of the three
+  // have anything to show either way.
+  const occasionsPromise = brandCount > 0 ? getUpcomingOccasions(14) : Promise.resolve([])
+  // A real, credit-charged draft -- at most one generation/charge per
+  // brand per IST day, cached in daily_draft_cache (see
+  // lib/dashboard/get-or-create-daily-draft.ts). null covers both "no
+  // credits to charge" and "generation failed" -- either way the hero
+  // below falls back to the plain CTA, no error surfaced.
+  const dailyDraftPromise = firstBrand ? getOrCreateDailyDraft(firstBrand, user.id) : Promise.resolve(null)
+  const bestHookTypePromise = getBestHookType(brandIds)
 
   const now = new Date()
   const todayStr = getISTDateString(now)
@@ -134,19 +148,36 @@ export default async function DashboardPage({
     if (idx !== undefined) dailyActivity[idx]!.count++
   }
 
+  // This week's momentum row (Mon-Sun) -- reuses dailyActivity above
+  // (already a per-day count for the last 14 days, which fully covers the
+  // current week) rather than a third parallel query. A day past today
+  // with no entry in dailyActivity can't happen (the window always
+  // extends through today), so a missing lookup only ever means a future
+  // day still ahead this week.
+  const dailyActivityByDate = new Map(dailyActivity.map((d) => [d.date, d.count]))
+  const momentumDays = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(startOfWeek)
+    d.setDate(startOfWeek.getDate() + i)
+    const dateStr = formatLocalDate(d)
+    return {
+      label: MOMENTUM_DAY_LABELS[i]!,
+      dateStr,
+      count: dailyActivityByDate.get(dateStr) ?? 0,
+      isToday: dateStr === todayStr,
+      isFuture: dateStr > todayStr,
+    }
+  })
+
   type RecentCalendarEntry = Pick<CalendarEntryRow, "id" | "title" | "scheduled_date" | "platform" | "status" | "hook_text" | "caption_text" | "is_ready" | "color">
-  type TodayEntry = Pick<CalendarEntryRow, "id" | "title" | "platform" | "scheduled_date" | "status" | "is_ready" | "color">
 
   let calendarEntriesThisWeek = 0
   let recentCalendar: RecentCalendarEntry[] = []
   let savedContentCount = 0
-  let todayEntries: TodayEntry[] = []
 
   if (brandIds.length > 0) {
     const [
       calendarCountResult,
       recentCalendarResult,
-      todayReadyResult,
       savedHooksResult,
       savedCaptionsResult,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -172,13 +203,6 @@ export default async function DashboardPage({
         .in("brand_id", brandIds)
         .gte("scheduled_date", startOfWeekStr)
         .order("scheduled_date", { ascending: true })
-        .limit(5),
-      supabase
-        .from("calendar_entries")
-        .select("id, title, platform, scheduled_date, status, is_ready, color")
-        .in("brand_id", brandIds)
-        .eq("scheduled_date", todayStr)
-        .eq("is_ready", true)
         .limit(5),
       supabase
         .from("hooks")
@@ -219,7 +243,6 @@ export default async function DashboardPage({
 
     calendarEntriesThisWeek = calendarCountResult.count ?? 0
     recentCalendar = (recentCalendarResult.data ?? []) as RecentCalendarEntry[]
-    todayEntries = (todayReadyResult.data ?? []) as TodayEntry[]
 
     savedContentCount =
       (savedHooksResult.count ?? 0) +
@@ -241,112 +264,31 @@ export default async function DashboardPage({
   const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening"
   const dateLabel = now.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })
 
+  const [occasions, dailyDraft, bestHookType] = await Promise.all([occasionsPromise, dailyDraftPromise, bestHookTypePromise])
+
+  const shareText = dailyDraft
+    ? `${dailyDraft.hookText}\n\n${dailyDraft.captionText}${dailyDraft.hashtags.length > 0 ? `\n\n${dailyDraft.hashtags.map((h) => `#${h}`).join(" ")}` : ""}`
+    : ""
+
   return (
     <div className="px-4 py-6 md:p-8">
-      {/* Hero — greeting + today's-posts banner live in ONE gradient card so
-       * they read as a single considered unit instead of two stacked,
-       * disconnected boxes. The "today ready" panel below is a translucent
-       * inset on the same gradient rather than its own bordered card. */}
-      <div className="relative mb-6 overflow-hidden rounded-2xl border border-violet-200/60 bg-gradient-to-br from-violet-50 via-white to-blue-50 p-6 dark:border-violet-800/30 dark:from-violet-950/40 dark:via-background dark:to-blue-950/20 md:p-8">
-        <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-violet-600 dark:text-violet-400">
-              {dateLabel}
-            </p>
-            <h1 className="mt-1 text-3xl font-bold tracking-tight md:text-4xl">
-              {greeting}, {firstName} 👋
-            </h1>
-            <p className="mt-1.5 text-muted-foreground">
-              Here&apos;s what&apos;s happening with your content today.
-            </p>
-          </div>
-          <div className="flex items-center gap-2 shrink-0">
-            <Link
-              href="/brands/new"
-              className="inline-flex h-9 items-center gap-1.5 rounded-md border border-violet-200/70 bg-white/90 px-3 text-sm font-medium backdrop-blur-sm transition-colors hover:bg-white dark:border-violet-800/40 dark:bg-white/5 dark:hover:bg-white/10"
-            >
-              + Add brand
-            </Link>
-            {firstBrandId && (
-              <Link
-                href={`/brands/${firstBrandId}/fastlane`}
-                className="inline-flex h-9 items-center gap-1.5 rounded-md border border-violet-200/70 bg-white/90 px-3 text-sm font-medium backdrop-blur-sm transition-colors hover:bg-white dark:border-violet-800/40 dark:bg-white/5 dark:hover:bg-white/10"
-              >
-                ✈️ Run Autopilot
-              </Link>
-            )}
-          </div>
+      {/* Header row -- date + greeting on the left, a quiet always-on
+       * credit balance pill on the right. The old "+ Add brand"/"Run
+       * Autopilot" buttons that used to live here are dropped: both are
+       * already permanent Sidebar.tsx nav items (Brands, and each brand's
+       * own Autopilot page), same reasoning DashboardStats' now-removed
+       * Quick Actions row was cut for. */}
+      <div className="mb-8 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-violet-600 dark:text-violet-400">
+            {dateLabel}
+          </p>
+          <h1 className="mt-1 text-2xl font-bold tracking-tight md:text-3xl">
+            {greeting}, {firstName} 👋
+          </h1>
         </div>
-
-        {/* Single primary message below, chosen by condition rather than
-         * stacked as two separate cards: today's ready posts when there
-         * are any, else a lighter manual "generate one" nudge. The nudge
-         * is deliberately the lighter first pass, per Akshita's explicit
-         * choice -- a manual deep link into Create -> Post, not an auto-
-         * generated/cached draft. No new table, cron, or background
-         * generation trigger here -- a future contributor adding a real
-         * "today's draft" cache should treat this as the placeholder it
-         * is, not assume that architecture exists yet. */}
-        {firstBrandId && (
-          todayEntries.length > 0 ? (
-            <div className="mt-6 flex items-center justify-between gap-4 rounded-xl border border-violet-200/70 bg-white/70 px-4 py-3 backdrop-blur-sm dark:border-violet-800/40 dark:bg-black/20">
-              <div className="flex items-center gap-3">
-                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-violet-600 text-white">
-                  <Calendar className="h-4 w-4" />
-                </div>
-                <div>
-                  <p className="text-sm font-semibold text-violet-900 dark:text-violet-200">
-                    {todayEntries.length} post{todayEntries.length !== 1 ? "s" : ""} ready for today
-                  </p>
-                  <div className="mt-1 flex items-center gap-1.5">
-                    {todayEntries.map((e) => e.platform && (
-                      <PlatformIcon key={e.id} platform={e.platform} className="h-3.5 w-3.5" />
-                    ))}
-                  </div>
-                </div>
-              </div>
-              <Link
-                href={`/brands/${firstBrandId}/calendar`}
-                className="shrink-0 text-xs font-medium text-violet-700 hover:text-violet-900 dark:text-violet-300 dark:hover:text-violet-100 transition-colors"
-              >
-                View posts →
-              </Link>
-            </div>
-          ) : (
-            <div className="mt-6 flex flex-col items-start justify-between gap-3 rounded-xl border border-violet-200/70 bg-white/70 px-4 py-3 backdrop-blur-sm dark:border-violet-800/40 dark:bg-black/20 sm:flex-row sm:items-center">
-              <div className="flex items-center gap-3">
-                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-violet-600 text-white">
-                  <Sparkles className="h-4 w-4" />
-                </div>
-                <div>
-                  <p className="text-sm font-semibold text-violet-900 dark:text-violet-200">Ready to post today?</p>
-                  <p className="text-xs text-violet-700/80 dark:text-violet-300/80">
-                    Generate something fresh for {firstBrand?.name}
-                    {firstBrand?.niche ? ` (${firstBrand.niche})` : ""}.
-                  </p>
-                </div>
-              </div>
-              <Link
-                href={`/brands/${firstBrandId}/generate?tab=full_post`}
-                className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md bg-violet-600 px-3 text-xs font-medium text-white transition-colors hover:bg-violet-700"
-              >
-                Generate a post
-              </Link>
-            </div>
-          )
-        )}
+        {brandCount > 0 && <CreditBalancePill />}
       </div>
-
-      {/* Sits right under the hero -- the same card the "Xd left · Y
-       * credits remaining" line is visually anchored near up in the top
-       * nav, so a top-up entry point here reads as a natural continuation
-       * of that, not a random mid-page insert. Skipped for the brandless/
-       * onboarding branch below, same as the stats/calendar section. */}
-      {brandCount > 0 && (
-        <div className="mb-6">
-          <CreditGiftBoxes />
-        </div>
-      )}
 
       {brandCount === 0 ? (
         <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-muted-foreground/25 px-6 py-16 text-center">
@@ -366,20 +308,149 @@ export default async function DashboardPage({
         </div>
       ) : (
         <>
-          <DashboardStats
-            generationsThisMonth={generationsThisMonth}
-            generationsLastMonth={generationsLastMonth}
-            savedContentCount={savedContentCount}
-            calendarEntriesThisWeek={calendarEntriesThisWeek}
-            activeBrands={activeBrandCount}
-            recentCalendar={recentCalendar}
-            firstBrandId={firstBrandId}
-            dailyActivity={dailyActivity}
-          />
+          {/* Hero -- a real cached daily draft when one generated
+           * successfully today, else the lighter manual CTA. Never both,
+           * never an error message for the null case (see
+           * getOrCreateDailyDraft's own doc comment: null covers both "no
+           * credits" and "generation failed", and either way this is a
+           * silent fallback, not a surfaced error). */}
+          {firstBrandId && dailyDraft ? (
+            <div className="mb-6 rounded-2xl border bg-card p-6 md:p-8">
+              <p className="mb-4 text-xs font-semibold uppercase tracking-wide text-violet-600 dark:text-violet-400">
+                Today&apos;s draft
+              </p>
+              <div className="flex flex-col gap-6 sm:flex-row">
+                <div className="w-full shrink-0 overflow-hidden rounded-xl bg-secondary sm:w-40">
+                  {dailyDraft.imageUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={dailyDraft.imageUrl} alt="" className="aspect-[4/5] w-full object-cover" />
+                  ) : (
+                    <div className="flex aspect-[4/5] items-center justify-center">
+                      <Sparkles className="h-8 w-8 text-muted-foreground/40" />
+                    </div>
+                  )}
+                </div>
+                <div className="min-w-0 flex-1 space-y-3">
+                  <p className="text-lg font-semibold leading-snug">{dailyDraft.hookText}</p>
+                  <p className="line-clamp-3 text-sm leading-relaxed text-muted-foreground">{dailyDraft.captionText}</p>
+                  <div className="flex flex-wrap items-center gap-2 pt-1">
+                    <a
+                      href={`https://wa.me/?text=${encodeURIComponent(shareText)}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex h-9 items-center gap-1.5 rounded-md bg-violet-600 px-3 text-sm font-medium text-white transition-colors hover:bg-violet-700"
+                    >
+                      Send
+                    </a>
+                    <Link
+                      href={`/brands/${firstBrandId}/generate?tab=full_post`}
+                      className="inline-flex h-9 items-center gap-1.5 rounded-md border px-3 text-sm font-medium transition-colors hover:bg-muted"
+                    >
+                      Edit
+                    </Link>
+                    {dailyDraft.imageUrl && (
+                      <ScheduleAction
+                        brandId={firstBrandId}
+                        caption={dailyDraft.captionText}
+                        hashtags={dailyDraft.hashtags}
+                        imageUrl={dailyDraft.imageUrl}
+                      />
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : firstBrandId && (
+            <div className="mb-6 flex flex-col items-start justify-between gap-3 rounded-2xl border bg-card p-6 md:p-8 sm:flex-row sm:items-center">
+              <div>
+                <p className="text-base font-semibold">Ready to post today?</p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Generate something fresh for {firstBrand?.name}
+                  {firstBrand?.niche ? ` (${firstBrand.niche})` : ""}.
+                </p>
+              </div>
+              <Link
+                href={`/brands/${firstBrandId}/generate?tab=full_post`}
+                className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-md bg-violet-600 px-4 text-sm font-medium text-white transition-colors hover:bg-violet-700"
+              >
+                Generate a post
+              </Link>
+            </div>
+          )}
 
-          <div className="mt-6">
-            <UpcomingOccasions brandId={firstBrandId} occasions={(await occasionsPromise) ?? []} />
+          {/* Momentum -- Mon-Sun, filled for days with generation activity
+           * (dailyActivity above), dashed outline for days not yet
+           * reached, a "+" only on today when today has none yet. */}
+          <div className="mb-6 rounded-2xl border bg-card p-6">
+            <p className="mb-4 text-sm font-semibold">This week&apos;s momentum</p>
+            <div className="flex items-center justify-between gap-2">
+              {momentumDays.map((d) => {
+                const filled = d.count > 0
+                if (d.isFuture) {
+                  return (
+                    <div key={d.dateStr} className="flex flex-col items-center gap-1.5">
+                      <div className="h-8 w-8 rounded-full border-2 border-dashed border-muted-foreground/30" />
+                      <span className="text-[10px] text-muted-foreground">{d.label}</span>
+                    </div>
+                  )
+                }
+                if (d.isToday && !filled) {
+                  return (
+                    <Link
+                      key={d.dateStr}
+                      href={firstBrandId ? `/brands/${firstBrandId}/generate?tab=full_post` : "/brands/new"}
+                      className="flex flex-col items-center gap-1.5"
+                    >
+                      <div className="flex h-8 w-8 items-center justify-center rounded-full border-2 border-violet-400 text-violet-600 transition-colors hover:bg-violet-50 dark:hover:bg-violet-950/30">
+                        <Plus className="h-4 w-4" />
+                      </div>
+                      <span className="text-[10px] font-medium text-violet-600">{d.label}</span>
+                    </Link>
+                  )
+                }
+                return (
+                  <div key={d.dateStr} className="flex flex-col items-center gap-1.5">
+                    <div className={`h-8 w-8 rounded-full ${filled ? "bg-violet-600" : "border-2 border-muted-foreground/20"}`} />
+                    <span className="text-[10px] text-muted-foreground">{d.label}</span>
+                  </div>
+                )
+              })}
+            </div>
           </div>
+
+          {/* Coming up (existing UpcomingOccasions data) + best hook type
+           * this month (Part C) -- the latter omitted entirely when there
+           * isn't enough rated data yet, not shown as a placeholder. */}
+          <div className="grid gap-4 md:grid-cols-2">
+            <UpcomingOccasions brandId={firstBrandId} occasions={occasions} />
+            {bestHookType && (
+              <div className="rounded-xl border bg-card p-5">
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Your best hook type this month</p>
+                <p className="mt-2 text-lg font-semibold capitalize">{bestHookType.hookType.replace(/_/g, " ")}</p>
+                <p className="mt-1 text-sm text-muted-foreground">Averaging {bestHookType.avgRating.toFixed(1)}★ from rated hooks this month</p>
+              </div>
+            )}
+          </div>
+
+          {/* Kept exactly as before -- low-balance gating untouched, just
+           * repositioned further down the page since the header pill
+           * above is now the quiet always-on indicator. */}
+          <div className="mt-6">
+            <CreditGiftBoxes />
+          </div>
+
+          <DetailedStatsToggle>
+            <DashboardStats
+              generationsThisMonth={generationsThisMonth}
+              generationsLastMonth={generationsLastMonth}
+              savedContentCount={savedContentCount}
+              calendarEntriesThisWeek={calendarEntriesThisWeek}
+              activeBrands={activeBrandCount}
+              recentCalendar={recentCalendar}
+              firstBrandId={firstBrandId}
+              dailyActivity={dailyActivity}
+            />
+          </DetailedStatsToggle>
         </>
       )}
     </div>
