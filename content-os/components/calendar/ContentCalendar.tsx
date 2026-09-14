@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useMemo } from "react"
 import { ChevronLeft, ChevronRight, Plus, X, Loader2, LayoutGrid, List } from "lucide-react"
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameMonth, isToday, startOfWeek, endOfWeek, addWeeks, subWeeks } from "date-fns"
 import { Button } from "@/components/ui/button"
@@ -98,6 +98,48 @@ export function ContentCalendar({ brandId, defaultView = "month" }: ContentCalen
   const weekEnd = endOfWeek(weekStart)
   const weekDays = eachDayOfInterval({ start: weekStart, end: weekEnd })
 
+  // Content format mix + fill-rate strip -- pure derived UI from the
+  // entries/days/weekDays state already fetched above, no new fetch or
+  // schema change. daysInView mirrors whichever range is currently
+  // rendered (the month grid or the week strip), same string-matching
+  // convention getEntriesForDay already uses rather than re-parsing
+  // scheduled_date as a Date (avoids any timezone round-trip pitfalls).
+  // Recomputes the week range from currentDate rather than depending on
+  // the weekDays array itself, since eachDayOfInterval returns a new
+  // array reference every render regardless of whether its contents
+  // changed, which would defeat this memoization entirely.
+  const daysInView = useMemo(() => {
+    if (viewMode === "week") {
+      const ws = startOfWeek(currentDate)
+      const we = endOfWeek(ws)
+      const weekDateStrs = new Set(eachDayOfInterval({ start: ws, end: we }).map(d => format(d, "yyyy-MM-dd")))
+      return entries.filter(e => weekDateStrs.has(e.scheduled_date))
+    }
+    return entries.filter(e => e.scheduled_date.slice(0, 7) === month)
+  }, [entries, viewMode, currentDate, month])
+
+  const filledCount = useMemo(
+    () => new Set(daysInView.map(e => e.scheduled_date)).size,
+    [daysInView]
+  )
+
+  const totalSlots = viewMode === "week" ? weekDays.length : days.length
+
+  // This tallies content FORMAT (reel/post/story/carousel/thread), not
+  // content ANGLE (educational/problem-solution/etc.) as the original
+  // product spec named this strip's mix indicator -- angle isn't a column
+  // on calendar_entries yet, so a true angle-mix indicator needs a
+  // migration first. Flagging this to Akshita rather than silently
+  // relabeling formats as angles.
+  const formatCounts = useMemo(() => {
+    const counts: Record<string, number> = {}
+    for (const e of daysInView) {
+      if (!e.content_type) continue
+      counts[e.content_type] = (counts[e.content_type] ?? 0) + 1
+    }
+    return counts
+  }, [daysInView])
+
   function navigatePrev() {
     if (viewMode === "week") setCurrentDate(d => subWeeks(d, 1))
     else setCurrentDate(d => new Date(d.getFullYear(), d.getMonth() - 1, 1))
@@ -192,6 +234,32 @@ export function ContentCalendar({ brandId, defaultView = "month" }: ContentCalen
             <Plus className="h-4 w-4 mr-1.5" /> Add entry
           </Button>
         </div>
+      </div>
+
+      {/* Content format mix + fill-rate strip */}
+      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-[160px]">
+          <p className="text-sm font-medium">{filledCount} of {totalSlots} days filled</p>
+          <div className="mt-1.5 h-1.5 w-40 max-w-full overflow-hidden rounded-full bg-muted">
+            <div
+              className="h-full rounded-full bg-violet-600 transition-all"
+              style={{ width: `${totalSlots > 0 ? (filledCount / totalSlots) * 100 : 0}%` }}
+            />
+          </div>
+        </div>
+
+        {daysInView.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1.5">
+            {Object.entries(formatCounts).map(([contentType, count]) => (
+              <span
+                key={contentType}
+                className="rounded-full border border-violet-200 bg-violet-50 px-2.5 py-1 text-[11px] font-medium text-violet-700"
+              >
+                {Math.round((count / daysInView.length) * 100)}% {contentType.charAt(0).toUpperCase() + contentType.slice(1)}
+              </span>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Day labels */}
