@@ -3,7 +3,7 @@
 import { useState, useCallback, useEffect } from "react"
 import { useParams, useSearchParams } from "next/navigation"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
-import { Archive, Copy, Check, Star, Sparkles, BookOpen, ChevronDown, ChevronUp, Film, LayoutGrid, Megaphone, Download, Search, Zap, Timer, Newspaper, MoreVertical, Eye, CalendarClock, Trash2, MessageCircle } from "lucide-react"
+import { Archive, Copy, Check, Star, Sparkles, BookOpen, ChevronDown, ChevronUp, Film, LayoutGrid, Megaphone, Download, Search, Zap, Timer, Newspaper, MoreVertical, Eye, CalendarClock, Trash2, MessageCircle, Loader2 } from "lucide-react"
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
@@ -19,6 +19,8 @@ import { cssBackgroundFromColors } from "@/components/shared/ColorWheelPicker"
 import type { StoryExportSlide } from "@/lib/utils/story-export"
 import type { CarouselExportSlide } from "@/lib/utils/carousel-export"
 import { useBrand } from "@/hooks/useBrand"
+import { useGenerateContent } from "@/hooks/useGeneration"
+import type { GenerateContentInput } from "@/lib/validations/ai"
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -112,6 +114,8 @@ function CardQuickActions({
   onRatingChange,
   ratingPending,
   shareText,
+  onRemixToReelScript,
+  remixPending,
 }: {
   onView: () => void
   canSchedule: boolean
@@ -120,6 +124,8 @@ function CardQuickActions({
   onRatingChange: (r: number) => void
   ratingPending?: boolean
   shareText?: string
+  onRemixToReelScript?: () => void
+  remixPending?: boolean
 }) {
   return (
     <DropdownMenu>
@@ -137,6 +143,22 @@ function CardQuickActions({
         <DropdownMenuItem onSelect={onView}>
           <Eye className="h-3.5 w-3.5" /> View
         </DropdownMenuItem>
+        {onRemixToReelScript && (
+          <DropdownMenuItem
+            disabled={remixPending}
+            onSelect={(e) => {
+              // Keeps the menu open through the mutation so the loading
+              // state below is actually visible -- Radix closes on select
+              // by default, which would unmount this item before the
+              // credit-charging generateContent call even resolves.
+              e.preventDefault()
+              onRemixToReelScript()
+            }}
+          >
+            {remixPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Film className="h-3.5 w-3.5" />}
+            {remixPending ? "Remixing…" : "Remix to Reel Script"}
+          </DropdownMenuItem>
+        )}
         {shareText && (
           <DropdownMenuItem
             onSelect={() => window.open(`https://wa.me/?text=${encodeURIComponent(shareText)}`, "_blank")}
@@ -329,6 +351,44 @@ function CaptionCard({ caption, brandId, onOpenDetail }: { caption: CaptionWithI
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["library", "captions", brandId] }),
   })
+  // Reuses the existing content-generation route (a real credit charge --
+  // HOOK_OR_CAPTION cost, see lib/usage/credit-costs.ts) rather than a
+  // dedicated "remix" endpoint. Only reel script, not carousel: a
+  // carousel's real cost driver is its per-slide AI background images,
+  // which still need generating fresh regardless of whether the slide
+  // text is reused -- a caption->carousel remix would cost the same as a
+  // net-new carousel, not the cheap win this is. Flagging that gap back
+  // to Akshita rather than building a "remix" that's really full-price
+  // carousel generation with extra steps.
+  const generateContent = useGenerateContent()
+  const [remixError, setRemixError] = useState<string | null>(null)
+  const [remixSuccess, setRemixSuccess] = useState(false)
+
+  async function handleRemixToReelScript() {
+    setRemixError(null)
+    setRemixSuccess(false)
+    // additionalContext is capped at 500 chars by generateContentSchema
+    // (lib/validations/ai.ts) -- truncate the whole built string (prefix +
+    // caption) to fit rather than letting zod silently reject an oversized
+    // payload.
+    const prefix = "Repurpose this existing Instagram caption into a 30-45 second reel script: "
+    const additionalContext = `${prefix}${caption.caption_text}`.slice(0, 500)
+    try {
+      await generateContent.mutateAsync({
+        brandId,
+        format: "reel_script",
+        platform: (caption.platform as GenerateContentInput["platform"]) ?? undefined,
+        hookText: undefined,
+        additionalContext,
+      })
+      qc.invalidateQueries({ queryKey: ["library", "scripts", brandId] })
+      setRemixSuccess(true)
+      setTimeout(() => setRemixSuccess(false), 4000)
+    } catch (err) {
+      setRemixError(err instanceof Error ? err.message : "Failed to create reel script.")
+    }
+  }
+
   const isLong = caption.caption_text.length > 200
   const displayText = isLong && !expanded ? caption.caption_text.slice(0, 200) + "…" : caption.caption_text
   const thumbnail = caption.images[0]?.public_url ?? null
@@ -379,6 +439,8 @@ function CaptionCard({ caption, brandId, onOpenDetail }: { caption: CaptionWithI
               onRatingChange={(r) => ratingMutation.mutate(r)}
               ratingPending={ratingMutation.isPending}
               shareText={`${caption.caption_text}${caption.hashtags.length > 0 ? `\n\n${caption.hashtags.map(h => `#${h}`).join(" ")}` : ""}`}
+              onRemixToReelScript={handleRemixToReelScript}
+              remixPending={generateContent.isPending}
             />
           </div>
         </div>
@@ -400,6 +462,14 @@ function CaptionCard({ caption, brandId, onOpenDetail }: { caption: CaptionWithI
               <span key={tag} className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">#{tag.replace(/^#/, "")}</span>
             ))}
           </div>
+        )}
+        {remixSuccess && (
+          <div className="flex items-center gap-1.5 rounded-md bg-emerald-50 px-2 py-1.5 text-xs font-medium text-emerald-700" onClick={(e) => e.stopPropagation()}>
+            <Check className="h-3.5 w-3.5 shrink-0" /> Reel script created — see the Scripts tab
+          </div>
+        )}
+        {remixError && (
+          <p className="text-xs text-destructive" onClick={(e) => e.stopPropagation()}>{remixError}</p>
         )}
         <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t" onClick={(e) => e.stopPropagation()}>
           <StarRating value={caption.user_rating} onChange={(r) => ratingMutation.mutate(r)} disabled={ratingMutation.isPending} />
