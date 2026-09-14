@@ -171,6 +171,11 @@ export const generatePostImageSchema = z.object({
   // at 4:5 regardless of this value until the templates themselves become
   // dimension-aware. See generatePostImage in post-image-pipeline.ts.
   aspectRatio: z.enum(["4:5", "1:1", "9:16"]).optional(),
+  // Which visual direction the background image itself follows -- see
+  // lib/ai/post-image-pipeline.ts's PHOTOGRAPHY_STYLE/EDITORIAL_GRAPHIC_STYLE.
+  // Omitted defaults to PHOTOGRAPHY_STYLE (today's existing behavior), so
+  // this stays behavior-preserving for every caller that doesn't pass it.
+  visualStyle: z.enum(["studio_scene", "editorial_graphic"]).optional(),
   // Fully optional -- replaces the old separate headline/ctaText fields.
   // Omitted or empty means no text overlay at all: no auto-filled headline
   // from a picked hook, no auto-filled CTA from brand.cta_phrase. Only
@@ -229,6 +234,7 @@ export const generateFullPostSchema = z.object({
   format: contentFormatEnum,
   platform: platformEnum,
   occasionId: z.string().optional(),
+  contentAngle: z.enum(["auto", "problem_solution", "quick_tip", "myth_contrarian", "launch_offer"]).optional(),
   additionalContext: z
     .string()
     .max(500, "Additional context must be under 500 characters")

@@ -384,6 +384,13 @@ const TECH_NICHE_KEYWORDS = ["tech", "software", "saas", "app", "digital product
 // docs/research/post-imagery-diagnosis.md, issue 2.
 export const PHOTOGRAPHY_STYLE = "professional product photography shot on a full-frame DSLR with an 85mm lens at f/2.8 for natural background blur, soft directional key light from the upper left with gentle fill, premium D2C brand aesthetic, high-detail commercial quality"
 
+// Alternative to PHOTOGRAPHY_STYLE above -- selected via
+// GeneratePostImageOptions.visualStyle === "editorial_graphic" (Create →
+// Full Post's visual-direction picker). A flat, styled-composition look
+// rather than a photorealistic studio shot, for brands whose product
+// doesn't suit (or doesn't exist as) a physical photographed scene.
+export const EDITORIAL_GRAPHIC_STYLE = "minimal editorial flat-lay composition, soft paper or fabric texture background, clean geometric shapes, muted contemporary color palette, generous negative space, magazine-editorial commercial aesthetic — no photorealistic studio lighting or DSLR depth-of-field effects"
+
 // The single most effective lever against anatomy anomalies: a shot with
 // no people in it can't have an extra-limb problem at all. Biases every
 // post image toward product-only or environmental/lifestyle framing by
@@ -681,6 +688,12 @@ export interface GeneratePostImageOptions {
    * (captionText empty). See resolvePostImageDimensions and the
    * willCompositeText branch below. Omitted defaults to 4:5 portrait. */
   aspectRatio?: "4:5" | "1:1" | "9:16"
+  /** Which background style to render -- PHOTOGRAPHY_STYLE (photorealistic
+   * studio product shot) or EDITORIAL_GRAPHIC_STYLE (flat editorial
+   * composition). Omitted defaults to PHOTOGRAPHY_STYLE, today's existing
+   * behavior, so every caller that doesn't pass this (Carousel, Story,
+   * Autopilot) is unaffected. */
+  visualStyle?: "studio_scene" | "editorial_graphic"
 }
 
 /**
@@ -714,7 +727,7 @@ export async function generatePostImage(options: GeneratePostImageOptions): Prom
     options.brandNiche ? `${options.brandNiche} brand` : "",
     resolveNicheSetting(options.brandNiche),
     cappedTargetAudience ? `styled to appeal to ${cappedTargetAudience}` : "",
-    PHOTOGRAPHY_STYLE,
+    options.visualStyle === "editorial_graphic" ? EDITORIAL_GRAPHIC_STYLE : PHOTOGRAPHY_STYLE,
     hasReferenceImage ? REFERENCE_IMAGE_PEOPLE_GUARD : NO_PEOPLE_BY_DEFAULT_GUARD,
     buildNegativeGuard(options.brandNiche),
     // Only relevant when there's actually going to be a text overlay —

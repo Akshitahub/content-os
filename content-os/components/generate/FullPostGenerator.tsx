@@ -41,15 +41,6 @@ const ANGLE_OPTIONS: { value: ContentAngle; label: string }[] = [
   { value: "launch_offer", label: "Launch / offer" },
 ]
 
-// Used only to fold the picked angle into additionalContext as a soft
-// prompt hint (see handleGenerate) — not sent as its own API field yet.
-const ANGLE_HINT: Record<Exclude<ContentAngle, "auto">, string> = {
-  problem_solution: "Write this as a problem-and-solution post: name a real customer pain point, then the fix.",
-  quick_tip: "Write this as a quick tip / how-to post: concise, actionable steps worth saving.",
-  myth_contrarian: "Write this as a myth-busting / contrarian post: challenge a common misconception in this space.",
-  launch_offer: "Write this as a launch/offer post: promotional, direct, built around a specific offer or drop.",
-}
-
 // Aspect-ratio-appropriate example prompts, keyed by a few common niche
 // keywords. Falls back to the existing generic placeholder when the
 // brand's niche doesn't match any known category.
@@ -163,14 +154,16 @@ export function FullPostGenerator({ brandId, products }: Props) {
 
   const [additionalContext, setAdditionalContext] = useState("")
   // Content angle / aspect ratio / visual style / headline overlay — new
-  // input-panel controls. Angle is sent today only as a soft prompt hint
-  // folded into additionalContext (see handleGenerate below). aspectRatio
-  // is now wired into generatePostImageMutate (Commit 2) -- honored fully
-  // when there's no text overlay, and silently ignored (stays 4:5) when
-  // there is one, since compositePostImage's SVG templates use fixed pixel
-  // anchors tuned for the 1080x1350 canvas (see post-image-pipeline.ts's
-  // generatePostImage). visualStyle and the headline overlay field remain
-  // UI-only pending the overlay-decoupling commit.
+  // input-panel controls. Angle is sent as its own contentAngle field
+  // (see handleGenerate below); the fullpost/generate route folds it into
+  // the actual prompt server-side now (ANGLE_HINT there). aspectRatio and
+  // visualStyle are both wired into generatePostImageMutate (see
+  // runImageGeneration) -- aspectRatio honored fully when there's no text
+  // overlay, and silently ignored (stays 4:5) when there is one, since
+  // compositePostImage's SVG templates use fixed pixel anchors tuned for
+  // the 1080x1350 canvas (see post-image-pipeline.ts's generatePostImage).
+  // The headline overlay field remains UI-only pending the
+  // overlay-decoupling commit.
   const [contentAngle, setContentAngle] = useState<ContentAngle>("auto")
   const [aspectRatio, setAspectRatio] = useState<"4:5" | "1:1" | "9:16">("4:5")
   const [visualStyle, setVisualStyle] = useState<"studio_scene" | "editorial_graphic">("editorial_graphic")
@@ -244,6 +237,7 @@ export function FullPostGenerator({ brandId, products }: Props) {
         postSessionId: sessionId,
         contentProjectId: data.contentProjectId ?? undefined,
         aspectRatio,
+        visualStyle,
       },
       {
         onSuccess: (imgData) => {
@@ -256,7 +250,7 @@ export function FullPostGenerator({ brandId, products }: Props) {
         },
       }
     )
-  }, [brand, brandId, selectedProductId, selectedLayout, effectiveColorThemeId, aspectRatio, headlineOverlay, generatePostImageMutate])
+  }, [brand, brandId, selectedProductId, selectedLayout, effectiveColorThemeId, aspectRatio, visualStyle, headlineOverlay, generatePostImageMutate])
 
   const handleRegenerateImage = useCallback(() => {
     if (!fullPostResult || !postSessionId) return
@@ -356,22 +350,14 @@ export function FullPostGenerator({ brandId, products }: Props) {
     setOverlayText("")
     setFlattenedImageUrl(null)
 
-    // Angle is a soft prompt hint only (folded into additionalContext), not
-    // a hard API field — matches this repo's convention that soft LLM
-    // instructions aren't enforced server-side unless they affect billing/
-    // credits, which the angle choice doesn't. A hard per-angle parameter
-    // can replace this once the fullpost/generate route's zod schema grows
-    // a contentAngle field.
-    const angleHint = contentAngle !== "auto" ? ANGLE_HINT[contentAngle] : null
-    const combinedContext = [angleHint, additionalContext || null].filter(Boolean).join(" ") || undefined
-
     generate(
       {
         brandId,
         productId: selectedProductId ?? undefined,
         format: "social_post",
         platform: "instagram",
-        additionalContext: combinedContext,
+        additionalContext: additionalContext || undefined,
+        contentAngle,
       },
       {
         onSuccess: (data) => {
@@ -453,8 +439,8 @@ export function FullPostGenerator({ brandId, products }: Props) {
             <p className="text-xs text-muted-foreground text-right">{additionalContext.length}/500</p>
           </div>
 
-          {/* Aspect ratio is now wired through to the image route (Commit 2).
-              visualStyle below remains UI-only pending a follow-up commit. */}
+          {/* Aspect ratio and visualStyle (below) are both wired through to
+              the image route. */}
           <div className="space-y-1.5">
             <Label className="text-xs">Aspect ratio</Label>
             <div className="flex gap-1.5">

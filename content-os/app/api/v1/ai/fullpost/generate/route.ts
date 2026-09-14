@@ -14,6 +14,17 @@ import { fetchPastExamples } from "@/lib/ai/past-examples"
 import type { BrandRow, ProductRow } from "@/types/database"
 import type { GeneratedCaption, ReelScript, CarouselContent, AdCopy } from "@/types/app"
 
+// Mirrors components/generate/FullPostGenerator.tsx's former client-side
+// ANGLE_HINT map verbatim -- moved server-side so the angle is a real,
+// validated parameter (generateFullPostSchema.contentAngle) rather than a
+// soft hint the client folded into additionalContext prose.
+const ANGLE_HINT: Record<"problem_solution" | "quick_tip" | "myth_contrarian" | "launch_offer", string> = {
+  problem_solution: "Write this as a problem-and-solution post: name a real customer pain point, then the fix.",
+  quick_tip: "Write this as a quick tip / how-to post: concise, actionable steps worth saving.",
+  myth_contrarian: "Write this as a myth-busting / contrarian post: challenge a common misconception in this space.",
+  launch_offer: "Write this as a launch/offer post: promotional, direct, built around a specific offer or drop.",
+}
+
 export async function POST(request: Request) {
   const supabase = await createClient()
   const { data: { user }, error: authError } = await supabase.auth.getUser()
@@ -27,7 +38,10 @@ export async function POST(request: Request) {
   const parsed = generateFullPostSchema.safeParse(body)
   if (!parsed.success) return NextResponse.json(buildError(ErrorCodes.VALIDATION_ERROR, "Validation failed.", parsed.error.message), { status: 400 })
 
-  const { brandId, productId, format, platform, additionalContext } = parsed.data
+  const { brandId, productId, format, platform, contentAngle, additionalContext } = parsed.data
+
+  const angleHint = contentAngle && contentAngle !== "auto" ? ANGLE_HINT[contentAngle] : null
+  const combinedContext = [angleHint, additionalContext].filter(Boolean).join(" ") || undefined
 
   // social_post is the "Create → Full Post" flow — this text-generation
   // step charges 0 here because the whole Post (hook + caption + AI image)
@@ -78,7 +92,7 @@ export async function POST(request: Request) {
         hookTypes: ["bold_statement", "question", "story"],
         count: 1,
         platform,
-        additionalContext,
+        additionalContext: combinedContext,
         product,
       })
       const firstHook = hookResult.hooks[0]
@@ -92,7 +106,7 @@ export async function POST(request: Request) {
           product,
           platform,
           hookText: firstHook.hook_text,
-          additionalContext,
+          additionalContext: combinedContext,
           pastExamples,
           includeImagePrompt: true,
           availableColorThemes: resolveColorThemes(brand).map(t => ({ id: t.id, label: t.label })),
@@ -110,14 +124,14 @@ export async function POST(request: Request) {
           hookTypes: ["bold_statement", "question", "story"],
           count: 1,
           platform,
-          additionalContext,
+          additionalContext: combinedContext,
           product,
         }),
         generateContent(brand, format, {
           product,
           platform,
           hookText: undefined,
-          additionalContext,
+          additionalContext: combinedContext,
           pastExamples,
           includeImagePrompt: false,
         }),
