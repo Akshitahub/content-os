@@ -590,6 +590,7 @@ export function FullPostGenerator({ brandId, products }: Props) {
             flattening={flattening}
             previewMode={previewMode}
             onPreviewModeChange={setPreviewMode}
+            aspectRatio={aspectRatio}
           />
         ) : (
           <div
@@ -883,6 +884,7 @@ function PostImagePreview({
   onPreviewModeChange,
   brandName,
   captionPreview,
+  aspectRatio,
 }: {
   postImageUrl: string | null
   alt: string
@@ -909,10 +911,23 @@ function PostImagePreview({
   onPreviewModeChange: (mode: "canvas" | "feed") => void
   brandName: string
   captionPreview: string
+  /** Sizes the generating-state placeholder below to the actual aspect
+   * ratio being generated, so there's no layout jump when the real image
+   * arrives. */
+  aspectRatio: "4:5" | "1:1" | "9:16"
 }) {
+  // Whether the scrim+textarea headline editor is showing because the user
+  // explicitly clicked "+ Add headline", as opposed to it showing because
+  // overlayText already has real content. Declared before the early
+  // returns below per the Rules of Hooks.
+  const [addingHeadline, setAddingHeadline] = useState(false)
+
   if (imageGenerating) {
     return (
-      <div className="rounded-lg border bg-card p-4 flex items-center gap-3">
+      <div
+        className="mx-auto flex w-full max-w-sm items-center justify-center gap-2 rounded-lg border bg-card"
+        style={{ aspectRatio: aspectRatio.replace(":", " / ") }}
+      >
         <Loader2 className="h-4 w-4 animate-spin text-violet-500 shrink-0" />
         <p className="text-sm text-muted-foreground">Generating post image…</p>
       </div>
@@ -939,6 +954,13 @@ function PostImagePreview({
 
   if (!postImageUrl) return null
 
+  // Presentational only -- purely toggles whether the corner button or the
+  // scrim+textarea shows. Never lifted to FullPostGenerator, doesn't touch
+  // overlayText/flattenedImageUrl/downloadUrl, and resets naturally on
+  // every new PostImagePreview mount (a fresh generation) since it's local
+  // state.
+  const showHeadlineEditor = overlayText.trim().length > 0 || addingHeadline
+
   // The bare graphic + editable headline layer — identical markup whether
   // shown standalone (canvas mode) or nested inside the IG chrome shell
   // (feed mode) below, so what you edit is always the same element.
@@ -946,20 +968,36 @@ function PostImagePreview({
     <div className="relative w-full overflow-hidden">
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img src={postImageUrl} alt={alt} className="w-full object-contain" />
-      {/* Bottom-third scrim, purely visual (not baked into postImageUrl
-          itself) — matches flattenOverlayImage's own gradient so what you
-          see here is what Download/Schedule actually produce. */}
-      <div
-        className="pointer-events-none absolute inset-x-0 bottom-0"
-        style={{ height: "38%", background: "linear-gradient(to bottom, rgba(0,0,0,0) 0%, rgba(0,0,0,0.55) 35%, rgba(0,0,0,0.65) 100%)" }}
-      />
-      <textarea
-        value={overlayText}
-        onChange={(e) => onOverlayTextChange(e.target.value)}
-        placeholder="Click to add a headline over this image…"
-        rows={2}
-        className="absolute inset-x-0 bottom-0 w-full resize-none border-0 bg-transparent px-[7%] pb-[6%] pt-2 text-lg font-bold leading-tight text-white placeholder:text-white/60 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-white/40"
-      />
+      {showHeadlineEditor ? (
+        <>
+          {/* Bottom-third scrim, purely visual (not baked into postImageUrl
+              itself) — matches flattenOverlayImage's own gradient so what
+              you see here is what Download/Schedule actually produce. */}
+          <div
+            className="pointer-events-none absolute inset-x-0 bottom-0"
+            style={{ height: "38%", background: "linear-gradient(to bottom, rgba(0,0,0,0) 0%, rgba(0,0,0,0.55) 35%, rgba(0,0,0,0.65) 100%)" }}
+          />
+          <textarea
+            value={overlayText}
+            onChange={(e) => onOverlayTextChange(e.target.value)}
+            onBlur={() => {
+              if (addingHeadline && !overlayText.trim()) setAddingHeadline(false)
+            }}
+            placeholder="Click to add a headline over this image…"
+            rows={2}
+            autoFocus={addingHeadline}
+            className="absolute inset-x-0 bottom-0 w-full resize-none border-0 bg-transparent px-[7%] pb-[6%] pt-2 text-lg font-bold leading-tight text-white placeholder:text-white/60 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-white/40"
+          />
+        </>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setAddingHeadline(true)}
+          className="absolute bottom-3 right-3 rounded-full bg-black/50 px-3 py-1.5 text-xs font-medium text-white backdrop-blur-sm hover:bg-black/65"
+        >
+          + Add headline
+        </button>
+      )}
     </div>
   )
 
@@ -1066,6 +1104,7 @@ function FullPostResults({
   flattening,
   previewMode,
   onPreviewModeChange,
+  aspectRatio,
 }: {
   result: FullPostResult
   copied: string | null
@@ -1084,6 +1123,7 @@ function FullPostResults({
   flattening: boolean
   previewMode: "canvas" | "feed"
   onPreviewModeChange: (mode: "canvas" | "feed") => void
+  aspectRatio: "4:5" | "1:1" | "9:16"
 }) {
   const scheduleCaption = getScheduleCaption(result)
 
@@ -1111,9 +1151,9 @@ function FullPostResults({
 
   return (
     <div className="space-y-4">
-      <HookSection hook={result.hook} copied={copied} onCopy={onCopy} />
-      <ContentDisplay content={result.content} copied={copied} onCopy={onCopy} onSaveCaption={onSaveCaption} />
-
+      {/* Image first — matches the original design intent (visual up top,
+          copy workspace below it) and keeps the generating-state indicator
+          from appearing far down the page below a wall of caption text. */}
       <PostImagePreview
         postImageUrl={postImageUrl}
         alt={postImageAlt}
@@ -1130,7 +1170,11 @@ function FullPostResults({
         onPreviewModeChange={onPreviewModeChange}
         brandName={brandName}
         captionPreview={scheduleCaption?.text ?? caption.caption_text ?? ""}
+        aspectRatio={aspectRatio}
       />
+
+      <HookSection hook={result.hook} copied={copied} onCopy={onCopy} />
+      <ContentDisplay content={result.content} copied={copied} onCopy={onCopy} onSaveCaption={onSaveCaption} />
 
       {shareableImageUrl && !imageGenerating && scheduleCaption && (
         <ScheduleAction
