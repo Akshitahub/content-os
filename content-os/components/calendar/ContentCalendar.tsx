@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useCallback, useMemo } from "react"
+import Link from "next/link"
 import { ChevronLeft, ChevronRight, Plus, X, Loader2, LayoutGrid, List } from "lucide-react"
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameMonth, isToday, startOfWeek, endOfWeek, addWeeks, subWeeks } from "date-fns"
 import { Button } from "@/components/ui/button"
@@ -9,6 +10,7 @@ import { Label } from "@/components/ui/label"
 import { CalendarEntryPanel } from "@/components/calendar/CalendarEntryPanel"
 import { PostCard } from "@/components/shared/PostCard"
 import type { CalendarEntryRow } from "@/types/database"
+import type { DashboardOccasion } from "@/lib/occasions/get-upcoming-occasions"
 
 const STATUS_COLORS: Record<string, string> = {
   planned: "bg-slate-100 text-slate-700 border-slate-200",
@@ -78,6 +80,7 @@ export function ContentCalendar({ brandId, defaultView = "month" }: ContentCalen
   // drop-target highlight, never read for logic.
   const [draggedEntryId, setDraggedEntryId] = useState<string | null>(null)
   const [dragOverDate, setDragOverDate] = useState<string | null>(null)
+  const [occasions, setOccasions] = useState<DashboardOccasion[]>([])
 
   const month = format(currentDate, "yyyy-MM")
 
@@ -95,6 +98,37 @@ export function ContentCalendar({ brandId, defaultView = "month" }: ContentCalen
   }, [brandId, month])
 
   useEffect(() => { fetchEntries() }, [fetchEntries])
+
+  // Occasion suggestions for empty days -- keyed on [viewMode, currentDate]
+  // rather than the days/weekDays arrays below, since eachDayOfInterval
+  // returns a new array reference every render regardless of whether its
+  // contents changed (same pitfall as daysInView's memo above); the range
+  // is recomputed fresh inside the effect body instead. Silent catch
+  // matches fetchEntries' convention -- a missing occasion badge isn't
+  // worth a visible error.
+  useEffect(() => {
+    async function fetchOccasions() {
+      const rangeStart = viewMode === "week" ? startOfWeek(currentDate) : startOfMonth(currentDate)
+      const rangeEnd = viewMode === "week" ? endOfWeek(rangeStart) : endOfMonth(currentDate)
+      const rangeDays = eachDayOfInterval({ start: rangeStart, end: rangeEnd }).length
+      try {
+        const res = await fetch(`/api/v1/occasions?startDate=${format(rangeStart, "yyyy-MM-dd")}&days=${rangeDays}`)
+        const json = await res.json() as { data?: DashboardOccasion[] }
+        if (json.data) setOccasions(json.data)
+      } catch {
+        // silent
+      }
+    }
+    fetchOccasions()
+  }, [viewMode, currentDate])
+
+  const occasionByDate = useMemo(() => {
+    const m = new Map<string, DashboardOccasion>()
+    for (const o of occasions) {
+      m.set(format(new Date(o.occurrenceDate), "yyyy-MM-dd"), o)
+    }
+    return m
+  }, [occasions])
 
   const days = eachDayOfInterval({ start: startOfMonth(currentDate), end: endOfMonth(currentDate) })
   const startDayOfWeek = startOfMonth(currentDate).getDay()
@@ -352,13 +386,27 @@ export function ContentCalendar({ brandId, defaultView = "month" }: ContentCalen
                     <p className="text-[10px] text-muted-foreground text-center">+{dayEntries.length - 4} more</p>
                   )}
                   {dayEntries.length === 0 && (
-                    <button
-                      type="button"
-                      onClick={() => openNewEntry(dateStr)}
-                      className="w-full rounded border border-dashed py-2 text-[10px] text-muted-foreground hover:border-primary/40 hover:text-primary transition-colors"
-                    >
-                      + Add
-                    </button>
+                    occasionByDate.has(dateStr) ? (
+                      <div className="rounded border border-dashed border-violet-200 bg-violet-50 px-1.5 py-1.5 space-y-1">
+                        <p className="truncate text-[10px] font-medium text-violet-700">
+                          {occasionByDate.get(dateStr)!.name}
+                        </p>
+                        <Link
+                          href={`/brands/${brandId}/generate?occasion=${occasionByDate.get(dateStr)!.id}`}
+                          className="block text-center text-[10px] font-semibold text-violet-600 hover:text-violet-800 transition-colors"
+                        >
+                          Generate post
+                        </Link>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => openNewEntry(dateStr)}
+                        className="w-full rounded border border-dashed py-2 text-[10px] text-muted-foreground hover:border-primary/40 hover:text-primary transition-colors"
+                      >
+                        + Add
+                      </button>
+                    )
                   )}
                 </div>
               </div>
@@ -403,6 +451,16 @@ export function ContentCalendar({ brandId, defaultView = "month" }: ContentCalen
                 <div className={`mb-1.5 flex h-6 w-6 items-center justify-center rounded-full text-xs font-medium ${today ? "bg-primary text-primary-foreground" : "text-foreground"}`}>
                   {format(day, "d")}
                 </div>
+                {dayEntries.length === 0 && occasionByDate.has(dateStr) && (
+                  <Link
+                    href={`/brands/${brandId}/generate?occasion=${occasionByDate.get(dateStr)!.id}`}
+                    onClick={e => e.stopPropagation()}
+                    className="mb-1 flex items-center gap-1 truncate rounded-full border border-violet-200 bg-violet-50 px-1.5 py-0.5 text-[9px] font-medium text-violet-700 hover:bg-violet-100 transition-colors"
+                    title={occasionByDate.get(dateStr)!.name}
+                  >
+                    🎉 {occasionByDate.get(dateStr)!.name}
+                  </Link>
+                )}
                 <div className="space-y-1">
                   {dayEntries.slice(0, 3).map(entry => {
                     const grad = PLATFORM_GRADIENTS[entry.platform ?? "instagram"] ?? "from-violet-500 to-indigo-500"
