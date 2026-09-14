@@ -3,7 +3,7 @@
 import { useState, useCallback, useEffect } from "react"
 import { useParams, useSearchParams } from "next/navigation"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
-import { Archive, Copy, Check, Star, Sparkles, BookOpen, ChevronDown, ChevronUp, Film, LayoutGrid, Megaphone, Download, Search, Zap, Timer, Newspaper, MoreVertical, Eye, CalendarClock, Trash2 } from "lucide-react"
+import { Archive, Copy, Check, Star, Sparkles, BookOpen, ChevronDown, ChevronUp, Film, LayoutGrid, Megaphone, Download, Search, Zap, Timer, Newspaper, MoreVertical, Eye, CalendarClock, Trash2, MessageCircle } from "lucide-react"
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
@@ -111,6 +111,7 @@ function CardQuickActions({
   rating,
   onRatingChange,
   ratingPending,
+  shareText,
 }: {
   onView: () => void
   canSchedule: boolean
@@ -118,6 +119,7 @@ function CardQuickActions({
   rating: number | null
   onRatingChange: (r: number) => void
   ratingPending?: boolean
+  shareText?: string
 }) {
   return (
     <DropdownMenu>
@@ -135,6 +137,13 @@ function CardQuickActions({
         <DropdownMenuItem onSelect={onView}>
           <Eye className="h-3.5 w-3.5" /> View
         </DropdownMenuItem>
+        {shareText && (
+          <DropdownMenuItem
+            onSelect={() => window.open(`https://wa.me/?text=${encodeURIComponent(shareText)}`, "_blank")}
+          >
+            <MessageCircle className="h-3.5 w-3.5" /> Share to WhatsApp
+          </DropdownMenuItem>
+        )}
         {canSchedule && (
           <DropdownMenuItem onSelect={onView}>
             <CalendarClock className="h-3.5 w-3.5" /> Schedule
@@ -369,6 +378,7 @@ function CaptionCard({ caption, brandId, onOpenDetail }: { caption: CaptionWithI
               rating={caption.user_rating}
               onRatingChange={(r) => ratingMutation.mutate(r)}
               ratingPending={ratingMutation.isPending}
+              shareText={`${caption.caption_text}${caption.hashtags.length > 0 ? `\n\n${caption.hashtags.map(h => `#${h}`).join(" ")}` : ""}`}
             />
           </div>
         </div>
@@ -599,6 +609,7 @@ function CarouselCard({ carousel, brandId, onOpenDetail }: { carousel: CarouselR
               rating={carousel.user_rating}
               onRatingChange={(r) => ratingMutation.mutate(r)}
               ratingPending={ratingMutation.isPending}
+              shareText={`${slides.map((s, i) => `${i + 1}. ${s.headline ?? ""}`).join("\n")}${carousel.hashtags.length > 0 ? `\n\n${carousel.hashtags.map(h => `#${h}`).join(" ")}` : ""}`}
             />
           </div>
         </div>
@@ -770,6 +781,7 @@ function StoryCard({ story, brandId, onOpenDetail }: { story: StoryRow; brandId:
               rating={story.user_rating}
               onRatingChange={(r) => ratingMutation.mutate(r)}
               ratingPending={ratingMutation.isPending}
+              shareText={slides.map((s, i) => `${i + 1}. ${s.text ?? ""}`).join("\n")}
             />
           </div>
         </div>
@@ -873,6 +885,7 @@ function AdCopyCard({ ad, brandId, onOpenDetail }: { ad: AdCopyRow; brandId: str
               rating={ad.user_rating}
               onRatingChange={(r) => ratingMutation.mutate(r)}
               ratingPending={ratingMutation.isPending}
+              shareText={[ad.headline, ad.primary_text, ad.description].filter(Boolean).join("\n\n")}
             />
           </div>
         </div>
