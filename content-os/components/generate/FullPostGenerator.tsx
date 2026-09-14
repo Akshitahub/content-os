@@ -33,6 +33,42 @@ function loadImage(src: string): Promise<HTMLImageElement> {
   })
 }
 
+type ContentAngle = "auto" | "problem_solution" | "quick_tip" | "myth_contrarian" | "launch_offer"
+
+const ANGLE_OPTIONS: { value: ContentAngle; label: string }[] = [
+  { value: "auto", label: "Let SocioPosts decide" },
+  { value: "problem_solution", label: "Problem & solution" },
+  { value: "quick_tip", label: "Quick tip / how-to" },
+  { value: "myth_contrarian", label: "Myth / contrarian" },
+  { value: "launch_offer", label: "Launch / offer" },
+]
+
+// Used only to fold the picked angle into additionalContext as a soft
+// prompt hint (see handleGenerate) — not sent as its own API field yet.
+const ANGLE_HINT: Record<Exclude<ContentAngle, "auto">, string> = {
+  problem_solution: "Write this as a problem-and-solution post: name a real customer pain point, then the fix.",
+  quick_tip: "Write this as a quick tip / how-to post: concise, actionable steps worth saving.",
+  myth_contrarian: "Write this as a myth-busting / contrarian post: challenge a common misconception in this space.",
+  launch_offer: "Write this as a launch/offer post: promotional, direct, built around a specific offer or drop.",
+}
+
+// Aspect-ratio-appropriate example prompts, keyed by a few common niche
+// keywords. Falls back to the existing generic placeholder when the
+// brand's niche doesn't match any known category.
+function topicPlaceholderForNiche(niche: string | null | undefined): string {
+  const n = (niche ?? "").toLowerCase()
+  if (n.includes("furniture") || n.includes("interior")) {
+    return "Why solid teak wood lasts 30 years while engineered boards bend in humidity"
+  }
+  if (n.includes("skincare") || n.includes("beauty")) {
+    return "Why applying hyaluronic acid on completely dry skin causes breakouts"
+  }
+  if (n.includes("fashion") || n.includes("apparel")) {
+    return "How to style pure linen so it doesn't look wrinkled by noon"
+  }
+  return "A festive Diwali offer post for our candle brand, warm and cozy"
+}
+
 interface ProductCardResult {
   dataUrl: string
   /** false when the product photo itself failed to load (commonly CORS) —
@@ -115,58 +151,6 @@ async function compositeProductCard(
   return { dataUrl: canvas.toDataURL("image/jpeg", 0.90), photoLoaded }
 }
 
-// ─── Create Post input panel option sets ─────────────────────────────────────
-
-type ContentAngle = "auto" | "problem_solution" | "quick_tip" | "myth_contrarian" | "launch_offer"
-
-const CONTENT_ANGLE_OPTIONS: { id: ContentAngle; label: string }[] = [
-  { id: "auto", label: "Let SocioPosts decide" },
-  { id: "problem_solution", label: "Problem & solution" },
-  { id: "quick_tip", label: "Quick tip / how-to" },
-  { id: "myth_contrarian", label: "Myth / contrarian" },
-  { id: "launch_offer", label: "Launch / offer" },
-]
-
-// Used both for the pill labels above and for the soft prompt-hint string
-// handleGenerate prefixes onto additionalContext.
-const ANGLE_LABELS: Record<ContentAngle, string> = {
-  auto: "Let SocioPosts decide",
-  problem_solution: "Problem & solution",
-  quick_tip: "Quick tip / how-to",
-  myth_contrarian: "Myth / contrarian",
-  launch_offer: "Launch / offer",
-}
-
-const ASPECT_RATIO_OPTIONS: { id: "4:5" | "1:1" | "9:16"; label: string }[] = [
-  { id: "4:5", label: "4:5 Portrait" },
-  { id: "1:1", label: "1:1 Square" },
-  { id: "9:16", label: "9:16 Story" },
-]
-
-const VISUAL_STYLE_OPTIONS: { id: "studio_scene" | "editorial_graphic"; label: string }[] = [
-  { id: "studio_scene", label: "Studio scene" },
-  { id: "editorial_graphic", label: "Editorial graphic" },
-]
-
-// A few real, specific example topics per common niche read far better as a
-// placeholder than one generic hardcoded line — falls back to that generic
-// line for any niche (or lack of one) that doesn't match.
-function resolveTopicPlaceholder(niche: string | null | undefined): string {
-  const n = (niche ?? "").toLowerCase()
-  if (n.includes("furniture") || n.includes("interior")) return "Why solid teak wood lasts 30 years while engineered boards bend in humidity"
-  if (n.includes("skincare") || n.includes("beauty")) return "Why applying hyaluronic acid on completely dry skin causes breakouts"
-  if (n.includes("fashion") || n.includes("apparel")) return "How to style pure linen so it doesn't look wrinkled by noon"
-  return "A festive Diwali offer post for our candle brand, warm and cozy"
-}
-
-// Hard word cap (not a character cap) -- blocks/truncates the 6th word
-// rather than letting it type past the limit mid-word.
-function capWords(value: string, maxWords: number): string {
-  const words = value.split(/\s+/).filter(Boolean)
-  if (words.length <= maxWords) return value
-  return words.slice(0, maxWords).join(" ")
-}
-
 interface Props {
   brandId: string
   products: ProductRow[]
@@ -192,11 +176,17 @@ export function FullPostGenerator({ brandId, products }: Props) {
   const primaryColor = paletteColors[0] ?? "#6366f1"
   const secondaryColor = paletteColors[1] ?? "#818cf8"
   const brandName = brand?.name ?? "Brand"
-  const topicPlaceholder = resolveTopicPlaceholder(brand?.niche)
 
   const colorThemes = useMemo(() => resolveColorThemes(brand ?? null), [brand])
 
   const [additionalContext, setAdditionalContext] = useState("")
+  // Content angle / aspect ratio / visual style / headline overlay — new
+  // input-panel controls. Angle is sent today only as a soft prompt hint
+  // folded into additionalContext (see handleGenerate below); aspect ratio,
+  // visual style, and the headline overlay field are UI-only for now and
+  // are NOT yet wired into generatePostImageMutate or the caption route —
+  // that's a follow-up commit once the image route accepts them and the
+  // overlay-compositing architecture is decoupled from the AI image itself.
   const [contentAngle, setContentAngle] = useState<ContentAngle>("auto")
   const [aspectRatio, setAspectRatio] = useState<"4:5" | "1:1" | "9:16">("4:5")
   const [visualStyle, setVisualStyle] = useState<"studio_scene" | "editorial_graphic">("editorial_graphic")
@@ -487,21 +477,22 @@ export function FullPostGenerator({ brandId, products }: Props) {
     setImageError(null)
     setPostSessionId(null)
 
+    // Angle is a soft prompt hint only (folded into additionalContext), not
+    // a hard API field — matches this repo's convention that soft LLM
+    // instructions aren't enforced server-side unless they affect billing/
+    // credits, which the angle choice doesn't. A hard per-angle parameter
+    // can replace this once the fullpost/generate route's zod schema grows
+    // a contentAngle field.
+    const angleHint = contentAngle !== "auto" ? ANGLE_HINT[contentAngle] : null
+    const combinedContext = [angleHint, additionalContext || null].filter(Boolean).join(" ") || undefined
+
     generate(
       {
         brandId,
         productId: selectedProductId ?? undefined,
         format: "social_post",
         platform: "instagram",
-        // Soft prompt hint only, not a hard per-angle parameter --
-        // app/api/v1/ai/fullpost/generate/route.ts's zod schema isn't
-        // touched in this commit, so there's nowhere else to put it yet.
-        // Matches this repo's existing principle that soft LLM
-        // instructions aren't hard filters for anything billing-related;
-        // this isn't billing-related, so the soft hint is acceptable
-        // here. A hard per-angle field should replace this once that
-        // schema is updated to accept contentAngle directly.
-        additionalContext: [contentAngle !== "auto" ? `Angle: ${ANGLE_LABELS[contentAngle]}.` : null, additionalContext].filter(Boolean).join(" ") || undefined,
+        additionalContext: combinedContext,
       },
       {
         onSuccess: (data) => {
@@ -612,37 +603,38 @@ export function FullPostGenerator({ brandId, products }: Props) {
           </div>
         )}
 
-        {/* Content angle — a soft steer on what the caption prompt should
-            emphasize; "Let SocioPosts decide" (default) leaves it fully to
-            the model, same as before this field existed. */}
+        {/* Content angle — single-select pills. "Let SocioPosts decide" is
+            first and the default, per confirmed direction. Folded into the
+            generation call as a soft prompt hint only (see handleGenerate). */}
         <div className="space-y-1.5">
           <Label className="text-xs">Content angle</Label>
-          <div className="flex flex-wrap gap-2">
-            {CONTENT_ANGLE_OPTIONS.map((a) => (
+          <div className="flex flex-wrap gap-1.5">
+            {ANGLE_OPTIONS.map((opt) => (
               <button
-                key={a.id}
+                key={opt.value}
                 type="button"
-                onClick={() => setContentAngle(a.id)}
-                className={`rounded-full border-2 px-3 py-1.5 text-xs font-medium transition-all ${
-                  contentAngle === a.id ? "border-violet-500 bg-violet-50 text-violet-700 dark:bg-violet-950/30" : "border-border hover:border-violet-300"
+                onClick={() => setContentAngle(opt.value)}
+                className={`rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors ${
+                  contentAngle === opt.value
+                    ? "border-violet-500 bg-violet-50 text-violet-700"
+                    : "border-border hover:border-violet-300 text-muted-foreground"
                 }`}
               >
-                {a.label}
+                {opt.label}
               </button>
             ))}
           </div>
         </div>
 
-        {/* The one topic input — the same Groq call that writes the hook/
-            caption now also picks the image layout, color theme, and
-            whether to overlay any text, purely from what's described
-            here. */}
+        {/* The one input — the same Groq call that writes the hook/caption
+            now also picks the image layout, color theme, and whether to
+            overlay any text, purely from what's described here. */}
         <div className="space-y-1.5">
           <Label className="text-xs">What do you want to post</Label>
           <textarea
             rows={2}
             maxLength={500}
-            placeholder={topicPlaceholder}
+            placeholder={topicPlaceholderForNiche(brand?.niche)}
             className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring resize-none"
             value={additionalContext}
             onChange={(e) => setAdditionalContext(e.target.value)}
@@ -650,47 +642,62 @@ export function FullPostGenerator({ brandId, products }: Props) {
           <p className="text-xs text-muted-foreground text-right">{additionalContext.length}/500</p>
         </div>
 
-        {/* aspectRatio/visualStyle wired to the image API in a follow-up
-            commit — not yet passed to generate(). */}
+        {/* Aspect ratio + visual style — UI-only for now. Not yet passed to
+            generatePostImageMutate or the post-image/generate route, which
+            still hardcodes aspect_ratio: "1:1" server-side. Wiring this
+            through is a separate, follow-up commit. */}
         <div className="space-y-1.5">
           <Label className="text-xs">Aspect ratio</Label>
-          <div className="flex gap-2">
-            {ASPECT_RATIO_OPTIONS.map((r) => (
+          <div className="flex gap-1.5">
+            {([
+              { value: "4:5", label: "4:5 Portrait" },
+              { value: "1:1", label: "1:1 Square" },
+              { value: "9:16", label: "9:16 Story" },
+            ] as const).map((opt) => (
               <button
-                key={r.id}
+                key={opt.value}
                 type="button"
-                onClick={() => setAspectRatio(r.id)}
-                className={`flex-1 rounded-lg border-2 py-2 text-xs font-medium transition-all ${
-                  aspectRatio === r.id ? "border-violet-500 bg-violet-50 text-violet-700" : "border-border hover:border-violet-300"
+                onClick={() => setAspectRatio(opt.value)}
+                className={`flex-1 rounded-md border px-2 py-1.5 text-[11px] font-medium transition-colors ${
+                  aspectRatio === opt.value
+                    ? "border-violet-500 bg-violet-50 text-violet-700"
+                    : "border-border hover:border-violet-300 text-muted-foreground"
                 }`}
               >
-                {r.label}
+                {opt.label}
               </button>
             ))}
           </div>
         </div>
 
         <div className="space-y-1.5">
-          <Label className="text-xs">Visual style</Label>
-          <div className="flex gap-2">
-            {VISUAL_STYLE_OPTIONS.map((s) => (
+          <Label className="text-xs">Visual direction</Label>
+          <div className="flex gap-1.5">
+            {([
+              { value: "studio_scene", label: "Studio scene" },
+              { value: "editorial_graphic", label: "Editorial graphic" },
+            ] as const).map((opt) => (
               <button
-                key={s.id}
+                key={opt.value}
                 type="button"
-                onClick={() => setVisualStyle(s.id)}
-                className={`flex-1 rounded-lg border-2 py-2 text-xs font-medium transition-all ${
-                  visualStyle === s.id ? "border-violet-500 bg-violet-50 text-violet-700" : "border-border hover:border-violet-300"
+                onClick={() => setVisualStyle(opt.value)}
+                className={`flex-1 rounded-md border px-2 py-1.5 text-[11px] font-medium transition-colors ${
+                  visualStyle === opt.value
+                    ? "border-violet-500 bg-violet-50 text-violet-700"
+                    : "border-border hover:border-violet-300 text-muted-foreground"
                 }`}
               >
-                {s.label}
+                {opt.label}
               </button>
             ))}
           </div>
         </div>
 
-        {/* Headline overlay — captured but not yet wired to replace
-            caption.suggested_overlay_text; unused until the
-            overlay-decoupling commit. */}
+        {/* Headline overlay — optional, hard 5-word cap. Captured but not
+            yet wired to replace caption.suggested_overlay_text; that swap
+            is part of the overlay-decoupling commit (moving the headline
+            off the server-composited image and onto a client-editable
+            HTML layer). */}
         <div className="space-y-1.5">
           <Label className="text-xs">Headline overlay (optional)</Label>
           <input
@@ -698,10 +705,17 @@ export function FullPostGenerator({ brandId, products }: Props) {
             placeholder="Brand before prompt."
             className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
             value={headlineOverlay}
-            onChange={(e) => setHeadlineOverlay(capWords(e.target.value, 5))}
+            onChange={(e) => {
+              const words = e.target.value.split(/\s+/).filter(Boolean)
+              if (words.length <= 5) {
+                setHeadlineOverlay(e.target.value)
+              } else {
+                setHeadlineOverlay(words.slice(0, 5).join(" ") + (e.target.value.endsWith(" ") ? " " : ""))
+              }
+            }}
           />
           <p className="text-xs text-muted-foreground text-right">
-            ({headlineOverlay.trim() ? headlineOverlay.trim().split(/\s+/).filter(Boolean).length : 0}/5 words)
+            {headlineOverlay.trim() ? headlineOverlay.trim().split(/\s+/).length : 0}/5 words
           </p>
         </div>
 
