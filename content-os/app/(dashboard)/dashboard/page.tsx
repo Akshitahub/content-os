@@ -34,14 +34,15 @@ export default async function DashboardPage({
 
   const [profileResult, brandsResult] = await Promise.all([
     supabase.from("users").select("full_name, plan").eq("id", user.id).single<Pick<UserRow, "full_name" | "plan">>(),
-    supabase.from("brands").select("id, name, is_active").eq("user_id", user.id).returns<Array<{ id: string; name: string; is_active: boolean }>>(),
+    supabase.from("brands").select("id, name, is_active, niche").eq("user_id", user.id).returns<Array<{ id: string; name: string; is_active: boolean; niche: string | null }>>(),
   ])
 
   const profile = profileResult.data
   const brands = brandsResult.data ?? []
   const brandCount = brands.length
   const activeBrandCount = brands.filter((b) => b.is_active).length
-  const firstBrandId = brands.find((b) => b.is_active)?.id ?? brands[0]?.id ?? null
+  const firstBrand = brands.find((b) => b.is_active) ?? brands[0] ?? null
+  const firstBrandId = firstBrand?.id ?? null
   const brandIds = brands.map((b) => b.id)
 
   // A user who explicitly skipped onboarding (see OnboardingWizard's
@@ -303,6 +304,29 @@ export default async function DashboardPage({
           </div>
         )}
       </div>
+
+      {/* Lighter first pass, per Akshita's explicit choice: a manual deep
+       * link into Create -> Post, not an auto-generated/cached draft. No
+       * new table, cron, or background generation trigger here -- a future
+       * contributor adding a real "today's draft" cache should treat this
+       * as the placeholder it is, not assume that architecture exists yet. */}
+      {brandCount > 0 && firstBrandId && (
+        <div className="mb-6 flex flex-col items-start justify-between gap-4 rounded-2xl border border-violet-200/60 bg-gradient-to-br from-white via-violet-50/60 to-white p-5 dark:border-violet-800/30 dark:from-background dark:via-violet-950/20 dark:to-background sm:flex-row sm:items-center">
+          <div>
+            <h2 className="text-base font-semibold">Ready to post today?</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Generate something fresh for {firstBrand?.name}
+              {firstBrand?.niche ? ` (${firstBrand.niche})` : ""}.
+            </p>
+          </div>
+          <Link
+            href={`/brands/${firstBrandId}/generate?tab=full_post`}
+            className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-md bg-gradient-to-r from-violet-600 to-fuchsia-600 px-4 text-sm font-medium text-white shadow-sm shadow-violet-500/30 transition-colors hover:from-violet-700 hover:to-fuchsia-700"
+          >
+            <Sparkles className="h-4 w-4" /> Generate a post
+          </Link>
+        </div>
+      )}
 
       {/* Sits right under the hero -- the same card the "Xd left · Y
        * credits remaining" line is visually anchored near up in the top
