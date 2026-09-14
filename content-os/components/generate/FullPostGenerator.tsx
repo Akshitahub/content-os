@@ -12,7 +12,6 @@ import { UsageLimitBanner } from "@/components/generate/UsageLimitBanner"
 import { DEFAULT_POST_TEMPLATE_ID } from "@/lib/design/post-templates"
 import type { PostTemplateId } from "@/lib/design/post-templates"
 import { resolveColorThemes } from "@/lib/design/color-themes"
-import { DEFAULT_FONT_ID, DEFAULT_TEXT_SIZE_SCALE } from "@/lib/design/fonts"
 import { useGenerateFullPost, useGeneratePostImage, useGenerateFullPostFromPhoto } from "@/hooks/useGeneration"
 import { POST as POST_CREDIT_COST, PHOTO_CAPTION } from "@/lib/usage/credit-costs"
 import { useGenerationStore } from "@/stores/generationStore"
@@ -67,6 +66,77 @@ function topicPlaceholderForNiche(niche: string | null | undefined): string {
     return "How to style pure linen so it doesn't look wrinkled by noon"
   }
   return "A festive Diwali offer post for our candle brand, warm and cozy"
+}
+
+// Shared word-wrap: greedily packs words onto lines up to maxWidth,
+// stopping once maxLines is hit (the last line keeps whatever didn't fit,
+// same truncate-not-ellipsize behavior compositeProductCard already had).
+// ctx.font must already be set by the caller before calling this.
+function wrapTextLines(ctx: CanvasRenderingContext2D, text: string, maxWidth: number, maxLines: number): string[] {
+  const words = text.split(" ")
+  const lines: string[] = []
+  let cur = ""
+  for (const word of words) {
+    const test = cur ? `${cur} ${word}` : word
+    if (ctx.measureText(test).width > maxWidth) {
+      if (cur) lines.push(cur)
+      cur = word
+      if (lines.length >= maxLines) break
+    } else {
+      cur = test
+    }
+  }
+  if (cur && lines.length < maxLines) lines.push(cur)
+  return lines
+}
+
+/**
+ * Flattens the clean AI-generated background + the client-editable headline
+ * overlay into a single downloadable/shareable PNG — the client-side
+ * "compositing" step the Post tool's architecture calls for, run only when
+ * the user actually wants an exported file (Download / Schedule), not on
+ * every keystroke while editing. No credits are spent here: this never
+ * calls generatePostImageMutate, it only draws on a canvas from an image
+ * already sitting in the browser.
+ */
+async function flattenOverlayImage(imageUrl: string, headlineText: string): Promise<string> {
+  const img = await loadImage(imageUrl)
+  const canvas = document.createElement("canvas")
+  canvas.width = img.naturalWidth
+  canvas.height = img.naturalHeight
+  const ctx = canvas.getContext("2d")!
+  ctx.drawImage(img, 0, 0)
+
+  const trimmed = headlineText.trim()
+  if (!trimmed) return canvas.toDataURL("image/png")
+
+  const w = canvas.width
+  const h = canvas.height
+  // Bottom-third scrim, same visual language as the server-side templates
+  // (a darkened band behind the headline) but drawn fresh here rather than
+  // ported pixel-for-pixel from post-compositor.ts's SVG anchors — this is
+  // a genuinely separate rendering surface (HTML/canvas, not SVG), not a
+  // port of those exact coordinates.
+  const scrimTop = h * 0.62
+  const grad = ctx.createLinearGradient(0, scrimTop, 0, h)
+  grad.addColorStop(0, "rgba(0,0,0,0)")
+  grad.addColorStop(0.35, "rgba(0,0,0,0.55)")
+  grad.addColorStop(1, "rgba(0,0,0,0.65)")
+  ctx.fillStyle = grad
+  ctx.fillRect(0, scrimTop, w, h - scrimTop)
+
+  ctx.fillStyle = "#ffffff"
+  ctx.textAlign = "left"
+  ctx.textBaseline = "alphabetic"
+  const fontSize = Math.round(w * 0.062)
+  ctx.font = `700 ${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`
+  const padX = w * 0.07
+  const lines = wrapTextLines(ctx, trimmed, w - padX * 2, 3)
+  const lineH = fontSize * 1.18
+  const startY = h - h * 0.09 - (lines.length - 1) * lineH
+  lines.forEach((line, i) => ctx.fillText(line, padX, startY + i * lineH))
+
+  return canvas.toDataURL("image/png")
 }
 
 interface ProductCardResult {
@@ -195,18 +265,30 @@ export function FullPostGenerator({ brandId, products }: Props) {
   const [headlineOverlay, setHeadlineOverlay] = useState("")
   const [copied, setCopied] = useState<string | null>(null)
   const [justSaved, setJustSaved] = useState(false)
-  // Layout / color / overlay font / overlay size no longer have their own
-  // pickers — the caption Groq call now decides layout, color, and whether
-  // to overlay any text (see suggested_template/suggested_color_theme_id/
-  // suggested_overlay_text on GeneratedCaption). These stay as fixed
-  // defaults, used only as fallbacks in runImageGeneration if the model
-  // ever omits a suggestion.
+  // Layout / color no longer have their own pickers — the caption Groq call
+  // decides layout and color theme (see suggested_template/
+  // suggested_color_theme_id on GeneratedCaption). selectedLayout stays as
+  // a fixed default, used only as a fallback in runImageGeneration if the
+  // model ever omits suggested_template. selectedFontId/textSizeScale were
+  // removed in Commit 3 — the headline overlay is no longer sent to (or
+  // rendered by) the image route at all, so there's nothing left for a
+  // server-side font/size to apply to.
   const selectedLayout: PostTemplateId = DEFAULT_POST_TEMPLATE_ID
   const selectedColorThemeId = ""
-  const selectedFontId = DEFAULT_FONT_ID
-  const selectedTextSizeScale = DEFAULT_TEXT_SIZE_SCALE
   const [postImageUrl, setPostImageUrl] = useState<string | null>(null)
   const [imageSource, setImageSource] = useState<"ai" | "product_photo" | "user_upload" | null>(null)
+  // Commit 3 (overlay decoupling): for the "ai" path, postImageUrl is now
+  // ALWAYS the clean, text-free background — runImageGeneration below no
+  // longer sends captionText to generatePostImageMutate, so
+  // compositePostImage's server-side raster compositing never runs for
+  // this tool anymore. The headline instead lives here, client-side, as
+  // plain editable state: editing it costs no credits and calls no API,
+  // it only updates this string. flattenedImageUrl (below) is the
+  // client-canvas-composited result of postImageUrl + overlayText,
+  // computed on demand for Download/Schedule — see flattenOverlayImage.
+  const [overlayText, setOverlayText] = useState("")
+  const [flattenedImageUrl, setFlattenedImageUrl] = useState<string | null>(null)
+  const [flattening, setFlattening] = useState(false)
   // Full Post's real charge depends on which path actually ran, not a
   // single fixed cost like Carousel/Story/Ad Maker -- the text-generation
   // step itself always charges 0 (see CONTENT_FORMAT_CREDIT_COSTS'
@@ -244,14 +326,18 @@ export function FullPostGenerator({ brandId, products }: Props) {
   const runImageGeneration = useCallback((data: FullPostResult, sessionId: string) => {
     const caption = data.content.content as GeneratedCaption
     const imagePrompt = (caption.image_prompt?.trim() || `${data.hook.hook_text}, ${brand?.niche ?? "brand"} product`).slice(0, 500)
-    // Layout / color / overlay text all come from the same Groq call that
-    // wrote the caption (suggested_*). The selected* values are just
-    // fallbacks for the rare case the model omits one. An empty
-    // suggested_overlay_text means "clean, text-free image" — the model
-    // decides, there's no toggle.
-    const overlayText = caption.suggested_overlay_text?.trim() || undefined
+    // Commit 3: captionText/fontId/textSizeScale are no longer sent here —
+    // the image route always returns a clean, text-free background for
+    // this tool now (see generatePostImage's own !willCompositeText
+    // branch, which this now always takes). The headline the user typed
+    // in the left panel (or, failing that, the model's own suggestion)
+    // becomes client-side overlayText state instead — see the onSuccess
+    // handler below and flattenOverlayImage for how it gets composited
+    // back in only when actually needed (Download/Schedule).
+    const initialOverlayText = headlineOverlay.trim() || caption.suggested_overlay_text?.trim() || ""
 
     setImageError(null)
+    setFlattenedImageUrl(null)
     generatePostImageMutate(
       {
         brandId,
@@ -259,9 +345,7 @@ export function FullPostGenerator({ brandId, products }: Props) {
         imagePrompt,
         template: (caption.suggested_template as PostTemplateId) || selectedLayout,
         colorThemeId: caption.suggested_color_theme_id || effectiveColorThemeId,
-        captionText: overlayText,
-        fontId: overlayText ? selectedFontId : undefined,
-        textSizeScale: overlayText ? selectedTextSizeScale : undefined,
+        captionText: undefined,
         postSessionId: sessionId,
         contentProjectId: data.contentProjectId ?? undefined,
         aspectRatio,
@@ -270,13 +354,14 @@ export function FullPostGenerator({ brandId, products }: Props) {
         onSuccess: (imgData) => {
           setPostImageUrl(imgData.public_url)
           setImageSource("ai")
+          setOverlayText(initialOverlayText)
         },
         onError: (err) => {
           setImageError(err instanceof Error ? err.message : "Couldn't generate the post image. Please try again.")
         },
       }
     )
-  }, [brand, brandId, selectedProductId, selectedLayout, effectiveColorThemeId, selectedFontId, selectedTextSizeScale, aspectRatio, generatePostImageMutate])
+  }, [brand, brandId, selectedProductId, selectedLayout, effectiveColorThemeId, aspectRatio, headlineOverlay, generatePostImageMutate])
 
   // FIX 3: a failed product-photo load (commonly CORS) used to silently
   // fall back to a photo-less gradient card and still report success — the
@@ -397,6 +482,8 @@ export function FullPostGenerator({ brandId, products }: Props) {
     setImageSource(null)
     setImageError(null)
     setPostSessionId(null)
+    setOverlayText("")
+    setFlattenedImageUrl(null)
 
     try {
       const data = await generateFromPhotoAsync({
@@ -465,6 +552,30 @@ export function FullPostGenerator({ brandId, products }: Props) {
     return () => abortControllerRef.current?.abort()
   }, [])
 
+  // Recomputes the flattened (headline-baked-in) PNG whenever the clean
+  // background or the edited headline text changes — debounced so typing
+  // in the overlay editor doesn't re-render a canvas on every keystroke.
+  // Only runs for the "ai" path: product_photo already composites its own
+  // card client-side (compositeProductCard), and user_upload has no
+  // overlay concept at all. Never touches credits or the API — pure
+  // canvas work on an image already in the browser.
+  useEffect(() => {
+    if (imageSource !== "ai" || !postImageUrl) return
+    if (!overlayText.trim()) {
+      setFlattenedImageUrl(null)
+      return
+    }
+    let cancelled = false
+    setFlattening(true)
+    const timer = setTimeout(() => {
+      flattenOverlayImage(postImageUrl, overlayText)
+        .then((dataUrl) => { if (!cancelled) setFlattenedImageUrl(dataUrl) })
+        .catch(() => { if (!cancelled) setFlattenedImageUrl(null) })
+        .finally(() => { if (!cancelled) setFlattening(false) })
+    }, 400)
+    return () => { cancelled = true; clearTimeout(timer) }
+  }, [imageSource, postImageUrl, overlayText])
+
   const copy = useCallback((text: string, key: string) => {
     navigator.clipboard.writeText(text)
     setCopied(key)
@@ -479,6 +590,8 @@ export function FullPostGenerator({ brandId, products }: Props) {
     setImageSource(null)
     setImageError(null)
     setPostSessionId(null)
+    setOverlayText("")
+    setFlattenedImageUrl(null)
 
     // Angle is a soft prompt hint only (folded into additionalContext), not
     // a hard API field — matches this repo's convention that soft LLM
@@ -775,6 +888,10 @@ export function FullPostGenerator({ brandId, products }: Props) {
           imageError={imageError}
           imageSource={imageSource}
           onRegenerateImage={handleRegenerateImage}
+          overlayText={overlayText}
+          onOverlayTextChange={setOverlayText}
+          flattenedImageUrl={flattenedImageUrl}
+          flattening={flattening}
         />
       )}
     </div>
@@ -1051,6 +1168,11 @@ function PostImagePreview({
   imageError,
   showRegenerate,
   onRegenerateImage,
+  showOverlayEditor,
+  overlayText,
+  onOverlayTextChange,
+  downloadUrl,
+  flattening,
 }: {
   postImageUrl: string | null
   alt: string
@@ -1058,6 +1180,18 @@ function PostImagePreview({
   imageError: string | null
   showRegenerate: boolean
   onRegenerateImage: () => void
+  /** Only true for the "ai" image source — product_photo and user_upload
+   * have no client-editable overlay (see FullPostGenerator's own comment
+   * on flattenOverlayImage). */
+  showOverlayEditor: boolean
+  overlayText: string
+  onOverlayTextChange: (text: string) => void
+  /** What Download/Schedule should actually use — the flattened (headline
+   * baked in) PNG when there's overlay text, otherwise the clean
+   * background itself. Never re-generates anything; this is client-canvas
+   * output or the plain background URL, so it costs nothing to use. */
+  downloadUrl: string
+  flattening: boolean
 }) {
   if (imageGenerating) {
     return (
@@ -1103,22 +1237,45 @@ function PostImagePreview({
             </button>
           )}
           <a
-            href={postImageUrl}
+            href={downloadUrl}
             download="post-image.png"
             target="_blank"
             rel="noopener noreferrer"
             className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
           >
-            <Download className="h-3.5 w-3.5" /> Download
+            <Download className="h-3.5 w-3.5" /> {flattening ? "Preparing…" : "Download"}
           </a>
         </div>
       </div>
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        src={postImageUrl}
-        alt={alt}
-        className="w-full rounded-lg object-contain"
-      />
+
+      {showOverlayEditor ? (
+        <div className="relative w-full rounded-lg overflow-hidden">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={postImageUrl} alt={alt} className="w-full object-contain" />
+          {/* Bottom-third scrim, purely visual (not baked into
+              postImageUrl itself) — matches flattenOverlayImage's own
+              gradient so what you see here is what Download/Schedule
+              actually produce. */}
+          <div
+            className="pointer-events-none absolute inset-x-0 bottom-0"
+            style={{ height: "38%", background: "linear-gradient(to bottom, rgba(0,0,0,0) 0%, rgba(0,0,0,0.55) 35%, rgba(0,0,0,0.65) 100%)" }}
+          />
+          <textarea
+            value={overlayText}
+            onChange={(e) => onOverlayTextChange(e.target.value)}
+            placeholder="Click to add a headline over this image…"
+            rows={2}
+            className="absolute inset-x-0 bottom-0 w-full resize-none border-0 bg-transparent px-[7%] pb-[6%] pt-2 text-lg font-bold leading-tight text-white placeholder:text-white/60 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-white/40"
+          />
+        </div>
+      ) : (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={postImageUrl}
+          alt={alt}
+          className="w-full rounded-lg object-contain"
+        />
+      )}
     </div>
   )
 }
@@ -1135,6 +1292,10 @@ function FullPostResults({
   imageError,
   imageSource,
   onRegenerateImage,
+  overlayText,
+  onOverlayTextChange,
+  flattenedImageUrl,
+  flattening,
 }: {
   result: FullPostResult
   copied: string | null
@@ -1147,6 +1308,10 @@ function FullPostResults({
   imageError: string | null
   imageSource: "ai" | "product_photo" | "user_upload" | null
   onRegenerateImage: () => void
+  overlayText: string
+  onOverlayTextChange: (text: string) => void
+  flattenedImageUrl: string | null
+  flattening: boolean
 }) {
   const scheduleCaption = getScheduleCaption(result)
 
@@ -1163,13 +1328,20 @@ function FullPostResults({
     ? `${headline}: ${scene}`
     : `${imageSource === "ai" ? "AI-generated" : ""} Instagram post image for ${brandName}: ${headline}`.replace(/\s+/g, " ").trim()
 
+  // For the "ai" path, postImageUrl is the clean background only (Commit
+  // 3) — the flattened (headline baked in) version is what Download and
+  // Schedule should actually use whenever there's overlay text, so the
+  // shared post ends up looking like what's shown in the editor above.
+  // Falls back to the plain background when there's no headline typed, or
+  // for the product_photo/user_upload paths (which never had this
+  // decoupling in the first place — their postImageUrl is already final).
+  const shareableImageUrl = (imageSource === "ai" && overlayText.trim() && flattenedImageUrl) || postImageUrl
+
   return (
     <div className="space-y-4">
       <HookSection hook={result.hook} copied={copied} onCopy={onCopy} />
       <ContentDisplay content={result.content} copied={copied} onCopy={onCopy} onSaveCaption={onSaveCaption} />
 
-      {/* This IS the final post image — exactly what downloads and what
-          gets scheduled, never a separate raw/unstyled preview. */}
       <PostImagePreview
         postImageUrl={postImageUrl}
         alt={postImageAlt}
@@ -1177,12 +1349,17 @@ function FullPostResults({
         imageError={imageError}
         showRegenerate={imageSource === "ai"}
         onRegenerateImage={onRegenerateImage}
+        showOverlayEditor={imageSource === "ai"}
+        overlayText={overlayText}
+        onOverlayTextChange={onOverlayTextChange}
+        downloadUrl={shareableImageUrl ?? postImageUrl ?? ""}
+        flattening={flattening}
       />
 
-      {postImageUrl && !imageGenerating && scheduleCaption && (
+      {shareableImageUrl && !imageGenerating && scheduleCaption && (
         <ScheduleAction
           brandId={brandId}
-          imageUrl={postImageUrl}
+          imageUrl={shareableImageUrl}
           caption={scheduleCaption.text}
           hashtags={scheduleCaption.hashtags}
         />
