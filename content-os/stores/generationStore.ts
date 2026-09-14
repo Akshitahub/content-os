@@ -40,6 +40,7 @@ interface GenerationStore {
 
   // Cross-tab handoff (e.g. Trending Now → a specific generator)
   pendingTopic: string | null
+  pendingProductId: string | null
 
   // Actions
   setHooks: (hooks: GeneratedHookWithId[]) => void
@@ -58,6 +59,7 @@ interface GenerationStore {
   setImageAspectRatio: (ratio: AspectRatio) => void
   setFullPostResult: (result: FullPostResult | null) => void
   setPendingTopic: (topic: string | null) => void
+  setPendingProductId: (id: string | null) => void
   clearGeneration: () => void
 }
 
@@ -78,6 +80,7 @@ export const useGenerationStore = create<GenerationStore>((set) => ({
   imageAspectRatio: "1:1",
   fullPostResult: null,
   pendingTopic: null,
+  pendingProductId: null,
 
   setHooks: (hooks) => set({ hooks }),
   addCaption: (caption) => set((state) => ({ captions: [caption, ...state.captions] })),
@@ -95,6 +98,7 @@ export const useGenerationStore = create<GenerationStore>((set) => ({
   setImageAspectRatio: (ratio) => set({ imageAspectRatio: ratio }),
   setFullPostResult: (result) => set({ fullPostResult: result }),
   setPendingTopic: (topic) => set({ pendingTopic: topic }),
+  setPendingProductId: (id) => set({ pendingProductId: id }),
   clearGeneration: () => set({
     hooks: [], captions: [], images: [], selectedHook: null, contentResult: null, fullPostResult: null,
   }),

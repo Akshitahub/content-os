@@ -19,6 +19,7 @@ import { cssBackgroundFromColors, ColorWheelPicker } from "@/components/shared/C
 import { useDraggableText, type TextPosition } from "@/components/shared/useDraggableText"
 import { resolveFonts, DEFAULT_FONT_ID, TEXT_SIZE_OPTIONS, DEFAULT_TEXT_SIZE_SCALE } from "@/lib/design/fonts"
 import type { FontId } from "@/lib/design/fonts"
+import type { ProductRow } from "@/types/database"
 import Link from "next/link"
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
@@ -633,7 +634,7 @@ function SlideEditor({
 
 export function CarouselBuilder({ brandId }: { brandId: string }) {
   const { data: brand } = useBrand(brandId)
-  const { pendingTopic, setPendingTopic } = useGenerationStore()
+  const { pendingTopic, setPendingTopic, pendingProductId, setPendingProductId } = useGenerationStore()
   const STORAGE_KEY = `carousel_${brandId}`
 
   // Settings
@@ -773,6 +774,38 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // Consume a product handed off from a product card's "Generate Carousel"
+  // deep-link (?tab=carousel&productId=...), if any. Unlike pendingTopic
+  // above, this can't key off `[]` (mount-once): GenerationPanel reads the
+  // productId query param and calls setPendingProductId in its OWN effect,
+  // which -- since CarouselBuilder is its child and every tab mounts
+  // eagerly (see GenerationPanel's own comment) -- fires AFTER this
+  // component has already mounted, not before like pendingTopic's other
+  // producers (which write to the store pre-navigation). Depending on
+  // pendingProductId instead lets this effect react once that write lands.
+  // CarouselBuilder has no products list prop (unlike FullPostGenerator/
+  // HookGenerator/ContentTypeGenerator), so the product is fetched by id
+  // rather than looked up client-side.
+  useEffect(() => {
+    if (!pendingProductId) return
+    const productId = pendingProductId
+    setPendingProductId(null)
+    fetch(`/api/v1/brands/${brandId}/products/${productId}`)
+      .then((res) => res.json())
+      .then((json: { data?: ProductRow }) => {
+        if (!json.data) return
+        const product = json.data
+        setSelectedProduct({
+          name: product.name,
+          imageUrl: product.image_urls?.[0],
+          description: product.description ?? undefined,
+        })
+      })
+      .catch(() => {
+        // silent -- matches this file's other best-effort fetches
+      })
+  }, [pendingProductId, brandId, setPendingProductId])
 
   async function generate() {
     if (!topic.trim()) { setError("Please enter a topic for your carousel."); return }

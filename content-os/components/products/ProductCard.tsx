@@ -1,5 +1,6 @@
 "use client"
 
+import Link from "next/link"
 import { Package, Trash2, IndianRupee } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -7,12 +8,25 @@ import type { ProductRow } from "@/types/database"
 
 interface ProductCardProps {
   product: ProductRow
+  brandId: string
   onDelete?: (id: string) => void
 }
 
-export function ProductCard({ product, onDelete }: ProductCardProps) {
+export function ProductCard({ product, brandId, onDelete }: ProductCardProps) {
   return (
-    <Card className="group relative transition-all hover:shadow-md">
+    <Card className="group relative overflow-hidden transition-all hover:shadow-md">
+      {product.image_urls?.[0] ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={product.image_urls[0]}
+          alt={product.name}
+          className="w-full h-32 object-cover rounded-t-lg"
+        />
+      ) : (
+        <div className="flex h-32 w-full items-center justify-center rounded-t-lg bg-secondary">
+          <Package className="h-8 w-8 text-muted-foreground/40" />
+        </div>
+      )}
       <CardHeader className="pb-2">
         <div className="flex items-start justify-between gap-2">
           <div className="flex items-center gap-2">
@@ -59,6 +73,11 @@ export function ProductCard({ product, onDelete }: ProductCardProps) {
             )}
           </div>
         )}
+        <Button variant="outline" size="sm" className="w-full" asChild>
+          <Link href={`/brands/${brandId}/generate?tab=carousel&productId=${product.id}`}>
+            Generate Carousel
+          </Link>
+        </Button>
       </CardContent>
     </Card>
   )

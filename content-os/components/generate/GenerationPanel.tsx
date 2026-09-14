@@ -1,6 +1,7 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
+import { useSearchParams } from "next/navigation"
 import { X, ChevronLeft } from "lucide-react"
 import { FullPostGenerator } from "./FullPostGenerator"
 import { HookGenerator } from "./HookGenerator"
@@ -26,7 +27,23 @@ export function GenerationPanel({ brandId, products }: GenerationPanelProps) {
   const [activeTab, setActiveTab] = useState<Tab | null>(null)
   const [transitioning, setTransitioning] = useState(false)
   const [barComplete, setBarComplete] = useState(false)
-  const { occasionContext, setOccasionContext, setContentFormat } = useGenerationStore()
+  const { occasionContext, setOccasionContext, setContentFormat, setPendingProductId } = useGenerationStore()
+  const searchParams = useSearchParams()
+
+  // Deep-link from a product card's "Generate Carousel" button (or any
+  // future ?tab=&productId= link) -- pure URL-param-to-state wiring, no UI
+  // of its own. Reuses handleTabChange (the same path CreatePicker's own
+  // onSelect goes through) rather than setting activeTab directly, so this
+  // isn't a second, diverging way to switch tabs.
+  useEffect(() => {
+    const tab = searchParams.get("tab")
+    if (tab && (Object.keys(TAB_DESCRIPTIONS) as Tab[]).includes(tab as Tab)) {
+      handleTabChange(tab as Tab)
+    }
+    const productId = searchParams.get("productId")
+    if (productId) setPendingProductId(productId)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams])
 
   function handleTabChange(tab: Tab) {
     if (tab === activeTab) return

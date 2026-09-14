@@ -71,6 +71,7 @@ export default function ProductsPage() {
             <ProductCard
               key={product.id}
               product={product}
+              brandId={brandId}
               onDelete={(id) => deleteProduct(id)}
             />
           ))}
