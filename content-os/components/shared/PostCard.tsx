@@ -108,6 +108,11 @@ export interface PostCardProps {
   onUnsave?: () => void
   onUse?: () => void
   size?: "sm" | "md" | "lg"
+  /** Real, already-generated post image (e.g. from calendar_entries' linked
+   * caption -> generated_images join in app/api/v1/calendar/route.ts) --
+   * shown as a small thumbnail beside the content text when present.
+   * Omitted/null renders exactly as before for every existing caller. */
+  imageUrl?: string | null
 }
 
 // ─── Main component ───────────────────────────────────────────────────────────
@@ -127,6 +132,7 @@ export function PostCard({
   onUnsave,
   onUse,
   size = "md",
+  imageUrl,
 }: PostCardProps) {
   const [copied, setCopied] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
@@ -175,10 +181,19 @@ export function PostCard({
       {/* Mini visual preview */}
       {!isSmall && <MiniPreview text={content} platform={platform} brandName={brandName} hookType={hookType} />}
 
-      {/* Content text */}
-      <p className={`mt-2 leading-relaxed text-foreground ${isSmall ? "line-clamp-2 text-xs" : "line-clamp-3 text-sm"}`}>
-        {content}
-      </p>
+      {/* Content text -- a small thumbnail beside it when a real generated
+          image is linked (e.g. calendar entries backed by an Autopilot/
+          Fastlane caption), otherwise unchanged from before this prop
+          existed. */}
+      <div className="mt-2 flex items-start gap-2">
+        {imageUrl && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={imageUrl} alt="" className="h-9 w-9 shrink-0 rounded-md object-cover" />
+        )}
+        <p className={`min-w-0 flex-1 leading-relaxed text-foreground ${isSmall ? "line-clamp-2 text-xs" : "line-clamp-3 text-sm"}`}>
+          {content}
+        </p>
+      </div>
 
       {/* Score */}
       {showScore && !isSmall && type === "hook" && (

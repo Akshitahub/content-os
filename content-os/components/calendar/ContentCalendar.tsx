@@ -12,6 +12,14 @@ import { PostCard } from "@/components/shared/PostCard"
 import type { CalendarEntryRow } from "@/types/database"
 import type { DashboardOccasion } from "@/lib/occasions/get-upcoming-occasions"
 
+// image_url is a response-shape addition from app/api/v1/calendar/route.ts's
+// GET handler (a batch join against captions/generated_images), not a real
+// calendar_entries column -- extended locally here rather than in
+// CalendarEntryRow itself (types/database.ts) so that generated type keeps
+// mirroring the actual schema. Optional/nullable since only Autopilot/
+// Fastlane-generated entries (which have a caption_id) can ever resolve one.
+type CalendarEntry = CalendarEntryRow & { image_url?: string | null }
+
 const STATUS_COLORS: Record<string, string> = {
   planned: "bg-slate-100 text-slate-700 border-slate-200",
   content_ready: "bg-blue-100 text-blue-700 border-blue-200",
@@ -65,10 +73,10 @@ interface NewEntryForm {
 
 export function ContentCalendar({ brandId, defaultView = "month" }: ContentCalendarProps) {
   const [currentDate, setCurrentDate] = useState(new Date())
-  const [entries, setEntries] = useState<CalendarEntryRow[]>([])
+  const [entries, setEntries] = useState<CalendarEntry[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [showNewEntryModal, setShowNewEntryModal] = useState(false)
-  const [selectedEntry, setSelectedEntry] = useState<CalendarEntryRow | null>(null)
+  const [selectedEntry, setSelectedEntry] = useState<CalendarEntry | null>(null)
   const [isSaving, setIsSaving] = useState(false)
   const [viewMode, setViewMode] = useState<"month" | "week">(defaultView)
   const [form, setForm] = useState<NewEntryForm>({
@@ -88,7 +96,7 @@ export function ContentCalendar({ brandId, defaultView = "month" }: ContentCalen
     setIsLoading(true)
     try {
       const res = await fetch(`/api/v1/calendar?brandId=${brandId}&month=${month}`)
-      const json = await res.json() as { data?: CalendarEntryRow[] }
+      const json = await res.json() as { data?: CalendarEntry[] }
       if (json.data) setEntries(json.data)
     } catch {
       // silent
@@ -209,7 +217,7 @@ export function ContentCalendar({ brandId, defaultView = "month" }: ContentCalen
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ...form, brand_id: brandId }),
       })
-      const json = await res.json() as { data?: CalendarEntryRow }
+      const json = await res.json() as { data?: CalendarEntry }
       if (json.data) {
         setEntries(prev => [...prev, json.data!])
         setShowNewEntryModal(false)
@@ -228,12 +236,12 @@ export function ContentCalendar({ brandId, defaultView = "month" }: ContentCalen
     if (selectedEntry?.id === entryId) setSelectedEntry(null)
   }
 
-  function handleEntryUpdate(updated: CalendarEntryRow) {
+  function handleEntryUpdate(updated: CalendarEntry) {
     setEntries(prev => prev.map(e => e.id === updated.id ? updated : e))
     setSelectedEntry(updated)
   }
 
-  function getEntriesForDay(date: Date): CalendarEntryRow[] {
+  function getEntriesForDay(date: Date): CalendarEntry[] {
     const dateStr = format(date, "yyyy-MM-dd")
     return entries.filter(e => e.scheduled_date === dateStr)
   }
@@ -379,6 +387,7 @@ export function ContentCalendar({ brandId, defaultView = "month" }: ContentCalen
                         platform={(entry.platform as "instagram" | "tiktok" | "linkedin" | "twitter" | "facebook" | "youtube") ?? "instagram"}
                         showScore={false}
                         size="sm"
+                        imageUrl={entry.image_url}
                       />
                     </div>
                   ))}
@@ -485,7 +494,12 @@ export function ContentCalendar({ brandId, defaultView = "month" }: ContentCalen
                       >
                         {/* Mini gradient card */}
                         <div className={`bg-gradient-to-r ${grad} px-1.5 py-1 flex items-center gap-1 ${isMissed ? "ring-1 ring-inset ring-red-500" : ""}`}>
-                          <span className={`shrink-0 h-1.5 w-1.5 rounded-full ${dot} ring-1 ring-white/50`} />
+                          {entry.image_url ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={entry.image_url} alt="" className="h-5 w-5 shrink-0 rounded-sm object-cover ring-1 ring-white/50" />
+                          ) : (
+                            <span className={`shrink-0 h-1.5 w-1.5 rounded-full ${dot} ring-1 ring-white/50`} />
+                          )}
                           <span className="truncate text-[10px] font-medium text-white leading-tight flex-1">
                             {entry.title}
                           </span>

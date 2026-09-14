@@ -55,7 +55,80 @@ export async function GET(request: Request) {
       return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Failed to fetch calendar.", error.message), { status: 500 })
     }
 
-    return NextResponse.json({ data: entries })
+    // Attach each entry's real post-preview thumbnail, if any -- mirrors
+    // app/api/v1/brands/[brandId]/captions/route.ts's own "linked-images"
+    // join exactly, just with one extra hop: calendar_entries has no
+    // content_project_id of its own populated by Autopilot/Fastlane's
+    // insert (lib/ai/fastlane.ts only ever sets caption_id there), so this
+    // goes calendar_entries.caption_id -> captions.content_project_id ->
+    // generated_images.content_project_id. Manually-added entries (the
+    // "+ Add entry" modal) have no caption_id at all and simply never
+    // resolve a thumbnail here -- no placeholder, no special-casing needed.
+    // Response-shape addition only, not a schema change -- calendar_entries
+    // itself is untouched.
+    const imageUrlByEntryId = new Map<string, string>()
+    try {
+      const captionIds = Array.from(new Set((entries ?? []).map((e) => e.caption_id).filter((id): id is string => !!id)))
+      if (captionIds.length > 0) {
+        const { data: captions, error: captionsError } = await supabase
+          .from("captions")
+          .select("id, content_project_id")
+          .in("id", captionIds)
+          .returns<{ id: string; content_project_id: string | null }[]>()
+
+        if (captionsError) {
+          console.error("[calendar] GET linked-captions query error (non-fatal):", captionsError)
+        } else {
+          const projectIdByCaptionId = new Map<string, string>()
+          const projectIds: string[] = []
+          for (const c of captions ?? []) {
+            if (!c.content_project_id) continue
+            projectIdByCaptionId.set(c.id, c.content_project_id)
+            projectIds.push(c.content_project_id)
+          }
+          const uniqueProjectIds = Array.from(new Set(projectIds))
+
+          if (uniqueProjectIds.length > 0) {
+            const { data: images, error: imagesError } = await supabase
+              .from("generated_images")
+              .select("content_project_id, public_url")
+              .in("content_project_id", uniqueProjectIds)
+              .order("created_at", { ascending: false })
+              .returns<{ content_project_id: string | null; public_url: string }[]>()
+
+            if (imagesError) {
+              console.error("[calendar] GET linked-images query error (non-fatal):", imagesError)
+            } else {
+              // Most recent public_url per project_id -- images is already
+              // ordered created_at descending, so the first match wins and
+              // later ones for the same project are skipped.
+              const urlByProjectId = new Map<string, string>()
+              for (const img of images ?? []) {
+                if (!img.content_project_id || urlByProjectId.has(img.content_project_id)) continue
+                urlByProjectId.set(img.content_project_id, img.public_url)
+              }
+              for (const e of entries ?? []) {
+                if (!e.caption_id) continue
+                const projectId = projectIdByCaptionId.get(e.caption_id)
+                const url = projectId ? urlByProjectId.get(projectId) : undefined
+                if (url) imageUrlByEntryId.set(e.id, url)
+              }
+            }
+          }
+        }
+      }
+    } catch (err) {
+      // Non-fatal -- the calendar still shows every entry, just without
+      // thumbnails this one time, rather than failing the whole request.
+      console.error("[calendar] GET linked-images join failed (non-fatal):", err)
+    }
+
+    const entriesWithImages = (entries ?? []).map((e) => ({
+      ...e,
+      image_url: imageUrlByEntryId.get(e.id) ?? null,
+    }))
+
+    return NextResponse.json({ data: entriesWithImages })
   } catch (err) {
     console.error("[calendar] GET unexpected error:", err)
     return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Failed to fetch calendar."), { status: 500 })
