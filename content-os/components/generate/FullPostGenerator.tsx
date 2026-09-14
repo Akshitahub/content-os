@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useCallback, useRef, useMemo } from "react"
-import { Sparkles, RefreshCw, Copy, Check, Download, Archive, Loader2, AlertCircle, Upload, X } from "lucide-react"
+import { Sparkles, RefreshCw, Copy, Check, Download, Archive, Loader2, AlertCircle, Upload, X, Heart, MessageCircle, Send } from "lucide-react"
 import { ProductPicker, type PickedProduct } from "@/components/shared/ProductPicker"
 import { ScheduleAction } from "@/components/shared/ScheduleAction"
 import { Button } from "@/components/ui/button"
@@ -288,6 +288,11 @@ export function FullPostGenerator({ brandId, products }: Props) {
   // computed on demand for Download/Schedule — see flattenOverlayImage.
   const [overlayText, setOverlayText] = useState("")
   const [flattenedImageUrl, setFlattenedImageUrl] = useState<string | null>(null)
+  // Canvas vs. in-feed preview toggle (Commit 4) — purely a display mode,
+  // doesn't touch postImageUrl/overlayText/flattenedImageUrl at all. Only
+  // meaningful for the "ai" path's overlay editor; product_photo/
+  // user_upload keep their existing plain preview regardless of this.
+  const [previewMode, setPreviewMode] = useState<"canvas" | "feed">("canvas")
   const [flattening, setFlattening] = useState(false)
   // Full Post's real charge depends on which path actually ran, not a
   // single fixed cost like Carousel/Story/Ad Maker -- the text-generation
@@ -892,6 +897,8 @@ export function FullPostGenerator({ brandId, products }: Props) {
           onOverlayTextChange={setOverlayText}
           flattenedImageUrl={flattenedImageUrl}
           flattening={flattening}
+          previewMode={previewMode}
+          onPreviewModeChange={setPreviewMode}
         />
       )}
     </div>
@@ -1173,6 +1180,10 @@ function PostImagePreview({
   onOverlayTextChange,
   downloadUrl,
   flattening,
+  previewMode,
+  onPreviewModeChange,
+  brandName,
+  captionPreview,
 }: {
   postImageUrl: string | null
   alt: string
@@ -1192,6 +1203,13 @@ function PostImagePreview({
    * output or the plain background URL, so it costs nothing to use. */
   downloadUrl: string
   flattening: boolean
+  /** Canvas (bare graphic) vs. in-feed (wrapped in a static Instagram
+   * chrome shell) — display only, never affects downloadUrl/postImageUrl.
+   * Only rendered when showOverlayEditor is true (see Commit 4). */
+  previewMode: "canvas" | "feed"
+  onPreviewModeChange: (mode: "canvas" | "feed") => void
+  brandName: string
+  captionPreview: string
 }) {
   if (imageGenerating) {
     return (
@@ -1222,11 +1240,53 @@ function PostImagePreview({
 
   if (!postImageUrl) return null
 
+  // The bare graphic + editable headline layer — identical markup whether
+  // shown standalone (canvas mode) or nested inside the IG chrome shell
+  // (feed mode) below, so what you edit is always the same element.
+  const graphicWithOverlay = (
+    <div className="relative w-full overflow-hidden">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={postImageUrl} alt={alt} className="w-full object-contain" />
+      {/* Bottom-third scrim, purely visual (not baked into postImageUrl
+          itself) — matches flattenOverlayImage's own gradient so what you
+          see here is what Download/Schedule actually produce. */}
+      <div
+        className="pointer-events-none absolute inset-x-0 bottom-0"
+        style={{ height: "38%", background: "linear-gradient(to bottom, rgba(0,0,0,0) 0%, rgba(0,0,0,0.55) 35%, rgba(0,0,0,0.65) 100%)" }}
+      />
+      <textarea
+        value={overlayText}
+        onChange={(e) => onOverlayTextChange(e.target.value)}
+        placeholder="Click to add a headline over this image…"
+        rows={2}
+        className="absolute inset-x-0 bottom-0 w-full resize-none border-0 bg-transparent px-[7%] pb-[6%] pt-2 text-lg font-bold leading-tight text-white placeholder:text-white/60 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-white/40"
+      />
+    </div>
+  )
+
   return (
     <div className="rounded-lg border bg-card p-4 space-y-3">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-2">
         <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Post Image</span>
         <div className="flex items-center gap-3">
+          {showOverlayEditor && (
+            <div className="flex rounded-md border overflow-hidden text-[11px]">
+              <button
+                type="button"
+                onClick={() => onPreviewModeChange("canvas")}
+                className={`px-2 py-1 font-medium transition-colors ${previewMode === "canvas" ? "bg-violet-50 text-violet-700" : "text-muted-foreground hover:bg-muted"}`}
+              >
+                Canvas
+              </button>
+              <button
+                type="button"
+                onClick={() => onPreviewModeChange("feed")}
+                className={`px-2 py-1 font-medium transition-colors border-l ${previewMode === "feed" ? "bg-violet-50 text-violet-700" : "text-muted-foreground hover:bg-muted"}`}
+              >
+                In-feed
+              </button>
+            </div>
+          )}
           {showRegenerate && (
             <button
               type="button"
@@ -1249,25 +1309,34 @@ function PostImagePreview({
       </div>
 
       {showOverlayEditor ? (
-        <div className="relative w-full rounded-lg overflow-hidden">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={postImageUrl} alt={alt} className="w-full object-contain" />
-          {/* Bottom-third scrim, purely visual (not baked into
-              postImageUrl itself) — matches flattenOverlayImage's own
-              gradient so what you see here is what Download/Schedule
-              actually produce. */}
-          <div
-            className="pointer-events-none absolute inset-x-0 bottom-0"
-            style={{ height: "38%", background: "linear-gradient(to bottom, rgba(0,0,0,0) 0%, rgba(0,0,0,0.55) 35%, rgba(0,0,0,0.65) 100%)" }}
-          />
-          <textarea
-            value={overlayText}
-            onChange={(e) => onOverlayTextChange(e.target.value)}
-            placeholder="Click to add a headline over this image…"
-            rows={2}
-            className="absolute inset-x-0 bottom-0 w-full resize-none border-0 bg-transparent px-[7%] pb-[6%] pt-2 text-lg font-bold leading-tight text-white placeholder:text-white/60 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-white/40"
-          />
-        </div>
+        previewMode === "feed" ? (
+          // Static Instagram chrome shell — a skin around the same
+          // editable graphic above, not a live simulation (no real avatar/
+          // like-count data). See the visualizer mockup this was based on.
+          <div className="mx-auto max-w-sm rounded-lg border bg-background">
+            <div className="flex items-center gap-2 px-3 py-2.5">
+              <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-violet-100 text-[11px] font-semibold text-violet-700">
+                {brandName.slice(0, 2).toUpperCase()}
+              </div>
+              <span className="text-[13px] font-medium">{brandName.toLowerCase().replace(/\s+/g, "")}</span>
+            </div>
+            <div className="rounded-none">{graphicWithOverlay}</div>
+            <div className="flex items-center gap-3.5 px-3 pt-2.5 text-xl text-foreground">
+              <Heart className="h-5 w-5" aria-hidden="true" />
+              <MessageCircle className="h-5 w-5" aria-hidden="true" />
+              <Send className="h-5 w-5" aria-hidden="true" />
+            </div>
+            <div className="px-3 pb-3 pt-1 text-[13px] leading-snug">
+              <span className="font-medium">{brandName.toLowerCase().replace(/\s+/g, "")}</span>{" "}
+              <span className="text-muted-foreground">
+                {captionPreview.length > 90 ? `${captionPreview.slice(0, 90)}… ` : captionPreview}
+                {captionPreview.length > 90 && <span className="text-muted-foreground/70">more</span>}
+              </span>
+            </div>
+          </div>
+        ) : (
+          <div className="rounded-lg">{graphicWithOverlay}</div>
+        )
       ) : (
         // eslint-disable-next-line @next/next/no-img-element
         <img
@@ -1296,6 +1365,8 @@ function FullPostResults({
   onOverlayTextChange,
   flattenedImageUrl,
   flattening,
+  previewMode,
+  onPreviewModeChange,
 }: {
   result: FullPostResult
   copied: string | null
@@ -1312,6 +1383,8 @@ function FullPostResults({
   onOverlayTextChange: (text: string) => void
   flattenedImageUrl: string | null
   flattening: boolean
+  previewMode: "canvas" | "feed"
+  onPreviewModeChange: (mode: "canvas" | "feed") => void
 }) {
   const scheduleCaption = getScheduleCaption(result)
 
@@ -1354,6 +1427,10 @@ function FullPostResults({
         onOverlayTextChange={onOverlayTextChange}
         downloadUrl={shareableImageUrl ?? postImageUrl ?? ""}
         flattening={flattening}
+        previewMode={previewMode}
+        onPreviewModeChange={onPreviewModeChange}
+        brandName={brandName}
+        captionPreview={scheduleCaption?.text ?? caption.caption_text ?? ""}
       />
 
       {shareableImageUrl && !imageGenerating && scheduleCaption && (
