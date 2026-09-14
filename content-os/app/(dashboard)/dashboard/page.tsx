@@ -7,9 +7,10 @@ import { CreditBalancePill } from "@/components/dashboard/CreditBalancePill"
 import { DetailedStatsToggle } from "@/components/dashboard/DetailedStatsToggle"
 import { DashboardStats } from "@/components/dashboard/DashboardStats"
 import { UpcomingOccasions } from "@/components/dashboard/UpcomingOccasions"
+import { DailyDraftTrigger } from "@/components/dashboard/DailyDraftTrigger"
 import { ScheduleAction } from "@/components/shared/ScheduleAction"
 import { getUpcomingOccasions } from "@/lib/occasions/get-upcoming-occasions"
-import { getOrCreateDailyDraft } from "@/lib/dashboard/get-or-create-daily-draft"
+import { getCachedDailyDraft } from "@/lib/dashboard/get-or-create-daily-draft"
 import { getBestHookType } from "@/lib/dashboard/get-best-hook-type"
 import { getISTDateString, getISTNow } from "@/lib/utils/ist"
 import type { UserRow, BrandRow, CalendarEntryRow } from "@/types/database"
@@ -70,12 +71,17 @@ export default async function DashboardPage({
   // rendering the "add a brand" prompt below) since none of the three
   // have anything to show either way.
   const occasionsPromise = brandCount > 0 ? getUpcomingOccasions(14) : Promise.resolve([])
-  // A real, credit-charged draft -- at most one generation/charge per
-  // brand per IST day, cached in daily_draft_cache (see
-  // lib/dashboard/get-or-create-daily-draft.ts). null covers both "no
-  // credits to charge" and "generation failed" -- either way the hero
-  // below falls back to the plain CTA, no error surfaced.
-  const dailyDraftPromise = firstBrand ? getOrCreateDailyDraft(firstBrand, user.id) : Promise.resolve(null)
+  // Cache-only lookup -- no charge, no generation, never blocks the page.
+  // The old getOrCreateDailyDraft ran the real generation pipeline
+  // (generateHooks -> generateContent -> generatePostImage, each a real
+  // 10-30s+ external call) synchronously inside this render, which is why
+  // Home used to hang indefinitely on any day's first visit for a brand.
+  // The actual generation now happens entirely in
+  // /api/v1/dashboard/generate-daily-draft, fired independently by
+  // <DailyDraftTrigger> below AFTER this page has already rendered. null
+  // covers both "no credits to charge" and "generation failed" -- either
+  // way the hero below falls back to the plain CTA, no error surfaced.
+  const dailyDraftPromise = firstBrand ? getCachedDailyDraft(firstBrand.id, getISTDateString()) : Promise.resolve(null)
   const bestHookTypePromise = getBestHookType(brandIds)
 
   const now = new Date()
@@ -311,9 +317,13 @@ export default async function DashboardPage({
           {/* Hero -- a real cached daily draft when one generated
            * successfully today, else the lighter manual CTA. Never both,
            * never an error message for the null case (see
-           * getOrCreateDailyDraft's own doc comment: null covers both "no
+           * getCachedDailyDraft's own doc comment: null covers both "no
            * credits" and "generation failed", and either way this is a
-           * silent fallback, not a surfaced error). */}
+           * silent fallback, not a surfaced error). DailyDraftTrigger
+           * renders nothing -- it fires the actual (slow) generation as an
+           * independent request AFTER this page has already rendered, so
+           * a cache miss here never blocks the page itself. */}
+          {firstBrandId && <DailyDraftTrigger brandId={firstBrandId} hasDraft={!!dailyDraft} />}
           {firstBrandId && dailyDraft ? (
             <div className="mb-6 rounded-2xl border bg-card p-6 md:p-8">
               <p className="mb-4 text-xs font-semibold uppercase tracking-wide text-violet-600 dark:text-violet-400">
