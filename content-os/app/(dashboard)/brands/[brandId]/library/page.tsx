@@ -17,7 +17,7 @@ import type { Json } from "@/types/database"
 import { scoreHook, scoreColor, scoreLabel } from "@/lib/utils/content-score"
 import { cssBackgroundFromColors } from "@/components/shared/ColorWheelPicker"
 import type { StoryExportSlide } from "@/lib/utils/story-export"
-import type { CarouselExportSlide } from "@/lib/utils/carousel-export"
+import { downloadCarouselSlidesAsImages, downloadCarouselSlidesAsPdf, type CarouselExportSlide } from "@/lib/utils/carousel-export"
 import { useBrand } from "@/hooks/useBrand"
 import { useGenerateContent } from "@/hooks/useGeneration"
 import type { GenerateContentInput } from "@/lib/validations/ai"
@@ -591,11 +591,58 @@ interface SlideShape {
   text_position_y?: number | null
 }
 
+// Reuses CarouselBuilder.tsx's own render pipeline (lib/utils/carousel-export.ts)
+// rather than duplicating it -- SlideShape has no font_id/text_size_scale/
+// productImageSource fields, left undefined here to match
+// CarouselExportSlide's own optional fields.
+function toCarouselExportSlide(s: SlideShape): CarouselExportSlide {
+  return {
+    type: s.type ?? "content",
+    headline: s.headline ?? "",
+    subtext: s.subtext,
+    points: s.points,
+    ctaText: s.cta,
+    ctaHandle: s.handle,
+    background_style: s.background_style,
+    image_url: s.image_url,
+    custom_background_colors: s.custom_background_colors,
+    text_position_x: s.text_position_x,
+    text_position_y: s.text_position_y,
+  }
+}
+
 function CarouselCard({ carousel, brandId, onOpenDetail }: { carousel: CarouselRow; brandId: string; onOpenDetail: (item: DetailItem) => void }) {
   const [deleteConfirming, setDeleteConfirming] = useState(false)
   const qc = useQueryClient()
   const { data: brand } = useBrand(brandId)
   const slides = (carousel.slides as Json[] as SlideShape[]) ?? []
+  // A saved carousel reopened later in the Library had no download option
+  // at all -- downloadCarouselSlidesAsImages/renderCarouselSlides already
+  // exist and work (CarouselBuilder.tsx wires them up right after
+  // generating), just never here. Both render server-side, so neither is
+  // instant -- tracked separately since either can be in flight (or fail)
+  // independently of the other.
+  const [downloadingPng, setDownloadingPng] = useState(false)
+  const [downloadingPdf, setDownloadingPdf] = useState(false)
+  const [downloadError, setDownloadError] = useState<string | null>(null)
+
+  async function handleDownloadPng(e: React.MouseEvent) {
+    e.stopPropagation()
+    setDownloadError(null)
+    setDownloadingPng(true)
+    const ok = await downloadCarouselSlidesAsImages(brand?.name ?? "", slides.map(toCarouselExportSlide), "carousel")
+    setDownloadingPng(false)
+    if (ok === false) setDownloadError("Couldn't download slides. Please try again.")
+  }
+
+  async function handleDownloadPdf(e: React.MouseEvent) {
+    e.stopPropagation()
+    setDownloadError(null)
+    setDownloadingPdf(true)
+    const ok = await downloadCarouselSlidesAsPdf(brand?.name ?? "", slides.map(toCarouselExportSlide), "carousel")
+    setDownloadingPdf(false)
+    if (ok === false) setDownloadError("Couldn't create the PDF. Please try again.")
+  }
   const ratingMutation = useMutation({
     mutationFn: async (rating: number) => {
       const res = await fetch(`/api/v1/brands/${brandId}/carousels/${carousel.id}`, {
@@ -717,6 +764,9 @@ function CarouselCard({ carousel, brandId, onOpenDetail }: { carousel: CarouselR
             ))}
           </div>
         )}
+        {downloadError && (
+          <p className="text-xs text-destructive" onClick={(e) => e.stopPropagation()}>{downloadError}</p>
+        )}
         <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t" onClick={(e) => e.stopPropagation()}>
           <StarRating value={carousel.user_rating} onChange={(r) => ratingMutation.mutate(r)} disabled={ratingMutation.isPending} />
           <div className="flex items-center gap-1">
@@ -724,6 +774,14 @@ function CarouselCard({ carousel, brandId, onOpenDetail }: { carousel: CarouselR
               text={slides.map((s, i) => [`Slide ${i + 1}`, s.headline, s.subtext, ...(s.points ?? [])].filter(Boolean).join("\n")).join("\n\n")}
               touchUrl={`/api/v1/brands/${brandId}/carousels/${carousel.id}`}
             />
+            <Button variant="ghost" size="sm" onClick={handleDownloadPng} disabled={downloadingPng}>
+              {downloadingPng ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+              Download all slides
+            </Button>
+            <Button variant="ghost" size="sm" onClick={handleDownloadPdf} disabled={downloadingPdf}>
+              {downloadingPdf ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+              Download as PDF
+            </Button>
             <DeleteConfirmButton
               onDelete={() => deleteMutation.mutateAsync()}
               confirming={deleteConfirming}

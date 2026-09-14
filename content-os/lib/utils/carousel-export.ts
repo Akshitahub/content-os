@@ -87,3 +87,21 @@ export async function downloadCarouselSlidesAsImages(brandName: string, slides: 
   }
   return true
 }
+
+/** One-file alternative to downloadCarouselSlidesAsImages above -- same
+ * server-rendered slide images (renderCarouselSlides), just paginated into
+ * a single PDF instead of triggering one <a download> per slide. jsPDF is
+ * imported dynamically so it never lands in the main bundle for users who
+ * never export a PDF. */
+export async function downloadCarouselSlidesAsPdf(brandName: string, slides: CarouselExportSlide[], filename: string): Promise<boolean> {
+  const rendered = await renderCarouselSlides(brandName, slides)
+  if (!rendered || rendered.imageUrls.length !== slides.length) return false
+  const { jsPDF } = await import("jspdf")
+  const doc = new jsPDF({ orientation: "portrait", unit: "px", format: [1080, 1350] })
+  rendered.imageUrls.forEach((dataUrl, i) => {
+    if (i > 0) doc.addPage([1080, 1350], "portrait")
+    doc.addImage(dataUrl, "PNG", 0, 0, 1080, 1350)
+  })
+  doc.save(`${filename}.pdf`)
+  return true
+}
