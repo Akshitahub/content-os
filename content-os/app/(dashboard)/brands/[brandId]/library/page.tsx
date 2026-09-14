@@ -330,7 +330,16 @@ function HookCard({ hook, brandId }: { hook: HookRow; brandId: string }) {
 
 export type CaptionWithImages = CaptionRow & { images: { public_url: string }[] }
 
-function CaptionCard({ caption, brandId, onOpenDetail }: { caption: CaptionWithImages; brandId: string; onOpenDetail: (item: DetailItem) => void }) {
+function CaptionCard({
+  caption, brandId, onOpenDetail, selectionMode, selected, onToggleSelect,
+}: {
+  caption: CaptionWithImages
+  brandId: string
+  onOpenDetail: (item: DetailItem) => void
+  selectionMode?: boolean
+  selected?: boolean
+  onToggleSelect?: () => void
+}) {
   const [expanded, setExpanded] = useState(false)
   const [deleteConfirming, setDeleteConfirming] = useState(false)
   const qc = useQueryClient()
@@ -409,8 +418,8 @@ function CaptionCard({ caption, brandId, onOpenDetail }: { caption: CaptionWithI
 
   return (
     <Card
-      onClick={openDetail}
-      className="group cursor-pointer overflow-hidden transition-all duration-200 hover:-translate-y-1 hover:shadow-lg hover:shadow-violet-100"
+      onClick={selectionMode && onToggleSelect ? onToggleSelect : openDetail}
+      className={`group cursor-pointer overflow-hidden transition-all duration-200 hover:-translate-y-1 hover:shadow-lg hover:shadow-violet-100 ${selected ? "ring-2 ring-primary" : ""}`}
     >
       {thumbnail ? (
         <div className="aspect-square overflow-hidden bg-secondary">
@@ -425,6 +434,17 @@ function CaptionCard({ caption, brandId, onOpenDetail }: { caption: CaptionWithI
       <CardHeader className="pb-2">
         <div className="flex items-start justify-between gap-2">
           <div className="flex items-center gap-2">
+            {selectionMode && (
+              <div onClick={(e) => e.stopPropagation()}>
+                <input
+                  type="checkbox"
+                  checked={!!selected}
+                  onChange={() => onToggleSelect?.()}
+                  className="h-4 w-4 rounded border-input"
+                  aria-label="Select caption"
+                />
+              </div>
+            )}
             <PlatformBadge platform={caption.platform} />
             {caption.character_count !== null && <span className="text-xs text-muted-foreground">{caption.character_count} chars</span>}
             <ExpiryBadge lastAccessedAt={caption.last_accessed_at} />
@@ -1124,6 +1144,12 @@ function HooksTab({ brandId }: { brandId: string }) {
 function CaptionsTab({ brandId, onOpenDetail }: { brandId: string; onOpenDetail: (item: DetailItem) => void }) {
   const [platformFilter, setPlatformFilter] = useState("all")
   const [dateFilter, setDateFilter] = useState("all")
+  const [selectionMode, setSelectionMode] = useState(false)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [bulkDeleteConfirming, setBulkDeleteConfirming] = useState(false)
+  const [bulkDeleting, setBulkDeleting] = useState(false)
+  const [bulkDeleteError, setBulkDeleteError] = useState<string | null>(null)
+  const qc = useQueryClient()
   const { data: captions = [], isLoading } = useQuery({
     queryKey: ["library", "captions", brandId, platformFilter],
     queryFn: async (): Promise<CaptionWithImages[]> => {
@@ -1136,19 +1162,108 @@ function CaptionsTab({ brandId, onOpenDetail }: { brandId: string; onOpenDetail:
     enabled: !!brandId,
   })
   const filtered = captions.filter(c => inDateRange(c.created_at, dateFilter))
+
+  // Loops the existing single-item DELETE route rather than adding a new
+  // bulk-delete endpoint -- a first pass reusing what already exists.
+  // Promise.allSettled (not Promise.all) so one failed delete doesn't
+  // abort the rest. Unlike this file's usual single-item silent-catch
+  // convention, a partial bulk failure is surfaced -- losing track of
+  // which of N deletes actually landed is a worse failure mode than a
+  // single missed one. bulkDeleteError is set AFTER selectedIds is
+  // cleared/selectionMode exited, so it outlives (and isn't gated by) the
+  // action bar below, which only renders while selectedIds.size > 0.
+  async function handleBulkDelete() {
+    setBulkDeleting(true)
+    const ids = Array.from(selectedIds)
+    const results = await Promise.allSettled(
+      ids.map((id) =>
+        fetch(`/api/v1/brands/${brandId}/captions/${id}`, { method: "DELETE" }).then((res) => {
+          if (!res.ok) throw new Error(`Failed to delete ${id}`)
+        })
+      )
+    )
+    const failedCount = results.filter((r) => r.status === "rejected").length
+    qc.invalidateQueries({ queryKey: ["library", "captions", brandId] })
+    setSelectedIds(new Set())
+    setSelectionMode(false)
+    setBulkDeleteConfirming(false)
+    setBulkDeleting(false)
+    setBulkDeleteError(failedCount > 0 ? `${failedCount} of ${ids.length} item${ids.length !== 1 ? "s" : ""} couldn't be deleted.` : null)
+  }
+
   return (
     <div>
-      <div className="mb-4 flex flex-wrap gap-2">
+      <div className="mb-4 flex flex-wrap items-center gap-2">
         <select value={platformFilter} onChange={e => setPlatformFilter(e.target.value)} className={FILTER_SELECT_CLASS}>
           {PLATFORMS.map(p => <option key={p} value={p}>{p === "all" ? "All platforms" : p.charAt(0).toUpperCase() + p.slice(1)}</option>)}
         </select>
         <select value={dateFilter} onChange={e => setDateFilter(e.target.value)} className={FILTER_SELECT_CLASS}>
           {DATE_RANGES.map(d => <option key={d.value} value={d.value}>{d.label}</option>)}
         </select>
+        <button
+          type="button"
+          onClick={() => {
+            if (selectionMode) setSelectedIds(new Set())
+            setSelectionMode((v) => !v)
+          }}
+          className={FILTER_SELECT_CLASS}
+        >
+          {selectionMode ? "Cancel" : "Select"}
+        </button>
       </div>
+      {bulkDeleteError && (
+        <p className="mb-4 text-xs text-destructive">{bulkDeleteError}</p>
+      )}
       {isLoading ? <SkeletonGrid /> : filtered.length === 0 ? <EmptyState label="saved posts" brandId={brandId} /> : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {filtered.map(c => <CaptionCard key={c.id} caption={c} brandId={brandId} onOpenDetail={onOpenDetail} />)}
+          {filtered.map(c => (
+            <CaptionCard
+              key={c.id}
+              caption={c}
+              brandId={brandId}
+              onOpenDetail={onOpenDetail}
+              selectionMode={selectionMode}
+              selected={selectedIds.has(c.id)}
+              onToggleSelect={() => {
+                setSelectedIds((prev) => {
+                  const next = new Set(prev)
+                  if (next.has(c.id)) next.delete(c.id)
+                  else next.add(c.id)
+                  return next
+                })
+              }}
+            />
+          ))}
+        </div>
+      )}
+      {/* Bulk action bar -- pinned to the bottom of the viewport (no
+       * existing bulk-action UI pattern elsewhere in this codebase to
+       * match instead). Confirmation mirrors DeleteConfirmButton's own
+       * "Are you sure? / Yes, delete / Cancel" shape (CaptionCard's own
+       * single-delete flow), rather than inventing a different style. */}
+      {selectedIds.size > 0 && (
+        <div className="fixed inset-x-0 bottom-0 z-40 flex flex-wrap items-center justify-center gap-3 border-t bg-card px-4 py-3 shadow-lg">
+          <p className="text-sm font-medium">{selectedIds.size} selected</p>
+          {bulkDeleteConfirming ? (
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-muted-foreground">Are you sure?</span>
+              <Button variant="destructive" size="sm" disabled={bulkDeleting} onClick={handleBulkDelete}>
+                {bulkDeleting ? "Deleting…" : "Yes, delete"}
+              </Button>
+              <Button variant="ghost" size="sm" disabled={bulkDeleting} onClick={() => setBulkDeleteConfirming(false)}>
+                Cancel
+              </Button>
+            </div>
+          ) : (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="gap-1.5 text-destructive hover:bg-destructive/10 hover:text-destructive"
+              onClick={() => setBulkDeleteConfirming(true)}
+            >
+              <Trash2 className="h-3.5 w-3.5" /> Delete selected
+            </Button>
+          )}
         </div>
       )}
     </div>
