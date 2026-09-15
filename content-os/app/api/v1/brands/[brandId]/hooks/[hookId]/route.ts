@@ -9,6 +9,11 @@ type RouteParams = { params: Promise<{ brandId: string; hookId: string }> }
 const updateHookSchema = z.object({
   user_rating: z.number().int().min(1).max(5).optional().nullable(),
   is_saved: z.boolean().optional(),
+  // Only meaningful alongside a 1-2 star user_rating -- see the
+  // content_feedback_notes insert below. Not a hooks column, so it's
+  // split out of parsed.data before the update() call rather than passed
+  // straight through.
+  note: z.string().max(1000).optional().nullable(),
 })
 
 export async function PUT(request: Request, { params }: RouteParams) {
@@ -56,9 +61,11 @@ export async function PUT(request: Request, { params }: RouteParams) {
       return NextResponse.json(buildError(ErrorCodes.UNAUTHORIZED, "Access denied."), { status: 403 })
     }
 
+    const { note, ...hookUpdate } = parsed.data
+
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { data: updated, error } = await (supabase.from("hooks") as any)
-      .update(parsed.data)
+      .update(hookUpdate)
       .eq("id", hookId)
       .select()
       .single() as { data: HookRow | null; error: { message: string } | null }
@@ -66,6 +73,24 @@ export async function PUT(request: Request, { params }: RouteParams) {
     if (error) {
       console.error(`[hooks/${brandId}/${hookId}] PUT update error:`, error)
       return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Failed to update hook.", error.message), { status: 500 })
+    }
+
+    // Capture the "why" behind a low rating, if the user gave one -- see
+    // supabase/migrations/053_content_feedback_notes.sql for the reasoning
+    // on this table's shape. Non-fatal: a failed insert here should never
+    // fail the rating update itself, which already succeeded above.
+    if (note?.trim() && hookUpdate.user_rating != null && hookUpdate.user_rating <= 2) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { error: noteError } = await (supabase.from("content_feedback_notes") as any).insert({
+        brand_id: brandId,
+        content_type: "hook",
+        content_id: hookId,
+        rating: hookUpdate.user_rating,
+        note: note.trim(),
+      })
+      if (noteError) {
+        console.error(`[hooks/${brandId}/${hookId}] content_feedback_notes insert failed (non-fatal):`, noteError.message)
+      }
     }
 
     return NextResponse.json({ data: updated })

@@ -47,22 +47,74 @@ function inDateRange(dateStr: string, days: string): boolean {
 
 // ─── Shared components ────────────────────────────────────────────────────────
 
-function StarRating({ value, onChange, disabled }: { value: number | null; onChange: (r: number) => void; disabled?: boolean }) {
+// A 1-2 star rating reveals a small optional "what didn't work" note
+// alongside submission (see content_feedback_notes -- migration 053), so
+// low-rated content leaves behind an actual reason, not just a number.
+// Genuinely optional: Submit works with an empty note exactly the same as
+// a filled one -- this never gates or delays the rating itself on the
+// note being written. 3-5 stars submit immediately, unchanged from before
+// this existed. `onChange`'s note param is new but optional, so every
+// existing `(r) => ...` caller below (every content type except captions/
+// hooks, for now) keeps compiling and behaving exactly as it did.
+function StarRating({ value, onChange, disabled }: { value: number | null; onChange: (r: number, note?: string) => void; disabled?: boolean }) {
   const [hover, setHover] = useState<number | null>(null)
+  const [pendingRating, setPendingRating] = useState<number | null>(null)
+  const [note, setNote] = useState("")
+
+  function handleStarClick(star: number) {
+    if (star <= 2) {
+      setPendingRating(star)
+      setNote("")
+      return
+    }
+    onChange(star)
+  }
+
+  function submitPending() {
+    if (pendingRating === null) return
+    onChange(pendingRating, note.trim() || undefined)
+    setPendingRating(null)
+    setNote("")
+  }
+
   return (
-    <div className="flex gap-0.5">
-      {[1, 2, 3, 4, 5].map((star) => (
-        <button
-          key={star}
-          disabled={disabled}
-          onClick={() => onChange(star)}
-          onMouseEnter={() => setHover(star)}
-          onMouseLeave={() => setHover(null)}
-          className="rounded p-0.5 transition-colors hover:text-yellow-400 focus-visible:outline-none disabled:cursor-not-allowed"
-        >
-          <Star className={`h-4 w-4 transition-colors ${(hover ?? value ?? 0) >= star ? "fill-yellow-400 text-yellow-400" : "text-muted-foreground/40"}`} />
-        </button>
-      ))}
+    <div className="space-y-1.5">
+      <div className="flex gap-0.5">
+        {[1, 2, 3, 4, 5].map((star) => (
+          <button
+            key={star}
+            disabled={disabled}
+            onClick={() => handleStarClick(star)}
+            onMouseEnter={() => setHover(star)}
+            onMouseLeave={() => setHover(null)}
+            className="rounded p-0.5 transition-colors hover:text-yellow-400 focus-visible:outline-none disabled:cursor-not-allowed"
+          >
+            <Star className={`h-4 w-4 transition-colors ${(hover ?? pendingRating ?? value ?? 0) >= star ? "fill-yellow-400 text-yellow-400" : "text-muted-foreground/40"}`} />
+          </button>
+        ))}
+      </div>
+      {pendingRating !== null && (
+        <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+          <input
+            type="text"
+            autoFocus
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") submitPending() }}
+            placeholder="What didn't work? (optional)"
+            disabled={disabled}
+            className="w-full max-w-[220px] rounded-md border border-input bg-background px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50"
+          />
+          <button
+            type="button"
+            onClick={submitPending}
+            disabled={disabled}
+            className="shrink-0 rounded-md bg-secondary px-2 py-1 text-xs font-medium text-secondary-foreground hover:bg-secondary/80 disabled:opacity-50"
+          >
+            Submit
+          </button>
+        </div>
+      )}
     </div>
   )
 }
@@ -121,7 +173,7 @@ function CardQuickActions({
   canSchedule: boolean
   onRequestDelete: () => void
   rating: number | null
-  onRatingChange: (r: number) => void
+  onRatingChange: (r: number, note?: string) => void
   ratingPending?: boolean
   shareText?: string
   onRemixToReelScript?: () => void
@@ -269,10 +321,10 @@ function HookCard({ hook, brandId }: { hook: HookRow; brandId: string }) {
   const [expanded, setExpanded] = useState(false)
   const qc = useQueryClient()
   const ratingMutation = useMutation({
-    mutationFn: async (rating: number) => {
+    mutationFn: async ({ rating, note }: { rating: number; note?: string }) => {
       const res = await fetch(`/api/v1/brands/${brandId}/hooks/${hook.id}`, {
         method: "PUT", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ user_rating: rating }),
+        body: JSON.stringify({ user_rating: rating, note }),
       })
       if (!res.ok) throw new Error("Failed to update rating")
     },
@@ -310,7 +362,7 @@ function HookCard({ hook, brandId }: { hook: HookRow; brandId: string }) {
           </button>
         )}
         <div className="flex items-center justify-between gap-2 pt-1 border-t">
-          <StarRating value={hook.user_rating} onChange={(r) => ratingMutation.mutate(r)} disabled={ratingMutation.isPending} />
+          <StarRating value={hook.user_rating} onChange={(r, note) => ratingMutation.mutate({ rating: r, note })} disabled={ratingMutation.isPending} />
           <div className="flex gap-1">
             <CopyButton text={hook.hook_text} />
             <Button variant="ghost" size="sm" onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending}>
@@ -344,10 +396,10 @@ function CaptionCard({
   const [deleteConfirming, setDeleteConfirming] = useState(false)
   const qc = useQueryClient()
   const ratingMutation = useMutation({
-    mutationFn: async (rating: number) => {
+    mutationFn: async ({ rating, note }: { rating: number; note?: string }) => {
       const res = await fetch(`/api/v1/brands/${brandId}/captions/${caption.id}`, {
         method: "PUT", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ user_rating: rating }),
+        body: JSON.stringify({ user_rating: rating, note }),
       })
       if (!res.ok) throw new Error("Failed to update rating")
     },
@@ -456,7 +508,7 @@ function CaptionCard({
               canSchedule
               onRequestDelete={() => setDeleteConfirming(true)}
               rating={caption.user_rating}
-              onRatingChange={(r) => ratingMutation.mutate(r)}
+              onRatingChange={(r, note) => ratingMutation.mutate({ rating: r, note })}
               ratingPending={ratingMutation.isPending}
               shareText={`${caption.caption_text}${caption.hashtags.length > 0 ? `\n\n${caption.hashtags.map(h => `#${h}`).join(" ")}` : ""}`}
               onRemixToReelScript={handleRemixToReelScript}
@@ -492,7 +544,7 @@ function CaptionCard({
           <p className="text-xs text-destructive" onClick={(e) => e.stopPropagation()}>{remixError}</p>
         )}
         <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t" onClick={(e) => e.stopPropagation()}>
-          <StarRating value={caption.user_rating} onChange={(r) => ratingMutation.mutate(r)} disabled={ratingMutation.isPending} />
+          <StarRating value={caption.user_rating} onChange={(r, note) => ratingMutation.mutate({ rating: r, note })} disabled={ratingMutation.isPending} />
           <div className="flex items-center gap-1">
             <CopyButton text={caption.caption_text} touchUrl={`/api/v1/brands/${brandId}/captions/${caption.id}`} />
             <DeleteConfirmButton

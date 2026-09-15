@@ -9,6 +9,11 @@ type RouteParams = { params: Promise<{ brandId: string; captionId: string }> }
 const updateCaptionSchema = z.object({
   user_rating: z.number().int().min(1).max(5).optional().nullable(),
   is_saved: z.boolean().optional(),
+  // Only meaningful alongside a 1-2 star user_rating -- see the
+  // content_feedback_notes insert below. Not a captions column, so it's
+  // split out of parsed.data before the update() call rather than passed
+  // straight through.
+  note: z.string().max(1000).optional().nullable(),
 })
 
 export async function PUT(request: Request, { params }: RouteParams) {
@@ -55,12 +60,14 @@ export async function PUT(request: Request, { params }: RouteParams) {
       return NextResponse.json(buildError(ErrorCodes.UNAUTHORIZED, "Access denied."), { status: 403 })
     }
 
+    const { note, ...captionUpdate } = parsed.data
+
     // Any successful PUT (rating, save/unsave, or a bare touch call) is
     // genuine engagement — stamp last_accessed_at so this doesn't look
     // abandoned to the cleanup cron.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { data: updated, error } = await (supabase.from("captions") as any)
-      .update({ ...parsed.data, last_accessed_at: new Date().toISOString() })
+      .update({ ...captionUpdate, last_accessed_at: new Date().toISOString() })
       .eq("id", captionId)
       .select()
       .single() as { data: CaptionRow | null; error: { message: string } | null }
@@ -68,6 +75,24 @@ export async function PUT(request: Request, { params }: RouteParams) {
     if (error) {
       console.error(`[captions/${brandId}/${captionId}] PUT update error:`, error)
       return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Failed to update caption.", error.message), { status: 500 })
+    }
+
+    // Capture the "why" behind a low rating, if the user gave one -- see
+    // supabase/migrations/053_content_feedback_notes.sql for the reasoning
+    // on this table's shape. Non-fatal: a failed insert here should never
+    // fail the rating update itself, which already succeeded above.
+    if (note?.trim() && captionUpdate.user_rating != null && captionUpdate.user_rating <= 2) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { error: noteError } = await (supabase.from("content_feedback_notes") as any).insert({
+        brand_id: brandId,
+        content_type: "caption",
+        content_id: captionId,
+        rating: captionUpdate.user_rating,
+        note: note.trim(),
+      })
+      if (noteError) {
+        console.error(`[captions/${brandId}/${captionId}] content_feedback_notes insert failed (non-fatal):`, noteError.message)
+      }
     }
 
     return NextResponse.json({ data: updated })
