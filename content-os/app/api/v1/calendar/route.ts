@@ -1,8 +1,20 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import { buildError, ErrorCodes } from "@/types/api"
-import type { CalendarEntryRow } from "@/types/database"
+import type { CalendarEntryRow, Json } from "@/types/database"
 import { z } from "zod"
+
+// lib/ai/fastlane.ts's own Autopilot insert stores a real generated Flux
+// image directly on the entry it belongs to (platformData.image_url,
+// around line 984) for hook/caption-format slots -- there's no
+// content_project_id chain to walk for those at all, unlike the linked-
+// images join below. platform_specific_data is JSONB (typed as Json), so
+// this guards/casts safely rather than trusting the shape.
+function extractPlatformImageUrl(platformSpecificData: Json | null): string | null {
+  if (!platformSpecificData || typeof platformSpecificData !== "object" || Array.isArray(platformSpecificData)) return null
+  const url = (platformSpecificData as Record<string, Json>).image_url
+  return typeof url === "string" ? url : null
+}
 
 const createEntrySchema = z.object({
   brand_id: z.string().uuid(),
@@ -64,6 +76,11 @@ export async function GET(request: Request) {
     // generated_images.content_project_id. Manually-added entries (the
     // "+ Add entry" modal) have no caption_id at all and simply never
     // resolve a thumbnail here -- no placeholder, no special-casing needed.
+    // Autopilot's own hook/caption slots don't resolve through this chain
+    // either (their caption insert never sets content_project_id) even
+    // though a real generated image exists -- see the
+    // extractPlatformImageUrl fallback below this join, which fills that
+    // specific gap directly from the entry's own platform_specific_data.
     // Response-shape addition only, not a schema change -- calendar_entries
     // itself is untouched.
     const imageUrlByEntryId = new Map<string, string>()
@@ -121,6 +138,20 @@ export async function GET(request: Request) {
       // Non-fatal -- the calendar still shows every entry, just without
       // thumbnails this one time, rather than failing the whole request.
       console.error("[calendar] GET linked-images join failed (non-fatal):", err)
+    }
+
+    // Fill the gap the chain above can't reach: Autopilot's hook/caption
+    // slots never set caption_id -> captions.content_project_id at all, so
+    // they can never resolve here, even though a real generated image is
+    // sitting right on the entry's own platform_specific_data.image_url
+    // (see extractPlatformImageUrl's own comment). Only fills entries the
+    // chain above left unresolved -- when both exist, the linked-images
+    // join's result wins, in case a future flow's generated_images link
+    // ends up more authoritative/up to date than this one.
+    for (const e of entries ?? []) {
+      if (imageUrlByEntryId.has(e.id)) continue
+      const platformImageUrl = extractPlatformImageUrl(e.platform_specific_data)
+      if (platformImageUrl) imageUrlByEntryId.set(e.id, platformImageUrl)
     }
 
     const entriesWithImages = (entries ?? []).map((e) => ({
