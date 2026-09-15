@@ -77,7 +77,7 @@ export async function POST(request: Request, { params }: RouteParams) {
 
   const parsed = generateAdMakerBackgroundSchema.safeParse(body)
   if (!parsed.success) return NextResponse.json(buildError(ErrorCodes.VALIDATION_ERROR, "Validation failed.", parsed.error.message), { status: 400 })
-  const { scene, customScene, format, productImageBase64 } = parsed.data
+  const { scene, customScene, format, productImageBase64, customPrompt } = parsed.data
 
   const usageCheck = await checkAndIncrementUsage(user.id, AD_MAKER, FEATURE)
   if (!usageCheck.ok) {
@@ -138,6 +138,7 @@ export async function POST(request: Request, { params }: RouteParams) {
     plan,
     isInternalUnlimitedUser: isInternalUnlimited(user.id),
     productImageUrl,
+    customPrompt,
   }
   const results = await Promise.all(
     Array.from({ length: VARIATION_COUNT }, async (_, i) => {

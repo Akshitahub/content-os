@@ -7,6 +7,8 @@ import { Label } from "@/components/ui/label"
 import { GeneratingState } from "@/components/shared/GeneratingState"
 import { useGenerateImage, ApiResponseError, type GenerateImageOutcome } from "@/hooks/useGeneration"
 import { useGenerationStore } from "@/stores/generationStore"
+import { usePromptWriter } from "@/hooks/usePromptWriter"
+import { PromptWriterField } from "@/components/generate/PromptWriterField"
 import type { ProductRow } from "@/types/database"
 import type { ImageStyle, AspectRatio } from "@/types/app"
 
@@ -41,9 +43,9 @@ export function ImageGenerator({ brandId, products }: ImageGeneratorProps) {
   } = useGenerationStore()
 
   const [justSaved, setJustSaved] = useState(false)
-  const [promptError, setPromptError] = useState("")
   const [textWarning, setTextWarning] = useState<string | null>(null)
   const abortControllerRef = useRef<AbortController | null>(null)
+  const promptWriter = usePromptWriter(setImagePrompt)
 
   useEffect(() => {
     if (images.length === 0) {
@@ -99,12 +101,29 @@ export function ImageGenerator({ brandId, products }: ImageGeneratorProps) {
     )
   }
 
+  // Two-phase Generate: the first click (or any click while the field is
+  // empty) sends whatever the user typed -- a real description, or nothing
+  // at all -- to the prompt-writing stage first, streaming SocioPosts'
+  // authored prompt live into this same field instead of going straight to
+  // Flux. Only once that's written (and the user has had a chance to read
+  // or edit it) does a second click actually generate, using the exact
+  // text left in the field at that click -- never re-processed again.
   function handleGenerate() {
-    if (!prompt.trim()) {
-      setPromptError("Please describe what you want to generate")
+    if (promptWriter.stage === "writing") return
+    if (promptWriter.stage === "idle" || !prompt.trim()) {
+      promptWriter.write({
+        flow: "image_tool",
+        brandId,
+        productId: selectedProductId ?? undefined,
+        rawInput: prompt.trim() || null,
+        constraints: {
+          aspectRatioLabel: aspectRatio,
+          styleLabel: STYLES.find((s) => s.value === style)?.label,
+          hasProductReference: !!selectedProductId,
+        },
+      })
       return
     }
-    setPromptError("")
     setTextWarning(null)
     runGenerate(false)
   }
@@ -138,22 +157,26 @@ export function ImageGenerator({ brandId, products }: ImageGeneratorProps) {
           </div>
         )}
 
-        <div className="space-y-1.5">
-          <Label className="text-xs">Describe what you want to generate</Label>
-          <textarea
-            rows={2}
-            placeholder="e.g. 'merch giveaway visual with confetti' or 'product on marble with morning light'"
-            className={`w-full rounded-md border px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring resize-none ${promptError ? "border-destructive" : "border-input bg-background"}`}
-            value={prompt}
-            onChange={(e) => { setImagePrompt(e.target.value); if (e.target.value.trim()) setPromptError("") }}
-          />
-          {promptError && (
-            <div className="flex items-center gap-1.5 text-xs text-destructive">
-              <AlertCircle className="h-3.5 w-3.5" />
-              {promptError}
-            </div>
-          )}
-        </div>
+        <PromptWriterField
+          label="Describe what you want to generate (optional)"
+          prompt={prompt}
+          onChange={setImagePrompt}
+          stage={promptWriter.stage}
+          error={promptWriter.error}
+          onRewrite={() => promptWriter.write({
+            flow: "image_tool",
+            brandId,
+            productId: selectedProductId ?? undefined,
+            rawInput: prompt.trim() || null,
+            constraints: {
+              aspectRatioLabel: aspectRatio,
+              styleLabel: STYLES.find((s) => s.value === style)?.label,
+              hasProductReference: !!selectedProductId,
+            },
+          })}
+          placeholder="e.g. 'merch giveaway visual with confetti' or 'product on marble with morning light' — or leave blank and let SocioPosts write one"
+          rows={2}
+        />
 
         <div className="space-y-1.5">
           <Label className="text-xs">Style</Label>
@@ -179,9 +202,11 @@ export function ImageGenerator({ brandId, products }: ImageGeneratorProps) {
           </div>
         </div>
 
-        <Button className="w-full" onClick={handleGenerate} disabled={isPending}>
+        <Button className="w-full" onClick={handleGenerate} disabled={isPending || promptWriter.stage === "writing"}>
           {isPending ? (
             <><RefreshCw className="h-4 w-4 mr-2 animate-spin" /> Generating: {prompt.slice(0, 30)}{prompt.length > 30 ? "…" : ""}</>
+          ) : promptWriter.stage === "writing" ? (
+            <><RefreshCw className="h-4 w-4 mr-2 animate-spin" /> Writing your prompt…</>
           ) : (
             <><ImageIcon className="h-4 w-4 mr-2" /> Generate image</>
           )}

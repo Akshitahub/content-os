@@ -14,6 +14,8 @@ import { ScheduleAction } from "@/components/shared/ScheduleAction"
 import { isApiError } from "@/types/api"
 import { ApiResponseError } from "@/hooks/useGeneration"
 import { STORY as STORY_CREDIT_COST, STORY_SLIDE_AI_BACKGROUND } from "@/lib/usage/credit-costs"
+import { usePromptWriter } from "@/hooks/usePromptWriter"
+import { PromptWriterField } from "@/components/generate/PromptWriterField"
 import { VibePicker, type Vibe } from "@/components/shared/VibePicker"
 import { cssBackgroundFromColors, ColorWheelPicker } from "@/components/shared/ColorWheelPicker"
 import { useDraggableText, type TextPosition } from "@/components/shared/useDraggableText"
@@ -145,7 +147,8 @@ async function fetchSlideBackgroundResult(
   vibe: Vibe | undefined,
   role: "hook" | "cta" | "body",
   productImageUrl?: string | null,
-  textPosition?: StorySlide["text_position"]
+  textPosition?: StorySlide["text_position"],
+  customPrompt?: string
 ): Promise<SlideBackgroundResult> {
   try {
     const res = await fetch("/api/v1/ai/stories/slide-image/generate", {
@@ -155,7 +158,7 @@ async function fetchSlideBackgroundResult(
       // "no product selected" case) to undefined so JSON.stringify omits
       // the key entirely -- the route's schema accepts productImageUrl as
       // optional, not nullable.
-      body: JSON.stringify({ brandId, vibe, role, productImageUrl: productImageUrl ?? undefined, textPosition }),
+      body: JSON.stringify({ brandId, vibe, role, productImageUrl: productImageUrl ?? undefined, textPosition, customPrompt: customPrompt || undefined }),
     })
     if (res.status === 429) return { error: "insufficient_credits" }
     if (!res.ok) return { error: "failed" }
@@ -180,9 +183,10 @@ async function fetchSlideBackground(
   vibe: Vibe | undefined,
   role: "hook" | "cta",
   productImageUrl?: string | null,
-  textPosition?: StorySlide["text_position"]
+  textPosition?: StorySlide["text_position"],
+  customPrompt?: string
 ): Promise<{ url: string; provider: "flux" } | null> {
-  const result = await fetchSlideBackgroundResult(brandId, vibe, role, productImageUrl, textPosition)
+  const result = await fetchSlideBackgroundResult(brandId, vibe, role, productImageUrl, textPosition, customPrompt)
   return "url" in result ? { url: result.url, provider: result.provider } : null
 }
 
@@ -726,6 +730,12 @@ export function StorySequence({ brandId }: { brandId: string }) {
   const [vibe, setVibe] = useState<Vibe | undefined>()
   const [customColors, setCustomColors] = useState<string[]>([])
   const [showCustomize, setShowCustomize] = useState(false)
+  // SocioPosts-authored (and possibly user-edited) visual scene prompt for
+  // this sequence's hook/cta/body backgrounds -- shared across every slide
+  // the same way vibe already is. Mirrors CarouselBuilder.tsx's identical
+  // field exactly.
+  const [visualPrompt, setVisualPrompt] = useState("")
+  const promptWriter = usePromptWriter(setVisualPrompt)
   // Extends the hook/cta-only AI background to every reveal/buildup slide
   // too -- opt-in since, unlike hook/cta, each one spends real credits
   // (see STORY_SLIDE_AI_BACKGROUND). Only meaningful alongside a real
@@ -828,8 +838,38 @@ export function StorySequence({ brandId }: { brandId: string }) {
     setUploadedImages((prev) => prev.filter((_, i) => i !== idx))
   }
 
+  function writeVisualPrompt() {
+    setShowCustomize(true)
+    promptWriter.write({
+      flow: "story",
+      brandId,
+      product: selectedProduct ? { name: selectedProduct.name, description: selectedProduct.description } : undefined,
+      rawInput: visualPrompt.trim() || null,
+      constraints: {
+        styleLabel: vibe && vibe !== "custom_color" ? vibe : undefined,
+        hasProductReference: !!selectedProduct,
+      },
+    })
+  }
+
   async function generate() {
     if (!topic.trim()) { setError("Please enter a topic for your story sequence."); return }
+    // "custom_color" is a client-only rendering mode that skips AI image
+    // generation entirely, so there's nothing for SocioPosts to author a
+    // visual prompt for in that mode -- the write-then-confirm gate below
+    // only applies otherwise. Declared before the write gate (unlike the
+    // rest of this function's setup) so a real vibe's first "Generate
+    // stories" click authors the prompt and pauses for review/edit before
+    // the actual text+image generation call fires below, mirroring
+    // CarouselBuilder.tsx's identical gate exactly.
+    const isCustomColorMode = vibe === "custom_color"
+    if (!isCustomColorMode) {
+      if (promptWriter.stage === "writing") return
+      if (promptWriter.stage === "idle" || !visualPrompt.trim()) {
+        writeVisualPrompt()
+        return
+      }
+    }
     const hadPrevStories = stories.length > 0
     prevStoriesRef.current = stories
     const genId = ++generationIdRef.current
@@ -841,11 +881,6 @@ export function StorySequence({ brandId }: { brandId: string }) {
     setStoryCaption(null)
     setShowCaptionEditor(false)
     setStoryRowId(null)
-    // "custom_color" is a client-only rendering mode, never a real vibe
-    // the text-generation prompt should see -- omitted from the request
-    // entirely in that case rather than sent literally (same reasoning as
-    // CarouselBuilder.tsx's identical guard).
-    const isCustomColorMode = vibe === "custom_color"
     try {
       const res = await fetch("/api/v1/ai/stories/generate", {
         method: "POST",
@@ -904,7 +939,8 @@ export function StorySequence({ brandId }: { brandId: string }) {
               vibe,
               slide.type,
               selectedProduct?.imageUrl ?? undefined,
-              slide.text_position
+              slide.text_position,
+              visualPrompt
             )
           ))
           if (generationIdRef.current !== genId) return
@@ -936,7 +972,8 @@ export function StorySequence({ brandId }: { brandId: string }) {
               vibe,
               "body",
               usesProduct ? (selectedProduct?.imageUrl ?? null) : undefined,
-              usesProduct ? bodySlide.text_position : undefined
+              usesProduct ? bodySlide.text_position : undefined,
+              visualPrompt
             )
             if (generationIdRef.current !== genId) { setBodyBgProgress(null); return }
             if ("url" in result) {
@@ -1133,15 +1170,28 @@ export function StorySequence({ brandId }: { brandId: string }) {
             {showCustomize ? "Hide options" : "Customize (optional)"}
           </button>
           {showCustomize && (
-            <div className="space-y-1.5 pt-1">
-              <label className="text-xs font-medium">Vibe</label>
-              <VibePicker
-                selected={vibe}
-                onSelect={setVibe}
-                compact
-                customColors={customColors}
-                onCustomColorsChange={setCustomColors}
-              />
+            <div className="space-y-3 pt-1">
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium">Vibe</label>
+                <VibePicker
+                  selected={vibe}
+                  onSelect={setVibe}
+                  compact
+                  customColors={customColors}
+                  onCustomColorsChange={setCustomColors}
+                />
+              </div>
+              {vibe && vibe !== "custom_color" && (
+                <PromptWriterField
+                  label="Visual scene (optional)"
+                  prompt={visualPrompt}
+                  onChange={setVisualPrompt}
+                  stage={promptWriter.stage}
+                  error={promptWriter.error}
+                  onRewrite={writeVisualPrompt}
+                  placeholder="Describe the hook/CTA background scene, or leave blank and let SocioPosts write one from your topic and vibe"
+                />
+              )}
             </div>
           )}
         </div>
@@ -1171,9 +1221,9 @@ export function StorySequence({ brandId }: { brandId: string }) {
         )}
 
         <GenerationWarning isPending={loading} />
-        <button onClick={generate} disabled={loading}
+        <button onClick={generate} disabled={loading || promptWriter.stage === "writing"}
           className="flex w-full items-center justify-center gap-2 rounded-full bg-gradient-to-r from-violet-600 to-indigo-600 py-3 text-sm font-semibold text-white shadow-md transition hover:from-violet-700 hover:to-indigo-700 disabled:opacity-60">
-          {loading ? <><Loader2 className="h-4 w-4 animate-spin" /> Generating stories…</> : "✨ Generate stories"}
+          {loading ? <><Loader2 className="h-4 w-4 animate-spin" /> Generating stories…</> : promptWriter.stage === "writing" ? <><Loader2 className="h-4 w-4 animate-spin" /> Writing your visual prompt…</> : "✨ Generate stories"}
         </button>
 
         {!!apiError && <UsageLimitBanner error={apiError} onRetry={generate} />}

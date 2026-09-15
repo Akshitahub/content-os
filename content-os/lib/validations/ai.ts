@@ -224,6 +224,16 @@ export const generateAdMakerBackgroundSchema = z.object({
   // limit after base64 inflation -- same size policy as that route, just
   // expressed in base64 chars.
   productImageBase64: z.string().max(14_000_000, "Product image is too large").optional(),
+  // The SocioPosts-authored (and possibly user-edited) scene prompt from
+  // the new prompt-writing stage (see lib/ai/image-prompt-writer.ts) --
+  // replaces the scene preset's own hardcoded description as the creative
+  // core when present. Optional so an older, not-yet-updated client still
+  // works exactly as before with just scene/customScene.
+  customPrompt: z
+    .string()
+    .max(600, "Scene prompt must be under 600 characters")
+    .optional()
+    .transform((val) => val?.replace(/<[^>]*>/g, "").trim()),
 })
 
 export type GenerateAdMakerBackgroundInput = z.infer<typeof generateAdMakerBackgroundSchema>

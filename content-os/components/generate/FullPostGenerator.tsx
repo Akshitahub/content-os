@@ -14,6 +14,8 @@ import { resolveColorThemes } from "@/lib/design/color-themes"
 import { useGenerateFullPost, useGeneratePostImage } from "@/hooks/useGeneration"
 import { POST as POST_CREDIT_COST } from "@/lib/usage/credit-costs"
 import { useGenerationStore } from "@/stores/generationStore"
+import { usePromptWriter, type PromptWriterStage } from "@/hooks/usePromptWriter"
+import { PromptWriterField } from "@/components/generate/PromptWriterField"
 import { useBrand } from "@/hooks/useBrand"
 import type { FullPostResult, ContentResult } from "@/hooks/useGeneration"
 import type { ProductRow } from "@/types/database"
@@ -207,13 +209,23 @@ export function FullPostGenerator({ brandId, products }: Props) {
   const [postSessionId, setPostSessionId] = useState<string | null>(null)
   const abortControllerRef = useRef<AbortController | null>(null)
 
+  // The SocioPosts-authored (and possibly user-edited) image prompt --
+  // shown/editable in PostImagePreview's new "writing" branch below,
+  // instead of the image generating automatically the instant captions
+  // finish. pendingImageGen holds the FullPostResult/session an authored
+  // prompt is FOR, so handleConfirmGenerateImage below knows what to
+  // actually generate once the user clicks through.
+  const [aiImagePrompt, setAiImagePrompt] = useState("")
+  const promptWriter = usePromptWriter(setAiImagePrompt)
+  const [pendingImageGen, setPendingImageGen] = useState<{ data: FullPostResult; sessionId: string } | null>(null)
+
   // colorThemes only resolves once the brand has loaded — falls back to the
   // first available theme (always non-empty, curated presets included).
   const effectiveColorThemeId = selectedColorThemeId || colorThemes[0]?.id || ""
 
-  const runImageGeneration = useCallback((data: FullPostResult, sessionId: string) => {
+  const runImageGeneration = useCallback((data: FullPostResult, sessionId: string, imagePromptText: string) => {
     const caption = data.content.content as GeneratedCaption
-    const imagePrompt = (caption.image_prompt?.trim() || `${data.hook.hook_text}, ${brand?.niche ?? "brand"} product`).slice(0, 500)
+    const imagePrompt = imagePromptText.slice(0, 500)
     // Commit 3: captionText/fontId/textSizeScale are no longer sent here —
     // the image route always returns a clean, text-free background for
     // this tool now (see generatePostImage's own !willCompositeText
@@ -226,6 +238,11 @@ export function FullPostGenerator({ brandId, products }: Props) {
 
     setImageError(null)
     setFlattenedImageUrl(null)
+    // The prompt panel's job is done -- reset it to idle so
+    // PostImagePreview's writing/ready branch steps aside and the normal
+    // imageGenerating/postImageUrl/imageError branches render instead,
+    // whether this call succeeds or fails.
+    promptWriter.reset()
     generatePostImageMutate(
       {
         brandId,
@@ -250,12 +267,44 @@ export function FullPostGenerator({ brandId, products }: Props) {
         },
       }
     )
-  }, [brand, brandId, selectedProductId, selectedLayout, effectiveColorThemeId, aspectRatio, visualStyle, headlineOverlay, generatePostImageMutate])
+  }, [brandId, selectedProductId, selectedLayout, effectiveColorThemeId, aspectRatio, visualStyle, headlineOverlay, generatePostImageMutate, promptWriter])
+
+  // Kicks off the prompt-writing stage instead of generating the image
+  // immediately -- fired both right after a fresh caption generation
+  // succeeds and by "Regenerate image", so every image generation for this
+  // flow goes through SocioPosts' authoring step first, not straight to
+  // Flux. caption.image_prompt (the caption-generation LLM call's own
+  // scene suggestion) is passed through as the raw seed when present --
+  // it's already a real, message-grounded draft, just not previously
+  // shown to or editable by the user.
+  const beginImagePromptWriting = useCallback((data: FullPostResult, sessionId: string) => {
+    const caption = data.content.content as GeneratedCaption
+    setPendingImageGen({ data, sessionId })
+    setPostImageUrl(null)
+    setImageSource(null)
+    setImageError(null)
+    promptWriter.write({
+      flow: "post",
+      brandId,
+      productId: selectedProductId ?? undefined,
+      rawInput: caption.image_prompt?.trim() || null,
+      constraints: {
+        aspectRatioLabel: aspectRatio,
+        styleLabel: visualStyle,
+        hasProductReference: !!selectedProductId,
+      },
+    })
+  }, [brandId, selectedProductId, aspectRatio, visualStyle, promptWriter])
+
+  const handleConfirmGenerateImage = useCallback(() => {
+    if (!pendingImageGen || !aiImagePrompt.trim()) return
+    runImageGeneration(pendingImageGen.data, pendingImageGen.sessionId, aiImagePrompt.trim())
+  }, [pendingImageGen, aiImagePrompt, runImageGeneration])
 
   const handleRegenerateImage = useCallback(() => {
     if (!fullPostResult || !postSessionId) return
-    runImageGeneration(fullPostResult, postSessionId)
-  }, [fullPostResult, postSessionId, runImageGeneration])
+    beginImagePromptWriting(fullPostResult, postSessionId)
+  }, [fullPostResult, postSessionId, beginImagePromptWriting])
 
   // Caption editing — this result is still pre-save local/store state at
   // this point (the captions row this generation already wrote server-side
@@ -366,7 +415,7 @@ export function FullPostGenerator({ brandId, products }: Props) {
           setJustSaved(true)
           setTimeout(() => setJustSaved(false), 5000)
           if (data.postSessionId) {
-            runImageGeneration(data, data.postSessionId)
+            beginImagePromptWriting(data, data.postSessionId)
           } else {
             setImageError("Couldn't start image generation. Please try again.")
           }
@@ -577,6 +626,12 @@ export function FullPostGenerator({ brandId, products }: Props) {
             previewMode={previewMode}
             onPreviewModeChange={setPreviewMode}
             aspectRatio={aspectRatio}
+            promptStage={promptWriter.stage}
+            promptWriterError={promptWriter.error}
+            aiImagePrompt={aiImagePrompt}
+            onAiImagePromptChange={setAiImagePrompt}
+            onRewritePrompt={() => pendingImageGen && beginImagePromptWriting(pendingImageGen.data, pendingImageGen.sessionId)}
+            onConfirmGenerateImage={handleConfirmGenerateImage}
           />
         ) : (
           <div
@@ -863,6 +918,12 @@ function PostImagePreview({
   brandName,
   captionPreview,
   aspectRatio,
+  promptStage,
+  promptWriterError,
+  aiImagePrompt,
+  onAiImagePromptChange,
+  onRewritePrompt,
+  onConfirmGenerateImage,
 }: {
   postImageUrl: string | null
   alt: string
@@ -893,12 +954,46 @@ function PostImagePreview({
    * ratio being generated, so there's no layout jump when the real image
    * arrives. */
   aspectRatio: "4:5" | "1:1" | "9:16"
+  promptStage: PromptWriterStage
+  promptWriterError: string | null
+  aiImagePrompt: string
+  onAiImagePromptChange: (text: string) => void
+  onRewritePrompt: () => void
+  onConfirmGenerateImage: () => void
 }) {
   // Whether the scrim+textarea headline editor is showing because the user
   // explicitly clicked "+ Add headline", as opposed to it showing because
   // overlayText already has real content. Declared before the early
   // returns below per the Rules of Hooks.
   const [addingHeadline, setAddingHeadline] = useState(false)
+
+  // The image hasn't been generated yet -- SocioPosts is either still
+  // writing the prompt, or has finished and is waiting for the user to
+  // review/edit it and click through. Takes priority over imageGenerating/
+  // postImageUrl below since neither of those exist yet at this point.
+  if (promptStage === "writing" || promptStage === "ready" || promptStage === "error") {
+    return (
+      <div className="rounded-lg border bg-card p-4 space-y-3">
+        <PromptWriterField
+          label="AI image prompt"
+          prompt={aiImagePrompt}
+          onChange={onAiImagePromptChange}
+          stage={promptStage}
+          error={promptWriterError}
+          onRewrite={onRewritePrompt}
+          rows={3}
+        />
+        <button
+          type="button"
+          onClick={onConfirmGenerateImage}
+          disabled={promptStage === "writing" || !aiImagePrompt.trim()}
+          className="flex w-full items-center justify-center gap-2 rounded-full bg-violet-600 py-2.5 text-sm font-semibold text-white transition hover:bg-violet-700 disabled:opacity-50"
+        >
+          Generate image
+        </button>
+      </div>
+    )
+  }
 
   if (imageGenerating) {
     return (
@@ -1083,6 +1178,12 @@ function FullPostResults({
   previewMode,
   onPreviewModeChange,
   aspectRatio,
+  promptStage,
+  promptWriterError,
+  aiImagePrompt,
+  onAiImagePromptChange,
+  onRewritePrompt,
+  onConfirmGenerateImage,
 }: {
   result: FullPostResult
   copied: string | null
@@ -1102,6 +1203,12 @@ function FullPostResults({
   previewMode: "canvas" | "feed"
   onPreviewModeChange: (mode: "canvas" | "feed") => void
   aspectRatio: "4:5" | "1:1" | "9:16"
+  promptStage: PromptWriterStage
+  promptWriterError: string | null
+  aiImagePrompt: string
+  onAiImagePromptChange: (text: string) => void
+  onRewritePrompt: () => void
+  onConfirmGenerateImage: () => void
 }) {
   const scheduleCaption = getScheduleCaption(result)
 
@@ -1149,6 +1256,12 @@ function FullPostResults({
         brandName={brandName}
         captionPreview={scheduleCaption?.text ?? caption.caption_text ?? ""}
         aspectRatio={aspectRatio}
+        promptStage={promptStage}
+        promptWriterError={promptWriterError}
+        aiImagePrompt={aiImagePrompt}
+        onAiImagePromptChange={onAiImagePromptChange}
+        onRewritePrompt={onRewritePrompt}
+        onConfirmGenerateImage={onConfirmGenerateImage}
       />
 
       <HookSection hook={result.hook} copied={copied} onCopy={onCopy} />

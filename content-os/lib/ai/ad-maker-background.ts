@@ -55,6 +55,15 @@ export interface GenerateAdMakerBackgroundOptions {
    * assembled prompt onto the reference-aware REFERENCE_IMAGE_PEOPLE_GUARD/
    * wrapForReferenceImage path below, same as generatePostImage. */
   productImageUrl?: string | null
+  /** SocioPosts-authored (and possibly user-edited) scene prompt from the
+   * new prompt-writing stage (see lib/ai/image-prompt-writer.ts and
+   * AdMaker.tsx) -- replaces the scene preset's own hardcoded description
+   * as the creative core when present. All the guard/style scaffolding
+   * below (PHOTOGRAPHY_STYLE, people/quality/composition guards,
+   * reference-image wrapping) still applies exactly as before regardless
+   * of what this contains -- soft creative input, not a replacement for
+   * those code-enforced constraints. */
+  customPrompt?: string | null
 }
 
 /**
@@ -67,7 +76,7 @@ export interface GenerateAdMakerBackgroundOptions {
 export async function generateAdMakerBackground(
   options: GenerateAdMakerBackgroundOptions
 ): Promise<BackgroundImageResult> {
-  const sceneDesc = resolveSceneDescription(options.scene, options.customScene)
+  const sceneDesc = options.customPrompt?.trim() || resolveSceneDescription(options.scene, options.customScene)
   const niche = options.brandNiche || "lifestyle brand"
   const hasReferenceImage = !!options.productImageUrl
   const dimensions = FORMAT_DIMENSIONS[options.format] ?? FORMAT_DIMENSIONS.square

@@ -60,11 +60,12 @@ function resolveTextSafeZoneGuard(textPosition?: "top" | "center" | "bottom"): s
   return "leave generous calm negative space around the vertical center for a text overlay"
 }
 
-function buildStorySlidePrompt(niche: string | null, vibe: Vibe, colors: string[], productImageUrl?: string | null, textPosition?: "top" | "center" | "bottom"): string {
+function buildStorySlidePrompt(niche: string | null, vibe: Vibe, colors: string[], productImageUrl?: string | null, textPosition?: "top" | "center" | "bottom", customPrompt?: string): string {
   // Descriptive color names, not raw hex — diffusion models reliably follow
   // "a vibrant orange-red" but ignore "#FF5733" outright, confirmed via real
   // testing (see docs/research/seedream-5-lite-evaluation.md).
   const colorNames = colors.map(describeColor).filter((c): c is string => !!c).slice(0, 3)
+  const trimmedCustom = customPrompt?.trim()
 
   // A real uploaded product photo switches this from an abstract gradient
   // background to a genuine photorealistic scene with the product placed
@@ -75,6 +76,7 @@ function buildStorySlidePrompt(niche: string | null, vibe: Vibe, colors: string[
   // the way the abstract-only prompt below does.
   if (productImageUrl) {
     const sceneDescription = [
+      trimmedCustom,
       PHOTOGRAPHY_STYLE,
       REFERENCE_IMAGE_PEOPLE_GUARD,
       niche ? `${niche} brand` : "",
@@ -86,8 +88,15 @@ function buildStorySlidePrompt(niche: string | null, vibe: Vibe, colors: string[
     return wrapForReferenceImage(sceneDescription)
   }
 
+  // The SocioPosts-authored (and possibly user-edited) scene, when present,
+  // replaces the generic "abstract atmospheric vertical background..."
+  // opener as the creative core -- every guard after it (vibe style, color
+  // palette, and critically the hard "no text/words/letters" rule) still
+  // applies in code exactly as before regardless of what that opener says,
+  // for the same on-image-text-hallucination reason documented above this
+  // function.
   return [
-    "abstract atmospheric vertical background image for a full-screen phone story slide",
+    trimmedCustom || "abstract atmospheric vertical background image for a full-screen phone story slide",
     VIBE_BACKGROUND_STYLES[vibe],
     colorNames.length > 0 ? `color palette inspired by ${colorNames.join(" and ")}` : "",
     niche ? `evokes the mood of a ${niche} brand` : "",
@@ -99,17 +108,18 @@ function buildStorySlidePrompt(niche: string | null, vibe: Vibe, colors: string[
   ].filter(Boolean).join(", ")
 }
 
-function simplifyStorySlidePrompt(vibe: Vibe, productImageUrl?: string | null): string {
+function simplifyStorySlidePrompt(vibe: Vibe, productImageUrl?: string | null, customPrompt?: string): string {
+  const trimmedCustom = customPrompt?.trim()
   // Same shorter/simplified spirit as the abstract-only fallback below,
   // just reference-aware -- a retry with a real product photo attached
   // still needs to stay in the photorealistic reference-image path (see
   // buildStorySlidePrompt above), not fall back to an abstract gradient
   // that would drop the product from the scene entirely.
   if (productImageUrl) {
-    return wrapForReferenceImage([PHOTOGRAPHY_STYLE, REFERENCE_IMAGE_PEOPLE_GUARD, VIBE_BACKGROUND_STYLES[vibe]].join(", "))
+    return wrapForReferenceImage([trimmedCustom, PHOTOGRAPHY_STYLE, REFERENCE_IMAGE_PEOPLE_GUARD, VIBE_BACKGROUND_STYLES[vibe]].filter(Boolean).join(", "))
   }
   return [
-    "abstract atmospheric vertical gradient background",
+    trimmedCustom || "abstract atmospheric vertical gradient background",
     VIBE_BACKGROUND_STYLES[vibe],
     "no text, no words, no letters",
   ].join(", ")
@@ -139,6 +149,14 @@ export interface GenerateStorySlideBackgroundOptions {
    * photorealistic scene to keep calm for the text overlay (see
    * resolveTextSafeZoneGuard); has no effect on the abstract-only prompt. */
   textPosition?: "top" | "center" | "bottom"
+  /** SocioPosts-authored (and possibly user-edited) visual scene from the
+   * new prompt-writing stage (see lib/ai/image-prompt-writer.ts and
+   * StorySequence.tsx) -- replaces the generic abstract-background opener
+   * (or is prepended alongside PHOTOGRAPHY_STYLE on the reference-image
+   * path) as the creative core, but every guard in
+   * buildStorySlidePrompt/simplifyStorySlidePrompt below still applies
+   * exactly as before regardless of what this contains. */
+  customPrompt?: string
 }
 
 /**
@@ -160,8 +178,8 @@ export async function generateStorySlideBackground(
   const brandColors = resolveBrandColors(options.brand)
   const colors = brandColors.length > 0 ? brandColors : VIBE_FALLBACK_COLORS[vibe]
 
-  const prompt = buildStorySlidePrompt(options.brand.niche, vibe, colors, options.productImageUrl, options.textPosition)
-  const fallbackPrompt = simplifyStorySlidePrompt(vibe, options.productImageUrl)
+  const prompt = buildStorySlidePrompt(options.brand.niche, vibe, colors, options.productImageUrl, options.textPosition, options.customPrompt)
+  const fallbackPrompt = simplifyStorySlidePrompt(vibe, options.productImageUrl, options.customPrompt)
 
   return fetchBackgroundImage(prompt, fallbackPrompt, options.plan, options.isInternalUnlimitedUser, STORY_DIMENSIONS, options.productImageUrl)
 }

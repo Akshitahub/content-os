@@ -12,6 +12,8 @@ import { isApiError } from "@/types/api"
 import { ApiResponseError } from "@/hooks/useGeneration"
 import { ScheduleAction } from "@/components/shared/ScheduleAction"
 import { AD_MAKER as AD_MAKER_CREDIT_COST } from "@/lib/usage/credit-costs"
+import { usePromptWriter } from "@/hooks/usePromptWriter"
+import { PromptWriterField } from "@/components/generate/PromptWriterField"
 import type { ProductRow } from "@/types/database"
 
 // ─── Scene definitions ─────────────────────────────────────────────────────
@@ -246,6 +248,12 @@ export function AdMaker({ brandId, products }: AdMakerProps) {
   const [customScene, setCustomScene] = useState("")
   const [format, setFormat] = useState<ImageFormat>("square")
 
+  // Step 3 -- AI scene prompt, authored by SocioPosts before Flux ever
+  // runs (see usePromptWriter). Shared across all 3 variations, same as
+  // scene/customScene already were.
+  const [adPrompt, setAdPrompt] = useState("")
+  const promptWriter = usePromptWriter(setAdPrompt)
+
   // Step 3
   const [hookText, setHookText] = useState("")
   const [showText, setShowText] = useState(true)
@@ -317,6 +325,34 @@ export function AdMaker({ brandId, products }: AdMakerProps) {
       } catch {}
     }
   }, [productDataUrl, scene, results.length, STORAGE_KEY])
+
+  function writeAdPrompt() {
+    promptWriter.write({
+      flow: "ad_maker",
+      brandId,
+      rawInput: scene === "custom" ? (customScene.trim() || null) : null,
+      constraints: {
+        styleLabel: scene === "custom" ? undefined : SCENES.find((s) => s.id === scene)?.name,
+        aspectRatioLabel: format,
+        hasProductReference: !!productDataUrl,
+      },
+    })
+  }
+
+  // Authors the shared AI scene prompt as soon as step 3 is reached, so the
+  // user watches SocioPosts write it (see PromptWriterField below) instead
+  // of it going straight to Flux -- re-fires every time step 3 is
+  // (re-)entered, reflecting whatever scene/format was picked most
+  // recently. Resets back to idle when leaving step 3 so returning later
+  // always starts from a fresh write rather than a stale one.
+  useEffect(() => {
+    if (step === 3) {
+      writeAdPrompt()
+    } else {
+      promptWriter.reset()
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step])
 
   // Shared by all three upload paths — file browse, drag-drop, and
   // clipboard paste — so validation/preview-setting logic lives in exactly
@@ -453,6 +489,14 @@ export function AdMaker({ brandId, products }: AdMakerProps) {
 
   async function handleGenerate() {
     if (!productDataUrl) return
+    if (promptWriter.stage === "writing") return
+    // Defensive fallback -- the useEffect above already fires this the
+    // moment step 3 is reached, so this only actually runs if that hasn't
+    // resolved yet for some reason (e.g. the field was cleared by hand).
+    if (promptWriter.stage === "idle" || !adPrompt.trim()) {
+      writeAdPrompt()
+      return
+    }
     setGenerating(true)
     setGenError(null)
     setResults([])
@@ -469,7 +513,7 @@ export function AdMaker({ brandId, products }: AdMakerProps) {
       const chargeRes = await fetch(`/api/v1/brands/${brandId}/ai/ad-maker/generate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ scene, customScene, format, productImageBase64: productDataUrl }),
+        body: JSON.stringify({ scene, customScene, format, productImageBase64: productDataUrl, customPrompt: adPrompt.trim() || undefined }),
       })
       const chargeJson: unknown = await chargeRes.json()
       if (!chargeRes.ok || isApiError(chargeJson)) {
@@ -795,12 +839,22 @@ export function AdMaker({ brandId, products }: AdMakerProps) {
             </>
           )}
 
+          <PromptWriterField
+            label="AI scene prompt"
+            prompt={adPrompt}
+            onChange={setAdPrompt}
+            stage={promptWriter.stage}
+            error={promptWriter.error}
+            onRewrite={writeAdPrompt}
+          />
+
           {!!genError && <UsageLimitBanner error={genError} onRetry={handleGenerate} />}
 
           <GenerationWarning isPending={generating} />
           <button onClick={handleGenerate}
-            className="flex w-full items-center justify-center gap-2 rounded-full bg-gradient-to-r from-violet-600 to-indigo-600 py-3 text-sm font-semibold text-white shadow-md transition hover:from-violet-700 hover:to-indigo-700">
-            ✨ Create my ad
+            disabled={promptWriter.stage === "writing"}
+            className="flex w-full items-center justify-center gap-2 rounded-full bg-gradient-to-r from-violet-600 to-indigo-600 py-3 text-sm font-semibold text-white shadow-md transition hover:from-violet-700 hover:to-indigo-700 disabled:opacity-60">
+            {promptWriter.stage === "writing" ? <><Loader2 className="h-4 w-4 animate-spin" /> Writing your prompt…</> : <>✨ Create my ad</>}
           </button>
         </div>
       )}

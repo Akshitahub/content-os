@@ -18,6 +18,14 @@ const schema = z.object({
   role: z.enum(["hook", "cta", "body"]),
   productImageUrl: z.string().url().optional(),
   slideType: z.enum(["cover", "content", "cta"]).optional(),
+  // SocioPosts-authored (and possibly user-edited) visual scene from the
+  // new prompt-writing stage -- see lib/ai/carousel-slide-background.ts's
+  // GenerateCarouselSlideBackgroundOptions.customPrompt.
+  customPrompt: z
+    .string()
+    .max(600, "Visual scene must be under 600 characters")
+    .optional()
+    .transform((val) => val?.replace(/<[^>]*>/g, "").trim()),
 })
 
 // Chains up to 2 sequential Flux calls (first attempt + retry) inside
@@ -60,7 +68,7 @@ export async function POST(request: Request) {
   const parsed = schema.safeParse(body)
   if (!parsed.success) return NextResponse.json(buildError(ErrorCodes.VALIDATION_ERROR, "Validation failed.", parsed.error.message), { status: 400 })
 
-  const { brandId, vibe, role, productImageUrl, slideType } = parsed.data
+  const { brandId, vibe, role, productImageUrl, slideType, customPrompt } = parsed.data
 
   const { data: brand } = await supabase.from("brands").select("*").eq("id", brandId).eq("user_id", user.id).single<BrandRow>()
   if (!brand) return NextResponse.json(buildError(ErrorCodes.BRAND_NOT_FOUND, "Brand not found."), { status: 404 })
@@ -108,6 +116,7 @@ export async function POST(request: Request) {
     role,
     productImageUrl,
     slideType,
+    customPrompt,
   })
   const latencyMs = Date.now() - startTime
 

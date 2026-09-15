@@ -13,6 +13,8 @@ import { TopicSuggestButton } from "@/components/shared/TopicSuggestButton"
 import { isApiError } from "@/types/api"
 import { ApiResponseError } from "@/hooks/useGeneration"
 import { useGenerationStore } from "@/stores/generationStore"
+import { usePromptWriter } from "@/hooks/usePromptWriter"
+import { PromptWriterField } from "@/components/generate/PromptWriterField"
 import { CAROUSEL as CAROUSEL_CREDIT_COST, CAROUSEL_SLIDE_AI_BACKGROUND } from "@/lib/usage/credit-costs"
 import { CAROUSEL_BG_STYLES, type CarouselBackgroundStyle } from "@/lib/design/carousel-slide-styles"
 import { cssBackgroundFromColors, ColorWheelPicker } from "@/components/shared/ColorWheelPicker"
@@ -206,7 +208,8 @@ async function fetchSlideBackgroundResult(
   vibe: Vibe | undefined,
   role: "hook" | "cta" | "body",
   productImageUrl?: string | null,
-  slideType?: SlideType
+  slideType?: SlideType,
+  customPrompt?: string
 ): Promise<SlideBackgroundResult> {
   try {
     const res = await fetch("/api/v1/ai/carousel/slide-image/generate", {
@@ -214,7 +217,7 @@ async function fetchSlideBackgroundResult(
       headers: { "Content-Type": "application/json" },
       // Converts a null productImageUrl (no product selected) to
       // undefined so JSON.stringify omits the key entirely.
-      body: JSON.stringify({ brandId, vibe, role, productImageUrl: productImageUrl ?? undefined, slideType }),
+      body: JSON.stringify({ brandId, vibe, role, productImageUrl: productImageUrl ?? undefined, slideType, customPrompt: customPrompt || undefined }),
     })
     if (res.status === 429) return { error: "insufficient_credits" }
     if (!res.ok) return { error: "failed" }
@@ -237,9 +240,10 @@ async function fetchSlideBackground(
   vibe: Vibe | undefined,
   role: "hook" | "cta",
   productImageUrl?: string | null,
-  slideType?: SlideType
+  slideType?: SlideType,
+  customPrompt?: string
 ): Promise<{ url: string; provider?: "flux" } | null> {
-  const result = await fetchSlideBackgroundResult(brandId, vibe, role, productImageUrl, slideType)
+  const result = await fetchSlideBackgroundResult(brandId, vibe, role, productImageUrl, slideType, customPrompt)
   return "url" in result ? { url: result.url, provider: result.provider } : null
 }
 
@@ -650,6 +654,12 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
   // customColors prop and CarouselSlideRich.custom_background_colors.
   const [customColors, setCustomColors] = useState<string[]>([])
   const [showCustomize, setShowCustomize] = useState(false)
+  // SocioPosts-authored (and possibly user-edited) visual scene prompt for
+  // this carousel's hook/cta/body backgrounds -- shared across every slide
+  // the same way vibe already is. See usePromptWriter and generate()'s own
+  // write-then-confirm gate below.
+  const [visualPrompt, setVisualPrompt] = useState("")
+  const promptWriter = usePromptWriter(setVisualPrompt)
   // Extends the hook/CTA-only AI background to every content slide too --
   // opt-in since, unlike hook/cta, each one spends real credits (see
   // CAROUSEL_SLIDE_AI_BACKGROUND). Only meaningful alongside a real vibe
@@ -807,8 +817,38 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
       })
   }, [pendingProductId, brandId, setPendingProductId])
 
+  function writeVisualPrompt() {
+    setShowCustomize(true)
+    promptWriter.write({
+      flow: "carousel",
+      brandId,
+      product: selectedProduct ? { name: selectedProduct.name, description: selectedProduct.description } : undefined,
+      rawInput: visualPrompt.trim() || null,
+      constraints: {
+        styleLabel: vibe && vibe !== "custom_color" ? vibe : undefined,
+        hasProductReference: !!productImage,
+      },
+    })
+  }
+
   async function generate() {
     if (!topic.trim()) { setError("Please enter a topic for your carousel."); return }
+    // "custom_color" is a client-only rendering mode that skips AI image
+    // generation entirely, so there's nothing for SocioPosts to author a
+    // visual prompt for in that mode -- the write-then-confirm gate below
+    // only applies otherwise. Declared before the write gate (unlike the
+    // rest of this function's setup) so a real vibe's first "Generate
+    // carousel" click authors the prompt and pauses for review/edit before
+    // the actual text+image generation call fires below, same pattern as
+    // every other image-generation flow now goes through.
+    const isCustomColorMode = vibe === "custom_color"
+    if (!isCustomColorMode) {
+      if (promptWriter.stage === "writing") return
+      if (promptWriter.stage === "idle" || !visualPrompt.trim()) {
+        writeVisualPrompt()
+        return
+      }
+    }
     const hadPrevCarousel = carousel !== null
     prevCarouselRef.current = carousel
     setLoading(true)
@@ -817,11 +857,6 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
     setShowStaleCue(false)
     setCarousel(null)
     setActiveSlide(0)
-    // "custom_color" is a client-only rendering mode, never a real vibe
-    // the text-generation prompt should see (it would show up as the
-    // nonsensical "Visual Vibe: custom_color" line) -- omitted from the
-    // request entirely in that case rather than sent literally.
-    const isCustomColorMode = vibe === "custom_color"
     try {
       const res = await fetch("/api/v1/ai/carousel/generate", {
         method: "POST",
@@ -878,10 +913,10 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
           // productImageUrl before it reaches the request body.
           const [hookResult, ctaResult] = await Promise.all([
             hookSlide
-              ? fetchSlideBackground(brandId, vibe, "hook", productImage ?? undefined, productImage ? "cover" : undefined)
+              ? fetchSlideBackground(brandId, vibe, "hook", productImage ?? undefined, productImage ? "cover" : undefined, visualPrompt)
               : Promise.resolve(null),
             hasCtaSlide
-              ? fetchSlideBackground(brandId, vibe, "cta", productImage ?? undefined, productImage ? "cta" : undefined)
+              ? fetchSlideBackground(brandId, vibe, "cta", productImage ?? undefined, productImage ? "cta" : undefined, visualPrompt)
               : Promise.resolve(null),
           ])
           const hookBg = hookResult?.url ?? null
@@ -904,7 +939,8 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
               vibe,
               "body",
               productImage ?? undefined,
-              productImage ? "content" : undefined
+              productImage ? "content" : undefined,
+              visualPrompt
             )
             if ("url" in result) {
               bodyUpdates[bodyIndices[n]!] = { url: result.url, provider: result.provider }
@@ -1073,15 +1109,28 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
                 {showCustomize ? "Hide options" : "Customize (optional)"}
               </button>
               {showCustomize && (
-                <div className="space-y-1.5 pt-1">
-                  <label className="text-xs font-medium">Vibe</label>
-                  <VibePicker
-                    selected={vibe}
-                    onSelect={setVibe}
-                    compact
-                    customColors={customColors}
-                    onCustomColorsChange={setCustomColors}
-                  />
+                <div className="space-y-3 pt-1">
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium">Vibe</label>
+                    <VibePicker
+                      selected={vibe}
+                      onSelect={setVibe}
+                      compact
+                      customColors={customColors}
+                      onCustomColorsChange={setCustomColors}
+                    />
+                  </div>
+                  {vibe && vibe !== "custom_color" && (
+                    <PromptWriterField
+                      label="Visual scene (optional)"
+                      prompt={visualPrompt}
+                      onChange={setVisualPrompt}
+                      stage={promptWriter.stage}
+                      error={promptWriter.error}
+                      onRewrite={writeVisualPrompt}
+                      placeholder="Describe the hook/CTA background scene, or leave blank and let SocioPosts write one from your topic and vibe"
+                    />
+                  )}
                 </div>
               )}
             </div>
@@ -1122,10 +1171,10 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
             <GenerationWarning isPending={loading} />
             <button
               onClick={generate}
-              disabled={loading}
+              disabled={loading || promptWriter.stage === "writing"}
               className="flex w-full items-center justify-center gap-2 rounded-full bg-gradient-to-r from-violet-600 to-indigo-600 py-3 text-sm font-semibold text-white shadow-md transition hover:from-violet-700 hover:to-indigo-700 disabled:opacity-60"
             >
-              {loading ? <><Loader2 className="h-4 w-4 animate-spin" /> Generating…</> : "✨ Generate carousel"}
+              {loading ? <><Loader2 className="h-4 w-4 animate-spin" /> Generating…</> : promptWriter.stage === "writing" ? <><Loader2 className="h-4 w-4 animate-spin" /> Writing your visual prompt…</> : "✨ Generate carousel"}
             </button>
 
             {!!apiError && <UsageLimitBanner error={apiError} onRetry={generate} />}
