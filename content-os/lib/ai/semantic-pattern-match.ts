@@ -13,7 +13,13 @@ function formatGroup(label: string, items: RatedItem[]): string {
   return `${label}:\n${lines}`
 }
 
-function buildUserPrompt(newText: string, wellRated: RatedItem[], poorlyRated: RatedItem[], neutral: RatedItem[]): string {
+function formatFeedbackNotes(notes: string[]): string {
+  if (notes.length === 0) return ""
+  const lines = notes.map((n, i) => `${i + 1}. "${n}"`).join("\n")
+  return `This brand has previously flagged these specific issues with past drafts:\n${lines}`
+}
+
+function buildUserPrompt(newText: string, wellRated: RatedItem[], poorlyRated: RatedItem[], neutral: RatedItem[], feedbackNotes: string[]): string {
   // Neutral-only history (nothing rated clearly well or poorly yet) still
   // gives Groq real material to compare against, rather than sending it
   // nothing at all -- only used as a fallback when there's no well/poorly
@@ -24,14 +30,23 @@ function buildUserPrompt(newText: string, wellRated: RatedItem[], poorlyRated: R
     formatGroup("Captions this brand has rated well before (4-5 stars)", wellRated),
     formatGroup("Captions this brand has rated poorly before (1-2 stars)", poorlyRated),
     useNeutralFallback ? formatGroup("This brand's past captions (no strong rating signal yet)", neutral) : "",
+    formatFeedbackNotes(feedbackNotes),
   ].filter(Boolean).join("\n\n")
+
+  // Only added when there's actually something to check -- with an empty
+  // feedbackNotes array (the common case today, see lib/ai/feedback-notes.ts's
+  // own comment on why) this is "", so the prompt is byte-identical to
+  // before feedback notes existed.
+  const feedbackInstruction = feedbackNotes.length > 0
+    ? " Also check whether the new draft repeats any of the specifically-flagged issues listed above -- if it does, say which one and why, explicitly."
+    : ""
 
   return `New draft caption:
 "${newText}"
 
 ${sections}
 
-Does the new draft repeat a theme, angle, or hook style already used above? If so, say which one and how, referencing that one specific past example in plain language. If it's covering similar ground to something that scored POORLY before, say that explicitly as a caution. If it looks like a genuinely new angle for this brand, say that instead. Respond in 1-2 short sentences, plain language, no bullet points, no preamble, no markdown.`
+Does the new draft repeat a theme, angle, or hook style already used above? If so, say which one and how, referencing that one specific past example in plain language. If it's covering similar ground to something that scored POORLY before, say that explicitly as a caution.${feedbackInstruction} If it looks like a genuinely new angle for this brand, say that instead. Respond in 1-2 short sentences, plain language, no bullet points, no preamble, no markdown.`
 }
 
 const SYSTEM_PROMPT = "You are a sharp, honest content strategist reviewing a brand's caption history for repetition. You compare a new draft against the brand's own past captions (with their ratings) and call out real overlaps or genuine novelty -- concise and specific, never vague or generic."
@@ -47,13 +62,22 @@ const SYSTEM_PROMPT = "You are a sharp, honest content strategist reviewing a br
  * per generation, not one per past item -- the whole rated history goes
  * into a single prompt.
  *
+ * `feedbackNotes` (optional, defaults to []) is the brand's own explicit
+ * "what didn't work" text from content_feedback_notes (see
+ * lib/ai/feedback-notes.ts's getRecurringFeedbackNotes) -- real complaints,
+ * not just a low number. When non-empty, Groq is also asked to check
+ * whether the new draft repeats one of those specifically-flagged issues.
+ * An empty array (the common case for a while -- see feedback-notes.ts's
+ * own comment) adds nothing to the prompt, identical to before this
+ * parameter existed.
+ *
  * Fails soft, same non-blocking spirit as the sync version's "not enough
  * history" case: any Groq failure or timeout returns null (no pattern
  * note) rather than throwing, since this is a soft creative aside on top
  * of an already-successful caption generation, never something worth
  * blocking or retrying the real response for.
  */
-export async function buildSemanticPatternNote(newText: string, rated: RatedItem[]): Promise<string | null> {
+export async function buildSemanticPatternNote(newText: string, rated: RatedItem[], feedbackNotes: string[] = []): Promise<string | null> {
   if (rated.length < 3) return null
 
   const wellRated = rated.filter((r) => r.rating >= 4)
@@ -75,7 +99,7 @@ export async function buildSemanticPatternNote(newText: string, rated: RatedItem
         max_tokens: 500,
         messages: [
           { role: "system", content: SYSTEM_PROMPT },
-          { role: "user", content: buildUserPrompt(newText, wellRated, poorlyRated, neutral) },
+          { role: "user", content: buildUserPrompt(newText, wellRated, poorlyRated, neutral, feedbackNotes) },
         ],
       },
       // This runs after the caption itself already generated and saved

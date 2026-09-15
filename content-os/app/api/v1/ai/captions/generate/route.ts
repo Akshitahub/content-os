@@ -10,6 +10,7 @@ import { HOOK_OR_CAPTION } from "@/lib/usage/credit-costs"
 const FEATURE = "captions"
 import { buildSemanticPatternNote } from "@/lib/ai/semantic-pattern-match"
 import { resolveCaptionEngagementRatings } from "@/lib/ai/engagement-ratings"
+import { getRecurringFeedbackNotes } from "@/lib/ai/feedback-notes"
 import type { BrandRow, ProductRow } from "@/types/database"
 
 export async function POST(request: Request) {
@@ -124,8 +125,11 @@ export async function POST(request: Request) {
     latency_ms: latencyMs, success: true,
   })
 
-  const ratedItemsWithEngagement = await resolveCaptionEngagementRatings(supabase, allRatedCaptions ?? [])
-  const patternNote = await buildSemanticPatternNote(result.caption.caption_text, ratedItemsWithEngagement)
+  const [ratedItemsWithEngagement, feedbackNotes] = await Promise.all([
+    resolveCaptionEngagementRatings(supabase, allRatedCaptions ?? []),
+    getRecurringFeedbackNotes(supabase, brandId, "caption"),
+  ])
+  const patternNote = await buildSemanticPatternNote(result.caption.caption_text, ratedItemsWithEngagement, feedbackNotes)
 
   return NextResponse.json({ data: { ...result.caption, id: savedCaption?.id ?? null, pattern_note: patternNote } }, { status: 200 })
 }
