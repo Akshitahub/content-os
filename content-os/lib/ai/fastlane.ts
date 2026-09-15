@@ -14,6 +14,7 @@ import { renderCarouselSlidesToPng } from "@/lib/image/carousel-compositor"
 import { uploadMediaToStorage } from "@/lib/storage/upload-media"
 import { createAdminClient } from "@/lib/supabase/server"
 import { CONTENT_MIX, buildContentMix } from "@/lib/ai/autopilot-content-mix"
+import { findContentQualityIssues, sanitizeLeakedArtifacts } from "@/lib/ai/content-quality-check"
 import type { BrandRow, ProductRow, CalendarEntryRow, Json } from "@/types/database"
 import type { ContentStrategy, ContentSlot, FastlaneResult, Platform, ReelScene, UserPlan } from "@/types/app"
 import type { SupabaseClient } from "@supabase/supabase-js"
@@ -33,6 +34,53 @@ const IMAGE_BUCKET = "brand-images"
 // app/api/v1/calendar/schedule-post/route.ts — Instagram's own minimum for
 // a carousel post.
 const MIN_CAROUSEL_SLIDES = 2
+
+// CONFIRMED bug: the regex fallback below used to extract each field with
+// e.g. `/"caption"\s*:\s*"([^"]*)"/` (or, for "caption" specifically, a
+// `[\s\S]*?` non-greedy variant) — neither accounts for a JSON-escaped
+// quote (`\"`) inside the real value. `[^"]*` stops dead at the FIRST `"`
+// it sees, escaped or not, silently truncating any field whose generated
+// text contains a literal quote character (a quoted phrase, an inch/foot
+// mark, a product name in quotes) at that exact point — a real, provable
+// truncation bug, not a hypothetical one, and one that only ever fired
+// through this fallback path (i.e. only when the primary JSON.parse below
+// already failed), which is exactly the "sometimes" pattern intermittent
+// corruption reports describe. Finds the value the same way a real JSON
+// parser would: scan forward from the opening quote, treating `\\` as an
+// escape for the next character, and stop at the first quote that ISN'T
+// escaped -- then hand the exact matched `"..."` (with its escapes intact)
+// to JSON.parse so \n/\"/\\/\uXXXX all decode correctly, instead of the
+// old bare regex capture group's raw, still-escaped text.
+function extractJsonStringValue(json: string, key: string): string | null {
+  const keyPattern = new RegExp(`"${key}"\\s*:\\s*"`)
+  const startMatch = keyPattern.exec(json)
+  if (!startMatch) return null
+  let i = startMatch.index + startMatch[0].length
+  let escaped = false
+  const chars: string[] = []
+  for (; i < json.length; i++) {
+    const c = json[i]!
+    if (escaped) {
+      chars.push(c)
+      escaped = false
+      continue
+    }
+    if (c === "\\") {
+      chars.push(c)
+      escaped = true
+      continue
+    }
+    if (c === "\"") break
+    chars.push(c)
+  }
+  try {
+    return JSON.parse(`"${chars.join("")}"`) as string
+  } catch {
+    // Malformed escape sequence even within our own scan -- fall back to
+    // the raw (still-escaped) text rather than losing the field entirely.
+    return chars.join("")
+  }
+}
 
 function sanitizeJsonString(raw: string): string {
   return raw
@@ -380,6 +428,35 @@ export async function generateContentStrategy(brand: BrandRow, products: Product
   return parsed
 }
 
+// Lightweight sanity pass over every real text field this generator
+// produces, before it's persisted -- see lib/ai/content-quality-check.ts
+// for what this catches (leaked "✓"/"✗" formatting markers, unfilled
+// "[Placeholder]" brackets, raw template expressions, a stray unattached
+// "x"). Autopilot has no per-slot validate-and-retry loop (re-running an
+// entire day's content over one bad word in one field would be a much
+// heavier fix than the problem warrants, and this whole function already
+// has its own JSON.parse-then-regex-fallback tier), so this is a
+// mechanical fix-in-place, logged loudly whenever it actually changes
+// something.
+function sanitizeSlotContent(content: SlotContent): SlotContent {
+  const fix = (value: string): string => {
+    if (findContentQualityIssues(value).length === 0) return value
+    const cleaned = sanitizeLeakedArtifacts(value)
+    console.error(`[fastlane] stripped leaked artifact(s) from generated text: ${JSON.stringify(value)} -> ${JSON.stringify(cleaned)}`)
+    return cleaned
+  }
+  return {
+    ...content,
+    title: fix(content.title),
+    hook: fix(content.hook),
+    caption: fix(content.caption),
+    visual_direction: fix(content.visual_direction),
+    audio_suggestion: fix(content.audio_suggestion),
+    call_to_action: fix(content.call_to_action),
+    slides: content.slides?.map((s) => ({ ...s, headline: fix(s.headline), body: fix(s.body) })),
+  }
+}
+
 async function generateSlotContent(
   brand: BrandRow,
   slot: ContentSlot,
@@ -429,15 +506,13 @@ async function generateSlotContent(
     if (isReel && parsed.scenes !== undefined && !Array.isArray(parsed.scenes)) {
       parsed.scenes = []
     }
-    return parsed
+    return sanitizeSlotContent(parsed)
   } catch {
-    // Regex fallback for malformed JSON
-    const titleMatch = cleaned.match(/"title"\s*:\s*"([^"]*)"/)
-    const hookMatch = cleaned.match(/"hook"\s*:\s*"([^"]*)"/)
-    const captionMatch = cleaned.match(/"caption"\s*:\s*"([\s\S]*?)"(?:\s*,|\s*\})/)
-    const visualMatch = cleaned.match(/"visual_direction"\s*:\s*"([^"]*)"/)
-    const audioMatch = cleaned.match(/"audio_suggestion"\s*:\s*"([^"]*)"/)
-    const ctaMatch = cleaned.match(/"call_to_action"\s*:\s*"([^"]*)"/)
+    // Regex fallback for malformed JSON -- see extractJsonStringValue's own
+    // comment for why this no longer uses a bare `[^"]*`-style capture
+    // group (that silently truncated any field containing a literal quote
+    // character).
+    const caption = extractJsonStringValue(cleaned, "caption")
 
     let hashtags: string[] = []
     const hashtagsMatch = cleaned.match(/"hashtags"\s*:\s*\[([^\]]*)\]/)
@@ -448,17 +523,20 @@ async function generateSlotContent(
         .filter(Boolean)
     }
 
-    return {
-      title: titleMatch?.[1] ?? slot.theme,
-      hook: hookMatch?.[1] ?? `${slot.theme} — you need to see this`,
-      caption: captionMatch?.[1]?.replace(/\\n/g, " ") ?? `${brand.name} brings you ${slot.theme}.`,
+    return sanitizeSlotContent({
+      title: extractJsonStringValue(cleaned, "title") ?? slot.theme,
+      hook: extractJsonStringValue(cleaned, "hook") ?? `${slot.theme} — you need to see this`,
+      // extractJsonStringValue already ran the matched text through
+      // JSON.parse, so a real newline character (not the literal two-byte
+      // "\n" escape the old code matched) is what needs flattening here.
+      caption: caption?.replace(/\n/g, " ") ?? `${brand.name} brings you ${slot.theme}.`,
       hashtags,
-      visual_direction: visualMatch?.[1] ?? "",
-      audio_suggestion: audioMatch?.[1] ?? "",
-      call_to_action: ctaMatch?.[1] ?? "",
+      visual_direction: extractJsonStringValue(cleaned, "visual_direction") ?? "",
+      audio_suggestion: extractJsonStringValue(cleaned, "audio_suggestion") ?? "",
+      call_to_action: extractJsonStringValue(cleaned, "call_to_action") ?? "",
       slides: [],
       scenes: [],
-    }
+    })
   }
 }
 

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import { MODELS, getGroqClient } from "@/lib/ai/models"
 import { buildError, ErrorCodes } from "@/types/api"
+import { findContentQualityIssues, sanitizeLeakedArtifacts } from "@/lib/ai/content-quality-check"
 import { z } from "zod"
 import type { BrandRow } from "@/types/database"
 
@@ -110,9 +111,21 @@ Return this exact JSON:
       visual_direction?: string
     }
 
+    // Lightweight sanity pass -- see lib/ai/content-quality-check.ts for
+    // what this catches (leaked "✓"/"✗" formatting markers, unfilled
+    // "[Placeholder]" brackets, raw template expressions, a stray
+    // unattached "x"). Mechanical fix-in-place, same reasoning as every
+    // other generator in this codebase's identical helper.
+    const fix = (value: string, label: string): string => {
+      if (!value || findContentQualityIssues(value).length === 0) return value
+      const cleaned = sanitizeLeakedArtifacts(value)
+      console.error(`[generate-occasion-content] stripped leaked artifact(s) from generated ${label}: ${JSON.stringify(value)} -> ${JSON.stringify(cleaned)}`)
+      return cleaned
+    }
+
     generated = {
-      hook: aiParsed.hook ?? "",
-      caption: aiParsed.caption ?? "",
+      hook: fix(aiParsed.hook ?? "", "hook"),
+      caption: fix(aiParsed.caption ?? "", "caption"),
       hashtags: Array.isArray(aiParsed.hashtags) ? aiParsed.hashtags : [],
       visual_direction: aiParsed.visual_direction ?? "",
     }

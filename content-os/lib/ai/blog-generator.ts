@@ -2,6 +2,7 @@ import type { BrandRow, ProductRow } from "@/types/database"
 import type { BlogPost } from "@/types/app"
 import { buildBlogArticleSystemPrompt, buildBlogArticleUserPrompt } from "./prompts"
 import { MODELS, getGroqClient } from "./models"
+import { findContentQualityIssues, sanitizeLeakedArtifacts } from "./content-quality-check"
 
 function sanitizeJsonString(raw: string): string {
   return raw
@@ -67,6 +68,18 @@ export async function generateBlogPost(
 
   if (!Array.isArray(parsed.suggested_tags)) {
     parsed.suggested_tags = []
+  }
+
+  // Lightweight sanity pass -- see lib/ai/content-quality-check.ts.
+  // Mechanical fix-in-place rather than a second Groq call: a full 800+
+  // word article is expensive to regenerate over one stray artifact.
+  for (const field of ["title", "body"] as const) {
+    const value = parsed[field]
+    if (findContentQualityIssues(value).length > 0) {
+      const cleaned = sanitizeLeakedArtifacts(value)
+      console.error(`[blog-generator] stripped leaked artifact(s) from generated ${field}: ${JSON.stringify(value)} -> ${JSON.stringify(cleaned)}`)
+      parsed[field] = cleaned
+    }
   }
 
   return { post: parsed, model, usage: response.usage ?? undefined }

@@ -5,6 +5,7 @@ import { MODELS, getGroqClient } from "@/lib/ai/models"
 import { checkAndIncrementUsage, refundGenerationUsage } from "@/lib/usage/check-and-increment-usage"
 import { CAROUSEL } from "@/lib/usage/credit-costs"
 import { buildPastExamplesBlock, QUALITY_BAR } from "@/lib/ai/prompts"
+import { findContentQualityIssues, sanitizeLeakedArtifacts } from "@/lib/ai/content-quality-check"
 import { z } from "zod"
 import type { BrandRow } from "@/types/database"
 import type { CarouselBackgroundStyle } from "@/lib/design/carousel-slide-styles"
@@ -112,12 +113,12 @@ BACKGROUND STYLES (rotate through these, DO NOT repeat same style twice in a row
 COVER HOOK GUIDANCE — cover_hook is what actually gets used as the Instagram caption when this carousel is scheduled, so it carries the same weight as a real caption hook. Make it SPECIFIC to this brand/topic, never a generic template line.
 
 GOOD cover hooks (study these):
-✓ "Your skin is lying to you."
-✓ "Nobody talks about this beauty mistake."
+GOOD: "Your skin is lying to you."
+GOOD: "Nobody talks about this beauty mistake."
 
 BAD cover hooks (never write these):
-✗ "Swipe to learn more!"
-✗ "5 tips you need to know"
+BAD: "Swipe to learn more!"
+BAD: "5 tips you need to know"
 
 HASHTAG STRATEGY — 5+5+5 RULE for the "hashtags" field:
 - 5 niche-specific (medium competition, 100K–2M posts): e.g. #SkincareRoutine, #CleanBeautyIndia
@@ -170,7 +171,7 @@ Respond with ONLY this JSON (no markdown, no explanation):
   "cta_slide": {
     "headline": "Strong CTA headline",
     "cta": "Follow for more tips like this",
-    "handle": "@${brand.instagram_handle ?? brand.name.toLowerCase().replace(/\s/g, "")}"
+    "handle": "@yourhandle"
   },
   "hashtags": ["niche1", "niche2", "niche3", "niche4", "niche5", "brand1", "brand2", "brand3", "brand4", "brand5", "broad1", "broad2", "broad3", "broad4", "broad5"]
 }
@@ -202,9 +203,19 @@ Make every slide punchy, valuable, and shareable. The cover must stop the scroll
 // moment it was first generated, not just on a later reload. Now copies
 // all three fields, mirroring CarouselBuilder.tsx's identical client-side
 // withCtaSlideMerged() fix.
-function mergeCtaSlideIntoSlides(slides: unknown[], ctaSlide: unknown): unknown[] {
+function mergeCtaSlideIntoSlides(slides: unknown[], ctaSlide: unknown, realHandle?: string): unknown[] {
   if (!ctaSlide || typeof ctaSlide !== "object") return slides
   const cta = ctaSlide as { headline?: unknown; cta?: unknown; handle?: unknown }
+  // The model's own `handle` is never trusted over the brand's real,
+  // code-known handle when one exists -- same "don't ask the LLM to echo
+  // back a value the caller already has" reasoning as background_style's
+  // deterministic override below. The prompt's own JSON example now shows
+  // a plain "@yourhandle" placeholder (previously the real handle was
+  // interpolated directly into that example, which is what a model this
+  // route asks not to use placeholders inconsistently taught was actually
+  // "real, expected text" rather than illustrative shape) — this override
+  // makes the actual field correct regardless of which the model produced.
+  const handle = realHandle ?? (typeof cta.handle === "string" ? cta.handle : undefined)
   const existingIndex = slides.findIndex((s) => s && typeof s === "object" && (s as { type?: unknown }).type === "cta")
 
   if (existingIndex !== -1) {
@@ -221,12 +232,12 @@ function mergeCtaSlideIntoSlides(slides: unknown[], ctaSlide: unknown): unknown[
     // defect. Now backfills them from the separate cta_slide object
     // instead of skipping, without duplicating the slide.
     const existing = slides[existingIndex] as Record<string, unknown>
-    if (typeof existing.cta === "string" && typeof existing.handle === "string") return slides
+    if (typeof existing.cta === "string" && typeof existing.handle === "string" && realHandle === undefined) return slides
     const merged = [...slides]
     merged[existingIndex] = {
       ...existing,
       cta: typeof existing.cta === "string" ? existing.cta : (typeof cta.cta === "string" ? cta.cta : undefined),
-      handle: typeof existing.handle === "string" ? existing.handle : (typeof cta.handle === "string" ? cta.handle : undefined),
+      handle: handle ?? (typeof existing.handle === "string" ? existing.handle : undefined),
     }
     return merged
   }
@@ -239,9 +250,40 @@ function mergeCtaSlideIntoSlides(slides: unknown[], ctaSlide: unknown): unknown[
       background_style: "gradient_dark",
       headline: typeof cta.headline === "string" ? cta.headline : "",
       cta: typeof cta.cta === "string" ? cta.cta : undefined,
-      handle: typeof cta.handle === "string" ? cta.handle : undefined,
+      handle,
     },
   ]
+}
+
+// Lightweight sanity pass over every real text field before it's persisted
+// or returned — see lib/ai/content-quality-check.ts for what this catches
+// (leaked "✓"/"✗" formatting markers, unfilled "[Placeholder]" brackets,
+// raw template expressions, a stray unattached "x"). Mechanical
+// fix-in-place rather than a second Groq call: this route doesn't have
+// captions.ts's validate-and-retry infrastructure, and re-generating an
+// entire 7-slide carousel over one bad word in one field would be a much
+// heavier fix than the problem warrants. Logged loudly whenever it
+// actually changes something, never a silent rewrite.
+function sanitizeCarouselText(value: string | undefined): string | undefined {
+  if (typeof value !== "string" || !value) return value
+  if (findContentQualityIssues(value).length === 0) return value
+  const cleaned = sanitizeLeakedArtifacts(value)
+  console.error(`[ai/carousel/generate] stripped leaked artifact(s) from generated text: ${JSON.stringify(value)} -> ${JSON.stringify(cleaned)}`)
+  return cleaned
+}
+
+function sanitizeCarouselSlides(slides: unknown[]): unknown[] {
+  return slides.map((slide) => {
+    if (!slide || typeof slide !== "object") return slide
+    const s = slide as Record<string, unknown>
+    return {
+      ...s,
+      headline: typeof s.headline === "string" ? sanitizeCarouselText(s.headline) : s.headline,
+      subtext: typeof s.subtext === "string" ? sanitizeCarouselText(s.subtext) : s.subtext,
+      points: Array.isArray(s.points) ? s.points.map((p) => (typeof p === "string" ? sanitizeCarouselText(p) : p)) : s.points,
+      cta: typeof s.cta === "string" ? sanitizeCarouselText(s.cta) : s.cta,
+    }
+  })
 }
 
 async function generateCarouselWithRetry(
@@ -260,6 +302,16 @@ async function generateCarouselWithRetry(
       // raised well past the old Llama-era per-slide formula for headroom.
       reasoning_effort: "medium",
       max_tokens: Math.max(4000, slideCount * 500),
+      // Every other Groq JSON-generation call site in this codebase
+      // (hooks/captions/content-generator/fastlane) sets this -- this
+      // route and stories/generate/route.ts were the two exceptions,
+      // relying solely on the system-prompt instruction to stay valid
+      // JSON. Forcing real JSON mode removes an unconstrained-output
+      // failure class (markdown fences, stray commentary, malformed
+      // structure around/inside field values) this route's own
+      // extractJSON/JSON.parse fallback can only paper over after the
+      // fact, not prevent.
+      response_format: { type: "json_object" },
       messages: [
         {
           role: "system",
@@ -349,7 +401,8 @@ export async function POST(request: Request) {
     // Complete from the start, not dependent on the later best-effort
     // background-image enrichment step ever running/succeeding — see
     // mergeCtaSlideIntoSlides's own comment above.
-    let mergedSlides = mergeCtaSlideIntoSlides(d.slides, d.cta_slide)
+    const realHandle = brand.instagram_handle ? `@${brand.instagram_handle}` : undefined
+    let mergedSlides = mergeCtaSlideIntoSlides(d.slides, d.cta_slide, realHandle)
 
     // Override every slide's background_style with one deterministic,
     // vibe-derived value — see VIBE_TO_CAROUSEL_BACKGROUND above. Applied
@@ -367,6 +420,10 @@ export async function POST(request: Request) {
       )
     }
 
+    mergedSlides = sanitizeCarouselSlides(mergedSlides)
+    const cleanTitle = typeof d.title === "string" ? sanitizeCarouselText(d.title) : d.title
+    const cleanCoverHook = typeof d.cover_hook === "string" ? sanitizeCarouselText(d.cover_hook) : d.cover_hook
+
     // Persist (non-fatal) — matches the pattern used by every other
     // generate route: the generate call itself saves, the client never
     // needs a separate save request. The id is now returned to the client
@@ -380,7 +437,7 @@ export async function POST(request: Request) {
         .insert({
           brand_id: brandId,
           platform,
-          title: typeof d.title === "string" ? d.title : null,
+          title: typeof cleanTitle === "string" ? cleanTitle : null,
           slides: mergedSlides,
           hashtags: Array.isArray(d.hashtags) ? d.hashtags : [],
           is_saved: true,
@@ -398,7 +455,7 @@ export async function POST(request: Request) {
     // for this), so this doesn't change client behavior, just keeps what
     // the client renders and what's in the database consistent from the
     // very first response.
-    return NextResponse.json({ data: { ...d, slides: mergedSlides, id: carouselId } }, { status: 200 })
+    return NextResponse.json({ data: { ...d, title: cleanTitle, cover_hook: cleanCoverHook, slides: mergedSlides, id: carouselId } }, { status: 200 })
   } catch (err) {
     await refundGenerationUsage(supabase, user.id, CAROUSEL, logId)
     const msg = err instanceof Error ? err.message : "Generation failed"

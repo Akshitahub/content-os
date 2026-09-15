@@ -16,6 +16,7 @@ import {
   buildAdCopyUserPrompt,
 } from "./prompts"
 import { generateValidatedCaption, type CaptionChatMessage } from "./caption-validation"
+import { findContentQualityIssues, sanitizeLeakedArtifacts } from "./content-quality-check"
 
 export type GenerateContentOptions = {
   product?: ProductRow | null
@@ -133,6 +134,52 @@ function validateAndCast(
   return parsed as ContentFormatOutputMap[ContentFormat]
 }
 
+// Lightweight sanity pass over every real text field before it's returned
+// -- see lib/ai/content-quality-check.ts for what this catches (leaked
+// "✓"/"✗" formatting markers, unfilled "[Placeholder]" brackets, raw
+// template expressions, a stray unattached "x"). Mechanical fix-in-place,
+// same reasoning as fastlane.ts's identical helper: this generic
+// multi-format path has no per-format validate-and-retry loop of its own
+// (social_post is the one exception, handled separately by
+// generateValidatedCaption/caption-validation.ts), so re-running an entire
+// generation over one bad word in one field would be a much heavier fix
+// than the problem warrants. Logged loudly whenever it actually changes
+// something.
+function fixText(value: string, label: string): string {
+  if (!value || findContentQualityIssues(value).length === 0) return value
+  const cleaned = sanitizeLeakedArtifacts(value)
+  console.error(`[content-generator] stripped leaked artifact(s) from generated ${label}: ${JSON.stringify(value)} -> ${JSON.stringify(cleaned)}`)
+  return cleaned
+}
+
+function sanitizeContent(
+  format: Exclude<ContentFormat, "social_post">,
+  data: ContentFormatOutputMap[ContentFormat]
+): ContentFormatOutputMap[ContentFormat] {
+  switch (format) {
+    case "reel_script": {
+      const d = data as ContentFormatOutputMap["reel_script"]
+      return { ...d, hook: fixText(d.hook, "hook"), caption: fixText(d.caption, "caption"), scenes: d.scenes.map((s) => ({ ...s, visual_direction: fixText(s.visual_direction, "scene visual_direction"), voiceover_or_text_overlay: fixText(s.voiceover_or_text_overlay, "scene voiceover_or_text_overlay") })) }
+    }
+    case "story": {
+      const d = data as ContentFormatOutputMap["story"]
+      return { ...d, text: fixText(d.text, "text") }
+    }
+    case "carousel": {
+      const d = data as ContentFormatOutputMap["carousel"]
+      return { ...d, caption: fixText(d.caption, "caption"), slides: d.slides.map((s) => ({ ...s, headline: fixText(s.headline, "slide headline"), body: fixText(s.body, "slide body") })) }
+    }
+    case "blog_post": {
+      const d = data as ContentFormatOutputMap["blog_post"]
+      return { ...d, title: fixText(d.title, "title"), body: fixText(d.body, "body") }
+    }
+    case "ad_copy": {
+      const d = data as ContentFormatOutputMap["ad_copy"]
+      return { ...d, headline: fixText(d.headline, "headline"), primary_text: fixText(d.primary_text, "primary_text"), description: fixText(d.description, "description") }
+    }
+  }
+}
+
 export async function generateContent(
   brand: BrandRow,
   format: ContentFormat,
@@ -210,7 +257,7 @@ export async function generateContent(
     throw new Error(`AI returned invalid JSON for format "${format}"`)
   }
 
-  const data = validateAndCast(format, parsed)
+  const data = sanitizeContent(format, validateAndCast(format, parsed))
 
   return { data, model, usage: response.usage ?? undefined }
 }

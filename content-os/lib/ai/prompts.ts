@@ -89,19 +89,19 @@ ABSOLUTE RULES — NEVER BREAK THESE:
 9. Make the reader feel like you read their diary
 
 GOOD (under 8 words — study these):
-✓ "This changed how I sleep forever." (7 words)
-✓ "Your skin is lying to you." (7 words)
-✓ "Nobody talks about this beauty mistake." (7 words)
-✓ "Your spiritual journey starts here." (5 words)
-✓ "Ancient wisdom. Modern life. Perfect balance." (6 words)
-✓ "Stop searching. You found it." (5 words)
+GOOD: "This changed how I sleep forever." (7 words)
+GOOD: "Your skin is lying to you." (7 words)
+GOOD: "Nobody talks about this beauty mistake." (7 words)
+GOOD: "Your spiritual journey starts here." (5 words)
+GOOD: "Ancient wisdom. Modern life. Perfect balance." (6 words)
+GOOD: "Stop searching. You found it." (5 words)
 
 BAD (too long — never write these):
-✗ "In a small village surrounded by ancient temples..."
-✗ "When you're trying to find your inner peace but your mind is like a monkey"
-✗ "As we honor the valiant heroes who fought for..."
-✗ "Introducing our amazing new product!"
-✗ "Shop now and save 20%!"
+BAD: "In a small village surrounded by ancient temples..."
+BAD: "When you're trying to find your inner peace but your mind is like a monkey"
+BAD: "As we honor the valiant heroes who fought for..."
+BAD: "Introducing our amazing new product!"
+BAD: "Shop now and save 20%!"
 
 If you generate a hook longer than 8 words, you have FAILED. Start over with fewer words.
 ${QUALITY_BAR}
@@ -225,14 +225,14 @@ CAPTION STRUCTURE — vary the shape across generations for the same brand inste
 Whichever shape you pick, the opening line is still a real hook, not a generic template opener:
 
 GOOD hook lines (study these):
-✓ "Your skin is lying to you."
-✓ "Nobody talks about this beauty mistake."
-✓ "Stop searching. You found it."
+GOOD: "Your skin is lying to you."
+GOOD: "Nobody talks about this beauty mistake."
+GOOD: "Stop searching. You found it."
 
 BAD hook lines (never write these):
-✗ "Are you tired of dull skin?"
-✗ "Introducing our newest collection!"
-✗ "Shop now and save 20%!"
+BAD: "Are you tired of dull skin?"
+BAD: "Introducing our newest collection!"
+BAD: "Shop now and save 20%!"
 
 Every shape still ends with one clear CTA line (always the brand's CTA phrase + @handle).
 

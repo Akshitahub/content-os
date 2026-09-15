@@ -5,6 +5,7 @@ import { MODELS, getGroqClient } from "@/lib/ai/models"
 import { checkAndIncrementUsage, refundGenerationUsage } from "@/lib/usage/check-and-increment-usage"
 import { STORY } from "@/lib/usage/credit-costs"
 import { buildPastExamplesBlock, QUALITY_BAR } from "@/lib/ai/prompts"
+import { findContentQualityIssues, sanitizeLeakedArtifacts } from "@/lib/ai/content-quality-check"
 import { z } from "zod"
 import type { BrandRow } from "@/types/database"
 import type { FontId } from "@/lib/design/fonts"
@@ -290,6 +291,31 @@ Respond with ONLY this JSON:
 Make the text punchy and emotion-led. Each story should make the viewer want to tap to the next one.`
 }
 
+// Lightweight sanity pass over every real text field before it's persisted
+// or returned — see lib/ai/content-quality-check.ts for what this catches
+// (leaked "✓"/"✗" formatting markers, unfilled "[Placeholder]" brackets,
+// raw template expressions, a stray unattached "x"). Mechanical
+// fix-in-place, mirroring carousel/generate/route.ts's identical helper --
+// this route has no validate-and-retry infrastructure of its own, and
+// re-generating an entire story sequence over one bad word in one field
+// would be a much heavier fix than the problem warrants. Logged loudly
+// whenever it actually changes something, never a silent rewrite.
+function sanitizeStoryText(value: string | undefined): string | undefined {
+  if (typeof value !== "string" || !value) return value
+  if (findContentQualityIssues(value).length === 0) return value
+  const cleaned = sanitizeLeakedArtifacts(value)
+  console.error(`[ai/stories/generate] stripped leaked artifact(s) from generated text: ${JSON.stringify(value)} -> ${JSON.stringify(cleaned)}`)
+  return cleaned
+}
+
+function sanitizeStorySlides(stories: Record<string, unknown>[]): Record<string, unknown>[] {
+  return stories.map((s) => ({
+    ...s,
+    text: typeof s.text === "string" ? sanitizeStoryText(s.text) : s.text,
+    subtext: typeof s.subtext === "string" ? sanitizeStoryText(s.subtext) : s.subtext,
+  }))
+}
+
 export async function POST(request: Request) {
   const supabase = await createClient()
   const { data: { user }, error: authError } = await supabase.auth.getUser()
@@ -357,6 +383,15 @@ export async function POST(request: Request) {
       // storyCount (up to 10) since more slides = more visible output too.
       reasoning_effort: "medium",
       max_tokens: Math.max(3000, storyCount * 350),
+      // Every other Groq JSON-generation call site in this codebase
+      // (hooks/captions/content-generator/fastlane) sets this -- this
+      // route and carousel/generate/route.ts were the two exceptions,
+      // relying solely on the system-prompt instruction to stay valid
+      // JSON. Forcing real JSON mode removes an unconstrained-output
+      // failure class (markdown fences, stray commentary, malformed
+      // structure around/inside field values) this route's own
+      // best-effort JSON.parse can only fail loudly on, not prevent.
+      response_format: { type: "json_object" },
       messages: [
         {
           role: "system",
@@ -410,6 +445,12 @@ ${QUALITY_BAR}`,
     const vibeBackground = effectiveVibe ? VIBE_TO_STORY_BACKGROUND[effectiveVibe] : undefined
     if (vibeBackground) {
       d.stories = (d.stories as Record<string, unknown>[]).map((s) => ({ ...s, background: vibeBackground }))
+    }
+
+    d.stories = sanitizeStorySlides(d.stories as Record<string, unknown>[])
+    const caption = d.caption as { caption_text?: unknown; hashtags?: unknown } | undefined
+    if (caption && typeof caption.caption_text === "string") {
+      d.caption = { ...caption, caption_text: sanitizeStoryText(caption.caption_text) }
     }
 
     // Persist (non-fatal) — matches the pattern used by every other

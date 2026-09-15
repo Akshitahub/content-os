@@ -2,6 +2,7 @@ import type { BrandRow, ProductRow } from "@/types/database"
 import type { GeneratedHook, HookType, Platform } from "@/types/app"
 import { buildHookSystemPrompt, buildHookUserPrompt } from "./prompts"
 import { MODELS, getGroqClient } from "./models"
+import { findContentQualityIssues, sanitizeLeakedArtifacts } from "./content-quality-check"
 
 export async function generateHooks(
   brand: BrandRow,
@@ -56,5 +57,18 @@ export async function generateHooks(
     throw new Error("AI response missing hooks array")
   }
 
-  return { hooks: parsed.hooks, model, usage: response.usage ?? undefined }
+  // Lightweight sanity pass -- see lib/ai/content-quality-check.ts for what
+  // this catches (leaked "✓"/"✗" formatting markers, unfilled
+  // "[Placeholder]" brackets, raw template expressions, a stray unattached
+  // "x"). Mechanical fix-in-place rather than re-rolling the whole batch:
+  // a single bad hook out of several is still a minor annoyance, not worth
+  // burning another full generation call over.
+  const hooks = parsed.hooks.map((h) => {
+    if (!h.hook_text || findContentQualityIssues(h.hook_text).length === 0) return h
+    const cleaned = sanitizeLeakedArtifacts(h.hook_text)
+    console.error(`[hooks-generator] stripped leaked artifact(s) from generated hook: ${JSON.stringify(h.hook_text)} -> ${JSON.stringify(cleaned)}`)
+    return { ...h, hook_text: cleaned }
+  })
+
+  return { hooks, model, usage: response.usage ?? undefined }
 }

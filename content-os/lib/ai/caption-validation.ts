@@ -1,6 +1,7 @@
 import type { BrandRow } from "@/types/database"
 import type { GeneratedCaption, Platform } from "@/types/app"
 import { PLATFORM_CHAR_LIMITS } from "./prompts"
+import { findContentQualityIssues, sanitizeLeakedArtifacts } from "./content-quality-check"
 
 export const MIN_HASHTAGS = 15
 export const MAX_HASHTAGS = 20
@@ -105,6 +106,15 @@ export function validateCaption(parsed: GeneratedCaption, ctaPhrase: string, han
     issues.push(`Your caption_text contains an em dash (—) — rewrite using a comma, period, or natural sentence break instead.`)
   }
 
+  // Backstop against template/instruction leakage (a stray "✓"/"✗" copied
+  // from this prompt's own GOOD/BAD examples, an unfilled "[Name]"-style
+  // placeholder, a raw "${...}" template expression, or an isolated "x"
+  // with no number attached) — see lib/ai/content-quality-check.ts's own
+  // comment for the full root-cause writeup.
+  for (const issue of findContentQualityIssues(parsed.caption_text)) {
+    issues.push(issue.message)
+  }
+
   return issues
 }
 
@@ -142,6 +152,15 @@ export function applyLastResortFixes(parsed: GeneratedCaption, brand: BrandRow, 
   // resort, since it preserves the sentence's meaning either way.
   if (containsEmDash(captionText)) {
     captionText = captionText.replace(/\s*—\s*/g, ", ")
+  }
+
+  // Same mechanical-fix philosophy as the em dash fix above, for whatever
+  // findContentQualityIssues still flags after a real retry — strips a
+  // leaked "✓"/"✗"/template artifact/stray "x" rather than shipping it
+  // as-is, logged loudly by the caller (generateValidatedCaption) same as
+  // every other last-resort fix here.
+  if (findContentQualityIssues(captionText).length > 0) {
+    captionText = sanitizeLeakedArtifacts(captionText)
   }
 
   return { ...parsed, caption_text: captionText, hashtags }
