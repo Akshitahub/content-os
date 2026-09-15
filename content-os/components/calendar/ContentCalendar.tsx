@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { CalendarEntryPanel } from "@/components/calendar/CalendarEntryPanel"
-import { PostCard } from "@/components/shared/PostCard"
+import { CalendarEntryCard } from "@/components/calendar/CalendarEntryCard"
 import type { CalendarEntryRow } from "@/types/database"
 import type { DashboardOccasion } from "@/lib/occasions/get-upcoming-occasions"
 
@@ -368,7 +368,7 @@ export function ContentCalendar({ brandId, defaultView = "month" }: ContentCalen
                 >
                   {format(day, "d")}
                 </div>
-                {/* Entries as PostCard sm */}
+                {/* Entries as CalendarEntryCard -- time, image, title, tags */}
                 <div className="space-y-2">
                   {dayEntries.slice(0, 4).map((entry) => (
                     <div
@@ -381,13 +381,13 @@ export function ContentCalendar({ brandId, defaultView = "month" }: ContentCalen
                           Missed
                         </span>
                       )}
-                      <PostCard
-                        type={entry.content_type === "carousel" ? "carousel" : entry.content_type === "story" ? "story" : "caption"}
-                        content={entry.title}
-                        platform={(entry.platform as "instagram" | "tiktok" | "linkedin" | "twitter" | "facebook" | "youtube") ?? "instagram"}
-                        showScore={false}
-                        size="sm"
-                        imageUrl={entry.image_url}
+                      <CalendarEntryCard
+                        title={entry.title}
+                        scheduledTime={entry.scheduled_time}
+                        platform={entry.platform}
+                        contentType={entry.content_type}
+                        imageUrl={entry.image_url ?? null}
+                        status={entry.status}
                       />
                     </div>
                   ))}
