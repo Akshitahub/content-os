@@ -152,7 +152,13 @@ export async function POST(request: Request) {
     // Only refund if this call actually charged a credit — the free
     // regenerate (2nd call in a session) never did.
     if (shouldCharge) await refundGenerationUsage(supabase, user.id, POST_CREDIT_COST, logId)
-    return NextResponse.json(buildError(ErrorCodes.AI_GENERATION_FAILED, result.error), { status: 500 })
+    // result.error is a real, useful diagnostic (already logged above and
+    // in ai_generation_logs) but can name the underlying image provider
+    // (e.g. "Flux generation failed: ...") -- never forwarded to the user
+    // as-is. A generic, SocioPosts-branded message goes to the client
+    // instead; anyone debugging a real report can find the raw detail via
+    // this response's correlationId in the server logs.
+    return NextResponse.json(buildError(ErrorCodes.AI_GENERATION_FAILED, "Couldn't generate your image. Please try again."), { status: 500 })
   }
 
   await persistAttempts(supabase, brandId, result.attempts)

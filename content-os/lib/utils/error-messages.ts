@@ -31,7 +31,15 @@ export function getFriendlyError(error: unknown): string {
   // routes (e.g. "Couldn't generate the meme image. Please try again."),
   // so pass it through instead of masking it with the generic fallback.
   const looksLikeRawError = /^(TypeError|ReferenceError|SyntaxError|RangeError|EvalError|URIError):/.test(msg) || /\bat\s+.+:\d+:\d+/.test(msg)
-  if (msg.trim() && !looksLikeRawError) {
+  // Last-line defense-in-depth: every API route is expected to never send
+  // a message naming the underlying AI provider/tool (SocioPosts brands
+  // every generation as its own), but this catches any that slip through
+  // regardless of which route or bug produced it -- confirmed live
+  // (2026-09-15) that at least 5 call sites once forwarded a raw
+  // Flux/Replicate/Groq error straight into this exact "pass through"
+  // branch before those were fixed at the source.
+  const namesProvider = /\b(groq|flux|replicate|pollinations|nvidia|llama|gpt-oss)\b/i.test(msg)
+  if (msg.trim() && !looksLikeRawError && !namesProvider) {
     return msg
   }
 

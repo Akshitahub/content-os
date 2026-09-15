@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import { buildError, ErrorCodes } from "@/types/api"
-import { MODELS, getGroqClient } from "@/lib/ai/models"
+import { MODELS, getGroqClient, classifyGroqError } from "@/lib/ai/models"
 import { checkAndIncrementUsage, refundGenerationUsage } from "@/lib/usage/check-and-increment-usage"
 import { CAROUSEL } from "@/lib/usage/credit-costs"
 import { buildPastExamplesBlock, QUALITY_BAR } from "@/lib/ai/prompts"
@@ -457,8 +457,13 @@ export async function POST(request: Request) {
     // very first response.
     return NextResponse.json({ data: { ...d, title: cleanTitle, cover_hook: cleanCoverHook, slides: mergedSlides, id: carouselId } }, { status: 200 })
   } catch (err) {
+    console.error("[ai/carousel/generate] error:", err)
     await refundGenerationUsage(supabase, user.id, CAROUSEL, logId)
-    const msg = err instanceof Error ? err.message : "Generation failed"
-    return NextResponse.json(buildError(ErrorCodes.AI_GENERATION_FAILED, msg), { status: 500 })
+    // A raw thrown error here can be the Groq SDK's own error object
+    // (network/auth/rate-limit failures), which can surface the provider
+    // in its message text -- classifyGroqError strips that before this
+    // ever reaches the user, same as app/api/v1/ai/topics/suggest/route.ts
+    // and app/api/v1/ai/image-prompt/write/route.ts already do.
+    return NextResponse.json(buildError(ErrorCodes.AI_GENERATION_FAILED, classifyGroqError(err)), { status: 500 })
   }
 }

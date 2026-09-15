@@ -117,7 +117,12 @@ export async function POST(request: Request) {
       user_id: user.id, brand_id: brandId, feature: `story_slide_bg_${role}`, model: "unknown",
       latency_ms: latencyMs, success: false, error_message: result.error,
     })
-    return NextResponse.json(buildError(ErrorCodes.AI_GENERATION_FAILED, result.error), { status: 500 })
+    // result.error is a real, useful diagnostic (already logged above and
+    // in ai_generation_logs) but can name the underlying image provider
+    // (e.g. "Flux generation failed: ...") -- never forwarded to the user
+    // as-is. A generic, SocioPosts-branded message goes to the client
+    // instead.
+    return NextResponse.json(buildError(ErrorCodes.AI_GENERATION_FAILED, "Couldn't generate that slide's background. Please try again."), { status: 500 })
   }
 
   const { provider } = result

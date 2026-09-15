@@ -40,16 +40,25 @@ export function getGroqClient(): Groq {
   return new Groq({ apiKey: getApiKey() })
 }
 
+// Classifies a raw Groq SDK error into a short, user-facing message --
+// CONFIRMED (2026-09-15) this used to return "GROQ_API_KEY not set in
+// environment" and "Groq API key is invalid" literally, and at least two
+// routes (app/api/v1/ai/topics/suggest/route.ts,
+// app/api/v1/ai/image-prompt/write/route.ts) pass this straight into
+// buildError()'s user-facing message with no further filtering -- a real,
+// direct leak of the provider name to the end user, not a hypothetical
+// one. Every branch below is now provider-name-free; the classification
+// logic itself (which condition maps to which message) is unchanged.
 export function classifyGroqError(err: unknown): string {
   const message = err instanceof Error ? err.message : String(err)
   const errObj = err as Record<string, unknown>
   const status = typeof errObj?.status === "number" ? errObj.status : null
 
   if (message.includes("GROQ_API_KEY not set")) {
-    return "GROQ_API_KEY not set in environment"
+    return "Configuration issue. Please contact support."
   }
   if (status === 401 || message.toLowerCase().includes("invalid api key") || message.toLowerCase().includes("unauthorized")) {
-    return "Groq API key is invalid"
+    return "Configuration issue. Please contact support."
   }
   if (status === 429 || message.toLowerCase().includes("rate limit")) {
     return "Generation limit reached, please try again in a moment"
