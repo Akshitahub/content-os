@@ -28,32 +28,6 @@ const STATUS_COLORS: Record<string, string> = {
   missed: "bg-red-100 text-red-700 border-red-200",
 }
 
-const PLATFORM_GRADIENTS: Record<string, string> = {
-  instagram: "from-purple-500 to-pink-500",
-  tiktok: "from-gray-900 to-black",
-  facebook: "from-blue-600 to-indigo-700",
-  youtube: "from-red-500 to-red-700",
-  linkedin: "from-blue-700 to-blue-500",
-  twitter: "from-sky-400 to-blue-500",
-}
-
-const STATUS_DOT: Record<string, string> = {
-  planned: "bg-gray-400",
-  content_ready: "bg-blue-500",
-  scheduled: "bg-violet-500",
-  published: "bg-emerald-500",
-  missed: "bg-red-500",
-}
-
-const PLATFORM_EMOJIS: Record<string, string> = {
-  instagram: "📸",
-  tiktok: "🎵",
-  facebook: "👤",
-  youtube: "▶️",
-  linkedin: "💼",
-  twitter: "🐦",
-}
-
 interface ContentCalendarProps {
   brandId: string
   /** Initial view mode — lets callers (e.g. the "Calendar this week" dashboard
@@ -426,7 +400,7 @@ export function ContentCalendar({ brandId, defaultView = "month" }: ContentCalen
         /* ── MONTH VIEW ── */
         <div className="grid grid-cols-7 gap-px bg-border rounded-lg overflow-hidden border">
           {Array.from({ length: startDayOfWeek }).map((_, i) => (
-            <div key={`empty-${i}`} className="bg-muted/30 min-h-[100px] p-1" />
+            <div key={`empty-${i}`} className="bg-muted/30 min-h-[132px] p-1" />
           ))}
 
           {days.map(day => {
@@ -440,7 +414,7 @@ export function ContentCalendar({ brandId, defaultView = "month" }: ContentCalen
             return (
               <div
                 key={dateStr}
-                className={`bg-background min-h-[100px] p-1.5 cursor-pointer hover:bg-muted/30 transition-colors ${!isCurrentMonth ? "opacity-40" : ""} ${isDragOver ? "ring-2 ring-inset ring-violet-500 bg-violet-50" : ""}`}
+                className={`bg-background min-h-[132px] p-1.5 cursor-pointer hover:bg-muted/30 transition-colors ${!isCurrentMonth ? "opacity-40" : ""} ${isDragOver ? "ring-2 ring-inset ring-violet-500 bg-violet-50" : ""}`}
                 onClick={() => openNewEntry(dateStr)}
                 onDragOver={e => {
                   if (!draggedEntryId) return
@@ -471,15 +445,17 @@ export function ContentCalendar({ brandId, defaultView = "month" }: ContentCalen
                   </Link>
                 )}
                 <div className="space-y-1">
+                  {/* Entries as compact CalendarEntryCard rows -- image-forward
+                      treatment matching week view, just laid out slim enough
+                      to stack 3 per day in this half-height cell (see
+                      CalendarEntryCard.tsx's `compact` prop). */}
                   {dayEntries.slice(0, 3).map(entry => {
-                    const grad = PLATFORM_GRADIENTS[entry.platform ?? "instagram"] ?? "from-violet-500 to-indigo-500"
-                    const dot = STATUS_DOT[entry.status] ?? "bg-gray-400"
                     const isMissed = entry.status === "missed"
                     return (
                       <div
                         key={entry.id}
                         draggable
-                        className="group relative rounded-md overflow-hidden cursor-pointer"
+                        className="group relative cursor-pointer"
                         onClick={e => { e.stopPropagation(); setSelectedEntry(entry) }}
                         onDragStart={e => {
                           setDraggedEntryId(entry.id)
@@ -492,31 +468,27 @@ export function ContentCalendar({ brandId, defaultView = "month" }: ContentCalen
                         }}
                         title={isMissed ? `${entry.title} (Missed)` : entry.title}
                       >
-                        {/* Mini gradient card */}
-                        <div className={`bg-gradient-to-r ${grad} px-1.5 py-1 flex items-center gap-1 ${isMissed ? "ring-1 ring-inset ring-red-500" : ""}`}>
-                          {entry.image_url ? (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            <img src={entry.image_url} alt="" className="h-5 w-5 shrink-0 rounded-sm object-cover ring-1 ring-white/50" />
-                          ) : (
-                            <span className={`shrink-0 h-1.5 w-1.5 rounded-full ${dot} ring-1 ring-white/50`} />
-                          )}
-                          <span className="truncate text-[10px] font-medium text-white leading-tight flex-1">
-                            {entry.title}
+                        {isMissed && (
+                          <span className="absolute left-0.5 top-0.5 z-10 rounded-full bg-red-600 px-1 py-px text-[6px] font-bold uppercase leading-none text-white shadow">
+                            Missed
                           </span>
-                          {isMissed && (
-                            <span className="shrink-0 rounded-full bg-red-600 px-1 py-px text-[8px] font-bold uppercase leading-none text-white">
-                              Missed
-                            </span>
-                          )}
-                          <span className="shrink-0 text-[9px] text-white/70">{PLATFORM_EMOJIS[entry.platform ?? ""] ?? ""}</span>
-                          <button
-                            className="shrink-0 hidden group-hover:flex items-center justify-center h-3 w-3 rounded-full bg-black/20 hover:bg-black/40"
-                            onClick={e => handleDelete(entry.id, e)}
-                            title="Delete"
-                          >
-                            <X className="h-2 w-2 text-white" />
-                          </button>
-                        </div>
+                        )}
+                        <button
+                          className="absolute right-0.5 top-0.5 z-10 hidden h-3 w-3 items-center justify-center rounded-full bg-black/30 hover:bg-black/50 group-hover:flex"
+                          onClick={e => handleDelete(entry.id, e)}
+                          title="Delete"
+                        >
+                          <X className="h-2 w-2 text-white" />
+                        </button>
+                        <CalendarEntryCard
+                          compact
+                          title={entry.title}
+                          scheduledTime={entry.scheduled_time}
+                          platform={entry.platform}
+                          contentType={entry.content_type}
+                          imageUrl={entry.image_url ?? null}
+                          status={entry.status}
+                        />
                       </div>
                     )
                   })}

@@ -1,12 +1,13 @@
 "use client"
 
-// Dedicated calendar-entry card for ContentCalendar.tsx's week view --
-// deliberately NOT another PostCard.tsx size variant. PostCard's own
-// size="sm" mode (tiny 36px thumbnail beside two lines of text, no time
+// Dedicated calendar-entry card for ContentCalendar.tsx's week AND month
+// views -- deliberately NOT another PostCard.tsx size variant. PostCard's
+// own size="sm" mode (tiny 36px thumbnail beside two lines of text, no time
 // shown) is still used elsewhere (library, generators) and shouldn't
 // change; this reads top-to-bottom instead, matching a real
 // content-calendar tool: scheduled time -> full-width image -> title ->
-// platform/format tags.
+// platform/format tags. Month view's day cells are half week view's height
+// and use the `compact` prop below for a slim horizontal row instead.
 
 // Local copy of PostCard.tsx's PLATFORM_GRADIENT rather than importing it
 // -- this codebase's own convention already duplicates small per-component
@@ -88,14 +89,40 @@ export interface CalendarEntryCardProps {
    * ringed treatment on the card itself, consistent with the month view's
    * existing missed-entry ring. */
   status?: string
+  /** Month view's day cells are half week view's height and need to stack
+   * up to 3 of these -- a slim horizontal row (small thumbnail + time +
+   * title, one line each, tags dropped entirely -- there's no room) instead
+   * of the full vertical card. Same gradient-placeholder-when-no-image and
+   * missed-ring behavior, just laid out to fit. Week view is untouched --
+   * this only activates when the caller opts in. */
+  compact?: boolean
 }
 
-export function CalendarEntryCard({ title, scheduledTime, platform, contentType, imageUrl, status }: CalendarEntryCardProps) {
+export function CalendarEntryCard({ title, scheduledTime, platform, contentType, imageUrl, status, compact = false }: CalendarEntryCardProps) {
   const gradient = PLATFORM_GRADIENT[platform ?? "instagram"] ?? PLATFORM_GRADIENT.instagram
   const timeLabel = formatScheduledTime(scheduledTime)
   const platformLabel = platform ? (PLATFORM_LABEL[platform] ?? titleCaseFallback(platform)) : null
   const typeLabel = contentType ? (CONTENT_TYPE_LABEL[contentType] ?? titleCaseFallback(contentType)) : null
   const isMissed = status === "missed"
+
+  if (compact) {
+    return (
+      <div className={`flex items-center gap-1.5 overflow-hidden rounded-md border bg-card px-1 py-1 shadow-sm transition-shadow hover:shadow-md ${isMissed ? "ring-1 ring-inset ring-red-500" : ""}`}>
+        <div className="h-6 w-6 shrink-0 overflow-hidden rounded-sm">
+          {imageUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={imageUrl} alt="" className="h-full w-full object-cover" />
+          ) : (
+            <div className={`h-full w-full bg-gradient-to-br ${gradient}`} />
+          )}
+        </div>
+        <div className="min-w-0 flex-1 leading-tight">
+          <p className="truncate text-[10px] font-medium text-foreground">{title}</p>
+          {timeLabel && <p className="truncate text-[8px] text-muted-foreground">{timeLabel}</p>}
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className={`overflow-hidden rounded-xl border bg-card shadow-sm transition-all hover:shadow-md ${isMissed ? "ring-1 ring-inset ring-red-500" : ""}`}>
