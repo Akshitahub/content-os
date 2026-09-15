@@ -946,6 +946,39 @@ async function executeFastlaneInner(
           }
         }
 
+        // Persist a real carousels row now that there's something actually
+        // publishable to point it at (mirrors app/api/v1/ai/carousel/
+        // generate/route.ts's own insert shape) -- previously Autopilot's
+        // carousel slots existed ONLY as inline platform_specific_data on
+        // the calendar entry itself, with no carousels row at all, which is
+        // exactly why calendar_entries.carousel_id (see supabase/migrations/
+        // 052_calendar_entries_content_links.sql) had nothing to point to
+        // for this, the single most common source of carousel calendar
+        // entries. Non-fatal and skipped below MIN_CAROUSEL_SLIDES, same as
+        // carouselImageUrls itself -- a carousel_id with no real slide
+        // images behind it would be worse than no link at all.
+        let carouselId: string | null = null
+        if (isCarousel && carouselImageUrls.length > 0) {
+          try {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const { data: savedCarousel } = await (supabase.from("carousels") as any)
+              .insert({
+                brand_id: brandId,
+                product_id: product?.id ?? null,
+                platform: slot.platform,
+                title: generated.title || slot.theme,
+                slides: carouselSlides as unknown as Json,
+                hashtags: generated.hashtags ?? [],
+                is_saved: true,
+              })
+              .select("id")
+              .single() as { data: { id: string } | null }
+            carouselId = savedCarousel?.id ?? null
+          } catch (err) {
+            console.error(`[fastlane] day ${slot.day}: failed to save carousels row (non-fatal):`, err instanceof Error ? err.message : err)
+          }
+        }
+
         // Build platform_specific_data JSONB
         const platformData: Record<string, string | string[]> = {}
         if (imageUrl) platformData.image_url = imageUrl
@@ -1061,6 +1094,7 @@ async function executeFastlaneInner(
           notes: generated.call_to_action || null,
           hook_id: hookId,
           caption_id: captionId,
+          carousel_id: carouselId,
           is_ready: true,
           platform_specific_data: platformData,
           color: slot.priority === "high" ? "#6366f1"

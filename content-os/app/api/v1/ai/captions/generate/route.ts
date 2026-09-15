@@ -9,6 +9,7 @@ import { HOOK_OR_CAPTION } from "@/lib/usage/credit-costs"
 
 const FEATURE = "captions"
 import { buildPatternNote } from "@/lib/ai/pattern-match"
+import { resolveCaptionEngagementRatings } from "@/lib/ai/engagement-ratings"
 import type { BrandRow, ProductRow } from "@/types/database"
 
 export async function POST(request: Request) {
@@ -78,11 +79,11 @@ export async function POST(request: Request) {
   // performance prediction.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data: allRatedCaptions } = await (supabase.from("captions") as any)
-    .select("caption_text, user_rating")
+    .select("id, caption_text, user_rating")
     .eq("brand_id", brandId)
     .not("user_rating", "is", null)
     .order("created_at", { ascending: false })
-    .limit(20) as { data: { caption_text: string; user_rating: number }[] | null }
+    .limit(20) as { data: { id: string; caption_text: string; user_rating: number }[] | null }
 
   const startTime = Date.now()
   let result: Awaited<ReturnType<typeof generateCaption>>
@@ -123,10 +124,8 @@ export async function POST(request: Request) {
     latency_ms: latencyMs, success: true,
   })
 
-  const patternNote = buildPatternNote(
-    result.caption.caption_text,
-    (allRatedCaptions ?? []).map((c) => ({ text: c.caption_text, rating: c.user_rating }))
-  )
+  const ratedItemsWithEngagement = await resolveCaptionEngagementRatings(supabase, allRatedCaptions ?? [])
+  const patternNote = buildPatternNote(result.caption.caption_text, ratedItemsWithEngagement)
 
   return NextResponse.json({ data: { ...result.caption, id: savedCaption?.id ?? null, pattern_note: patternNote } }, { status: 200 })
 }

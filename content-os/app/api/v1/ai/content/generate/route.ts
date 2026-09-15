@@ -7,6 +7,7 @@ import { checkAndIncrementUsage, refundGenerationUsage, logGenerationOutcome } f
 import { CONTENT_FORMAT_CREDIT_COSTS } from "@/lib/usage/credit-costs"
 import { captureServerEvent } from "@/lib/analytics/posthog"
 import { buildPatternNote } from "@/lib/ai/pattern-match"
+import { resolveCaptionEngagementRatings } from "@/lib/ai/engagement-ratings"
 import { fetchPastExamples } from "@/lib/ai/past-examples"
 import type { BrandRow, ProductRow } from "@/types/database"
 import type { GeneratedCaption, ReelScript, CarouselContent, AdCopy, ContentFormat } from "@/types/app"
@@ -24,12 +25,13 @@ async function fetchCaptionPatternNote(
 ): Promise<string | null> {
   try {
     const { data } = await supabase.from("captions")
-      .select("caption_text, user_rating")
+      .select("id, caption_text, user_rating")
       .eq("brand_id", brandId)
       .not("user_rating", "is", null)
       .order("created_at", { ascending: false })
-      .limit(20) as { data: { caption_text: string; user_rating: number }[] | null }
-    return buildPatternNote(captionText, (data ?? []).map((c) => ({ text: c.caption_text, rating: c.user_rating })))
+      .limit(20) as { data: { id: string; caption_text: string; user_rating: number }[] | null }
+    const ratedItems = await resolveCaptionEngagementRatings(supabase, data ?? [])
+    return buildPatternNote(captionText, ratedItems)
   } catch (err) {
     console.error("[ai/content/generate] fetchCaptionPatternNote failed (non-fatal):", err)
     return null

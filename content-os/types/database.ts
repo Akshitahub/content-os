@@ -455,6 +455,9 @@ export type Database = {
           content_type_detail: string | null
           hook_id: string | null
           caption_id: string | null
+          carousel_id: string | null
+          story_id: string | null
+          ad_copy_id: string | null
           is_ready: boolean
           platform_specific_data: Json
           publish_attempts: number
@@ -482,6 +485,9 @@ export type Database = {
           content_type_detail?: string | null
           hook_id?: string | null
           caption_id?: string | null
+          carousel_id?: string | null
+          story_id?: string | null
+          ad_copy_id?: string | null
           is_ready?: boolean
           platform_specific_data?: Json
           publish_attempts?: number
@@ -506,6 +512,9 @@ export type Database = {
           content_type_detail?: string | null
           hook_id?: string | null
           caption_id?: string | null
+          carousel_id?: string | null
+          story_id?: string | null
+          ad_copy_id?: string | null
           is_ready?: boolean
           platform_specific_data?: Json
           publish_attempts?: number

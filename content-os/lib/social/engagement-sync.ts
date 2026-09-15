@@ -26,12 +26,26 @@ import type { CalendarEntryRow } from "@/types/database"
 //   reverse link reel_video_jobs.calendar_entry_id -> reel_video_jobs.id ->
 //   reel_video_jobs.reel_script_id -> reel_scripts.id. A manually-generated
 //   reel script later scheduled as a video has no such row and no link.
-// - carousels, stories, ad_copies: NO link at all, in either direction.
-//   Neither table has a calendar_entries column, and calendar_entries has
-//   no carousel_id/story_id/ad_copy_id column either -- these three
-//   content types are fully denormalized onto calendar_entries (slides/
-//   image URLs copied into platform_specific_data at generation or
-//   schedule time) with nothing left to join back to the original row.
+// - carousels, stories, ad_copies: calendar_entries.carousel_id/story_id/
+//   ad_copy_id -> {carousels,stories,ad_copies}.id (see supabase/migrations/
+//   052_calendar_entries_content_links.sql) -- but reachable only for NEW
+//   entries created after that migration shipped, and today only ONE
+//   insert path actually populates any of them: lib/ai/fastlane.ts's
+//   Autopilot carousel slots set carousel_id, and only once a carousel
+//   successfully renders real slide images (it now also persists a
+//   carousels row for that case, which it previously never did at all).
+//   Autopilot never produces "story" or "ad_copy" slots (see
+//   lib/ai/autopilot-content-mix.ts's CONTENT_MIX), so story_id/ad_copy_id
+//   have no populated source today. app/api/v1/calendar/schedule-post/
+//   route.ts -- the one route that creates a calendar_entries row for a
+//   manually-scheduled carousel/story (used both right after generation,
+//   via ScheduleAction, and from the Library) -- never carries a source-row
+//   id through its request body at all, for any content type, so it can't
+//   set carousel_id/story_id/ad_copy_id either, same structural gap as
+//   caption_id/hook_id's own Library caveat above. ad_copies specifically
+//   are scheduled through that same route as a plain single-image "post"
+//   (AdMaker has no carousel/story-style contentFormat of its own), so
+//   ad_copy_id has no populated source anywhere yet.
 //
 // Anchoring content_engagement on calendar_entries.id sidesteps all of the
 // above: every published post has exactly one calendar_entries row
