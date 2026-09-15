@@ -43,7 +43,7 @@ export function ProductPicker({ brandId, selected, onSelect, label = "Product im
       onSuccess: (data) => {
         onSelect({
           name: data.name || trimmedUrl,
-          description: data.description,
+          description: data.description ?? undefined,
           imageUrl: data.image_urls?.[0],
         })
         setOpen(false)

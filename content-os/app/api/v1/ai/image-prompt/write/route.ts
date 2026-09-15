@@ -29,9 +29,9 @@ const schema = z.object({
   // also present (the authoritative DB lookup wins).
   product: z.object({
     name: z.string().max(200),
-    description: z.string().max(1000).optional(),
+    description: z.string().max(1000).nullable().optional(),
   }).optional(),
-  rawInput: z.string().max(500).optional().transform((v) => v?.replace(/<[^>]*>/g, "").trim() || null),
+  rawInput: z.string().max(500).nullable().optional().transform((v) => v?.replace(/<[^>]*>/g, "").trim() || null),
   // True for an explicit "Rewrite"/"Regenerate" request -- see
   // lib/ai/image-prompt-writer.ts's WriteImagePromptInput.isRewrite for why
   // this exists (told to Groq explicitly, since it has no memory of a
