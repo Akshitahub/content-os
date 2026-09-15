@@ -33,8 +33,8 @@ export const AD_MAKER = 5
 export const CAROUSEL = 9
 // The standalone Images tab (lib/ai/image-generator.ts) — not in the
 // original weight table, found while tracing every checkAndIncrementUsage
-// call site. Produces one raw Flux/Pollinations image, the same cost
-// driver as Meme, so weighted the same pending explicit confirmation.
+// call site. Produces one raw Flux image, the same cost driver as Meme,
+// so weighted the same pending explicit confirmation.
 export const IMAGE = 5
 
 // PLACEHOLDER — not yet wired into any charging call site (REELS_ENABLED
@@ -64,8 +64,8 @@ export const REEL = 75
 
 // Create -> Full Post's "upload your own photo" path (lib/ai/vision.ts +
 // app/api/v1/ai/fullpost/generate-from-photo/route.ts) — deliberately NOT
-// priced like POST above. That 5-credit weight prices in a real Flux/
-// Pollinations image generation; this path skips image generation
+// priced like POST above. That 5-credit weight prices in a real Flux
+// image generation; this path skips image generation
 // entirely (the user's own photo IS the image) and costs only one
 // qwen/qwen3.6-27b vision+caption call. Measured live against a real
 // photo (2026-08-26): ~1,400 prompt + ~130 completion tokens, ~$0.0012 —
@@ -86,8 +86,8 @@ export const REMOVE_BACKGROUND = 1
 
 // Optional "AI background for every slide" carousel mode — extends the
 // always-bundled hook/CTA AI backgrounds to body slides too. Each body
-// slide is a genuinely separate Flux/Pollinations image call, the same
-// cost driver as the standalone Images tab, so it's priced identically
+// slide is a genuinely separate Flux image call, the same cost driver
+// as the standalone Images tab, so it's priced identically
 // to IMAGE rather than invented fresh. Charged PER SLIDE actually
 // generated, on top of the base CAROUSEL charge — hook/CTA stay bundled
 // free as before (see app/api/v1/ai/carousel/slide-image/generate/route.ts),
@@ -97,7 +97,7 @@ export const CAROUSEL_SLIDE_AI_BACKGROUND = IMAGE
 // Same "AI background for every slide" mode, for Stories -- reveal/buildup
 // slides normally only get a flat vibe color (hook/cta stay bundled free
 // into the base STORY charge, same as Carousel's hook/cta). Same real
-// Flux/Pollinations cost driver as CAROUSEL_SLIDE_AI_BACKGROUND, so priced
+// Flux cost driver as CAROUSEL_SLIDE_AI_BACKGROUND, so priced
 // identically rather than invented fresh. Charged PER SLIDE actually
 // generated (see app/api/v1/ai/stories/slide-image/generate/route.ts).
 export const STORY_SLIDE_AI_BACKGROUND = IMAGE

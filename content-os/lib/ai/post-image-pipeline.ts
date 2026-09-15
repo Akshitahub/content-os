@@ -8,15 +8,14 @@ import type { UserPlan } from "@/types/app"
 const CANVAS_SIZE = 1080
 const MIN_BUFFER_BYTES = 5000
 // Near-black or near-blank/white images are treated as a failed attempt
-// even on a 200 response — both providers occasionally return a
-// placeholder image rather than a real error for a rejected/malformed
-// prompt (Pollinations) or a moderation refusal (Replicate/Flux).
+// even on a 200 response — Replicate/Flux occasionally returns a
+// placeholder image rather than a real error for a moderation refusal.
 const NEAR_BLACK_MEAN = 8
 const NEAR_BLANK_MEAN = 247
 
 // Variance of a Laplacian convolution — a standard blur-detection metric
 // (low variance = few sharp edges = blurry/flat). Threshold calibrated
-// live against real Pollinations output: genuinely sharp generations
+// live against real generated output: genuinely sharp generations
 // (including deliberately low-texture "minimal studio" compositions, the
 // realistic false-positive risk) scored 4.1-30.9; the same images with a
 // mild synthetic blur applied scored 1.4-1.9, heavy blur 0.7-1.2. 2.5 sits
@@ -92,14 +91,12 @@ const SQUARE_DIMENSIONS: ImageDimensions = { width: CANVAS_SIZE, height: CANVAS_
 // Replicate's flux-2-pro model only accepts a fixed aspect_ratio enum
 // (confirmed from its own schema, see docs/research/seedream-5-lite-evaluation.md):
 // ["match_input_image","1:1","4:3","3:4","16:9","9:16","3:2","2:3","21:9"].
-// "4:5" isn't in it — sending it would risk every Flux (paid-plan) call
-// failing and silently downgrading to Pollinations via the fallback below.
+// "4:5" isn't in it — sending it would risk the call failing outright.
 // "3:4" is the closest valid enum value; it only affects what aspect Flux is
 // asked to natively generate at, since compositePostImage's own
 // `sharp(...).resize(width, height, { fit: "cover" })` already forces the
-// final output to these exact width/height regardless of what a provider
-// actually returned. Pollinations has no such enum — its width/height query
-// params below are used directly, so this substitution only matters for Flux.
+// final output to these exact width/height regardless of what Flux
+// actually returned.
 const PORTRAIT_DIMENSIONS: ImageDimensions = { width: 1080, height: 1350, aspectRatio: "3:4" }
 
 // 9:16 — reuses the exact same dimensions Stories already generates at
@@ -119,7 +116,7 @@ function resolvePostImageDimensions(aspectRatio: "4:5" | "1:1" | "9:16" | undefi
 }
 
 export type PostImagePipelineResult =
-  | { success: true; buffer: Buffer; mimeType: string; fullPrompt: string; provider: "pollinations" | "flux"; attempts: ImageGenerationAttempt[]; textComposited: boolean }
+  | { success: true; buffer: Buffer; mimeType: string; fullPrompt: string; provider: "flux"; attempts: ImageGenerationAttempt[]; textComposited: boolean }
   | { success: false; error: string; attempts: ImageGenerationAttempt[] }
 
 // Structured failure classification — distinct from the free-text `error`
@@ -143,16 +140,15 @@ export type ImageAttemptFailureReason = "too_small" | "near_black" | "near_blank
  */
 export interface ImageGenerationAttempt {
   attemptNumber: number
-  provider: "pollinations" | "flux"
+  provider: "flux"
   promptVariant: "primary" | "fallback"
   success: boolean
   failureReason: ImageAttemptFailureReason | null
 }
 
-// Shared by both providers — a failed generation can come back as a 200
-// with a placeholder/refusal image just as easily as a network error, so
-// every fetched buffer goes through the same size + blank/black check
-// before being treated as usable.
+// A failed generation can come back as a 200 with a placeholder/refusal
+// image just as easily as a network error, so every fetched buffer goes
+// through the same size + blank/black check before being treated as usable.
 async function checkImageQuality(buffer: Buffer): Promise<{ ok: true } | { error: string; reason: ImageAttemptFailureReason }> {
   if (buffer.length < MIN_BUFFER_BYTES) {
     return { error: `Image response was too small to be a real photo (${buffer.length} bytes).`, reason: "too_small" }
@@ -178,56 +174,6 @@ async function checkImageQuality(buffer: Buffer): Promise<{ ok: true } | { error
   }
 
   return { ok: true }
-}
-
-function buildPollinationsUrl(prompt: string, seed: number, dimensions: ImageDimensions): string {
-  return `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=${dimensions.width}&height=${dimensions.height}&seed=${seed}&nologo=true&model=flux`
-}
-
-// productImageUrl is accepted here purely so this function's signature
-// matches fetchAndCheckFluxImage's (both get assigned to the same
-// `fetchImage` variable in fetchBackgroundImage below, based on
-// provider) -- Pollinations has no image-to-image capability, so it's
-// silently ignored. Free-plan users are the only ones who can reach this
-// path with a productImageUrl set (paid tiers and the internal bypass
-// always resolve to Flux -- see resolveImageProvider), and even then the
-// prompt itself still carries useful scene context, just without an
-// actual reference photo attached.
-async function fetchAndCheckPollinationsImage(prompt: string, seed: number, dimensions: ImageDimensions, _productImageUrl?: string | null): Promise<{ buffer: Buffer } | { error: string; reason: ImageAttemptFailureReason }> {
-  const url = buildPollinationsUrl(prompt, seed, dimensions)
-  console.log(`[post-image-pipeline] calling Pollinations: seed=${seed} promptLen=${prompt.length} url=${url.slice(0, 200)}${url.length > 200 ? "…" : ""}`)
-
-  let res: Response
-  try {
-    res = await fetch(url)
-  } catch (err) {
-    const detail = err instanceof Error ? `${err.name}: ${err.message}` : String(err)
-    console.error(`[post-image-pipeline] Pollinations fetch threw before any response (network/DNS/timeout-level failure):`, detail)
-    return { error: err instanceof Error ? err.message : "Image generation request failed.", reason: "network_error" }
-  }
-
-  console.log(`[post-image-pipeline] Pollinations responded: status=${res.status} content-type=${res.headers.get("content-type")}`)
-
-  if (!res.ok) {
-    // Read the body even on failure — Pollinations returns a JSON or plain
-    // text error body (rate limit, invalid model, prompt rejected, etc.)
-    // that the status code alone doesn't explain.
-    let bodyText = ""
-    try {
-      bodyText = (await res.text()).slice(0, 500)
-    } catch (readErr) {
-      bodyText = `<failed to read response body: ${readErr instanceof Error ? readErr.message : String(readErr)}>`
-    }
-    console.error(`[post-image-pipeline] Pollinations returned non-200: status=${res.status} statusText=${res.statusText} body=${JSON.stringify(bodyText)}`)
-    return { error: `Pollinations API error (${res.status}): ${bodyText || res.statusText}`, reason: "api_error" }
-  }
-
-  const buffer = Buffer.from(await res.arrayBuffer())
-  console.log(`[post-image-pipeline] Pollinations image buffer: ${buffer.length} bytes`)
-
-  const quality = await checkImageQuality(buffer)
-  if ("error" in quality) return quality
-  return { buffer }
 }
 
 function getReplicateApiToken(): string {
@@ -313,21 +259,6 @@ async function fetchAndCheckFluxImage(prompt: string, seed: number, dimensions: 
   const quality = await checkImageQuality(result.buffer)
   if ("error" in quality) return quality
   return { buffer: result.buffer }
-}
-
-/** Starter (the budget tier, and what every trialing — not-yet-paying —
- * signup is gated as too, see PLAN_LIMITS in types/app.ts) stays on
- * Pollinations, which already benefits from the brand-grounded prompt this
- * pipeline builds; Pro and Agency — and the internal owner-bypass,
- * regardless of its nominal plan — get Flux. This supersedes the old
- * Free-vs-paid split from before the Free tier was removed: the same
- * cost-control intent (don't spend a paid-image-model call on an account
- * that isn't paying a matching price) now falls on the plan boundary one
- * step up. The comparison lives here, once, rather than being
- * re-implemented at each call site. */
-function resolveImageProvider(plan: UserPlan, isInternalUnlimitedUser: boolean): "pollinations" | "flux" {
-  if (isInternalUnlimitedUser) return "flux"
-  return plan === "starter" ? "pollinations" : "flux"
 }
 
 // Deterministic reinforcement layered on top of the LLM-generated
@@ -424,13 +355,10 @@ export const REFERENCE_IMAGE_PEOPLE_GUARD = "if the reference photo shows the pr
 // (already covered by PHOTOGRAPHY_STYLE above) and "8K ultra HD, sharp
 // focus" (a generic superlative with nothing for the model to actually aim
 // at), and adds explicit negative-artifact language — confirmed via
-// Pollinations' and Replicate/Flux 2 Pro's actual API docs that NEITHER
-// provider has a dedicated negative-prompt parameter (Pollinations'
-// documented query params are prompt/model/width/height/seed/nologo/
-// enhance/private only, and Black Forest Labs' own FLUX.2 docs say
-// "FLUX.2 does not support negative prompts" outright) — so this has to be
-// folded into the single positive prompt string for both providers, same
-// as everything else here.
+// Black Forest Labs' own FLUX.2 docs that Replicate/Flux 2 Pro has no
+// dedicated negative-prompt parameter ("FLUX.2 does not support negative
+// prompts" outright) — so this has to be folded into the single positive
+// prompt string, same as everything else here.
 // "the main subject in crisp sharp focus... not soft, hazy, or out of
 // focus" — contrastive rather than a bare superlative (the prior "8K ultra
 // HD, sharp focus" removed in favor of PHOTOGRAPHY_STYLE's specific lens/
@@ -468,9 +396,9 @@ export const CENTERED_COMPOSITION_GUARD = "keep the main subject, text, logos, a
 // everything else (niche setting, negative guard, photography style,
 // quality boilerplate) is a short, fixed, code-authored string. Capping
 // these two directly (rather than checking the assembled total after the
-// fact) guarantees the combined prompt can never silently balloon toward
-// Pollinations' URL-length ceiling regardless of how verbose a future LLM
-// response or a brand's target_audience field gets. The client already
+// fact) guarantees the combined prompt can never silently balloon
+// regardless of how verbose a future LLM response or a brand's
+// target_audience field gets. The client already
 // caps imagePrompt at 500 chars (components/generate/FullPostGenerator.tsx)
 // but this pipeline is reachable without going through that specific
 // client path (e.g. "Regenerate image"), so it needs its own server-side
@@ -567,41 +495,36 @@ function simplifyPrompt(prompt: string, brandNiche: string | null, hasReferenceI
 }
 
 export type BackgroundImageResult =
-  | { success: true; buffer: Buffer; mimeType: string; provider: "pollinations" | "flux"; attempts: ImageGenerationAttempt[] }
+  | { success: true; buffer: Buffer; mimeType: string; provider: "flux"; attempts: ImageGenerationAttempt[] }
   | { success: false; error: string; attempts: ImageGenerationAttempt[] }
 
 /**
- * Fetches a single background image buffer via Pollinations (free plan) or
- * Replicate's Flux 2 Pro (paid plans + internal bypass) — retrying once
- * with `fallbackPrompt`/a new seed on failure, and falling back to
- * Pollinations (with the original `prompt`) if Flux fails twice. Never
- * throws. This is the shared "get me a good image buffer" half of
- * generatePostImage below, minus its niche-specific prompt-building and
- * template compositing — reused as-is by any caller that just wants a
- * plain, uncomposited background image (e.g. carousel slide backgrounds
- * in lib/ai/carousel-slide-background.ts).
+ * Fetches a single background image buffer via Replicate's Flux 2 Pro —
+ * every plan, every trial, no provider branching — retrying once with
+ * `fallbackPrompt`/a new seed on failure. Never throws. This is the shared
+ * "get me a good image buffer" half of generatePostImage below, minus its
+ * niche-specific prompt-building and template compositing — reused as-is
+ * by any caller that just wants a plain, uncomposited background image
+ * (e.g. carousel slide backgrounds in lib/ai/carousel-slide-background.ts).
+ *
+ * `plan`/`isInternalUnlimitedUser` are kept as parameters (unused for
+ * provider selection now that every plan resolves to Flux) rather than
+ * removed, since every call site still has them on hand from resolving
+ * the caller's plan for credit-charging purposes, and removing them here
+ * would just be a cosmetic signature change across every caller for no
+ * behavioral gain.
  */
 export async function fetchBackgroundImage(
   prompt: string,
   fallbackPrompt: string,
-  plan: UserPlan,
-  isInternalUnlimitedUser: boolean,
+  _plan: UserPlan,
+  _isInternalUnlimitedUser: boolean,
   dimensions: ImageDimensions = PORTRAIT_DIMENSIONS,
-  /** Real uploaded product photo (products.image_urls[0]) — only actually
-   * sent to the provider on the Flux path (see fetchAndCheckFluxImage's
-   * input_images); Pollinations has no image-to-image capability and
-   * ignores it. */
+  /** Real uploaded product photo (products.image_urls[0]) — sent as a Flux
+   * image-to-image reference (see fetchAndCheckFluxImage's input_images). */
   productImageUrl?: string | null
 ): Promise<BackgroundImageResult> {
-  const provider = resolveImageProvider(plan, isInternalUnlimitedUser)
-  const fetchImage = provider === "flux" ? fetchAndCheckFluxImage : fetchAndCheckPollinationsImage
-  console.log(`[post-image-pipeline] fetchBackgroundImage provider=${provider} plan=${plan} internalUnlimited=${isInternalUnlimitedUser} dimensions=${dimensions.width}x${dimensions.height} productReference=${productImageUrl ? "yes" : "no"}`)
-
-  // Tracks which provider actually produced the returned buffer — distinct
-  // from `provider` above once the Flux-fails-twice fallback kicks in, and
-  // worth surfacing to callers since Flux is a paid-per-call cost and
-  // Pollinations isn't (see ai_generation_logs inserts that read this).
-  let actualProvider: "pollinations" | "flux" = provider
+  console.log(`[post-image-pipeline] fetchBackgroundImage provider=flux dimensions=${dimensions.width}x${dimensions.height} productReference=${productImageUrl ? "yes" : "no"}`)
 
   // One entry per real attempt (not just the final outcome) — this is what
   // makes "how often does the near-blank/near-black check trip, and at
@@ -612,42 +535,22 @@ export async function fetchBackgroundImage(
   const attempts: ImageGenerationAttempt[] = []
 
   const seed = Math.floor(Math.random() * 1_000_000)
-  let attempt = await fetchImage(prompt, seed, dimensions, productImageUrl)
-  attempts.push({ attemptNumber: 1, provider, promptVariant: "primary", success: !("error" in attempt), failureReason: "error" in attempt ? attempt.reason : null })
+  let attempt = await fetchAndCheckFluxImage(prompt, seed, dimensions, productImageUrl)
+  attempts.push({ attemptNumber: 1, provider: "flux", promptVariant: "primary", success: !("error" in attempt), failureReason: "error" in attempt ? attempt.reason : null })
 
   if ("error" in attempt) {
-    console.error(`[post-image-pipeline] first attempt failed (${provider}):`, attempt.error)
+    console.error(`[post-image-pipeline] first attempt failed:`, attempt.error)
     const retrySeed = Math.floor(Math.random() * 1_000_000)
-    attempt = await fetchImage(fallbackPrompt, retrySeed, dimensions, productImageUrl)
-    attempts.push({ attemptNumber: 2, provider, promptVariant: "fallback", success: !("error" in attempt), failureReason: "error" in attempt ? attempt.reason : null })
+    attempt = await fetchAndCheckFluxImage(fallbackPrompt, retrySeed, dimensions, productImageUrl)
+    attempts.push({ attemptNumber: 2, provider: "flux", promptVariant: "fallback", success: !("error" in attempt), failureReason: "error" in attempt ? attempt.reason : null })
 
     if ("error" in attempt) {
-      console.error(`[post-image-pipeline] retry also failed (${provider}):`, attempt.error)
-
-      // Flux failing twice (Replicate outage, out of credit, etc.) shouldn't
-      // leave a paying user with nothing — fall back to the always-available
-      // free provider rather than a hard failure. Logged loudly since this
-      // is a last-resort safety net, not a routine path. Pollinations can't
-      // use productImageUrl anyway (no image-to-image support), so this
-      // fallback is text-only regardless of whether Flux had a reference.
-      if (provider === "flux") {
-        console.log(`[post-image-pipeline] Flux failed twice, falling back to Pollinations for plan=${plan}`)
-        const fallbackSeed = Math.floor(Math.random() * 1_000_000)
-        attempt = await fetchAndCheckPollinationsImage(prompt, fallbackSeed, dimensions)
-        actualProvider = "pollinations"
-        attempts.push({ attemptNumber: 3, provider: "pollinations", promptVariant: "primary", success: !("error" in attempt), failureReason: "error" in attempt ? attempt.reason : null })
-
-        if ("error" in attempt) {
-          console.error(`[post-image-pipeline] Pollinations fallback also failed:`, attempt.error)
-          return { success: false, error: `Couldn't generate a usable image after three attempts. Last error: ${attempt.error}`, attempts }
-        }
-      } else {
-        return { success: false, error: `Couldn't generate a usable image after two attempts. Last error: ${attempt.error}`, attempts }
-      }
+      console.error(`[post-image-pipeline] retry also failed:`, attempt.error)
+      return { success: false, error: `Couldn't generate a usable image after two attempts. Last error: ${attempt.error}`, attempts }
     }
   }
 
-  return { success: true, buffer: attempt.buffer, mimeType: "image/png", provider: actualProvider, attempts }
+  return { success: true, buffer: attempt.buffer, mimeType: "image/png", provider: "flux", attempts }
 }
 
 export interface GeneratePostImageOptions {
@@ -670,18 +573,17 @@ export interface GeneratePostImageOptions {
    * own comment for why this can't overflow the template's box. */
   textSizeScale?: number | null
   logoUrl: string | null
-  /** Determines the image provider (resolveImageProvider) — Starter stays
-   * on Pollinations, Pro/Agency get Flux. */
+  /** Kept for credit-charging/logging call sites that already have this on
+   * hand -- every plan resolves to Flux now (see fetchBackgroundImage). */
   plan: UserPlan
-  /** Internal owner-bypass — always resolves to Flux regardless of `plan`. */
+  /** Internal owner-bypass -- same reasoning as `plan` above, no longer
+   * changes which provider is used. */
   isInternalUnlimitedUser: boolean
   /** Real uploaded product photo (products.image_urls[0]), if the user
-   * picked a product for this post. Only actually usable as a Flux
-   * image-to-image reference (see fetchAndCheckFluxImage) — still passed
-   * through even on plans that will resolve to Pollinations, since it also
-   * switches the assembled prompt onto the scene-focused hasReferenceImage
-   * path below rather than re-describing the product's appearance from
-   * scratch. */
+   * picked a product for this post. Used as a Flux image-to-image
+   * reference (see fetchAndCheckFluxImage) -- also switches the assembled
+   * prompt onto the scene-focused hasReferenceImage path below rather than
+   * re-describing the product's appearance from scratch. */
   productImageUrl?: string | null
   /** Client-chosen aspect ratio (generatePostImageSchema's aspectRatio) —
    * only actually changes the output when there's no text overlay
@@ -697,9 +599,8 @@ export interface GeneratePostImageOptions {
 }
 
 /**
- * Generates the base image via Pollinations (Starter plan) or Replicate's
- * Flux 2 Pro (Pro/Agency, and the internal owner-bypass — see
- * resolveImageProvider), retrying once with a simplified prompt and a new
+ * Generates the base image via Replicate's Flux 2 Pro — every plan, no
+ * provider branching — retrying once with a simplified prompt and a new
  * seed if the first attempt fails outright or comes back low-quality —
  * capped at 1 auto-retry, 2 attempts total — then composites the chosen
  * template's overlay onto it. Never throws — every failure mode returns
@@ -714,8 +615,8 @@ export async function generatePostImage(options: GeneratePostImageOptions): Prom
   // compositions, regardless of what the model itself produced. The two
   // caller-supplied pieces are length-capped before joining so neither an
   // unusually long LLM-generated imagePrompt nor a verbose brand
-  // target_audience can push the assembled prompt toward Pollinations' URL
-  // length ceiling — every other piece here is a short, fixed string.
+  // target_audience can push the assembled prompt toward an unwieldy
+  // length — every other piece here is a short, fixed string.
   const cappedImagePrompt = capLength(options.imagePrompt, MAX_IMAGE_PROMPT_CHARS)
   const cappedTargetAudience = options.targetAudience ? capLength(options.targetAudience, MAX_TARGET_AUDIENCE_CHARS) : null
   const hasReferenceImage = !!options.productImageUrl

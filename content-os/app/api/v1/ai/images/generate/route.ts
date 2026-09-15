@@ -56,8 +56,10 @@ export async function POST(request: Request) {
     product = prod
   }
 
-  // Determines the image provider (Free -> Pollinations, paid -> Flux) —
-  // same lookup app/api/v1/ai/post-image/generate/route.ts already does.
+  // Every plan resolves to Flux now (lib/ai/post-image-pipeline.ts's
+  // fetchBackgroundImage) -- still looked up since fetchBackgroundImage's
+  // signature expects it, same lookup app/api/v1/ai/post-image/generate/route.ts
+  // already does.
   const { data: userData } = await supabase.from("users").select("plan").eq("id", user.id).single<{ plan: UserPlan }>()
   const plan: UserPlan = userData?.plan ?? "starter"
 
@@ -72,7 +74,7 @@ export async function POST(request: Request) {
   })
 
   if (!result.success) {
-    // Full raw error (e.g. Pollinations API error text) stays server-side
+    // Full raw error (e.g. Replicate/Flux API error text) stays server-side
     // only — never shown to the user.
     console.error("[ai/images/generate] generation failed:", result.error)
     await logGenerationOutcome(supabase, logId, {
@@ -110,8 +112,8 @@ export async function POST(request: Request) {
 
   // model_used/provider now record the real provider that actually
   // produced the image — previously hardcoded to "imagen-4.0-generate-001"
-  // regardless of the fact this route only ever called Pollinations, same
-  // fix already applied to post-image/generate/route.ts.
+  // regardless of what this route actually called, same fix already
+  // applied to post-image/generate/route.ts.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data: savedImage } = await (supabase.from("generated_images") as any).insert({
     brand_id: brandId,

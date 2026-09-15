@@ -26,13 +26,6 @@ const ASPECT_RATIOS: { value: AspectRatio; label: string }[] = [
   { value: "16:9", label: "Landscape (16:9)" },
 ]
 
-const DIMS: Record<AspectRatio, string> = {
-  "1:1": "width=1080&height=1080",
-  "4:5": "width=1080&height=1350",
-  "9:16": "width=1080&height=1920",
-  "16:9": "width=1920&height=1080",
-}
-
 interface ImageGeneratorProps {
   brandId: string
   products: ProductRow[]
@@ -50,7 +43,6 @@ export function ImageGenerator({ brandId, products }: ImageGeneratorProps) {
   const [justSaved, setJustSaved] = useState(false)
   const [promptError, setPromptError] = useState("")
   const [textWarning, setTextWarning] = useState<string | null>(null)
-  const [variations, setVariations] = useState<string[]>([])
   const abortControllerRef = useRef<AbortController | null>(null)
 
   useEffect(() => {
@@ -75,36 +67,30 @@ export function ImageGenerator({ brandId, products }: ImageGeneratorProps) {
   // Shared success handler for both the normal generate and the
   // "Generate anyway" override -- a warning outcome (prompt asked for
   // rendered text) surfaces the choice instead of looking like a broken
-  // success; a real success runs the existing variation logic unchanged.
+  // success.
+  //
+  // Used to also fire 2 extra client-side Pollinations requests here for
+  // free "bonus variations" with different seeds -- removed along with
+  // Pollinations, not replaced with a Flux equivalent: Flux is a real
+  // paid-per-call Replicate request, so generating 2 extra variations here
+  // would silently 3x this tool's per-click cost with no way to charge for
+  // it. The single real generated image now just joins the existing
+  // "images generated" grid below like any other saved image.
   function handleImageOutcome(outcome: GenerateImageOutcome) {
     if (outcome.kind === "warning") {
       setTextWarning(outcome.message)
       return
     }
     setTextWarning(null)
-    const data = outcome.data
-    addImage(data)
+    addImage(outcome.data)
     setJustSaved(true)
     setTimeout(() => setJustSaved(false), 6000)
-
-    // Generate 2 additional Pollinations variants with different seeds
-    const fp = data.full_prompt ?? data.prompt
-    const dims = DIMS[aspectRatio]
-    const encoded = encodeURIComponent(fp)
-    const s1 = Math.floor(Math.random() * 99999)
-    const s2 = Math.floor(Math.random() * 99999)
-    setVariations([
-      data.public_url,
-      `https://image.pollinations.ai/prompt/${encoded}?${dims}&seed=${s1}&nologo=true&model=flux&enhance=true`,
-      `https://image.pollinations.ai/prompt/${encoded}?${dims}&seed=${s2}&nologo=true&model=flux&enhance=true`,
-    ])
   }
 
   function runGenerate(allowTextInImage: boolean) {
     abortControllerRef.current?.abort()
     abortControllerRef.current = new AbortController()
     setJustSaved(false)
-    setVariations([])
     generateImage(
       allowTextInImage
         ? { brandId, productId: selectedProductId ?? undefined, prompt: prompt.trim(), style, aspectRatio, allowTextInImage: true }
@@ -245,31 +231,8 @@ export function ImageGenerator({ brandId, products }: ImageGeneratorProps) {
         </div>
       )}
 
-      {/* 3 Variations */}
-      {!isPending && variations.length > 0 && (
-        <div className="space-y-3">
-          <p className="text-sm font-medium">3 variations, pick the one you love ↓</p>
-          <div className="grid grid-cols-3 gap-3">
-            {variations.map((url, i) => (
-              <div key={i} className="group relative rounded-lg border bg-card overflow-hidden">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={url} alt={`Variation ${i + 1}`} className="w-full aspect-square object-cover" loading={i === 0 ? "eager" : "lazy"} />
-                <div className="absolute inset-x-0 bottom-0 flex items-center justify-between bg-black/60 px-2 py-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <span className="text-[10px] text-white font-medium">#{i + 1}</span>
-                  <a href={url} download={`image-variation-${i + 1}.jpg`} target="_blank" rel="noopener noreferrer"
-                    className="flex items-center gap-1 text-[10px] text-white hover:text-yellow-300">
-                    <Download className="h-3 w-3" /> Save
-                  </a>
-                </div>
-              </div>
-            ))}
-          </div>
-          <p className="text-xs text-muted-foreground">Variation 1 is saved to My Content. Hover any variation to download.</p>
-        </div>
-      )}
-
       {/* Previous images */}
-      {!isPending && variations.length === 0 && images.length > 0 && (
+      {!isPending && images.length > 0 && (
         <div className="space-y-4">
           <p className="text-sm font-medium">{images.length} image{images.length > 1 ? "s" : ""} generated</p>
           <div className="grid grid-cols-2 gap-3">

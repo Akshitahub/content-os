@@ -20,10 +20,10 @@ const schema = z.object({
   slideType: z.enum(["cover", "content", "cta"]).optional(),
 })
 
-// Chains up to 3 sequential external calls (first attempt, retry, and a
-// possible Flux-to-Pollinations fallback) inside fetchBackgroundImage —
-// each a real network round-trip that can individually take 10-30s+, so
-// this needs more headroom than Vercel's platform default. Matches the
+// Chains up to 2 sequential Flux calls (first attempt + retry) inside
+// fetchBackgroundImage — each a real network round-trip that can
+// individually take 10-30s+, so this needs more headroom than Vercel's
+// platform default. Matches the
 // convention already used by other slow-external-call routes in this repo
 // (e.g. app/api/v1/brands/fastlane/route.ts, app/api/v1/ai/stories/slide-image/generate/route.ts).
 export const maxDuration = 60
@@ -122,11 +122,10 @@ export async function POST(request: Request) {
     return NextResponse.json(buildError(ErrorCodes.AI_GENERATION_FAILED, result.error), { status: 500 })
   }
 
-  // Surfaced in ai_generation_logs below — Flux is a paid-per-call cost and
-  // Pollinations isn't, so knowing which one actually ran per row (not just
-  // which plan the user is on) matters for monitoring real cost as usage
-  // grows, especially since a Flux failure can silently fall back to
-  // Pollinations mid-call (see fetchBackgroundImage).
+  // Surfaced in ai_generation_logs below — Flux is a real paid-per-call
+  // cost, so persisting which provider ran per row matters for monitoring
+  // real cost as usage grows. Always "flux" now, but kept as a real field
+  // (not a hardcoded literal) rather than assuming that never changes.
   const { provider } = result
 
   const uploadResult = await uploadMediaToStorage(

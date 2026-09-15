@@ -60,7 +60,6 @@ interface AdVariation {
 }
 
 async function compositeAd(
-  productDataUrl: string,
   variations: AdVariation[],
   hookText: string,
   showText: boolean,
@@ -79,10 +78,10 @@ async function compositeAd(
   const results: string[] = []
 
   // Each entry is now a distinct server-generated (Storage-hosted)
-  // background -- one real Pollinations/Flux call per variation, run
-  // concurrently server-side (see .../ad-maker/generate/route.ts), instead
-  // of the old per-variation client-side Pollinations fetch with its own
-  // bespoke retry loop.
+  // background -- one real Flux call per variation, run concurrently
+  // server-side (see .../ad-maker/generate/route.ts), instead of the old
+  // per-variation client-side Pollinations fetch with its own bespoke
+  // retry loop.
   for (const variation of variations) {
     const canvas = document.createElement("canvas")
     canvas.width = w
@@ -97,22 +96,11 @@ async function compositeAd(
       ctx.fillRect(0, 0, w, h)
     }
 
-    // Flux variations already have the product realistically placed in the
-    // photo itself (see ad-maker-background.ts's reference-image path) --
-    // pasting the cutout again on top would double it up. Only Pollinations
-    // (no image-to-image capability) still needs the client-side paste.
-    let py = h - (h * 0.1)
-    if (variation.provider === "pollinations") {
-      const product = await loadImage(productDataUrl)
-      const maxW = w * 0.75
-      const maxH = h * 0.65
-      const scale = Math.min(maxW / product.width, maxH / product.height)
-      const pw = product.width * scale
-      const ph = product.height * scale
-      const px = (w - pw) / 2
-      py = h - ph - (h * 0.1)
-      ctx.drawImage(product, px, py, pw, ph)
-    }
+    // Flux already has the product realistically placed in the photo
+    // itself (see ad-maker-background.ts's reference-image path -- AdMaker
+    // always has a real product photo by this step), so there's no
+    // client-side cutout to paste back on top here.
+    const py = h - (h * 0.1)
 
     if (showText && hookText) {
       const colors: Record<TextColor, string> = { white: "#ffffff", dark: "#111111", violet: "#818cf8" }
@@ -470,11 +458,12 @@ export function AdMaker({ brandId, products }: AdMakerProps) {
     setResults([])
     setExpandedIdx(null)
 
-    // Generation itself (Pollinations background fetch + canvas
-    // compositing below) is entirely client-side, with no server round-trip
-    // to hang a credit charge on — so this is a dedicated check-and-charge
-    // call before doing any local work, mirroring every other feature's
-    // "check credits before generating" order.
+    // The canvas compositing below (drawing the fetched background +
+    // headline text onto each variation) is entirely client-side, with no
+    // server round-trip to hang a credit charge on — so this is a
+    // dedicated check-and-charge call before doing any local work,
+    // mirroring every other feature's "check credits before generating"
+    // order.
     let charged = false
     try {
       const chargeRes = await fetch(`/api/v1/brands/${brandId}/ai/ad-maker/generate`, {
@@ -501,7 +490,7 @@ export function AdMaker({ brandId, products }: AdMakerProps) {
       const brandName = brand?.name ?? "Brand"
       const handle = brand?.instagram_handle ?? ""
       const variations = (chargeJson as { data: { variations: { url: string; provider: string }[] } }).data.variations
-      const composited = await compositeAd(productDataUrl, variations, hookText, showText, textPosition, textColor, format, brandName, handle)
+      const composited = await compositeAd(variations, hookText, showText, textPosition, textColor, format, brandName, handle)
       setResults(composited)
       setExpandedIdx(0)
       setShowSuccess(true)

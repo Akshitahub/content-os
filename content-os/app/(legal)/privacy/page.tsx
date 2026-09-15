@@ -51,8 +51,7 @@ export default function PrivacyPage() {
         <ul>
           <li><strong>Groq</strong>: AI text generation (hooks, captions, hashtags, reel scripts, content strategy) and AI voice generation (reel voiceovers). This is our primary content-generation engine.</li>
           <li><strong>Razorpay</strong>: Payment processing (PCI-DSS compliant)</li>
-          <li><strong>Replicate</strong>: AI image generation (Flux 2 Pro, used for paid-tier post images)</li>
-          <li><strong>Pollinations.ai</strong>: AI image generation (used for free-tier post images)</li>
+          <li><strong>Replicate</strong>: AI image generation (Flux 2 Pro, used for all post images)</li>
           <li><strong>Remove.bg</strong>: Background removal for product images</li>
           <li><strong>PiAPI (Kling)</strong>: AI video generation for reel scenes</li>
           <li><strong>JSON2Video</strong>: Video rendering for reels</li>

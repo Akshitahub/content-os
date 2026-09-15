@@ -41,16 +41,16 @@ async function persistAttempts(supabase: any, brandId: string, attempts: ImageGe
   }
 }
 
-// Chains up to 3 sequential external calls (first attempt, retry, and a
-// possible Flux-to-Pollinations fallback) inside generatePostImage — each
-// a real network round-trip that can individually take 10-30s+, so this
-// needs more headroom than Vercel's platform default. Matches the
-// convention already used by other slow-external-call routes in this repo
-// (e.g. app/api/v1/brands/fastlane/route.ts, app/api/v1/ai/stories/slide-image/generate/route.ts).
+// Chains up to 2 sequential Flux calls (first attempt + retry) inside
+// generatePostImage — each a real network round-trip that can individually
+// take 10-30s+, so this needs more headroom than Vercel's platform
+// default. Matches the convention already used by other slow-external-call
+// routes in this repo (e.g. app/api/v1/brands/fastlane/route.ts,
+// app/api/v1/ai/stories/slide-image/generate/route.ts).
 export const maxDuration = 60
 
 /**
- * Generates the final Create → Full Post AI image: Pollinations (via
+ * Generates the final Create → Full Post AI image: Replicate/Flux (via
  * lib/ai/post-image-pipeline.ts) grounded in the caption's own message,
  * composited with the chosen template's logo/headline/accent/CTA overlay.
  * Serves both the initial image generation and the "Regenerate image"
@@ -104,8 +104,9 @@ export async function POST(request: Request) {
   }
   const productImageUrl = product?.image_urls?.[0] ?? null
 
-  // Determines the image provider (Free -> Pollinations, paid -> Flux) —
-  // see lib/ai/post-image-pipeline.ts's resolveImageProvider.
+  // Every plan resolves to Flux now (lib/ai/post-image-pipeline.ts's
+  // fetchBackgroundImage) -- still looked up since that function's
+  // signature expects it.
   const { data: userData } = await supabase.from("users").select("plan").eq("id", user.id).single<{ plan: UserPlan }>()
   const plan: UserPlan = userData?.plan ?? "starter"
 
@@ -142,8 +143,7 @@ export async function POST(request: Request) {
     await persistAttempts(supabase, brandId, result.attempts)
     // Best-effort provider label from whatever was actually attempted —
     // previously this was hardcoded to "flux+resvg-composite" regardless
-    // of which provider (if any) actually ran, which was actively
-    // misleading for every free-plan (Pollinations) failure.
+    // of whether a generation attempt had even started.
     const lastProvider = result.attempts[result.attempts.length - 1]?.provider ?? "unknown"
     await logGenerationOutcome(supabase, logId, {
       user_id: user.id, brand_id: brandId, feature: FEATURE, model: lastProvider,
@@ -182,11 +182,9 @@ export async function POST(request: Request) {
 
   // model_used and provider both now record the real provider that
   // actually produced the base image — previously model_used was
-  // hardcoded to "flux+resvg-composite" even for the 100% of production
-  // images that were actually served by Pollinations (every current user
-  // is on the free plan), making it impossible to answer how often the
-  // Flux->Pollinations fallback fires. provider is the new structured
-  // column; model_used keeps its existing "<what produced this>+resvg-composite"
+  // hardcoded to "flux+resvg-composite" regardless of what actually ran.
+  // provider is the new structured column; model_used keeps its existing
+  // "<what produced this>+resvg-composite"
   // shape for anything still reading it as a single label -- only appends
   // "+resvg-composite" when compositing actually ran, since text overlay
   // is now opt-in (a plain, uncomposited background is the common case).

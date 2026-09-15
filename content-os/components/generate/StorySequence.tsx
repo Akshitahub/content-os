@@ -138,7 +138,7 @@ function slideShowsProduct(type: StorySlide["type"], total: number): boolean {
   return type === "reveal" || type === "cta" || (total === 1 && type === "hook")
 }
 
-type SlideBackgroundResult = { url: string; provider: "pollinations" | "flux" } | { error: "insufficient_credits" | "failed" }
+type SlideBackgroundResult = { url: string; provider: "flux" } | { error: "insufficient_credits" | "failed" }
 
 async function fetchSlideBackgroundResult(
   brandId: string,
@@ -159,7 +159,7 @@ async function fetchSlideBackgroundResult(
     })
     if (res.status === 429) return { error: "insufficient_credits" }
     if (!res.ok) return { error: "failed" }
-    const json = await res.json() as { data?: { public_url?: string; provider?: "pollinations" | "flux" } }
+    const json = await res.json() as { data?: { public_url?: string; provider?: "flux" } }
     // A public_url with no provider would be an incomplete/malformed
     // response -- treated the same as any other failure rather than
     // storing a background with an unknown provider (which PhoneStory's
@@ -181,7 +181,7 @@ async function fetchSlideBackground(
   role: "hook" | "cta",
   productImageUrl?: string | null,
   textPosition?: StorySlide["text_position"]
-): Promise<{ url: string; provider: "pollinations" | "flux" } | null> {
+): Promise<{ url: string; provider: "flux" } | null> {
   const result = await fetchSlideBackgroundResult(brandId, vibe, role, productImageUrl, textPosition)
   return "url" in result ? { url: result.url, provider: result.provider } : null
 }
@@ -917,12 +917,8 @@ export function StorySequence({ brandId }: { brandId: string }) {
 
           // Reveal/buildup slides are credit-metered (unlike hook/cta
           // above), so they're requested one at a time rather than all at
-          // once — partly to fail fast and stop asking once credits run
-          // out instead of firing a batch of doomed requests, and partly
-          // because Pollinations itself only allows one in-flight request
-          // per IP (confirmed live on the Carousel equivalent of this
-          // feature), so real parallelism here would mostly just trade one
-          // slow path for a bunch of failed ones. Mirrors
+          // once, to fail fast and stop asking once credits run out
+          // instead of firing a batch of doomed requests. Mirrors
           // CarouselBuilder.tsx's identical body-slide loop exactly.
           const bodyIndices = allSlidesAiBg
             ? savedStories.map((_, i) => i).filter((i) => savedStories[i]!.type === "reveal" || savedStories[i]!.type === "buildup")

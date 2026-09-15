@@ -199,7 +199,7 @@ function withCtaSlideMerged(data: GeneratedCarousel): GeneratedCarousel {
 // distinction; fetchSlideBackground wraps it back down to the simpler
 // null-on-any-failure shape hook/cta (which are never credit-gated) have
 // always used.
-type SlideBackgroundResult = { url: string; provider?: "pollinations" | "flux" } | { error: "insufficient_credits" | "failed" }
+type SlideBackgroundResult = { url: string; provider?: "flux" } | { error: "insufficient_credits" | "failed" }
 
 async function fetchSlideBackgroundResult(
   brandId: string,
@@ -218,7 +218,7 @@ async function fetchSlideBackgroundResult(
     })
     if (res.status === 429) return { error: "insufficient_credits" }
     if (!res.ok) return { error: "failed" }
-    const json = await res.json() as { data?: { public_url?: string; provider?: "pollinations" | "flux" } }
+    const json = await res.json() as { data?: { public_url?: string; provider?: "flux" } }
     return json.data?.public_url ? { url: json.data.public_url, provider: json.data.provider } : { error: "failed" }
   } catch {
     return { error: "failed" }
@@ -238,7 +238,7 @@ async function fetchSlideBackground(
   role: "hook" | "cta",
   productImageUrl?: string | null,
   slideType?: SlideType
-): Promise<{ url: string; provider?: "pollinations" | "flux" } | null> {
+): Promise<{ url: string; provider?: "flux" } | null> {
   const result = await fetchSlideBackgroundResult(brandId, vibe, role, productImageUrl, slideType)
   return "url" in result ? { url: result.url, provider: result.provider } : null
 }
@@ -890,14 +890,10 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
           setCtaBackgroundUrl(ctaBg)
 
           // Body slides are credit-metered (unlike hook/cta above), so
-          // they're requested one at a time rather than all at once —
-          // partly to fail fast and stop asking once credits run out
-          // instead of firing a batch of doomed requests, and partly
-          // because Pollinations itself only allows one in-flight request
-          // per IP (confirmed live: concurrent hook+cta calls already
-          // occasionally 429 each other), so real parallelism here would
-          // mostly just trade one slow path for a bunch of failed ones.
-          const bodyUpdates: Record<number, { url: string; provider?: "pollinations" | "flux" }> = {}
+          // they're requested one at a time rather than all at once, to
+          // fail fast and stop asking once credits run out instead of
+          // firing a batch of doomed requests.
+          const bodyUpdates: Record<number, { url: string; provider?: "flux" }> = {}
           for (let n = 0; n < bodyIndices.length; n++) {
             setBodyBgProgress({ current: n + 1, total: bodyIndices.length })
             // Every body-loop slide is already type "content" -- unlike

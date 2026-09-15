@@ -12,15 +12,15 @@ import { fetchBackgroundImage, type ImageDimensions } from "./post-image-pipelin
 const IMAGE_TAB_DIMENSIONS: ImageDimensions = { width: 1024, height: 1024, aspectRatio: "1:1" }
 
 export type GenerateImageResult =
-  | { success: true; buffer: Buffer; mimeType: string; fullPrompt: string; provider: "pollinations" | "flux" }
+  | { success: true; buffer: Buffer; mimeType: string; fullPrompt: string; provider: "flux" }
   | { success: false; error: string }
 
-// Diffusion models (Flux/Pollinations) can't reliably render legible
-// text — this catches prompts asking for rendered words/labels so the
-// route can warn instead of silently producing garbled output. Keyword
-// heuristic, not exhaustive — false negatives just mean no warning
-// shown, false positives just mean an unnecessary warning; both are
-// fine outcomes, unlike silently generating garbage text.
+// Diffusion models like Flux can't reliably render legible text — this
+// catches prompts asking for rendered words/labels so the route can warn
+// instead of silently producing garbled output. Keyword heuristic, not
+// exhaustive — false negatives just mean no warning shown, false
+// positives just mean an unnecessary warning; both are fine outcomes,
+// unlike silently generating garbage text.
 const TEXT_REQUEST_SIGNALS = [
   "text", "label", "labels", "caption", "captions", "saying", "says",
   "quote", "infographic", "diagram", "words", "wording", "headline",
@@ -32,15 +32,13 @@ export function promptRequestsRenderedText(prompt: string): boolean {
 }
 
 /**
- * Now routes through lib/ai/post-image-pipeline.ts's fetchBackgroundImage
- * instead of its own hand-rolled Pollinations-only fetch -- that duplicate
- * implementation bypassed the shared pipeline's plan-based provider
- * resolution (Free -> Pollinations, paid+internal -> Flux), retry-with-
- * fallback-prompt, and blur/near-black/near-blank quality checks entirely,
- * which is why paying users got Pollinations-only quality on this specific
- * tab regardless of plan. Never throws -- every failure mode returns
- * { success: false } instead, matching fetchBackgroundImage's own contract
- * (see app/api/v1/ai/images/generate/route.ts for how the caller checks
+ * Routes through lib/ai/post-image-pipeline.ts's fetchBackgroundImage
+ * (Replicate/Flux, every plan) instead of a hand-rolled fetch of its own --
+ * that duplicate implementation bypassed the shared pipeline's retry-with-
+ * fallback-prompt and blur/near-black/near-blank quality checks entirely.
+ * Never throws -- every failure mode returns { success: false } instead,
+ * matching fetchBackgroundImage's own contract (see
+ * app/api/v1/ai/images/generate/route.ts for how the caller checks
  * `.success` rather than try/catch now).
  */
 export async function generateImage(
@@ -69,10 +67,9 @@ export async function generateImage(
     textWasRequested: options.textWasRequested,
   })
 
-  // products.image_urls[0] -- the real uploaded product photo, now used as
-  // a Flux image-to-image reference the same way Commit 1 wired it into
-  // the Create -> Full Post pipeline. Pollinations ignores it (no
-  // image-to-image capability there).
+  // products.image_urls[0] -- the real uploaded product photo, used as a
+  // Flux image-to-image reference the same way Commit 1 wired it into the
+  // Create -> Full Post pipeline.
   const productImageUrl = options.productImageUrl ?? options.product?.image_urls?.[0] ?? null
 
   const result = await fetchBackgroundImage(

@@ -177,8 +177,8 @@ export function useGenerateFullPost() {
 }
 
 // "Upload your own photo" path — a distinct capability from FullPostResult
-// above: no postSessionId (there's no Flux/Pollinations image to
-// regenerate — the uploaded photo IS the image, unmodified), and imageUrl
+// above: no postSessionId (there's no Flux image to regenerate — the
+// uploaded photo IS the image, unmodified), and imageUrl
 // is populated directly rather than requiring a follow-up post-image/
 // generate call.
 export type FullPostFromPhotoResult = {

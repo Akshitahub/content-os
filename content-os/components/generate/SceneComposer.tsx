@@ -122,10 +122,10 @@ export function SceneComposer({ brandId }: SceneComposerProps) {
     setComposeError(null)
     setResultDataUrl(null)
 
-    // Routes through the billed generate-from-upload pipeline (plan-based
-    // Pollinations/Flux resolution, quality checks, a real reference-image
-    // path for Flux) instead of a raw client-side Pollinations fetch — this
-    // tab previously never called a billed route at all.
+    // Routes through the billed generate-from-upload pipeline (Flux,
+    // quality checks, a real reference-image path) instead of a raw
+    // client-side Pollinations fetch — this tab previously never called a
+    // billed route at all.
     try {
       const res = await fetch("/api/v1/ai/images/generate-from-upload", {
         method: "POST",
@@ -142,7 +142,7 @@ export function SceneComposer({ brandId }: SceneComposerProps) {
         setCompositing(false)
         return
       }
-      const { public_url, provider } = (json as { data: { public_url: string; provider: string } }).data
+      const { public_url } = (json as { data: { public_url: string; provider: string } }).data
 
       await new Promise<void>((resolve, reject) => {
         const canvas = canvasRef.current
@@ -159,30 +159,11 @@ export function SceneComposer({ brandId }: SceneComposerProps) {
           ctx.drawImage(bg, 0, 0, 1080, 1080)
 
           // Flux already places the product realistically in the scene
-          // itself (see the route's reference-image prompt path) — pasting
-          // the cutout again on top would double it up, same as
-          // AdMaker.tsx's Flux branch. Pollinations has no image-to-image
-          // capability, so it still needs today's client-side paste.
-          if (provider === "flux") {
-            setResultDataUrl(canvas.toDataURL("image/png"))
-            resolve()
-            return
-          }
-
-          const fg = new Image()
-          fg.src = removedBgDataUrl
-          fg.onload = () => {
-            const maxSize = 1080 * 0.72
-            const scale = Math.min(maxSize / fg.width, maxSize / fg.height)
-            const w = fg.width * scale
-            const h = fg.height * scale
-            const x = (1080 - w) / 2
-            const y = (1080 - h) / 2
-            ctx.drawImage(fg, x, y, w, h)
-            setResultDataUrl(canvas.toDataURL("image/png"))
-            resolve()
-          }
-          fg.onerror = () => reject(new Error("Failed to load product image"))
+          // itself (see the route's reference-image prompt path, always
+          // engaged here since removedBgDataUrl is required above) --
+          // there's no client-side cutout to paste back on top.
+          setResultDataUrl(canvas.toDataURL("image/png"))
+          resolve()
         }
         bg.onerror = () => reject(new Error("Failed to load the generated scene. Please try again."))
       })

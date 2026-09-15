@@ -8,11 +8,12 @@ type RouteParams = { params: Promise<{ brandId: string }> }
 
 /**
  * Undoes the charge from .../ad-maker/generate when the client-side
- * generation (Pollinations fetch + canvas compositing) fails after
- * credits were already charged — there's no way for the server to know
- * that failure happened on its own, since the actual generation work
- * never touches the server. Best-effort: never blocks the client's own
- * error handling, so a failed refund never compounds a failed generation
+ * canvas compositing (drawing the already-generated Flux background +
+ * headline text) fails after credits were already charged — there's no
+ * way for the server to know that failure happened on its own, since
+ * compositing never touches the server. Best-effort: never blocks the
+ * client's own error handling, so a failed refund never compounds a
+ * failed generation
  * into a worse user-facing error.
  */
 export async function POST(request: Request, { params }: RouteParams) {

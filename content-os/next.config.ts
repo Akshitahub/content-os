@@ -15,8 +15,8 @@ validateRequiredEnv();
 // origin from injecting a <script src>, which is the actual XSS mitigation
 // that matters here. style-src/font-src/img-src/connect-src/frame-src
 // allow the other real external dependencies this app has: Google Fonts
-// (post preview card rendering), Pollinations (AI image generation),
-// Supabase (*.supabase.co, for both the API and Storage-hosted media), and
+// (post preview card rendering), Supabase (*.supabase.co, for both the
+// API and Storage-hosted media, including Flux-generated images), and
 // Razorpay's own domains (checkout + its fraud-detection/analytics calls,
 // which span several razorpay.com and cardinalcommerce.com subdomains).
 const CSP = [
@@ -34,7 +34,7 @@ const CSP = [
   // brand-logo <img> (embedded in generated carousel HTML previews)
   // CSP-blocked because this app's own marketing domain wasn't allowed as
   // an image source.
-  "img-src 'self' data: blob: https://image.pollinations.ai https://*.supabase.co https://www.socioposts.com",
+  "img-src 'self' data: blob: https://*.supabase.co https://www.socioposts.com",
   "connect-src 'self' https://*.supabase.co https://app.posthog.com https://*.razorpay.com https://*.cardinalcommerce.com",
   "frame-src https://*.razorpay.com",
   "object-src 'none'",

@@ -13,7 +13,7 @@ const FEATURE = "fullpost_photo_upload"
 /**
  * Create -> Full Post's "upload your own photo" path -- a genuinely
  * different capability from app/api/v1/ai/fullpost/generate/route.ts
- * (which either generates a background image via Flux/Pollinations, or
+ * (which either generates a background image via Flux, or
  * composites a saved Product's photo onto a template card). Here the
  * user's own freshly-uploaded photo IS the final image, unmodified --
  * this route never touches lib/ai/post-image-pipeline.ts at all. It's
@@ -54,7 +54,7 @@ export async function POST(request: Request) {
   // Upload the real photo FIRST -- it needs a real public HTTPS URL both to
   // hand to the vision model (Groq's vision input takes a URL, not a raw
   // data: URI) and to save as this post's actual image. "published-media"
-  // (not "brand-images", which is for Flux/Pollinations-generated
+  // (not "brand-images", which is for Flux-generated
   // backgrounds) since this is real, final, ready-to-schedule content from
   // the moment it's uploaded -- the same bucket ad-maker/upload-variation
   // already uses for exactly that reason.
@@ -115,7 +115,7 @@ export async function POST(request: Request) {
 
     // This is the core of the feature: the SAME photoUrl the vision model
     // analyzed is what gets saved as the post's image, byte-for-byte —
-    // never generatePostImage's Flux/Pollinations pipeline, no compositing.
+    // never generatePostImage's Flux pipeline, no compositing.
     // prompt/storage_path are NOT NULL on this table (confirmed against
     // supabase/migrations/002_generated_images.sql) -- prompt gets an
     // honest label rather than a fabricated generation prompt that never

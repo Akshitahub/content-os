@@ -380,7 +380,7 @@ export interface CompositePostImageOptions {
 
 /**
  * Overlays brand logo, a brand-color accent, and the caller's one caption
- * text onto a base (Pollinations-generated) image, per the chosen
+ * text onto a base (Flux-generated) image, per the chosen
  * template's layout. Same pipeline as lib/image/meme-compositor.ts: build
  * an SVG for the vector/text elements, rasterize via resvg, composite over
  * the base image with sharp. `template === "blank"` skips all of this and

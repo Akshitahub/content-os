@@ -78,9 +78,10 @@ export interface AutopilotParams {
    * existing full Autopilot run). Starter's smaller tier passes a
    * smaller number (see PLAN_LIMITS[plan].autopilot in types/app.ts). */
   totalSlots?: number
-  /** User's resolved plan — determines the image provider for every
-   * slot's post image (see lib/ai/post-image-pipeline.ts's
-   * resolveImageProvider). Defaults to "starter" if omitted. */
+  /** User's resolved plan — every plan resolves to Flux for image
+   * generation now (see lib/ai/post-image-pipeline.ts's
+   * fetchBackgroundImage); still threaded through for credit-charging
+   * elsewhere in this flow. Defaults to "starter" if omitted. */
   plan?: UserPlan
   /** Internal owner-bypass — always gets Flux regardless of `plan` (see
    * isInternalUnlimited). Defaults to false if omitted. */
@@ -633,9 +634,8 @@ async function executeFastlaneInner(
 
   if (brandErr || !brand) throw new Error("Brand not found")
 
-  // Determines the image provider for every slot's post image (Free ->
-  // Pollinations, paid -> Flux) — see
-  // lib/ai/post-image-pipeline.ts's resolveImageProvider. Resolved once
+  // Every slot's post image resolves to Flux now (see
+  // lib/ai/post-image-pipeline.ts's fetchBackgroundImage). Resolved once
   // from the caller-supplied plan/bypass flag rather than re-fetched per
   // slot; app/api/v1/brands/fastlane/route.ts already looked these up for
   // its own usage/credit gating before calling executeFastlane.

@@ -702,34 +702,26 @@ function ContentDisplay({ content, copied, onCopy, onSaveCaption }: { content: C
           <p className="text-xs font-semibold text-muted-foreground mb-1">Opening Hook</p>
           <p className="text-sm font-semibold">{c.hook}</p>
         </div>
-        {/* Storyboard scene cards */}
+        {/* Storyboard scene cards -- used to show a per-scene preview image
+            fetched directly from Pollinations client-side (free, keyless,
+            no backend involvement). Removed along with Pollinations rather
+            than replaced with a Flux equivalent: Flux has no free, keyless,
+            instantly-embeddable preview endpoint -- a real per-scene
+            equivalent would mean a real paid Replicate call per scene, per
+            render, which nothing here charges for. Text content only now. */}
         <div className="grid gap-3 sm:grid-cols-2">
-          {c.scenes.map((scene, i) => {
-            const imgPrompt = encodeURIComponent(`${scene.visual_direction}, cinematic, vertical video frame, 9:16`)
-            const imgUrl = `https://image.pollinations.ai/prompt/${imgPrompt}?width=360&height=640&seed=${i + 1}&nologo=true&model=flux`
-            return (
-              <div key={i} className="rounded-md border overflow-hidden">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={imgUrl}
-                  alt={`Scene ${i + 1}`}
-                  width={360}
-                  height={180}
-                  className="w-full object-cover"
-                  style={{ height: 120 }}
-                  loading="lazy"
-                />
-                <div className="p-2.5 space-y-1 bg-secondary/30">
-                  <div className="flex items-center justify-between">
-                    <p className="text-xs font-semibold">Scene {i + 1}</p>
-                    <span className="text-xs text-muted-foreground">{scene.duration_seconds}s</span>
-                  </div>
-                  <p className="text-xs text-muted-foreground line-clamp-2">{scene.voiceover_or_text_overlay}</p>
-                  <p className="text-xs text-muted-foreground/70 italic line-clamp-1">{scene.visual_direction}</p>
+          {c.scenes.map((scene, i) => (
+            <div key={i} className="rounded-md border overflow-hidden">
+              <div className="p-2.5 space-y-1 bg-secondary/30">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-semibold">Scene {i + 1}</p>
+                  <span className="text-xs text-muted-foreground">{scene.duration_seconds}s</span>
                 </div>
+                <p className="text-xs text-muted-foreground line-clamp-2">{scene.voiceover_or_text_overlay}</p>
+                <p className="text-xs text-muted-foreground/70 italic line-clamp-1">{scene.visual_direction}</p>
               </div>
-            )
-          })}
+            </div>
+          ))}
         </div>
         {c.caption && (
           <div className="rounded-md bg-secondary/50 p-3">

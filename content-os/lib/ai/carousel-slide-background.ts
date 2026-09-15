@@ -157,8 +157,8 @@ export interface GenerateCarouselSlideBackgroundOptions {
 /**
  * Generates an abstract, on-brand background image for a carousel slide
  * (hook, CTA, or an opted-in body slide) — reuses fetchBackgroundImage's
- * existing Pollinations/Flux provider resolution, retry, and quality-check
- * logic as-is; this module only owns the carousel-specific prompt (brand
+ * existing Flux fetch, retry, and quality-check logic as-is; this module
+ * only owns the carousel-specific prompt (brand
  * niche + vibe + brand colors, deliberately abstract rather than literal
  * photography). Never throws — same never-throw contract as
  * fetchBackgroundImage. Deliberately takes no headline/caption text at

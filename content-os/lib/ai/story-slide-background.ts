@@ -14,8 +14,8 @@ import type { BrandRow } from "@/types/database"
 export type StoryVibe = Vibe
 
 // Instagram Stories' native canvas — tall portrait, unlike carousel's
-// square slides. Passed through to fetchBackgroundImage so Pollinations/
-// Flux are asked for the right shape instead of a square crop.
+// square slides. Passed through to fetchBackgroundImage so Flux is asked
+// for the right shape instead of a square crop.
 const STORY_DIMENSIONS: ImageDimensions = { width: 1080, height: 1920, aspectRatio: "9:16" }
 
 function resolveBrandColors(brand: BrandRow): string[] {

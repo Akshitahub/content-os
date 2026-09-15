@@ -43,8 +43,9 @@ export async function POST(request: Request) {
   const { data: brand } = await supabase.from("brands").select("*").eq("id", brandId).eq("user_id", user.id).single<BrandRow>()
   if (!brand) return NextResponse.json(buildError(ErrorCodes.BRAND_NOT_FOUND, "Brand not found."), { status: 404 })
 
-  // Determines the image provider (Free -> Pollinations, paid -> Flux) —
-  // same lookup images/generate/route.ts already does.
+  // Every plan resolves to Flux now (lib/ai/post-image-pipeline.ts's
+  // fetchBackgroundImage) -- still looked up since fetchBackgroundImage's
+  // signature expects it, same lookup images/generate/route.ts already does.
   const { data: userData } = await supabase.from("users").select("plan").eq("id", user.id).single<{ plan: UserPlan }>()
   const plan: UserPlan = userData?.plan ?? "starter"
 
@@ -97,7 +98,7 @@ export async function POST(request: Request) {
   })
 
   if (!result.success) {
-    // Full raw error (e.g. Pollinations API error text) stays server-side
+    // Full raw error (e.g. Replicate/Flux API error text) stays server-side
     // only — never shown to the user.
     console.error("[ai/images/generate-from-upload] generation failed:", result.error)
     await logGenerationOutcome(supabase, logId, {

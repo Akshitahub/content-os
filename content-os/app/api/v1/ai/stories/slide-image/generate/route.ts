@@ -20,12 +20,12 @@ const schema = z.object({
   textPosition: z.enum(["top", "center", "bottom"]).optional(),
 })
 
-// Chains up to 3 sequential external calls (first attempt, retry, and a
-// possible Flux-to-Pollinations fallback) inside fetchBackgroundImage —
-// each a real network round-trip that can individually take 10-30s+, so
-// this needs more headroom than Vercel's platform default. Matches the
-// convention already used by other slow-external-call routes in this repo
-// (e.g. app/api/v1/brands/fastlane/route.ts).
+// Chains up to 2 sequential Flux calls (first attempt + retry) inside
+// fetchBackgroundImage — each a real network round-trip that can
+// individually take 10-30s+, so this needs more headroom than Vercel's
+// platform default. Matches the convention already used by other
+// slow-external-call routes in this repo (e.g.
+// app/api/v1/brands/fastlane/route.ts).
 export const maxDuration = 60
 
 /**
