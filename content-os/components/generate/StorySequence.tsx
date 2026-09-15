@@ -736,6 +736,12 @@ export function StorySequence({ brandId }: { brandId: string }) {
   // field exactly.
   const [visualPrompt, setVisualPrompt] = useState("")
   const promptWriter = usePromptWriter(setVisualPrompt)
+  // The user's own typed idea, captured ONCE the first time writeVisualPrompt
+  // runs for this session -- kept stable and reused as rawInput on every
+  // subsequent Rewrite instead of re-reading `visualPrompt` itself (which
+  // by then holds the PREVIOUS AI-authored output). Mirrors
+  // CarouselBuilder.tsx's identical fix exactly.
+  const visualPromptSeedRef = useRef<string | null>(null)
   // Extends the hook/cta-only AI background to every reveal/buildup slide
   // too -- opt-in since, unlike hook/cta, each one spends real credits
   // (see STORY_SLIDE_AI_BACKGROUND). Only meaningful alongside a real
@@ -839,12 +845,21 @@ export function StorySequence({ brandId }: { brandId: string }) {
   }
 
   function writeVisualPrompt() {
+    // First write this session: capture whatever the user has typed right
+    // now as the stable seed. Every later call (the Rewrite button, or this
+    // same function re-firing from generate()'s gate below) reuses that
+    // exact seed instead of the field's current (by-then AI-authored)
+    // content -- see visualPromptSeedRef's own comment above.
+    const isFirstWrite = promptWriter.stage === "idle"
+    if (isFirstWrite) visualPromptSeedRef.current = visualPrompt.trim() || null
+
     setShowCustomize(true)
     promptWriter.write({
       flow: "story",
       brandId,
       product: selectedProduct ? { name: selectedProduct.name, description: selectedProduct.description } : undefined,
-      rawInput: visualPrompt.trim() || null,
+      rawInput: visualPromptSeedRef.current,
+      isRewrite: !isFirstWrite,
       constraints: {
         styleLabel: vibe && vibe !== "custom_color" ? vibe : undefined,
         hasProductReference: !!selectedProduct,

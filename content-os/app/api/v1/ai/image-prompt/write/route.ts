@@ -32,6 +32,11 @@ const schema = z.object({
     description: z.string().max(1000).optional(),
   }).optional(),
   rawInput: z.string().max(500).optional().transform((v) => v?.replace(/<[^>]*>/g, "").trim() || null),
+  // True for an explicit "Rewrite"/"Regenerate" request -- see
+  // lib/ai/image-prompt-writer.ts's WriteImagePromptInput.isRewrite for why
+  // this exists (told to Groq explicitly, since it has no memory of a
+  // previous attempt to differ from on its own).
+  isRewrite: z.boolean().optional(),
   constraints: constraintsSchema.default({}),
 })
 
@@ -55,7 +60,7 @@ export async function POST(request: Request) {
   const parsed = schema.safeParse(body)
   if (!parsed.success) return Response.json(buildError(ErrorCodes.VALIDATION_ERROR, "Validation failed.", parsed.error.message), { status: 400 })
 
-  const { flow, brandId, productId, product: inlineProduct, rawInput, constraints } = parsed.data
+  const { flow, brandId, productId, product: inlineProduct, rawInput, isRewrite, constraints } = parsed.data
 
   const { data: brand } = await supabase
     .from("brands")
@@ -83,6 +88,7 @@ export async function POST(request: Request) {
     groqStream = await requestImagePromptStream({
       flow: flow as ImagePromptFlow,
       rawInput,
+      isRewrite,
       brand,
       product,
       constraints: constraints as ImagePromptConstraints,

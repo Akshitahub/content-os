@@ -14,7 +14,7 @@ import { resolveColorThemes } from "@/lib/design/color-themes"
 import { useGenerateFullPost, useGeneratePostImage } from "@/hooks/useGeneration"
 import { POST as POST_CREDIT_COST } from "@/lib/usage/credit-costs"
 import { useGenerationStore } from "@/stores/generationStore"
-import { usePromptWriter, type PromptWriterStage } from "@/hooks/usePromptWriter"
+import { usePromptWriter } from "@/hooks/usePromptWriter"
 import { PromptWriterField } from "@/components/generate/PromptWriterField"
 import { useBrand } from "@/hooks/useBrand"
 import type { FullPostResult, ContentResult } from "@/hooks/useGeneration"
@@ -271,39 +271,53 @@ export function FullPostGenerator({ brandId, products }: Props) {
 
   // Kicks off the prompt-writing stage instead of generating the image
   // immediately -- fired both right after a fresh caption generation
-  // succeeds and by "Regenerate image", so every image generation for this
-  // flow goes through SocioPosts' authoring step first, not straight to
-  // Flux. caption.image_prompt (the caption-generation LLM call's own
-  // scene suggestion) is passed through as the raw seed when present --
-  // it's already a real, message-grounded draft, just not previously
-  // shown to or editable by the user.
-  const beginImagePromptWriting = useCallback((data: FullPostResult, sessionId: string) => {
+  // succeeds and by "Regenerate image"/"Rewrite", so every image
+  // generation for this flow goes through SocioPosts' authoring step
+  // first, not straight to Flux.
+  //
+  // rawInput is the user's OWN typed brief (additionalContext, the "What
+  // do you want to post" field) -- not caption.image_prompt, which is a
+  // generic side-output of the caption call, not what the user actually
+  // described, and (being fixed per generation) fed straight back in as
+  // "refine this" on every rewrite used to just pad/reword the same base.
+  // additionalContext is stable across rewrites too (it's a separate field
+  // the prompt-writing process never touches), so this alone already fixes
+  // "same input every time" for the common case; caption.image_prompt is
+  // only a fallback for when the user left that field blank, and nothing
+  // at all (Groq composes from brand/product context) if even that's
+  // empty.
+  const beginImagePromptWriting = useCallback((data: FullPostResult, sessionId: string, isRewrite = false) => {
     const caption = data.content.content as GeneratedCaption
     setPendingImageGen({ data, sessionId })
     setPostImageUrl(null)
     setImageSource(null)
     setImageError(null)
+    const seed = additionalContext.trim() || caption.image_prompt?.trim() || null
     promptWriter.write({
       flow: "post",
       brandId,
       productId: selectedProductId ?? undefined,
-      rawInput: caption.image_prompt?.trim() || null,
+      rawInput: seed,
+      isRewrite,
       constraints: {
         aspectRatioLabel: aspectRatio,
         styleLabel: visualStyle,
         hasProductReference: !!selectedProductId,
       },
     })
-  }, [brandId, selectedProductId, aspectRatio, visualStyle, promptWriter])
+  }, [brandId, selectedProductId, aspectRatio, visualStyle, promptWriter, additionalContext])
 
   const handleConfirmGenerateImage = useCallback(() => {
     if (!pendingImageGen || !aiImagePrompt.trim()) return
     runImageGeneration(pendingImageGen.data, pendingImageGen.sessionId, aiImagePrompt.trim())
   }, [pendingImageGen, aiImagePrompt, runImageGeneration])
 
+  // A real regenerate -- always an explicit rewrite, telling Groq to give
+  // this a genuinely different creative treatment rather than another pass
+  // at the same seed.
   const handleRegenerateImage = useCallback(() => {
     if (!fullPostResult || !postSessionId) return
-    beginImagePromptWriting(fullPostResult, postSessionId)
+    beginImagePromptWriting(fullPostResult, postSessionId, true)
   }, [fullPostResult, postSessionId, beginImagePromptWriting])
 
   // Caption editing — this result is still pre-save local/store state at
@@ -398,6 +412,13 @@ export function FullPostGenerator({ brandId, products }: Props) {
     setPostSessionId(null)
     setOverlayText("")
     setFlattenedImageUrl(null)
+    // A brand new caption is about to replace whatever the left panel was
+    // showing -- back to the plain "What do you want to post" textarea
+    // (see the left column below) instead of leaving a stale authored
+    // prompt from the PREVIOUS full-post run showing while this new one
+    // generates.
+    promptWriter.reset()
+    setPendingImageGen(null)
 
     generate(
       {
@@ -474,19 +495,48 @@ export function FullPostGenerator({ brandId, products }: Props) {
 
           {/* The one input — the same Groq call that writes the hook/caption
               now also picks the image layout, color theme, and whether to
-              overlay any text, purely from what's described here. */}
-          <div className="space-y-1.5">
-            <Label className="text-xs">What do you want to post</Label>
-            <textarea
-              rows={2}
-              maxLength={500}
-              placeholder={topicPlaceholderForNiche(brand?.niche)}
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring resize-none"
-              value={additionalContext}
-              onChange={(e) => setAdditionalContext(e.target.value)}
-            />
-            <p className="text-xs text-muted-foreground text-right">{additionalContext.length}/500</p>
-          </div>
+              overlay any text, purely from what's described here.
+              Once a caption exists, this same spot transforms into the
+              SocioPosts-authored image prompt (streamed live, then
+              editable) instead of surfacing later in the results panel —
+              the user watches their own brief become the actual image
+              prompt in place, before generation. additionalContext itself
+              is untouched underneath (see beginImagePromptWriting's own
+              comment) — this is a display swap, not a destructive one. */}
+          {promptWriter.stage === "idle" ? (
+            <div className="space-y-1.5">
+              <Label className="text-xs">What do you want to post</Label>
+              <textarea
+                rows={2}
+                maxLength={500}
+                placeholder={topicPlaceholderForNiche(brand?.niche)}
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring resize-none"
+                value={additionalContext}
+                onChange={(e) => setAdditionalContext(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground text-right">{additionalContext.length}/500</p>
+            </div>
+          ) : (
+            <div className="space-y-1.5">
+              <PromptWriterField
+                label="AI image prompt"
+                prompt={aiImagePrompt}
+                onChange={setAiImagePrompt}
+                stage={promptWriter.stage}
+                error={promptWriter.error}
+                onRewrite={() => pendingImageGen && beginImagePromptWriting(pendingImageGen.data, pendingImageGen.sessionId, true)}
+                rows={3}
+              />
+              <button
+                type="button"
+                onClick={handleConfirmGenerateImage}
+                disabled={promptWriter.stage === "writing" || !aiImagePrompt.trim() || imageGenerating}
+                className="flex w-full items-center justify-center gap-2 rounded-full bg-violet-600 py-2.5 text-sm font-semibold text-white transition hover:bg-violet-700 disabled:opacity-50"
+              >
+                {imageGenerating ? <><Loader2 className="h-4 w-4 animate-spin" /> Generating image…</> : "Generate image"}
+              </button>
+            </div>
+          )}
 
           {/* Aspect ratio and visualStyle (below) are both wired through to
               the image route. */}
@@ -626,12 +676,6 @@ export function FullPostGenerator({ brandId, products }: Props) {
             previewMode={previewMode}
             onPreviewModeChange={setPreviewMode}
             aspectRatio={aspectRatio}
-            promptStage={promptWriter.stage}
-            promptWriterError={promptWriter.error}
-            aiImagePrompt={aiImagePrompt}
-            onAiImagePromptChange={setAiImagePrompt}
-            onRewritePrompt={() => pendingImageGen && beginImagePromptWriting(pendingImageGen.data, pendingImageGen.sessionId)}
-            onConfirmGenerateImage={handleConfirmGenerateImage}
           />
         ) : (
           <div
@@ -918,12 +962,6 @@ function PostImagePreview({
   brandName,
   captionPreview,
   aspectRatio,
-  promptStage,
-  promptWriterError,
-  aiImagePrompt,
-  onAiImagePromptChange,
-  onRewritePrompt,
-  onConfirmGenerateImage,
 }: {
   postImageUrl: string | null
   alt: string
@@ -954,46 +992,12 @@ function PostImagePreview({
    * ratio being generated, so there's no layout jump when the real image
    * arrives. */
   aspectRatio: "4:5" | "1:1" | "9:16"
-  promptStage: PromptWriterStage
-  promptWriterError: string | null
-  aiImagePrompt: string
-  onAiImagePromptChange: (text: string) => void
-  onRewritePrompt: () => void
-  onConfirmGenerateImage: () => void
 }) {
   // Whether the scrim+textarea headline editor is showing because the user
   // explicitly clicked "+ Add headline", as opposed to it showing because
   // overlayText already has real content. Declared before the early
   // returns below per the Rules of Hooks.
   const [addingHeadline, setAddingHeadline] = useState(false)
-
-  // The image hasn't been generated yet -- SocioPosts is either still
-  // writing the prompt, or has finished and is waiting for the user to
-  // review/edit it and click through. Takes priority over imageGenerating/
-  // postImageUrl below since neither of those exist yet at this point.
-  if (promptStage === "writing" || promptStage === "ready" || promptStage === "error") {
-    return (
-      <div className="rounded-lg border bg-card p-4 space-y-3">
-        <PromptWriterField
-          label="AI image prompt"
-          prompt={aiImagePrompt}
-          onChange={onAiImagePromptChange}
-          stage={promptStage}
-          error={promptWriterError}
-          onRewrite={onRewritePrompt}
-          rows={3}
-        />
-        <button
-          type="button"
-          onClick={onConfirmGenerateImage}
-          disabled={promptStage === "writing" || !aiImagePrompt.trim()}
-          className="flex w-full items-center justify-center gap-2 rounded-full bg-violet-600 py-2.5 text-sm font-semibold text-white transition hover:bg-violet-700 disabled:opacity-50"
-        >
-          Generate image
-        </button>
-      </div>
-    )
-  }
 
   if (imageGenerating) {
     return (
@@ -1178,12 +1182,6 @@ function FullPostResults({
   previewMode,
   onPreviewModeChange,
   aspectRatio,
-  promptStage,
-  promptWriterError,
-  aiImagePrompt,
-  onAiImagePromptChange,
-  onRewritePrompt,
-  onConfirmGenerateImage,
 }: {
   result: FullPostResult
   copied: string | null
@@ -1203,12 +1201,6 @@ function FullPostResults({
   previewMode: "canvas" | "feed"
   onPreviewModeChange: (mode: "canvas" | "feed") => void
   aspectRatio: "4:5" | "1:1" | "9:16"
-  promptStage: PromptWriterStage
-  promptWriterError: string | null
-  aiImagePrompt: string
-  onAiImagePromptChange: (text: string) => void
-  onRewritePrompt: () => void
-  onConfirmGenerateImage: () => void
 }) {
   const scheduleCaption = getScheduleCaption(result)
 
@@ -1256,12 +1248,6 @@ function FullPostResults({
         brandName={brandName}
         captionPreview={scheduleCaption?.text ?? caption.caption_text ?? ""}
         aspectRatio={aspectRatio}
-        promptStage={promptStage}
-        promptWriterError={promptWriterError}
-        aiImagePrompt={aiImagePrompt}
-        onAiImagePromptChange={onAiImagePromptChange}
-        onRewritePrompt={onRewritePrompt}
-        onConfirmGenerateImage={onConfirmGenerateImage}
       />
 
       <HookSection hook={result.hook} copied={copied} onCopy={onCopy} />

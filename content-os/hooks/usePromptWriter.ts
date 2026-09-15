@@ -22,6 +22,14 @@ export interface PromptWriterArgs {
    * field. Ignored when productId is also present. */
   product?: { name: string; description?: string }
   rawInput?: string | null
+  /** True for an explicit "Rewrite"/"Regenerate" call, as opposed to the
+   * first write for this generation -- passed straight through to
+   * /api/v1/ai/image-prompt/write, which tells Groq to give the rewrite a
+   * genuinely different creative treatment. Callers should keep rawInput/
+   * product/constraints identical between a first write and a rewrite (the
+   * same stable seed, not the previous AI output) -- this flag is what
+   * asks for variety, not a changed input. */
+  isRewrite?: boolean
   constraints?: PromptWriterConstraints
 }
 

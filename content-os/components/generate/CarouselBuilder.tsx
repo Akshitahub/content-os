@@ -660,6 +660,14 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
   // write-then-confirm gate below.
   const [visualPrompt, setVisualPrompt] = useState("")
   const promptWriter = usePromptWriter(setVisualPrompt)
+  // The user's own typed idea, captured ONCE the first time writeVisualPrompt
+  // runs for this session (see writeVisualPrompt below) -- kept stable and
+  // reused as rawInput on every subsequent Rewrite, instead of re-reading
+  // `visualPrompt` itself, which by then holds the PREVIOUS AI-authored
+  // output. Feeding that back in as "refine this" just padded/reworded the
+  // same base, since the writer is instructed to refine-and-complete a
+  // provided description rather than discard it.
+  const visualPromptSeedRef = useRef<string | null>(null)
   // Extends the hook/CTA-only AI background to every content slide too --
   // opt-in since, unlike hook/cta, each one spends real credits (see
   // CAROUSEL_SLIDE_AI_BACKGROUND). Only meaningful alongside a real vibe
@@ -818,12 +826,21 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
   }, [pendingProductId, brandId, setPendingProductId])
 
   function writeVisualPrompt() {
+    // First write this session: capture whatever the user has typed right
+    // now as the stable seed. Every later call (the Rewrite button, or this
+    // same function re-firing from generate()'s gate below) reuses that
+    // exact seed instead of the field's current (by-then AI-authored)
+    // content -- see visualPromptSeedRef's own comment above.
+    const isFirstWrite = promptWriter.stage === "idle"
+    if (isFirstWrite) visualPromptSeedRef.current = visualPrompt.trim() || null
+
     setShowCustomize(true)
     promptWriter.write({
       flow: "carousel",
       brandId,
       product: selectedProduct ? { name: selectedProduct.name, description: selectedProduct.description } : undefined,
-      rawInput: visualPrompt.trim() || null,
+      rawInput: visualPromptSeedRef.current,
+      isRewrite: !isFirstWrite,
       constraints: {
         styleLabel: vibe && vibe !== "custom_color" ? vibe : undefined,
         hasProductReference: !!productImage,

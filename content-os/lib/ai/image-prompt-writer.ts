@@ -64,6 +64,14 @@ export interface WriteImagePromptInput {
    * scene preset, a style) -- see this module's system prompt for how the
    * two cases are handled differently. */
   rawInput: string | null
+  /** True for an explicit "Rewrite"/"Regenerate" request, as opposed to the
+   * first write for this generation. rawInput/brand/product/constraints
+   * are otherwise identical between a first write and a rewrite (the
+   * caller is expected to pass the same stable seed both times, not the
+   * previous AI output) -- this flag is what actually asks for a
+   * meaningfully different take instead of Groq just re-describing the
+   * same scene again given identical input. See buildUserPrompt below. */
+  isRewrite?: boolean
   brand: Pick<BrandRow, "name" | "niche" | "target_audience" | "tone_of_voice" | "vibe">
   product?: Pick<ProductRow, "name" | "description" | "key_benefits"> | null
   constraints: ImagePromptConstraints
@@ -115,7 +123,19 @@ function buildUserPrompt(input: WriteImagePromptInput): string {
   const constraintsLine = buildConstraintsLine(input.constraints)
   const rawInput = input.rawInput?.trim()
 
-  return `${brandLine}${productLine}${constraintsLine ? `\n${constraintsLine}` : ""}
+  // Every call to this route is a fresh, stateless completion -- the model
+  // is never shown a previous attempt to literally "differ from." This
+  // instruction instead nudges it toward a distinct creative treatment on
+  // a rewrite (a different specific scene/angle/composition), which is
+  // what actually varies the output given the same stable rawInput/brand/
+  // product/constraints the caller passes on every rewrite -- rather than
+  // relying on temperature alone to avoid a near-duplicate of the last
+  // response to the same input.
+  const rewriteInstruction = input.isRewrite
+    ? `\n\nThis is a REWRITE request, not a first attempt -- give it a genuinely different creative treatment: a different specific scene, angle, composition, or moment than an obvious first pass would produce, not just different wording for the same idea. Still ground it in the same description/context below.`
+    : ""
+
+  return `${brandLine}${productLine}${constraintsLine ? `\n${constraintsLine}` : ""}${rewriteInstruction}
 
 ${rawInput
     ? `The user's own description for this image: "${rawInput}"\n\nRefine and complete this into one specific, well-formed image-generation prompt, grounded in the brand/product context above.`

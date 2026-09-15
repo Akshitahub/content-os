@@ -327,10 +327,20 @@ export function AdMaker({ brandId, products }: AdMakerProps) {
   }, [productDataUrl, scene, results.length, STORAGE_KEY])
 
   function writeAdPrompt() {
+    // rawInput here already always reads from customScene/scene -- stable
+    // fields the writer never touches -- so this doesn't have
+    // CarouselBuilder.tsx/StorySequence.tsx's "same input every time" bug.
+    // isRewrite is still worth telling Groq explicitly: without it, a
+    // rewrite would send this exact same rawInput/context again with
+    // nothing signaling that a different creative treatment is wanted, so
+    // it's the write-then-confirm gate re-firing (see the useEffect below
+    // and handleGenerate's own fallback) vs. an explicit Rewrite click.
+    const isFirstWrite = promptWriter.stage === "idle"
     promptWriter.write({
       flow: "ad_maker",
       brandId,
       rawInput: scene === "custom" ? (customScene.trim() || null) : null,
+      isRewrite: !isFirstWrite,
       constraints: {
         styleLabel: scene === "custom" ? undefined : SCENES.find((s) => s.id === scene)?.name,
         aspectRatioLabel: format,
