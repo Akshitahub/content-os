@@ -83,7 +83,9 @@ export async function GET(request: Request) {
             if (user.email) {
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
               const fullName = (user.user_metadata as any)?.full_name as string | undefined
-              await sendWelcomeEmail(user.id, user.email, fullName).catch(() => {})
+              await sendWelcomeEmail(user.id, user.email, fullName).catch((err) =>
+                console.error("[auth/callback] sendWelcomeEmail failed for user", user.id, err instanceof Error ? err.message : err)
+              )
             }
           }
         }

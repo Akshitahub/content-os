@@ -42,7 +42,10 @@ function unsubscribeUrl(userId: string): string {
 }
 
 export async function sendWelcomeEmail(userId: string, to: string, name?: string): Promise<void> {
-  if (!process.env.RESEND_API_KEY) return
+  if (!process.env.RESEND_API_KEY) {
+    console.error("[email] RESEND_API_KEY is not set, skipping welcome email for user", userId)
+    return
+  }
   if (await isOptedOutOfMarketingEmails(userId)) return
 
   const resend = new Resend(process.env.RESEND_API_KEY)
