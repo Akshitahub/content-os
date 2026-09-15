@@ -8,7 +8,7 @@ import { checkAndIncrementUsage, refundGenerationUsage, logGenerationOutcome } f
 import { HOOK_OR_CAPTION } from "@/lib/usage/credit-costs"
 
 const FEATURE = "captions"
-import { buildPatternNote } from "@/lib/ai/pattern-match"
+import { buildSemanticPatternNote } from "@/lib/ai/semantic-pattern-match"
 import { resolveCaptionEngagementRatings } from "@/lib/ai/engagement-ratings"
 import type { BrandRow, ProductRow } from "@/types/database"
 
@@ -125,7 +125,7 @@ export async function POST(request: Request) {
   })
 
   const ratedItemsWithEngagement = await resolveCaptionEngagementRatings(supabase, allRatedCaptions ?? [])
-  const patternNote = buildPatternNote(result.caption.caption_text, ratedItemsWithEngagement)
+  const patternNote = await buildSemanticPatternNote(result.caption.caption_text, ratedItemsWithEngagement)
 
   return NextResponse.json({ data: { ...result.caption, id: savedCaption?.id ?? null, pattern_note: patternNote } }, { status: 200 })
 }
