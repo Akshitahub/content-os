@@ -676,6 +676,19 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
   const [allSlidesAiBg, setAllSlidesAiBg] = useState(false)
   const [bodyBgProgress, setBodyBgProgress] = useState<{ current: number; total: number } | null>(null)
   const [bodyBgWarning, setBodyBgWarning] = useState<string | null>(null)
+  // Covers the WHOLE background-image step -- the always-on hook/cta
+  // Promise.all AND (when allSlidesAiBg is on) the body-slide loop that
+  // follows it -- so there's one continuous, hard-to-miss "still working"
+  // indicator from the moment text generation finishes through the moment
+  // every slide's background is actually ready. bodyBgProgress alone only
+  // ever covered the opt-in body-slide loop; this fills the gap during the
+  // hook/cta fetch that used to have no visible indicator at all. Never
+  // set in Custom color mode (that branch of generate() skips this whole
+  // async block entirely) -- explicitly reset at the top of every
+  // generate() call so a stale true from an abandoned prior run can never
+  // leak into a fresh one. Mirrors StorySequence.tsx's identical fix
+  // exactly.
+  const [imagesGenerating, setImagesGenerating] = useState(false)
   const [selectedProduct, setSelectedProduct] = useState<PickedProduct | null>(null)
   const productImage = selectedProduct?.imageUrl ?? null
 
@@ -874,6 +887,7 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
     setShowStaleCue(false)
     setCarousel(null)
     setActiveSlide(0)
+    setImagesGenerating(false)
     try {
       const res = await fetch("/api/v1/ai/carousel/generate", {
         method: "POST",
@@ -892,8 +906,6 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
       // re-PUT the same data the instant this render commits.
       lastPersistedSlidesRef.current = JSON.stringify(merged.slides)
       setActiveSlide(0)
-      setShowSuccess(true)
-      setTimeout(() => setShowSuccess(false), 4000)
 
       // Best-effort AI backgrounds for the hook and CTA slides, fired after
       // text succeeds so a slow/failed image call never blocks or breaks
@@ -913,6 +925,12 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
         : []
 
       if (isCustomColorMode) {
+        // Custom color has no image step at all -- text+color is the whole
+        // generation, so success shows immediately, same as before this
+        // fix (only the AI-background branch below needed to wait longer).
+        setShowSuccess(true)
+        setTimeout(() => setShowSuccess(false), 4000)
+
         // The whole point of Custom color is an instant, zero-AI-cost
         // background -- applied uniformly to every slide (hook, body, and
         // cta alike), not just hook/cta the way AI backgrounds are.
@@ -924,7 +942,12 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
         const coloredSlides = merged.slides.map((s) => ({ ...s, custom_background_colors: customColors }))
         setCarousel((prev) => (prev && prev.id === merged.id ? { ...prev, slides: coloredSlides } : prev))
       } else {
-        (async () => {
+        // "✓ generated and saved" doesn't fire until the whole image step
+        // below (hook/cta, then the body-slide loop) actually finishes --
+        // showing it right after text saves used to signal "fully done"
+        // while images were still loading invisibly afterward.
+        setImagesGenerating(true)
+        ;(async () => {
           // productImageUrl/slideType only actually sent when a product is
           // selected -- see fetchSlideBackgroundResult, which drops a null
           // productImageUrl before it reaches the request body.
@@ -972,6 +995,13 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
             // best-effort fallback hook/cta already have.
           }
           setBodyBgProgress(null)
+          setImagesGenerating(false)
+          // The whole image step (hook/cta, plus the body-slide loop above
+          // when applicable) is done -- text was already saved earlier, so
+          // this is the true "fully generated and saved" point, regardless
+          // of whether any individual background fetch actually succeeded.
+          setShowSuccess(true)
+          setTimeout(() => setShowSuccess(false), 4000)
 
           if (!merged.id || (!hookBg && !ctaBg && Object.keys(bodyUpdates).length === 0)) return
 
@@ -1234,10 +1264,19 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
             </div>
           )}
 
-          {bodyBgProgress && (
+          {/* Covers the whole background-image step -- the always-on hook/cta
+              fetch (no per-item progress to show, just "in progress") and,
+              once that hands off to it, the opt-in body-slide loop's own
+              X-of-Y progress -- so there's continuous visible feedback with
+              no gap between "text is ready" and "every slide's image is
+              ready," which is also exactly when the success banner above
+              now waits to appear. */}
+          {imagesGenerating && (
             <div className="flex items-center gap-2 rounded-lg border border-violet-200 bg-violet-50 px-4 py-3 text-sm text-violet-700">
               <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
-              Generating slide background {bodyBgProgress.current} of {bodyBgProgress.total}…
+              {bodyBgProgress
+                ? `Generating slide background ${bodyBgProgress.current} of ${bodyBgProgress.total}…`
+                : "Generating carousel backgrounds…"}
             </div>
           )}
 

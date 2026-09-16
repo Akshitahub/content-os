@@ -238,6 +238,10 @@ export function FullPostGenerator({ brandId, products }: Props) {
 
     setImageError(null)
     setFlattenedImageUrl(null)
+    // A fresh image generation (first attempt or a regenerate) is starting
+    // -- any success banner still showing from a previous image belongs to
+    // a now-stale result, not this one.
+    setJustSaved(false)
     // The prompt panel's job is done -- reset it to idle so
     // PostImagePreview's writing/ready branch steps aside and the normal
     // imageGenerating/postImageUrl/imageError branches render instead,
@@ -261,6 +265,12 @@ export function FullPostGenerator({ brandId, products }: Props) {
           setPostImageUrl(imgData.public_url)
           setImageSource("ai")
           setOverlayText(initialOverlayText)
+          // The image is the last piece of "the post" to finish -- this is
+          // the real "done" point (and the first point creditsUsedForResult
+          // is actually knowable), not right after the caption's own text
+          // came back in handleGenerate below.
+          setJustSaved(true)
+          setTimeout(() => setJustSaved(false), 5000)
         },
         onError: (err) => {
           setImageError(err instanceof Error ? err.message : "Couldn't generate the post image. Please try again.")
@@ -433,11 +443,18 @@ export function FullPostGenerator({ brandId, products }: Props) {
         onSuccess: (data) => {
           setFullPostResult(data)
           setPostSessionId(data.postSessionId)
-          setJustSaved(true)
-          setTimeout(() => setJustSaved(false), 5000)
           if (data.postSessionId) {
+            // "✓ Generated successfully" now waits for the image itself to
+            // finish -- beginImagePromptWriting only starts the prompt-
+            // authoring step here, not the actual image generation. See
+            // runImageGeneration's generatePostImageMutate onSuccess for
+            // where it actually fires.
             beginImagePromptWriting(data, data.postSessionId)
           } else {
+            // No image step to wait for at all -- confirm right away, same
+            // as before this fix.
+            setJustSaved(true)
+            setTimeout(() => setJustSaved(false), 5000)
             setImageError("Couldn't start image generation. Please try again.")
           }
         },
