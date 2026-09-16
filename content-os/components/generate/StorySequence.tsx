@@ -751,6 +751,18 @@ export function StorySequence({ brandId }: { brandId: string }) {
   const [allSlidesAiBg, setAllSlidesAiBg] = useState(false)
   const [bodyBgProgress, setBodyBgProgress] = useState<{ current: number; total: number } | null>(null)
   const [bodyBgWarning, setBodyBgWarning] = useState<string | null>(null)
+  // Covers the WHOLE background-image step -- the always-on hook/cta
+  // Promise.all AND (when allSlidesAiBg is on) the body-slide loop that
+  // follows it -- so there's one continuous, hard-to-miss "still working"
+  // indicator from the moment text generation finishes through the moment
+  // every slide's background is actually ready. bodyBgProgress alone only
+  // ever covered the opt-in body-slide loop; this fills the gap during the
+  // hook/cta fetch that used to have no visible indicator at all. Never
+  // set in Custom color mode (that branch of generate() skips this whole
+  // async block entirely) -- explicitly reset at the top of every
+  // generate() call so a stale true from an abandoned prior run can never
+  // leak into a fresh one.
+  const [imagesGenerating, setImagesGenerating] = useState(false)
 
   // The saved stories row id -- needed by the debounced autosave effect
   // below, so lifted into state instead of staying a local `const` inside
@@ -896,6 +908,7 @@ export function StorySequence({ brandId }: { brandId: string }) {
     setStoryCaption(null)
     setShowCaptionEditor(false)
     setStoryRowId(null)
+    setImagesGenerating(false)
     try {
       const res = await fetch("/api/v1/ai/stories/generate", {
         method: "POST",
@@ -923,10 +936,14 @@ export function StorySequence({ brandId }: { brandId: string }) {
       // re-PUT the same data the instant this render commits.
       lastPersistedStoriesRef.current = JSON.stringify(savedStories)
       setStoryCaption(json.data.caption ?? null)
-      setShowSuccess(true)
-      setTimeout(() => setShowSuccess(false), 4000)
 
       if (isCustomColorMode) {
+        // Custom color has no image step at all -- text+color is the whole
+        // generation, so success shows immediately, same as before this
+        // fix (only the AI-background branch below needed to wait longer).
+        setShowSuccess(true)
+        setTimeout(() => setShowSuccess(false), 4000)
+
         // The whole point of Custom color is an instant, zero-AI-cost
         // background -- applied uniformly to every slide (hook, reveal,
         // buildup, and cta alike), not just hook/cta the way AI
@@ -938,7 +955,12 @@ export function StorySequence({ brandId }: { brandId: string }) {
         const coloredStories = savedStories.map((s) => ({ ...s, custom_background_colors: customColors }))
         if (generationIdRef.current === genId) setStories(coloredStories)
       } else {
-        (async () => {
+        // "✓ generated and saved" doesn't fire until the whole image step
+        // below (hook/cta, then the body-slide loop) actually finishes --
+        // showing it right after text saves used to signal "fully done"
+        // while images were still loading invisibly afterward.
+        setImagesGenerating(true)
+        ;(async () => {
           // Best-effort AI backgrounds for hook/cta slides only (available
           // to every plan, no tiering) — fired after text succeeds so a
           // slow/failed image call never blocks or breaks story generation
@@ -958,7 +980,7 @@ export function StorySequence({ brandId }: { brandId: string }) {
               visualPrompt
             )
           ))
-          if (generationIdRef.current !== genId) return
+          if (generationIdRef.current !== genId) { setImagesGenerating(false); return }
 
           const updated = [...savedStories]
           bgTargets.forEach(({ i }, idx) => {
@@ -990,7 +1012,7 @@ export function StorySequence({ brandId }: { brandId: string }) {
               usesProduct ? bodySlide.text_position : undefined,
               visualPrompt
             )
-            if (generationIdRef.current !== genId) { setBodyBgProgress(null); return }
+            if (generationIdRef.current !== genId) { setBodyBgProgress(null); setImagesGenerating(false); return }
             if ("url" in result) {
               updated[bodyIndices[n]!] = { ...updated[bodyIndices[n]!]!, background_image_url: result.url, background_image_provider: result.provider }
             } else if (result.error === "insufficient_credits") {
@@ -1004,6 +1026,15 @@ export function StorySequence({ brandId }: { brandId: string }) {
             // best-effort fallback hook/cta already have.
           }
           setBodyBgProgress(null)
+          setImagesGenerating(false)
+          // The whole image step (hook/cta, plus the body-slide loop above
+          // when applicable) is done -- text was already saved earlier, so
+          // this is the true "fully generated and saved" point, regardless
+          // of whether any individual background fetch actually succeeded.
+          if (generationIdRef.current === genId) {
+            setShowSuccess(true)
+            setTimeout(() => setShowSuccess(false), 4000)
+          }
 
           if (!results.some((r) => r) && bodyIndices.length === 0) return
 
@@ -1271,10 +1302,19 @@ export function StorySequence({ brandId }: { brandId: string }) {
         </div>
       )}
 
-      {bodyBgProgress && (
+      {/* Covers the whole background-image step -- the always-on hook/cta
+          fetch (no per-item progress to show, just "in progress") and,
+          once that hands off to it, the opt-in body-slide loop's own
+          X-of-Y progress -- so there's continuous visible feedback with no
+          gap between "text is ready" and "every slide's image is ready,"
+          which is also exactly when the success banner below now waits to
+          appear. */}
+      {imagesGenerating && (
         <div className="flex items-center gap-2 rounded-lg border border-violet-200 bg-violet-50 px-4 py-3 text-sm text-violet-700">
           <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
-          Generating slide background {bodyBgProgress.current} of {bodyBgProgress.total}…
+          {bodyBgProgress
+            ? `Generating slide background ${bodyBgProgress.current} of ${bodyBgProgress.total}…`
+            : "Generating story backgrounds…"}
         </div>
       )}
 
