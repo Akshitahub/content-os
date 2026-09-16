@@ -259,6 +259,15 @@ export function FullPostGenerator({ brandId, products }: Props) {
         contentProjectId: data.contentProjectId ?? undefined,
         aspectRatio,
         visualStyle,
+        // Only actually used server-side when template is
+        // "hard_truth_checklist" -- see generatePostImage's own early-exit
+        // branch. Harmless to always send; every other template ignores
+        // them.
+        checklistHeadline: caption.checklist_headline ?? undefined,
+        checklistHighlightedPhrase: caption.checklist_highlighted_phrase ?? undefined,
+        checklistWrongItems: caption.checklist_wrong_items ?? undefined,
+        checklistRightItems: caption.checklist_right_items ?? undefined,
+        checklistClosingLine: caption.checklist_closing_line ?? undefined,
       },
       {
         onSuccess: (imgData) => {
@@ -298,6 +307,20 @@ export function FullPostGenerator({ brandId, products }: Props) {
   // empty.
   const beginImagePromptWriting = useCallback((data: FullPostResult, sessionId: string, isRewrite = false) => {
     const caption = data.content.content as GeneratedCaption
+
+    // hard_truth_checklist has no photo at all -- the prompt-authoring
+    // stage's whole job is writing a PHOTO scene description, which this
+    // template never uses (see generatePostImage's own early-exit branch,
+    // which skips the Flux call entirely for it). Skip straight to
+    // compositing instead of running a Groq call to author a prompt that
+    // would just be discarded -- one fewer credit-free but still real
+    // Groq call per generation, on top of the real Flux credits
+    // runImageGeneration/generatePostImage already saves.
+    if (caption.suggested_template === "hard_truth_checklist") {
+      runImageGeneration(data, sessionId, "hard_truth_checklist template (no photo)")
+      return
+    }
+
     setPendingImageGen({ data, sessionId })
     setPostImageUrl(null)
     setImageSource(null)
@@ -315,7 +338,7 @@ export function FullPostGenerator({ brandId, products }: Props) {
         hasProductReference: !!selectedProductId,
       },
     })
-  }, [brandId, selectedProductId, aspectRatio, visualStyle, promptWriter, additionalContext])
+  }, [brandId, selectedProductId, aspectRatio, visualStyle, promptWriter, additionalContext, runImageGeneration])
 
   const handleConfirmGenerateImage = useCallback(() => {
     if (!pendingImageGen || !aiImagePrompt.trim()) return

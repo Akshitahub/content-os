@@ -144,7 +144,7 @@ export const extractFromUrlSchema = z.object({
 
 export type ExtractFromUrlInput = z.infer<typeof extractFromUrlSchema>
 
-const postTemplateEnum = z.enum(["bold_statement", "product_focus", "quote_card", "minimal", "blank"])
+const postTemplateEnum = z.enum(["bold_statement", "product_focus", "quote_card", "minimal", "blank", "hard_truth_checklist"])
 // Matches lib/design/fonts.ts's CURATED_FONTS ids exactly -- kept as a
 // static literal here rather than importing from lib/design, same
 // convention postTemplateEnum above already follows for lib/design/post-templates.ts.
@@ -206,6 +206,14 @@ export const generatePostImageSchema = z.object({
   // this route originates from a fullpost/generate session with a project
   // to link to.
   contentProjectId: z.string().uuid("Invalid content project ID").optional(),
+  // Only meaningful when template is "hard_truth_checklist" -- see
+  // lib/ai/post-image-pipeline.ts's generatePostImage. Every other
+  // template ignores these entirely.
+  checklistHeadline: z.string().max(200, "Checklist headline is too long").optional(),
+  checklistHighlightedPhrase: z.string().max(100, "Highlighted phrase is too long").optional().nullable(),
+  checklistWrongItems: z.array(z.string().max(200)).max(5, "Too many wrong-way items").optional(),
+  checklistRightItems: z.array(z.string().max(200)).max(5, "Too many right-way items").optional(),
+  checklistClosingLine: z.string().max(300, "Closing line is too long").optional().nullable(),
 })
 
 export type GeneratePostImageInput = z.infer<typeof generatePostImageSchema>

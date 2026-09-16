@@ -69,6 +69,17 @@ export type GeneratedCaption = {
   /** Short on-image overlay text, or empty string if a clean text-free
    * image fits this post better — the model decides, not a toggle. */
   suggested_overlay_text?: string | null
+  /** Only populated when suggested_template is "hard_truth_checklist" --
+   * see lib/image/post-compositor.ts's buildHardTruthChecklist for how
+   * these render (no AI photo, a flat off-white card). */
+  checklist_headline?: string | null
+  /** A short, exact substring of checklist_headline to visually highlight
+   * — must actually appear in checklist_headline verbatim (case-
+   * insensitive) for the highlight to render; silently skipped otherwise. */
+  checklist_highlighted_phrase?: string | null
+  checklist_wrong_items?: string[] | null
+  checklist_right_items?: string[] | null
+  checklist_closing_line?: string | null
 }
 
 export type AspectRatio = "1:1" | "4:5" | "9:16" | "16:9"

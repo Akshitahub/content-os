@@ -10,7 +10,7 @@
 // color-theme selector. Layout x color are two independent choices, not
 // preset combos.
 
-export type PostTemplateId = "bold_statement" | "product_focus" | "quote_card" | "minimal" | "blank"
+export type PostTemplateId = "bold_statement" | "product_focus" | "quote_card" | "minimal" | "blank" | "hard_truth_checklist"
 
 export interface PostTemplateMeta {
   id: PostTemplateId
@@ -24,6 +24,13 @@ export const POST_TEMPLATES: PostTemplateMeta[] = [
   { id: "quote_card", label: "Quote Card", description: "Moody vignette with a large quote-style headline" },
   { id: "minimal", label: "Minimal", description: "Restrained accent, lots of breathing room" },
   { id: "blank", label: "Blank / Custom", description: "No overlay, just the generated image" },
+  // The first template that isn't a photo-background-plus-headline variant
+  // -- a flat off-white checklist card (headline, wrong-way ✗ list,
+  // right-way ✓ list, closing line), no AI-generated photo at all. See
+  // lib/image/post-compositor.ts's buildHardTruthChecklist and
+  // lib/ai/post-image-pipeline.ts's generatePostImage, which skips the
+  // Flux call entirely for this one.
+  { id: "hard_truth_checklist", label: "Hard Truth Checklist", description: "Flat card: contrarian headline, a wrong-way list, a right-way list — no photo" },
 ]
 
 export const POST_TEMPLATE_IDS = POST_TEMPLATES.map((t) => t.id) as [PostTemplateId, ...PostTemplateId[]]

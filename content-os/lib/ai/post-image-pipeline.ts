@@ -1,6 +1,6 @@
 import sharp from "sharp"
 import Replicate from "replicate"
-import { compositePostImage } from "@/lib/image/post-compositor"
+import { compositePostImage, compositeHardTruthChecklist } from "@/lib/image/post-compositor"
 import type { PostTemplateId } from "@/lib/design/post-templates"
 import type { ColorTheme } from "@/lib/design/color-themes"
 import type { UserPlan } from "@/types/app"
@@ -116,7 +116,7 @@ function resolvePostImageDimensions(aspectRatio: "4:5" | "1:1" | "9:16" | undefi
 }
 
 export type PostImagePipelineResult =
-  | { success: true; buffer: Buffer; mimeType: string; fullPrompt: string; provider: "flux"; attempts: ImageGenerationAttempt[]; textComposited: boolean }
+  | { success: true; buffer: Buffer; mimeType: string; fullPrompt: string; provider: "flux" | "none"; attempts: ImageGenerationAttempt[]; textComposited: boolean }
   | { success: false; error: string; attempts: ImageGenerationAttempt[] }
 
 // Structured failure classification — distinct from the free-text `error`
@@ -596,6 +596,20 @@ export interface GeneratePostImageOptions {
    * behavior, so every caller that doesn't pass this (Carousel, Story,
    * Autopilot) is unaffected. */
   visualStyle?: "studio_scene" | "editorial_graphic"
+  /** Only meaningful when template is "hard_truth_checklist" -- the
+   * caption's own checklist_* fields (see types/app.ts's GeneratedCaption),
+   * threaded straight through to lib/image/post-compositor.ts's
+   * compositeHardTruthChecklist. This template has no photo at all, so
+   * imagePrompt/captionText/aspectRatio/visualStyle above are all ignored
+   * for it -- see generatePostImage's own early-exit branch. Omitted (or
+   * checklistHeadline empty) falls through to the normal Flux path
+   * instead of a broken empty checklist card -- see that branch's own
+   * comment for why. */
+  checklistHeadline?: string
+  checklistHighlightedPhrase?: string | null
+  checklistWrongItems?: string[]
+  checklistRightItems?: string[]
+  checklistClosingLine?: string | null
 }
 
 /**
@@ -608,6 +622,47 @@ export interface GeneratePostImageOptions {
  * of a silent blank preview.
  */
 export async function generatePostImage(options: GeneratePostImageOptions): Promise<PostImagePipelineResult> {
+  // hard_truth_checklist has no photo at all -- a flat card composited
+  // entirely from its own checklist_* fields, never from imagePrompt/
+  // captionText. Skips fetchBackgroundImage (and the Replicate/Flux credit
+  // spend that comes with it) entirely -- real credits saved per
+  // generation for this template, not just a visual choice. Guarded on
+  // checklistHeadline actually being present (not just the template id)
+  // so a caller that picked this template but never forwarded checklist
+  // data (there's exactly one today -- app/api/v1/dashboard/
+  // generate-daily-draft/route.ts, which never composites ANY text
+  // overlay for ANY template) falls through to the existing "no caption
+  // text" plain-background path below instead of producing a broken,
+  // empty checklist card.
+  if (options.template === "hard_truth_checklist" && options.checklistHeadline?.trim()) {
+    try {
+      const composited = await compositeHardTruthChecklist({
+        colorTheme: options.colorTheme,
+        logoUrl: options.logoUrl,
+        fontId: options.fontId,
+        textSizeScale: options.textSizeScale ?? undefined,
+        headline: options.checklistHeadline,
+        highlightedPhrase: options.checklistHighlightedPhrase ?? null,
+        wrongItems: options.checklistWrongItems ?? [],
+        rightItems: options.checklistRightItems ?? [],
+        closingLine: options.checklistClosingLine ?? null,
+      })
+      console.log(`[post-image-pipeline] hard_truth_checklist composited successfully: ${composited.length} bytes (no Flux call made)`)
+      return {
+        success: true,
+        buffer: composited,
+        mimeType: "image/png",
+        fullPrompt: "hard_truth_checklist (flat card, no AI photo)",
+        provider: "none",
+        attempts: [],
+        textComposited: true,
+      }
+    } catch (err) {
+      console.error("[post-image-pipeline] hard_truth_checklist compositing failed:", err instanceof Error ? `${err.name}: ${err.message}` : err)
+      return { success: false, error: "Couldn't finish styling the generated image. Please try again.", attempts: [] }
+    }
+  }
+
   // Deterministic grounding, independent of how well the LLM-generated
   // imagePrompt followed instructions — every image gets an
   // industry-appropriate setting, a consistent premium photography style,

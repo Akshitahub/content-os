@@ -346,6 +346,163 @@ function buildMinimal(captionText: string, theme: ColorTheme, font: fontkit.Font
   return { svg, logoBox: { x: CANVAS_WIDTH - 122, y: 58, size: 54 } }
 }
 
+// ─── Hard Truth Checklist ───────────────────────────────────────────────
+// The first template that isn't a photo-background-plus-headline variant --
+// a flat, off-white/cream card (no AI-generated photo at all, see
+// lib/ai/post-image-pipeline.ts's generatePostImage, which skips the Flux
+// call entirely for this template): a hook headline with one highlighted
+// phrase, a short ✗ "wrong way" list, a short ✓ "right way" list, and a
+// closing line. Deliberately does NOT attempt the reference format's
+// decorative illustrated sticky-note graphic -- that's a hand-designed
+// asset, out of scope here. The substance of why this format works is the
+// typography/spacing/list legibility, not the decoration.
+const CHECKLIST_BG_COLOR = "#F7F1E7"
+const CHECKLIST_INK_COLOR = "#1A1A1A"
+const CHECKLIST_WRONG_COLOR = "#DC2626"
+const CHECKLIST_RIGHT_COLOR = "#16A34A"
+const CHECKLIST_MUTED_COLOR = "#57534E"
+
+interface HardTruthChecklistContent {
+  headline: string
+  highlightedPhrase: string | null
+  wrongItems: string[]
+  rightItems: string[]
+  closingLine: string | null
+}
+
+function checklistTextEl(x: number, y: number, anchor: string, fontSize: number, text: string, color: string, weight: number): string {
+  return `<text x="${x}" y="${y}" text-anchor="${anchor}" font-family="PostFont, sans-serif" font-weight="${weight}" font-size="${fontSize}" fill="${color}">${escapeXml(text)}</text>`
+}
+
+// Drawn as vector shapes, not the ✗/✓ Unicode glyphs -- the curated fonts
+// are all @fontsource Latin SUBSETS (see lib/image/sanitize-text-for-
+// compositing.ts's own comment on this exact class of bug) and don't
+// reliably include Dingbat-range glyphs either, so relying on the
+// characters themselves risks the identical tofu-box failure that fix
+// exists to prevent. A vector mark renders correctly regardless of what
+// the font supports.
+function xMarkSvg(cx: number, cy: number, size: number): string {
+  const r = size / 2
+  const strokeWidth = Math.max(3, size * 0.18)
+  return `<line x1="${cx - r}" y1="${cy - r}" x2="${cx + r}" y2="${cy + r}" stroke="${CHECKLIST_WRONG_COLOR}" stroke-width="${strokeWidth}" stroke-linecap="round"/><line x1="${cx + r}" y1="${cy - r}" x2="${cx - r}" y2="${cy + r}" stroke="${CHECKLIST_WRONG_COLOR}" stroke-width="${strokeWidth}" stroke-linecap="round"/>`
+}
+
+function checkMarkSvg(cx: number, cy: number, size: number): string {
+  const r = size / 2
+  const strokeWidth = Math.max(3, size * 0.18)
+  return `<polyline points="${cx - r},${cy} ${cx - r * 0.15},${cy + r * 0.75} ${cx + r},${cy - r * 0.6}" fill="none" stroke="${CHECKLIST_RIGHT_COLOR}" stroke-width="${strokeWidth}" stroke-linecap="round" stroke-linejoin="round"/>`
+}
+
+// Renders a ✗/✓ list -- each item wrapped independently (a long item wraps
+// to its own extra line, marker only drawn once per item, aligned to its
+// first line), returning both the SVG and the total block height consumed
+// so the caller can stack the next section under it.
+function buildMarkedList(
+  items: string[],
+  markSvg: (cx: number, cy: number, size: number) => string,
+  font: fontkit.Font,
+  fontSize: number,
+  maxWidthPx: number,
+  startY: number
+): { svg: string; endY: number } {
+  const lineHeight = fontSize * 1.35
+  const markerGap = fontSize * 1.5
+  const itemGap = fontSize * 0.4
+  const markSize = fontSize * 0.62
+
+  let cursorY = startY
+  const parts: string[] = []
+  for (const item of items) {
+    const wrapped = wrapTextByWidth(font, item, fontSize, maxWidthPx - markerGap)
+    for (let i = 0; i < wrapped.length; i++) {
+      const baselineY = cursorY + fontSize * 0.85
+      if (i === 0) parts.push(markSvg(0, baselineY - fontSize * 0.32, markSize))
+      parts.push(checklistTextEl(markerGap, baselineY, "start", fontSize, wrapped[i]!, CHECKLIST_INK_COLOR, 500))
+      cursorY += lineHeight
+    }
+    cursorY += itemGap
+  }
+  return { svg: parts.join(""), endY: cursorY }
+}
+
+function buildHardTruthChecklist(content: HardTruthChecklistContent, theme: ColorTheme, font: fontkit.Font, hasLogo: boolean, scale: number): OverlayResult {
+  const padX = 90
+  const maxTextWidth = CANVAS_WIDTH - padX * 2
+
+  const { lines: headlineLines, fontSize: headlineFontSize, lineHeight: headlineLineHeight } = fitText(font, content.headline, {
+    startFontSize: 62 * scale,
+    minFontSize: MIN_HEADLINE_FONT_SIZE,
+    lineHeightMultiplier: 1.2,
+    maxWidthPx: maxTextWidth,
+    maxLines: 3,
+  })
+
+  // Best-effort highlight: only rendered when the phrase is found intact on
+  // a single wrapped line -- a phrase split across a line-wrap boundary
+  // just renders as plain headline text instead of guessing a position.
+  const highlightLineIndex = content.highlightedPhrase
+    ? headlineLines.findIndex((l) => l.toLowerCase().includes(content.highlightedPhrase!.toLowerCase()))
+    : -1
+
+  const headlineTop = 130
+  const headlineStartY = headlineTop + headlineFontSize * 0.85
+
+  const highlightRects: string[] = []
+  const headlineText = headlineLines.map((line, i) => {
+    const y = headlineStartY + i * headlineLineHeight
+    if (i === highlightLineIndex && content.highlightedPhrase) {
+      const idx = line.toLowerCase().indexOf(content.highlightedPhrase.toLowerCase())
+      const before = line.slice(0, idx)
+      const match = line.slice(idx, idx + content.highlightedPhrase.length)
+      const lineWidth = measureTextWidth(font, line, headlineFontSize)
+      const beforeWidth = measureTextWidth(font, before, headlineFontSize)
+      const matchWidth = measureTextWidth(font, match, headlineFontSize)
+      const lineStartX = CANVAS_WIDTH / 2 - lineWidth / 2
+      const boxPad = 8
+      // A translucent highlighter-marker stripe behind the text, not a
+      // recolored/re-weighted tspan -- keeps the headline's own text color
+      // uniform and avoids computing contrast against an arbitrary brand
+      // accent color.
+      highlightRects.push(
+        `<rect x="${lineStartX + beforeWidth - boxPad}" y="${y - headlineFontSize * 0.82}" width="${matchWidth + boxPad * 2}" height="${headlineFontSize * 1.08}" rx="8" fill="${theme.primary}" fill-opacity="0.3"/>`
+      )
+    }
+    return checklistTextEl(CANVAS_WIDTH / 2, y, "middle", headlineFontSize, line, CHECKLIST_INK_COLOR, 800)
+  }).join("")
+
+  const headlineBottom = headlineStartY + (headlineLines.length - 1) * headlineLineHeight + headlineFontSize * 0.6
+
+  const listFontSize = Math.round(36 * scale)
+  const wrongResult = buildMarkedList(content.wrongItems.slice(0, 3), xMarkSvg, font, listFontSize, maxTextWidth, headlineBottom + 56)
+  const rightResult = buildMarkedList(content.rightItems.slice(0, 3), checkMarkSvg, font, listFontSize, maxTextWidth, wrongResult.endY + 44)
+
+  const closingFontSize = Math.round(30 * scale)
+  const closingText = content.closingLine?.trim() ?? ""
+  const closingFit = closingText
+    ? fitText(font, closingText, { startFontSize: closingFontSize, minFontSize: 22, lineHeightMultiplier: 1.3, maxWidthPx: maxTextWidth, maxLines: 2 })
+    : null
+
+  // Pinned near the bottom (not stacked directly under the lists, whose
+  // total height varies with item count/length) so it lands in a
+  // consistent spot instead of drifting per-post.
+  const closingBlockY = CANVAS_HEIGHT - 130
+  const dividerY = closingBlockY - closingFontSize * 1.8
+  const closingSvg = closingFit
+    ? closingFit.lines.map((line, i) => checklistTextEl(CANVAS_WIDTH / 2, closingBlockY + i * closingFit.lineHeight, "middle", closingFit.fontSize, line, CHECKLIST_MUTED_COLOR, 600)).join("")
+    : ""
+
+  const svg = `
+    <rect x="0" y="0" width="${CANVAS_WIDTH}" height="${CANVAS_HEIGHT}" fill="${CHECKLIST_BG_COLOR}"/>
+    ${highlightRects.join("")}
+    ${headlineText}
+    <g transform="translate(${padX}, 0)">${wrongResult.svg}${rightResult.svg}</g>
+    ${closingText ? `<line x1="${padX}" y1="${dividerY}" x2="${CANVAS_WIDTH - padX}" y2="${dividerY}" stroke="${CHECKLIST_INK_COLOR}" stroke-opacity="0.15" stroke-width="2"/>` : ""}
+    ${closingSvg}
+    ${hasLogo ? `<rect x="${CANVAS_WIDTH - 130}" y="50" width="70" height="70" rx="12" fill="#ffffff" stroke="${CHECKLIST_INK_COLOR}" stroke-opacity="0.1" stroke-width="1"/>` : ""}
+  `
+  return { svg, logoBox: { x: CANVAS_WIDTH - 122, y: 58, size: 54 } }
+}
+
 async function fetchLogoBuffer(logoUrl: string): Promise<Buffer | null> {
   try {
     const res = await fetch(logoUrl)
@@ -460,4 +617,73 @@ export async function compositePostImage(
     .composite(layers)
     .png()
     .toBuffer()
+}
+
+export interface CompositeHardTruthChecklistOptions {
+  colorTheme: ColorTheme
+  logoUrl: string | null
+  fontId?: string
+  textSizeScale?: number
+  headline: string
+  highlightedPhrase?: string | null
+  wrongItems: string[]
+  rightItems: string[]
+  closingLine?: string | null
+}
+
+/**
+ * Renders the "Hard Truth Checklist" template entirely from its own
+ * structured checklist_* fields -- no base photo at all, unlike every
+ * other template's compositePostImage (which always overlays onto a
+ * Flux-generated buffer). Called directly by lib/ai/post-image-pipeline.ts's
+ * generatePostImage BEFORE it would otherwise fetch a Flux image, so this
+ * template never spends a photo-generation credit.
+ */
+export async function compositeHardTruthChecklist(options: CompositeHardTruthChecklistOptions): Promise<Buffer> {
+  const hasLogo = !!options.logoUrl
+  const fontId = options.fontId ?? DEFAULT_FONT_ID
+  const font = await getFont(fontId)
+  const scale = options.textSizeScale ?? 1.0
+
+  // Sanitized right here, immediately before fitText/buildMarkedList's own
+  // measuring/wrapping runs -- see sanitize-text-for-compositing.ts's own
+  // comment for why this is the only place in the pipeline this ever runs.
+  const content: HardTruthChecklistContent = {
+    headline: sanitizeTextForCompositing(options.headline.trim()),
+    highlightedPhrase: options.highlightedPhrase?.trim() ? sanitizeTextForCompositing(options.highlightedPhrase.trim()) : null,
+    wrongItems: options.wrongItems.map((i) => sanitizeTextForCompositing(i.trim())).filter(Boolean),
+    rightItems: options.rightItems.map((i) => sanitizeTextForCompositing(i.trim())).filter(Boolean),
+    closingLine: options.closingLine?.trim() ? sanitizeTextForCompositing(options.closingLine.trim()) : null,
+  }
+
+  const { svg: overlaySvg, logoBox } = buildHardTruthChecklist(content, options.colorTheme, font, hasLogo, scale)
+  const svg = `<svg width="${CANVAS_WIDTH}" height="${CANVAS_HEIGHT}" xmlns="http://www.w3.org/2000/svg">${overlaySvg}</svg>`
+
+  const fontPath = await getFontPath(fontId)
+  const resvg = new Resvg(svg, {
+    font: { fontFiles: [fontPath], loadSystemFonts: false, defaultFontFamily: "PostFont" },
+  })
+  const rendered = resvg.render().asPng()
+
+  if (!options.logoUrl || !logoBox) {
+    return sharp(rendered).png().toBuffer()
+  }
+
+  const logoBuffer = await fetchLogoBuffer(options.logoUrl)
+  if (!logoBuffer) return sharp(rendered).png().toBuffer()
+
+  try {
+    const resizedLogo = await sharp(logoBuffer)
+      .resize(logoBox.size, logoBox.size, { fit: "contain", background: { r: 0, g: 0, b: 0, alpha: 0 } })
+      .png()
+      .toBuffer()
+    return sharp(rendered)
+      .composite([{ input: resizedLogo, top: Math.round(logoBox.y), left: Math.round(logoBox.x) }])
+      .png()
+      .toBuffer()
+  } catch {
+    // Malformed/unreadable logo file — skip it rather than fail the whole
+    // composite over a decorative element.
+    return sharp(rendered).png().toBuffer()
+  }
 }
