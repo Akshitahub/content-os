@@ -1137,346 +1137,361 @@ export function StorySequence({ brandId }: { brandId: string }) {
 
   return (
     <div className="space-y-6">
-      {/* Settings */}
-      <div className="rounded-xl border bg-card p-5 space-y-4">
-        <div>
-          <h3 className="text-sm font-semibold">Create a story sequence</h3>
-        </div>
-
-        <div className="space-y-1.5">
-          <label className="text-xs font-medium">What&apos;s the story about?</label>
-          {/* Quick chips */}
-          <div className="flex flex-wrap gap-1.5 mb-2">
-            {QUICK_TOPICS.map((t) => (
-              <button key={t} type="button" onClick={() => { setTopic(t); setError("") }}
-                className={`rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors ${topic === t ? "border-violet-500 bg-violet-50 text-violet-700" : "border-border hover:border-violet-300 text-muted-foreground"}`}>
-                {t}
-              </button>
-            ))}
-          </div>
-          <textarea
-            rows={2}
-            value={topic}
-            onChange={(e) => { setTopic(e.target.value); setError("") }}
-            placeholder="Or describe your own story topic…"
-            className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring resize-none"
-          />
-          {error && (
-            <div className="flex items-center gap-1.5 text-xs text-destructive">
-              <AlertCircle className="h-3.5 w-3.5" /> {error}
+      <div className="grid gap-6 lg:grid-cols-5">
+        {/* ─ LEFT PANEL: Settings — full width on mobile, 2/5 on desktop ── */}
+        <div className="space-y-5 lg:col-span-2">
+          <div className="rounded-xl border bg-card p-5 space-y-4">
+            <div>
+              <h3 className="text-sm font-semibold">Create a story sequence</h3>
             </div>
-          )}
-          <TopicSuggestButton
-            brandId={brandId}
-            contentType="story"
-            currentInput={topic}
-            onSelectTopic={(t) => { setTopic(t); setError("") }}
-          />
-        </div>
 
-        {/* Product image */}
-        <div className="space-y-1.5">
-          <label className="text-xs font-medium">Product image (optional)</label>
-          <ProductPicker
-            brandId={brandId}
-            selected={selectedProduct}
-            onSelect={setSelectedProduct}
-            label="Select product image (shown on reveal/CTA slides)"
-          />
-        </div>
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium">What&apos;s the story about?</label>
+              {/* Quick chips */}
+              <div className="flex flex-wrap gap-1.5 mb-2">
+                {QUICK_TOPICS.map((t) => (
+                  <button key={t} type="button" onClick={() => { setTopic(t); setError("") }}
+                    className={`rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors ${topic === t ? "border-violet-500 bg-violet-50 text-violet-700" : "border-border hover:border-violet-300 text-muted-foreground"}`}>
+                    {t}
+                  </button>
+                ))}
+              </div>
+              <textarea
+                rows={2}
+                value={topic}
+                onChange={(e) => { setTopic(e.target.value); setError("") }}
+                placeholder="Or describe your own story topic…"
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring resize-none"
+              />
+              {error && (
+                <div className="flex items-center gap-1.5 text-xs text-destructive">
+                  <AlertCircle className="h-3.5 w-3.5" /> {error}
+                </div>
+              )}
+              <TopicSuggestButton
+                brandId={brandId}
+                contentType="story"
+                currentInput={topic}
+                onSelectTopic={(t) => { setTopic(t); setError("") }}
+              />
+            </div>
 
-        {/* Image upload zone */}
-        <div className="space-y-1.5">
-          <label className="text-xs font-medium">Add your photos (optional, max 3)</label>
-          <div className="flex items-center gap-2 flex-wrap">
-            {uploadedImages.map((img, i) => (
-              <div key={i} className="relative h-16 w-16 rounded-lg overflow-hidden border shrink-0">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={img.preview} alt="" className="h-full w-full object-cover" />
-                <button
-                  type="button"
-                  onClick={() => removeImage(i)}
-                  className="absolute top-0.5 right-0.5 h-4 w-4 rounded-full bg-black/60 flex items-center justify-center"
-                >
-                  <X className="h-2.5 w-2.5 text-white" />
+            {/* Product image */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium">Product image (optional)</label>
+              <ProductPicker
+                brandId={brandId}
+                selected={selectedProduct}
+                onSelect={setSelectedProduct}
+                label="Select product image (shown on reveal/CTA slides)"
+              />
+            </div>
+
+            {/* Image upload zone */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium">Add your photos (optional, max 3)</label>
+              <div className="flex items-center gap-2 flex-wrap">
+                {uploadedImages.map((img, i) => (
+                  <div key={i} className="relative h-16 w-16 rounded-lg overflow-hidden border shrink-0">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={img.preview} alt="" className="h-full w-full object-cover" />
+                    <button
+                      type="button"
+                      onClick={() => removeImage(i)}
+                      className="absolute top-0.5 right-0.5 h-4 w-4 rounded-full bg-black/60 flex items-center justify-center"
+                    >
+                      <X className="h-2.5 w-2.5 text-white" />
+                    </button>
+                  </div>
+                ))}
+                {uploadedImages.length < 3 && (
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="h-16 w-16 rounded-lg border-2 border-dashed flex items-center justify-center hover:border-violet-400 transition-colors shrink-0"
+                  >
+                    <Upload className="h-5 w-5 text-muted-foreground" />
+                  </button>
+                )}
+              </div>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                multiple
+                className="hidden"
+                onChange={handleImageUpload}
+              />
+              <p className="text-[11px] text-muted-foreground">Images will appear on &quot;reveal&quot; and &quot;cta&quot; slides (or the only slide, if just one)</p>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium">Number of stories</label>
+              <div className="flex items-center gap-3">
+                <button type="button" onClick={() => setStoryCount((n) => Math.max(1, n - 1))}
+                  disabled={storyCount <= 1}
+                  className="flex h-9 w-9 items-center justify-center rounded-lg border-2 border-border transition-all hover:border-violet-300 disabled:opacity-40 disabled:cursor-not-allowed">
+                  <Minus className="h-4 w-4" />
+                </button>
+                <span className="w-8 text-center text-sm font-semibold">{storyCount}</span>
+                <button type="button" onClick={() => setStoryCount((n) => Math.min(10, n + 1))}
+                  disabled={storyCount >= 10}
+                  className="flex h-9 w-9 items-center justify-center rounded-lg border-2 border-border transition-all hover:border-violet-300 disabled:opacity-40 disabled:cursor-not-allowed">
+                  <Plus className="h-4 w-4" />
                 </button>
               </div>
-            ))}
-            {uploadedImages.length < 3 && (
+            </div>
+
+            {/* Vibe used to be a primary picker; the generate route's LLM
+                ignores it for actual content, so it now picks its own vibe
+                (suggested_vibe in the same JSON). This is just a manual
+                override for anyone who wants to force one. */}
+            <div className="space-y-1.5">
               <button
                 type="button"
-                onClick={() => fileInputRef.current?.click()}
-                className="h-16 w-16 rounded-lg border-2 border-dashed flex items-center justify-center hover:border-violet-400 transition-colors shrink-0"
+                onClick={() => setShowCustomize((v) => !v)}
+                className="text-xs font-medium text-violet-600 hover:text-violet-700"
               >
-                <Upload className="h-5 w-5 text-muted-foreground" />
+                {showCustomize ? "Hide options" : "Customize (optional)"}
               </button>
+              {showCustomize && (
+                <div className="space-y-3 pt-1">
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium">Vibe</label>
+                    <VibePicker
+                      selected={vibe === "hard_truth_checklist" ? undefined : vibe}
+                      onSelect={setVibe}
+                      compact
+                      customColors={customColors}
+                      onCustomColorsChange={setCustomColors}
+                    />
+                    {/* 8th option, Story-only -- deliberately NOT added to
+                        VibePicker.tsx's own Vibe type/VIBES list, since that
+                        shared component is also reused by CarouselBuilder.tsx
+                        and AdMaker.tsx, which shouldn't gain this option too.
+                        No AI photo on any slide when selected -- see
+                        generate()'s own isHardTruthChecklistMode branch and
+                        lib/image/story-compositor.ts's checklist-aware
+                        rendering. */}
+                    <button
+                      type="button"
+                      onClick={() => setVibe("hard_truth_checklist")}
+                      className={`relative w-full rounded-xl border-2 p-3 text-left transition-all duration-150 hover:scale-[1.01] ${
+                        vibe === "hard_truth_checklist" ? "border-violet-500 bg-violet-50 dark:bg-violet-950/30" : "border-border bg-card hover:border-violet-300"
+                      }`}
+                    >
+                      {vibe === "hard_truth_checklist" && (
+                        <div className="absolute right-2 top-2 flex h-5 w-5 items-center justify-center rounded-full bg-violet-500">
+                          <Check className="h-3 w-3 text-white" />
+                        </div>
+                      )}
+                      <ListChecks className="mb-1.5 h-5 w-5" />
+                      <p className="text-sm font-semibold leading-tight">Hard Truth Checklist</p>
+                      <p className="mt-0.5 text-xs text-muted-foreground leading-snug">Contrarian hook, a wrong-way vs. right-way list, no photo</p>
+                    </button>
+                  </div>
+                  {vibe && vibe !== "custom_color" && vibe !== "hard_truth_checklist" && (
+                    <PromptWriterField
+                      label="Visual scene (optional)"
+                      prompt={visualPrompt}
+                      onChange={setVisualPrompt}
+                      stage={promptWriter.stage}
+                      error={promptWriter.error}
+                      onRewrite={writeVisualPrompt}
+                      placeholder="Describe the hook/CTA background scene, or leave blank and let SocioPosts write one from your topic and vibe"
+                    />
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Optional per-sequence upgrade: AI photo backgrounds for every
+                reveal/buildup slide, not just the hook/cta that already get
+                one free. Only offered alongside a real vibe -- Custom color
+                already means "flat color everywhere, no AI", so the two are
+                mutually exclusive rather than combinable. Mirrors
+                CarouselBuilder.tsx's identical toggle exactly. */}
+            {vibe && vibe !== "custom_color" && vibe !== "hard_truth_checklist" && (
+              <label className="flex cursor-pointer items-start gap-2.5 rounded-lg border p-3 text-sm transition-colors hover:bg-secondary/40">
+                <input
+                  type="checkbox"
+                  checked={allSlidesAiBg}
+                  onChange={(e) => setAllSlidesAiBg(e.target.checked)}
+                  className="mt-0.5 h-4 w-4 rounded border-input"
+                />
+                <div>
+                  <p className="font-medium">AI background for every slide</p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    Generates a real photo background for each reveal/buildup slide too, not just the opening and closing slide —{" "}
+                    {STORY_SLIDE_AI_BACKGROUND} credits per slide, charged only for slides that actually generate one.
+                  </p>
+                </div>
+              </label>
+            )}
+
+            <GenerationWarning isPending={loading} />
+            <button onClick={generate} disabled={loading || promptWriter.stage === "writing"}
+              className="flex w-full items-center justify-center gap-2 rounded-full bg-gradient-to-r from-violet-600 to-indigo-600 py-3 text-sm font-semibold text-white shadow-md transition hover:from-violet-700 hover:to-indigo-700 disabled:opacity-60">
+              {loading ? <><Loader2 className="h-4 w-4 animate-spin" /> Generating stories…</> : promptWriter.stage === "writing" ? <><Loader2 className="h-4 w-4 animate-spin" /> Writing your visual prompt…</> : "✨ Generate stories"}
+            </button>
+
+            {!!apiError && <UsageLimitBanner error={apiError} onRetry={generate} />}
+            {showStaleCue && stories.length > 0 && (
+              <p className="text-xs text-amber-600">Showing your last successful result below.</p>
             )}
           </div>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*"
-            multiple
-            className="hidden"
-            onChange={handleImageUpload}
-          />
-          <p className="text-[11px] text-muted-foreground">Images will appear on &quot;reveal&quot; and &quot;cta&quot; slides (or the only slide, if just one)</p>
         </div>
 
-        <div className="space-y-1.5">
-          <label className="text-xs font-medium">Number of stories</label>
-          <div className="flex items-center gap-3">
-            <button type="button" onClick={() => setStoryCount((n) => Math.max(1, n - 1))}
-              disabled={storyCount <= 1}
-              className="flex h-9 w-9 items-center justify-center rounded-lg border-2 border-border transition-all hover:border-violet-300 disabled:opacity-40 disabled:cursor-not-allowed">
-              <Minus className="h-4 w-4" />
-            </button>
-            <span className="w-8 text-center text-sm font-semibold">{storyCount}</span>
-            <button type="button" onClick={() => setStoryCount((n) => Math.min(10, n + 1))}
-              disabled={storyCount >= 10}
-              className="flex h-9 w-9 items-center justify-center rounded-lg border-2 border-border transition-all hover:border-violet-300 disabled:opacity-40 disabled:cursor-not-allowed">
-              <Plus className="h-4 w-4" />
-            </button>
-          </div>
-        </div>
-
-        {/* Vibe used to be a primary picker; the generate route's LLM
-            ignores it for actual content, so it now picks its own vibe
-            (suggested_vibe in the same JSON). This is just a manual
-            override for anyone who wants to force one. */}
-        <div className="space-y-1.5">
-          <button
-            type="button"
-            onClick={() => setShowCustomize((v) => !v)}
-            className="text-xs font-medium text-violet-600 hover:text-violet-700"
-          >
-            {showCustomize ? "Hide options" : "Customize (optional)"}
-          </button>
-          {showCustomize && (
-            <div className="space-y-3 pt-1">
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium">Vibe</label>
-                <VibePicker
-                  selected={vibe === "hard_truth_checklist" ? undefined : vibe}
-                  onSelect={setVibe}
-                  compact
-                  customColors={customColors}
-                  onCustomColorsChange={setCustomColors}
-                />
-                {/* 8th option, Story-only -- deliberately NOT added to
-                    VibePicker.tsx's own Vibe type/VIBES list, since that
-                    shared component is also reused by CarouselBuilder.tsx
-                    and AdMaker.tsx, which shouldn't gain this option too.
-                    No AI photo on any slide when selected -- see
-                    generate()'s own isHardTruthChecklistMode branch and
-                    lib/image/story-compositor.ts's checklist-aware
-                    rendering. */}
-                <button
-                  type="button"
-                  onClick={() => setVibe("hard_truth_checklist")}
-                  className={`relative w-full rounded-xl border-2 p-3 text-left transition-all duration-150 hover:scale-[1.01] ${
-                    vibe === "hard_truth_checklist" ? "border-violet-500 bg-violet-50 dark:bg-violet-950/30" : "border-border bg-card hover:border-violet-300"
-                  }`}
-                >
-                  {vibe === "hard_truth_checklist" && (
-                    <div className="absolute right-2 top-2 flex h-5 w-5 items-center justify-center rounded-full bg-violet-500">
-                      <Check className="h-3 w-3 text-white" />
-                    </div>
-                  )}
-                  <ListChecks className="mb-1.5 h-5 w-5" />
-                  <p className="text-sm font-semibold leading-tight">Hard Truth Checklist</p>
-                  <p className="mt-0.5 text-xs text-muted-foreground leading-snug">Contrarian hook, a wrong-way vs. right-way list, no photo</p>
-                </button>
-              </div>
-              {vibe && vibe !== "custom_color" && vibe !== "hard_truth_checklist" && (
-                <PromptWriterField
-                  label="Visual scene (optional)"
-                  prompt={visualPrompt}
-                  onChange={setVisualPrompt}
-                  stage={promptWriter.stage}
-                  error={promptWriter.error}
-                  onRewrite={writeVisualPrompt}
-                  placeholder="Describe the hook/CTA background scene, or leave blank and let SocioPosts write one from your topic and vibe"
-                />
-              )}
+        {/* ─ RIGHT PANEL: Story preview ─────────────────────────────── */}
+        <div className="space-y-4 lg:col-span-3">
+          {stories.length === 0 && !loading && (
+            <div className="flex h-80 flex-col items-center justify-center rounded-xl border-2 border-dashed text-center p-8 gap-3">
+              <span className="text-4xl">📱</span>
+              <p className="text-sm font-medium text-muted-foreground">Your story preview will appear here</p>
+              <p className="text-xs text-muted-foreground">Enter a topic and click Generate</p>
             </div>
           )}
-        </div>
 
-        {/* Optional per-sequence upgrade: AI photo backgrounds for every
-            reveal/buildup slide, not just the hook/cta that already get
-            one free. Only offered alongside a real vibe -- Custom color
-            already means "flat color everywhere, no AI", so the two are
-            mutually exclusive rather than combinable. Mirrors
-            CarouselBuilder.tsx's identical toggle exactly. */}
-        {vibe && vibe !== "custom_color" && vibe !== "hard_truth_checklist" && (
-          <label className="flex cursor-pointer items-start gap-2.5 rounded-lg border p-3 text-sm transition-colors hover:bg-secondary/40">
-            <input
-              type="checkbox"
-              checked={allSlidesAiBg}
-              onChange={(e) => setAllSlidesAiBg(e.target.checked)}
-              className="mt-0.5 h-4 w-4 rounded border-input"
-            />
-            <div>
-              <p className="font-medium">AI background for every slide</p>
-              <p className="mt-0.5 text-xs text-muted-foreground">
-                Generates a real photo background for each reveal/buildup slide too, not just the opening and closing slide —{" "}
-                {STORY_SLIDE_AI_BACKGROUND} credits per slide, charged only for slides that actually generate one.
-              </p>
+          {/* Loading */}
+          {loading && (
+            <div className="flex flex-col items-center justify-center py-12 gap-3 rounded-xl border bg-card">
+              <Loader2 className="h-8 w-8 animate-spin text-violet-500" />
+              <p className="text-sm font-medium">Writing your {storyCount}-part story sequence…</p>
             </div>
-          </label>
-        )}
+          )}
 
-        <GenerationWarning isPending={loading} />
-        <button onClick={generate} disabled={loading || promptWriter.stage === "writing"}
-          className="flex w-full items-center justify-center gap-2 rounded-full bg-gradient-to-r from-violet-600 to-indigo-600 py-3 text-sm font-semibold text-white shadow-md transition hover:from-violet-700 hover:to-indigo-700 disabled:opacity-60">
-          {loading ? <><Loader2 className="h-4 w-4 animate-spin" /> Generating stories…</> : promptWriter.stage === "writing" ? <><Loader2 className="h-4 w-4 animate-spin" /> Writing your visual prompt…</> : "✨ Generate stories"}
-        </button>
-
-        {!!apiError && <UsageLimitBanner error={apiError} onRetry={generate} />}
-        {showStaleCue && stories.length > 0 && (
-          <p className="text-xs text-amber-600">Showing your last successful result below.</p>
-        )}
-      </div>
-
-      {/* Loading */}
-      {loading && (
-        <div className="flex flex-col items-center justify-center py-12 gap-3 rounded-xl border bg-card">
-          <Loader2 className="h-8 w-8 animate-spin text-violet-500" />
-          <p className="text-sm font-medium">Writing your {storyCount}-part story sequence…</p>
-        </div>
-      )}
-
-      {/* Success banner */}
-      {showSuccess && (
-        <div className="flex items-center justify-between gap-2 rounded-lg border border-green-200 bg-green-50 px-4 py-3 animate-in fade-in duration-300">
-          <div className="flex items-center gap-2 text-green-700">
-            <Check className="h-4 w-4 shrink-0" />
-            <span className="text-sm font-medium">✓ Story sequence generated and saved to My Content · {STORY_CREDIT_COST} credits used</span>
-          </div>
-          <Link
-            href={`/brands/${brandId}/library?tab=stories`}
-            className="text-xs font-medium text-green-700 underline underline-offset-2 hover:text-green-900 shrink-0"
-          >
-            View in My Content →
-          </Link>
-        </div>
-      )}
-
-      {/* Covers the whole background-image step -- the always-on hook/cta
-          fetch (no per-item progress to show, just "in progress") and,
-          once that hands off to it, the opt-in body-slide loop's own
-          X-of-Y progress -- so there's continuous visible feedback with no
-          gap between "text is ready" and "every slide's image is ready,"
-          which is also exactly when the success banner below now waits to
-          appear. */}
-      {imagesGenerating && (
-        <div className="flex items-center gap-2 rounded-lg border border-violet-200 bg-violet-50 px-4 py-3 text-sm text-violet-700">
-          <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
-          {bodyBgProgress
-            ? `Generating slide background ${bodyBgProgress.current} of ${bodyBgProgress.total}…`
-            : "Generating story backgrounds…"}
-        </div>
-      )}
-
-      {bodyBgWarning && (
-        <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-          <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
-          {bodyBgWarning}
-        </div>
-      )}
-
-      {/* Story previews */}
-      {stories.length > 0 && !loading && (
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <p className="text-sm font-semibold">{stories.length} stories ready</p>
-              {/* Subtle, not a toast -- edits (inline text, color swap,
-               * Custom color) autosave 1.5s after the last change. */}
-              {autosaveStatus === "saving" && <span className="text-xs text-muted-foreground">Saving…</span>}
-              {autosaveStatus === "saved" && <span className="text-xs text-green-600">✓ Saved</span>}
-              {autosaveStatus === "error" && <span className="text-xs text-destructive">Couldn&apos;t save — check your connection</span>}
+          {/* Success banner */}
+          {showSuccess && (
+            <div className="flex items-center justify-between gap-2 rounded-lg border border-green-200 bg-green-50 px-4 py-3 animate-in fade-in duration-300">
+              <div className="flex items-center gap-2 text-green-700">
+                <Check className="h-4 w-4 shrink-0" />
+                <span className="text-sm font-medium">✓ Story sequence generated and saved to My Content · {STORY_CREDIT_COST} credits used</span>
+              </div>
+              <Link
+                href={`/brands/${brandId}/library?tab=stories`}
+                className="text-xs font-medium text-green-700 underline underline-offset-2 hover:text-green-900 shrink-0"
+              >
+                View in My Content →
+              </Link>
             </div>
-            <div className="flex gap-2">
-              <button onClick={copyAllText}
-                className="flex items-center gap-1 rounded-full border px-3 py-1.5 text-xs font-medium hover:bg-secondary">
-                {allCopied ? <Check className="h-3.5 w-3.5 text-green-500" /> : <Copy className="h-3.5 w-3.5" />}
-                Copy all
-              </button>
-              <button onClick={async () => {
-                setSaveAllErr(false)
-                const exportSlides = stories.map((s, i) => toExportSlide(s, selectedProduct?.imageUrl ?? uploadedImages[i]?.preview))
-                const ok = await downloadStorySlidesAsImages(exportSlides, "story-sequence")
-                if (!ok) setSaveAllErr(true)
-              }}
-                className="flex items-center gap-1 rounded-full border px-3 py-1.5 text-xs font-medium hover:bg-secondary">
-                <Image className="h-3.5 w-3.5" /> Save all as PNG
-              </button>
-              {saveAllErr && <p className="text-[10px] text-destructive">Some downloads failed</p>}
-              <button onClick={downloadAllText}
-                className="flex items-center gap-1 rounded-full border px-3 py-1.5 text-xs font-medium hover:bg-secondary">
-                <Download className="h-3.5 w-3.5" /> Text file
-              </button>
-              <button onClick={generate} disabled={loading}
-                className="flex items-center gap-1 rounded-full border border-violet-200 bg-violet-50 px-3 py-1.5 text-xs font-medium text-violet-700 hover:bg-violet-100">
-                <RefreshCw className="h-3.5 w-3.5" /> Regenerate
-              </button>
+          )}
+
+          {/* Covers the whole background-image step -- the always-on hook/cta
+              fetch (no per-item progress to show, just "in progress") and,
+              once that hands off to it, the opt-in body-slide loop's own
+              X-of-Y progress -- so there's continuous visible feedback with no
+              gap between "text is ready" and "every slide's image is ready,"
+              which is also exactly when the success banner below now waits to
+              appear. */}
+          {imagesGenerating && (
+            <div className="flex items-center gap-2 rounded-lg border border-violet-200 bg-violet-50 px-4 py-3 text-sm text-violet-700">
+              <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
+              {bodyBgProgress
+                ? `Generating slide background ${bodyBgProgress.current} of ${bodyBgProgress.total}…`
+                : "Generating story backgrounds…"}
             </div>
-          </div>
+          )}
 
-          {/* Horizontal scroll of phone frames */}
-          <div className="flex gap-6 overflow-x-auto pb-4">
-            {stories.map((story, i) => (
-              <PhoneStory
-                key={i}
-                story={story}
-                index={i}
-                total={stories.length}
-                uploadedImage={selectedProduct?.imageUrl ?? uploadedImages[i]?.preview}
-                brandColors={brandTextColorPresets}
-                onUpdateSlide={(updates) => updateSlide(i, updates)}
-              />
-            ))}
-          </div>
+          {bodyBgWarning && (
+            <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+              <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+              {bodyBgWarning}
+            </div>
+          )}
 
-          {storyCaption && (
-            <div className="rounded-lg border bg-card p-4 space-y-2">
+          {/* Story previews */}
+          {stories.length > 0 && !loading && (
+            <div className="space-y-4">
               <div className="flex items-center justify-between">
-                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Caption</p>
-                <button
-                  onClick={() => setShowCaptionEditor((v) => !v)}
-                  className="text-xs font-medium text-violet-600 hover:underline"
-                >
-                  {showCaptionEditor ? "Hide editor" : "✏️ Edit caption"}
-                </button>
+                <div className="flex items-center gap-3">
+                  <p className="text-sm font-semibold">{stories.length} stories ready</p>
+                  {/* Subtle, not a toast -- edits (inline text, color swap,
+                   * Custom color) autosave 1.5s after the last change. */}
+                  {autosaveStatus === "saving" && <span className="text-xs text-muted-foreground">Saving…</span>}
+                  {autosaveStatus === "saved" && <span className="text-xs text-green-600">✓ Saved</span>}
+                  {autosaveStatus === "error" && <span className="text-xs text-destructive">Couldn&apos;t save — check your connection</span>}
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={copyAllText}
+                    className="flex items-center gap-1 rounded-full border px-3 py-1.5 text-xs font-medium hover:bg-secondary">
+                    {allCopied ? <Check className="h-3.5 w-3.5 text-green-500" /> : <Copy className="h-3.5 w-3.5" />}
+                    Copy all
+                  </button>
+                  <button onClick={async () => {
+                    setSaveAllErr(false)
+                    const exportSlides = stories.map((s, i) => toExportSlide(s, selectedProduct?.imageUrl ?? uploadedImages[i]?.preview))
+                    const ok = await downloadStorySlidesAsImages(exportSlides, "story-sequence")
+                    if (!ok) setSaveAllErr(true)
+                  }}
+                    className="flex items-center gap-1 rounded-full border px-3 py-1.5 text-xs font-medium hover:bg-secondary">
+                    <Image className="h-3.5 w-3.5" /> Save all as PNG
+                  </button>
+                  {saveAllErr && <p className="text-[10px] text-destructive">Some downloads failed</p>}
+                  <button onClick={downloadAllText}
+                    className="flex items-center gap-1 rounded-full border px-3 py-1.5 text-xs font-medium hover:bg-secondary">
+                    <Download className="h-3.5 w-3.5" /> Text file
+                  </button>
+                  <button onClick={generate} disabled={loading}
+                    className="flex items-center gap-1 rounded-full border border-violet-200 bg-violet-50 px-3 py-1.5 text-xs font-medium text-violet-700 hover:bg-violet-100">
+                    <RefreshCw className="h-3.5 w-3.5" /> Regenerate
+                  </button>
+                </div>
               </div>
-              {showCaptionEditor ? (
-                <textarea
-                  value={storyCaption.caption_text}
-                  onChange={(e) => setStoryCaption({ ...storyCaption, caption_text: e.target.value })}
-                  rows={5}
-                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm resize-y"
-                />
-              ) : (
-                <p className="text-sm whitespace-pre-wrap text-foreground">{storyCaption.caption_text}</p>
+
+              {/* Horizontal scroll of phone frames */}
+              <div className="flex gap-6 overflow-x-auto pb-4">
+                {stories.map((story, i) => (
+                  <PhoneStory
+                    key={i}
+                    story={story}
+                    index={i}
+                    total={stories.length}
+                    uploadedImage={selectedProduct?.imageUrl ?? uploadedImages[i]?.preview}
+                    brandColors={brandTextColorPresets}
+                    onUpdateSlide={(updates) => updateSlide(i, updates)}
+                  />
+                ))}
+              </div>
+
+              {storyCaption && (
+                <div className="rounded-lg border bg-card p-4 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Caption</p>
+                    <button
+                      onClick={() => setShowCaptionEditor((v) => !v)}
+                      className="text-xs font-medium text-violet-600 hover:underline"
+                    >
+                      {showCaptionEditor ? "Hide editor" : "✏️ Edit caption"}
+                    </button>
+                  </div>
+                  {showCaptionEditor ? (
+                    <textarea
+                      value={storyCaption.caption_text}
+                      onChange={(e) => setStoryCaption({ ...storyCaption, caption_text: e.target.value })}
+                      rows={5}
+                      className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm resize-y"
+                    />
+                  ) : (
+                    <p className="text-sm whitespace-pre-wrap text-foreground">{storyCaption.caption_text}</p>
+                  )}
+                  {storyCaption.hashtags.length > 0 && (
+                    <p className="text-xs text-primary">{storyCaption.hashtags.map((h) => `#${h.replace(/^#/, "")}`).join(" ")}</p>
+                  )}
+                </div>
               )}
-              {storyCaption.hashtags.length > 0 && (
-                <p className="text-xs text-primary">{storyCaption.hashtags.map((h) => `#${h.replace(/^#/, "")}`).join(" ")}</p>
-              )}
+
+              <ScheduleAction
+                brandId={brandId}
+                storySlides={stories.map((s, i) => toExportSlide(s, selectedProduct?.imageUrl ?? uploadedImages[i]?.preview))}
+                contentFormat="story"
+                itemLabel="story"
+                caption={storyCaption?.caption_text || stories[0]?.text || ""}
+                hashtags={storyCaption?.hashtags ?? []}
+              />
             </div>
           )}
-
-          <ScheduleAction
-            brandId={brandId}
-            storySlides={stories.map((s, i) => toExportSlide(s, selectedProduct?.imageUrl ?? uploadedImages[i]?.preview))}
-            contentFormat="story"
-            itemLabel="story"
-            caption={storyCaption?.caption_text || stories[0]?.text || ""}
-            hashtags={storyCaption?.hashtags ?? []}
-          />
         </div>
-      )}
+      </div>
     </div>
   )
 }
