@@ -1,5 +1,7 @@
 "use client"
 
+import { STATUS_COLORS, STATUS_LABELS } from "./calendar-status"
+
 // Dedicated calendar-entry card for ContentCalendar.tsx's week AND month
 // views -- deliberately NOT another PostCard.tsx size variant. PostCard's
 // own size="sm" mode (tiny 36px thumbnail beside two lines of text, no time
@@ -8,6 +10,16 @@
 // content-calendar tool: scheduled time -> full-width image -> title ->
 // platform/format tags. Month view's day cells are half week view's height
 // and use the `compact` prop below for a slim horizontal row instead.
+//
+// Status color coding: STATUS_COLORS already drove ContentCalendar.tsx's
+// own legend, but was never actually applied to an entry card -- every
+// status except "missed" rendered visually identical, which is actively
+// misleading (an Autopilot content_ready entry shows a scheduled date/time
+// already, looking confirmed to publish even though it still needs manual
+// approval before the publish cron will ever pick it up). "missed" is
+// deliberately excluded from the status pill/dot below -- it already gets
+// its own stronger, more urgent badge treatment from the caller (see
+// ContentCalendar.tsx), which stays exactly as it was.
 
 // Local copy of PostCard.tsx's PLATFORM_GRADIENT rather than importing it
 // -- this codebase's own convention already duplicates small per-component
@@ -61,6 +73,16 @@ function titleCaseFallback(value: string): string {
   return value.charAt(0).toUpperCase() + value.slice(1).replace(/_/g, " ")
 }
 
+// Compact mode has no room for a full STATUS_COLORS pill (bg/text/border
+// three-class combo, sized for a badge) -- derives a single solid dot fill
+// from the same mapping's own "text-x-700" shade instead of maintaining a
+// second, parallel color map that could drift from STATUS_COLORS.
+function statusDotColor(status: string | undefined): string {
+  const classes = status ? STATUS_COLORS[status] : undefined
+  const textClass = classes?.split(" ").find((c) => c.startsWith("text-"))
+  return textClass ? textClass.replace("text-", "bg-") : "bg-gray-400"
+}
+
 // calendar_entries.scheduled_time is a Postgres `time` column, serialized
 // as "HH:mm:ss" (24-hour, e.g. "11:00:00" -- see
 // app/api/v1/brands/[brandId]/calendar/bulk-schedule/route.ts's own
@@ -83,11 +105,12 @@ export interface CalendarEntryCardProps {
   platform: string | null
   contentType: string | null
   imageUrl: string | null
-  /** Not rendered internally -- the "Missed" pill stays the caller's own
+  /** Drives the status pill (full card)/dot (compact) below via
+   * STATUS_COLORS/STATUS_LABELS -- every status except "missed", which
+   * still gets its own stronger, more urgent badge as the caller's own
    * absolute-positioned overlay (see ContentCalendar.tsx), unchanged from
-   * before this component existed. Only used here for a subtle dimmed/
-   * ringed treatment on the card itself, consistent with the month view's
-   * existing missed-entry ring. */
+   * before this component rendered any status indicator at all. "missed"
+   * still gets the dimmed/ringed treatment on the card itself. */
   status?: string
   /** Month view's day cells are half week view's height and need to stack
    * up to 3 of these -- a slim horizontal row (small thumbnail + time +
@@ -104,16 +127,27 @@ export function CalendarEntryCard({ title, scheduledTime, platform, contentType,
   const platformLabel = platform ? (PLATFORM_LABEL[platform] ?? titleCaseFallback(platform)) : null
   const typeLabel = contentType ? (CONTENT_TYPE_LABEL[contentType] ?? titleCaseFallback(contentType)) : null
   const isMissed = status === "missed"
+  // "missed" already gets its own stronger badge from the caller -- the
+  // status pill/dot below is only for everything else, so the two never
+  // show redundant treatments for the same entry.
+  const statusText = !isMissed && status ? STATUS_LABELS[status] : null
+  const statusClasses = !isMissed && status ? STATUS_COLORS[status] : null
 
   if (compact) {
     return (
-      <div className={`flex items-center gap-1.5 overflow-hidden rounded-md border bg-card px-1 py-1 shadow-sm transition-shadow hover:shadow-md ${isMissed ? "ring-1 ring-inset ring-red-500" : ""}`}>
-        <div className="h-6 w-6 shrink-0 overflow-hidden rounded-sm">
+      <div
+        className={`flex items-center gap-1.5 overflow-hidden rounded-md border bg-card px-1 py-1 shadow-sm transition-shadow hover:shadow-md ${isMissed ? "ring-1 ring-inset ring-red-500" : ""}`}
+        title={statusText ? `${title} — ${statusText}` : undefined}
+      >
+        <div className="relative h-6 w-6 shrink-0 overflow-hidden rounded-sm">
           {imageUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img src={imageUrl} alt="" className="h-full w-full object-cover" />
           ) : (
             <div className={`h-full w-full bg-gradient-to-br ${gradient}`} />
+          )}
+          {statusText && (
+            <span className={`absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full ring-1 ring-white ${statusDotColor(status)}`} />
           )}
         </div>
         <div className="min-w-0 flex-1 leading-tight">
@@ -125,7 +159,10 @@ export function CalendarEntryCard({ title, scheduledTime, platform, contentType,
   }
 
   return (
-    <div className={`overflow-hidden rounded-xl border bg-card shadow-sm transition-all hover:shadow-md ${isMissed ? "ring-1 ring-inset ring-red-500" : ""}`}>
+    <div
+      className={`overflow-hidden rounded-xl border bg-card shadow-sm transition-all hover:shadow-md ${isMissed ? "ring-1 ring-inset ring-red-500" : ""}`}
+      title={statusText ? statusText : undefined}
+    >
       {/* Image fills the top of the card at a consistent 1:1 ratio -- a
           gradient placeholder (same visual language as PostCard.tsx's
           MiniPreview: platform gradient + centered truncated text) stands
@@ -149,11 +186,16 @@ export function CalendarEntryCard({ title, scheduledTime, platform, contentType,
         )}
       </div>
 
-      {/* Title, then platform/format tags */}
+      {/* Title, then status/platform/format tags */}
       <div className="p-2 space-y-1.5">
         <p className="line-clamp-2 text-xs font-medium leading-snug text-foreground">{title}</p>
-        {(platformLabel || typeLabel) && (
+        {(statusText || platformLabel || typeLabel) && (
           <div className="flex flex-wrap items-center gap-1">
+            {statusText && statusClasses && (
+              <span className={`rounded-full border px-1.5 py-0.5 text-[9px] font-medium ${statusClasses}`}>
+                {statusText}
+              </span>
+            )}
             {platformLabel && (
               <span className="rounded-full bg-secondary px-1.5 py-0.5 text-[9px] font-medium text-secondary-foreground">
                 {platformLabel}

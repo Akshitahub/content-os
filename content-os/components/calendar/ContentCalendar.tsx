@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { CalendarEntryPanel } from "@/components/calendar/CalendarEntryPanel"
 import { CalendarEntryCard } from "@/components/calendar/CalendarEntryCard"
+import { STATUS_COLORS } from "@/components/calendar/calendar-status"
 import type { CalendarEntryRow } from "@/types/database"
 import type { DashboardOccasion } from "@/lib/occasions/get-upcoming-occasions"
 
@@ -19,14 +20,6 @@ import type { DashboardOccasion } from "@/lib/occasions/get-upcoming-occasions"
 // mirroring the actual schema. Optional/nullable since only Autopilot/
 // Fastlane-generated entries (which have a caption_id) can ever resolve one.
 type CalendarEntry = CalendarEntryRow & { image_url?: string | null }
-
-const STATUS_COLORS: Record<string, string> = {
-  planned: "bg-slate-100 text-slate-700 border-slate-200",
-  content_ready: "bg-blue-100 text-blue-700 border-blue-200",
-  scheduled: "bg-purple-100 text-purple-700 border-purple-200",
-  published: "bg-green-100 text-green-700 border-green-200",
-  missed: "bg-red-100 text-red-700 border-red-200",
-}
 
 interface ContentCalendarProps {
   brandId: string
