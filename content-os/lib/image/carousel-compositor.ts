@@ -9,6 +9,7 @@ import type { CarouselSlide } from "@/lib/design/post-card-generator"
 import { CURATED_FONTS, DEFAULT_FONT_ID, findFont } from "@/lib/design/fonts"
 import type { FontId } from "@/lib/design/fonts"
 import type { BrandRow } from "@/types/database"
+import { sanitizeTextForCompositing } from "@/lib/image/sanitize-text-for-compositing"
 
 const CANVAS_SIZE = 1080
 
@@ -82,7 +83,13 @@ interface SlideRenderParams {
 // same visual language, rebuilt as SVG so it can be rasterized via resvg
 // instead of requiring an HTML/CSS renderer this app doesn't have.
 function buildSlideSvg(params: SlideRenderParams): string {
-  const { index, total, isCover, isLast, headline, body, brandName, primary, secondary } = params
+  const { index, total, isCover, isLast, primary, secondary } = params
+  // Sanitized right here, before any length-based sizing/wrapping (below)
+  // or <text> element uses these -- see sanitize-text-for-compositing.ts's
+  // own comment for why this is the only place in the pipeline this runs.
+  const headline = sanitizeTextForCompositing(params.headline)
+  const body = sanitizeTextForCompositing(params.body)
+  const brandName = sanitizeTextForCompositing(params.brandName)
   const useGradient = isCover || isLast
 
   const bg = useGradient
@@ -408,26 +415,36 @@ async function svgToRichPngBuffer(svg: string, fontId: string): Promise<Buffer> 
 
 function buildRichTextOverlaySvg(slide: CarouselCompositeSlide, brandName: string, textColor: string, subtextColor: string): string {
   const scale = slide.text_size_scale ?? 1.0
-  const maxWidthChars = headlineStyleFor(slide.type, slide.headline, scale).maxChars
-  const { fontSize: headlineFontSize } = headlineStyleFor(slide.type, slide.headline, scale)
-  const headlineLines = wrapText(slide.headline, maxWidthChars, 4)
+  // Sanitized right here, before any length-based sizing/wrapping below or
+  // a <text> element uses these -- see sanitize-text-for-compositing.ts's
+  // own comment for why this is the only place in the pipeline this runs.
+  const headline = sanitizeTextForCompositing(slide.headline)
+  const subtext = slide.subtext ? sanitizeTextForCompositing(slide.subtext) : slide.subtext
+  const points = slide.points?.map((p) => sanitizeTextForCompositing(p))
+  const ctaText = slide.ctaText ? sanitizeTextForCompositing(slide.ctaText) : slide.ctaText
+  const ctaHandle = slide.ctaHandle ? sanitizeTextForCompositing(slide.ctaHandle) : slide.ctaHandle
+  const brandNameText = sanitizeTextForCompositing(brandName)
+
+  const maxWidthChars = headlineStyleFor(slide.type, headline, scale).maxChars
+  const { fontSize: headlineFontSize } = headlineStyleFor(slide.type, headline, scale)
+  const headlineLines = wrapText(headline, maxWidthChars, 4)
   const headlineLineHeight = headlineFontSize * 1.18
 
   const subtextFontSize = Math.round(RICH_SUBTEXT_FONT_SIZE * scale)
-  const subtextLines = slide.type === "cover" && slide.subtext?.trim() ? wrapText(slide.subtext, Math.max(10, Math.round(34 / scale)), 3) : []
+  const subtextLines = slide.type === "cover" && subtext?.trim() ? wrapText(subtext, Math.max(10, Math.round(34 / scale)), 3) : []
   const subtextLineHeight = subtextFontSize * 1.4
 
   const pointFontSize = Math.round(RICH_POINT_FONT_SIZE * scale)
-  const pointLines = slide.type === "content" && slide.points?.length
-    ? slide.points.flatMap((p) => wrapText(p, Math.max(10, Math.round(42 / scale)), 2))
+  const pointLines = slide.type === "content" && points?.length
+    ? points.flatMap((p) => wrapText(p, Math.max(10, Math.round(42 / scale)), 2))
     : []
   const pointLineHeight = pointFontSize * 1.6
 
   const ctaTextFontSize = Math.round(RICH_CTA_TEXT_FONT_SIZE * scale)
-  const ctaTextLines = slide.type === "cta" && slide.ctaText?.trim() ? wrapText(slide.ctaText, Math.max(10, Math.round(40 / scale)), 2) : []
+  const ctaTextLines = slide.type === "cta" && ctaText?.trim() ? wrapText(ctaText, Math.max(10, Math.round(40 / scale)), 2) : []
   const ctaTextLineHeight = ctaTextFontSize * 1.4
   const ctaHandleFontSize = Math.round(RICH_CTA_HANDLE_FONT_SIZE * scale)
-  const ctaHandleLines = slide.type === "cta" && slide.ctaHandle?.trim() ? [slide.ctaHandle] : []
+  const ctaHandleLines = slide.type === "cta" && ctaHandle?.trim() ? [ctaHandle] : []
   const ctaHandleLineHeight = ctaHandleFontSize * 1.4
 
   const headlineBlockHeight = headlineLines.length * headlineLineHeight
@@ -485,8 +502,8 @@ function buildRichTextOverlaySvg(slide: CarouselCompositeSlide, brandName: strin
     ? textLines(ctaHandleLines, cursorY + ctaHandleFontSize * 0.85, ctaHandleLineHeight, ctaHandleFontSize, textColor, 700, centerXAttr)
     : ""
 
-  const brandSvg = brandName
-    ? `<text x="${RICH_CANVAS_WIDTH - RICH_MARGIN / 2}" y="${RICH_CANVAS_HEIGHT - 44}" text-anchor="end" font-family="CarouselFont, sans-serif" font-weight="500" font-size="26" fill="${subtextColor}">${escapeXml(brandName)}</text>`
+  const brandSvg = brandNameText
+    ? `<text x="${RICH_CANVAS_WIDTH - RICH_MARGIN / 2}" y="${RICH_CANVAS_HEIGHT - 44}" text-anchor="end" font-family="CarouselFont, sans-serif" font-weight="500" font-size="26" fill="${subtextColor}">${escapeXml(brandNameText)}</text>`
     : ""
 
   return `<svg width="${RICH_CANVAS_WIDTH}" height="${RICH_CANVAS_HEIGHT}" xmlns="http://www.w3.org/2000/svg">${headlineSvg}${subtextSvg}${pointsSvg}${ctaTextSvg}${ctaHandleSvg}${brandSvg}</svg>`

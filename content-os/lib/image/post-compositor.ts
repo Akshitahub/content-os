@@ -8,6 +8,7 @@ import * as fontkit from "fontkit"
 import type { PostTemplateId } from "@/lib/design/post-templates"
 import type { ColorTheme } from "@/lib/design/color-themes"
 import { CURATED_FONTS, DEFAULT_FONT_ID, findFont } from "@/lib/design/fonts"
+import { sanitizeTextForCompositing } from "@/lib/image/sanitize-text-for-compositing"
 
 // Matches lib/ai/post-image-pipeline.ts's PORTRAIT_DIMENSIONS (4:5, the
 // current Instagram feed default) — width unchanged from the old square
@@ -399,7 +400,11 @@ export async function compositePostImage(
     return sharp(baseImageBuffer).png().toBuffer()
   }
 
-  const captionText = options.captionText.trim()
+  // Sanitized right here, immediately before it flows into any of the
+  // builders below (every one of which eventually calls fitText/textEl) --
+  // see sanitize-text-for-compositing.ts's own comment for why this is the
+  // only place in the pipeline this ever runs.
+  const captionText = sanitizeTextForCompositing(options.captionText.trim())
   // Known upfront so each builder can skip drawing an empty white circle/
   // rounded-rect logo backdrop when there's nothing to fill it -- this only
   // reflects whether a logo URL was provided, not that the later fetch

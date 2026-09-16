@@ -6,6 +6,7 @@ import { Resvg } from "@resvg/resvg-js"
 import { decompress } from "wawoff2"
 import { CURATED_FONTS, DEFAULT_FONT_ID, findFont } from "@/lib/design/fonts"
 import type { FontId } from "@/lib/design/fonts"
+import { sanitizeTextForCompositing } from "@/lib/image/sanitize-text-for-compositing"
 
 // Real Instagram Story canvas — confirmed against Meta's own Stories spec
 // (1080x1920, 9:16) and already documented as the intended target in
@@ -274,26 +275,36 @@ const POLL_FONT_SIZE = 34
 
 function buildTextOverlaySvg(slide: StoryCompositeSlide, textColor: string, subColor: string): string {
   const scale = slide.text_size_scale ?? 1.0
+  // Sanitized right here, before any length-based sizing/wrapping below or
+  // a <text> element uses these -- see sanitize-text-for-compositing.ts's
+  // own comment for why this is the only place in the pipeline this runs.
+  const text = sanitizeTextForCompositing(slide.text)
+  const subtext = sanitizeTextForCompositing(slide.subtext)
+  const pollOptions = slide.poll_options?.map((o) => sanitizeTextForCompositing(o))
+
   const maxWidthChars = {
-    headline: headlineStyle(slide.text, scale).maxChars,
+    headline: headlineStyle(text, scale).maxChars,
     subtext: Math.max(10, Math.round(36 / scale)),
     poll: Math.max(10, Math.round(40 / scale)),
   }
 
-  const { fontSize: headlineFontSize } = headlineStyle(slide.text, scale)
-  const headlineLines = wrapText(slide.text, maxWidthChars.headline, 4)
+  const { fontSize: headlineFontSize } = headlineStyle(text, scale)
+  const headlineLines = wrapText(text, maxWidthChars.headline, 4)
   const headlineLineHeight = headlineFontSize * 1.15
 
   const subtextFontSize = Math.round(SUBTEXT_FONT_SIZE * scale)
-  const subtextLines = slide.subtext.trim() ? wrapText(slide.subtext, maxWidthChars.subtext, 3) : []
+  const subtextLines = subtext.trim() ? wrapText(subtext, maxWidthChars.subtext, 3) : []
   const subtextLineHeight = subtextFontSize * 1.4
 
   // Plain centered text, not an interactive sticker -- baked into the
   // image file, this can't actually collect taps/votes once published, so
   // it shouldn't be styled to look like a button (matches the live
   // preview's own fix for this: a single <p>, no pill/chip chrome).
-  const pollText = slide.has_poll && slide.poll_options && slide.poll_options.length > 0
-    ? slide.poll_options.join("  ·  ")
+  // The "  ·  " join separator is sanitized along with everything else --
+  // it's the same middle-dot character this file's own font can't render
+  // either.
+  const pollText = slide.has_poll && pollOptions && pollOptions.length > 0
+    ? sanitizeTextForCompositing(pollOptions.join("  ·  "))
     : ""
   const pollFontSize = Math.round(POLL_FONT_SIZE * scale)
   const pollLines = pollText ? wrapText(pollText, maxWidthChars.poll, 2) : []

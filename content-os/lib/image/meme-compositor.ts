@@ -4,6 +4,7 @@ import { join } from "path"
 import { tmpdir } from "os"
 import { Resvg } from "@resvg/resvg-js"
 import { decompress } from "wawoff2"
+import { sanitizeTextForCompositing } from "@/lib/image/sanitize-text-for-compositing"
 
 // Bundled directly (rather than relying on a system font name like "DejaVu
 // Sans") since Vercel's serverless Linux environment has no guarantee that
@@ -82,8 +83,11 @@ export async function compositeMemeText(
   const fontSize = Math.round(width * 0.075)
   const lineHeight = Math.round(fontSize * 1.15)
 
-  const topSvg = buildCaptionSvgGroup(topText, width, fontSize * 1.15, lineHeight, fontSize, "down")
-  const bottomSvg = buildCaptionSvgGroup(bottomText, width, height - fontSize * 0.55, lineHeight, fontSize, "up")
+  // Sanitized right here, immediately before buildCaptionSvgGroup's own
+  // wrapText/<text> rendering -- see sanitize-text-for-compositing.ts's own
+  // comment for why this is the only place in the pipeline this runs.
+  const topSvg = buildCaptionSvgGroup(sanitizeTextForCompositing(topText), width, fontSize * 1.15, lineHeight, fontSize, "down")
+  const bottomSvg = buildCaptionSvgGroup(sanitizeTextForCompositing(bottomText), width, height - fontSize * 0.55, lineHeight, fontSize, "up")
 
   if (!topSvg && !bottomSvg) {
     return base.png().toBuffer()
