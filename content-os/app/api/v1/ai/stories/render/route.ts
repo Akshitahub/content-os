@@ -58,6 +58,12 @@ const slideSchema = z.object({
   // Uniform font-size multiplier for this slide -- see
   // StoryCompositeSlide.text_size_scale's own comment.
   text_size_scale: z.number().min(0.7).max(1.5).nullish(),
+  // Hard Truth Checklist vibe only -- see StoryCompositeSlide.
+  // checklist_highlighted_phrase/checklist_wrong_item/checklist_right_item's
+  // own comments (lib/image/story-compositor.ts).
+  checklist_highlighted_phrase: z.string().max(100).nullish(),
+  checklist_wrong_item: z.string().max(200).nullish(),
+  checklist_right_item: z.string().max(200).nullish(),
 })
 // Matches the generate route's own storyCount cap (1-10).
 const schema = z.object({ slides: z.array(slideSchema).min(1).max(10) })

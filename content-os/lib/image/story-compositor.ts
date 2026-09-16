@@ -111,6 +111,12 @@ const STORY_BG_PRESETS: Record<string, { stops: [string, string, string]; text: 
   vibe_fun_playful: { stops: ["#fb923c", "#facc15", "#2dd4bf"], text: "#ffffff", sub: "rgba(255,255,255,0.7)" },
   vibe_professional: { stops: ["#1e3a8a", "#1e293b", "#111827"], text: "#ffffff", sub: "rgba(255,255,255,0.7)" },
   vibe_trendy_genz: { stops: ["#8b5cf6", "#d946ef", "#22d3ee"], text: "#ffffff", sub: "rgba(255,255,255,0.8)" },
+  // Hard Truth Checklist vibe -- same exact cream/ink colors as the Post
+  // template's checklist card (lib/image/post-compositor.ts's
+  // CHECKLIST_BG_COLOR/CHECKLIST_INK_COLOR/CHECKLIST_MUTED_COLOR) for
+  // visual consistency between the two. A solid fill, not a gradient (all
+  // 3 stops identical), matching that flat-card look.
+  checklist_cream: { stops: ["#F7F1E7", "#F7F1E7", "#F7F1E7"], text: "#1A1A1A", sub: "#57534E" },
 }
 const DEFAULT_PRESET = "gradient_violet"
 
@@ -273,7 +279,161 @@ function headlineStyle(text: string, scale: number): { fontSize: number; maxChar
 const SUBTEXT_FONT_SIZE = 42
 const POLL_FONT_SIZE = 34
 
+// ─── Hard Truth Checklist (Story vibe) ─────────────────────────────────────
+// Same concept as lib/image/post-compositor.ts's buildHardTruthChecklist,
+// adapted to one slide per beat instead of one flat card -- see
+// buildTextOverlaySvg's own dispatch below for how a slide is detected as
+// checklist-flagged in the first place (purely from field presence, no
+// separate vibe flag reaches this file).
+const CHECKLIST_WRONG_COLOR = "#DC2626"
+const CHECKLIST_RIGHT_COLOR = "#16A34A"
+// SocioPosts' own violet accent (matches buttons/CTAs elsewhere in the
+// app) -- this file has no ColorTheme/brand-accent concept threaded into
+// it the way post-compositor.ts does, so a fixed accent is used for the
+// highlight stripe rather than plumbing one through just for this.
+const CHECKLIST_HIGHLIGHT_COLOR = "#7C3AED"
+
+// Vector shapes, not the ✗/✓ Unicode glyphs -- the curated fonts are all
+// @fontsource Latin SUBSETS (see lib/image/sanitize-text-for-compositing.ts's
+// own comment on this exact class of bug) and don't reliably include
+// Dingbat-range glyphs either. Mirrors lib/image/post-compositor.ts's
+// identical xMarkSvg/checkMarkSvg exactly -- duplicated locally rather than
+// exported/imported, same small-shared-constant convention this codebase
+// already follows elsewhere (e.g. CalendarEntryCard.tsx's own local copy
+// of PostCard.tsx's PLATFORM_GRADIENT).
+function xMarkSvg(cx: number, cy: number, size: number): string {
+  const r = size / 2
+  const strokeWidth = Math.max(3, size * 0.18)
+  return `<line x1="${cx - r}" y1="${cy - r}" x2="${cx + r}" y2="${cy + r}" stroke="${CHECKLIST_WRONG_COLOR}" stroke-width="${strokeWidth}" stroke-linecap="round"/><line x1="${cx + r}" y1="${cy - r}" x2="${cx - r}" y2="${cy + r}" stroke="${CHECKLIST_WRONG_COLOR}" stroke-width="${strokeWidth}" stroke-linecap="round"/>`
+}
+
+function checkMarkSvg(cx: number, cy: number, size: number): string {
+  const r = size / 2
+  const strokeWidth = Math.max(3, size * 0.18)
+  return `<polyline points="${cx - r},${cy} ${cx - r * 0.15},${cy + r * 0.75} ${cx + r},${cy - r * 0.6}" fill="none" stroke="${CHECKLIST_RIGHT_COLOR}" stroke-width="${strokeWidth}" stroke-linecap="round" stroke-linejoin="round"/>`
+}
+
+// Rough average glyph-width ratio for the curated fonts at their usual
+// bold weight -- this file's own wrapText/headlineStyle are already
+// char-count based, not glyph-measured (see headlineStyle's own comment
+// above), so this stays at that same existing precision level rather than
+// pulling fontkit into this file (post-compositor.ts's approach) just for
+// a soft highlight stripe that doesn't need to be pixel-exact.
+function estimateTextWidth(text: string, fontSize: number): number {
+  return text.length * fontSize * 0.56
+}
+
+// Hook slide -- the contrarian headline, with checklist_highlighted_phrase
+// visually highlighted (a translucent stripe behind the matching
+// substring, same "highlighter behind uniform-colored text" treatment as
+// the Post template, not a recolored/re-weighted span). Best-effort: if
+// the phrase spans a line-wrap boundary, it's simply not found on any
+// single line and the headline renders plain instead of guessing a
+// position -- same fallback post-compositor.ts's own version uses.
+function buildChecklistHookOverlaySvg(slide: StoryCompositeSlide, textColor: string): string {
+  const scale = slide.text_size_scale ?? 1.0
+  const headline = sanitizeTextForCompositing(slide.text)
+  const highlightedPhrase = slide.checklist_highlighted_phrase?.trim()
+    ? sanitizeTextForCompositing(slide.checklist_highlighted_phrase.trim())
+    : null
+
+  const { fontSize, maxChars } = headlineStyle(headline, scale)
+  const lines = wrapText(headline, maxChars, 4)
+  const lineHeight = fontSize * 1.2
+
+  const highlightLineIndex = highlightedPhrase
+    ? lines.findIndex((l) => l.toLowerCase().includes(highlightedPhrase.toLowerCase()))
+    : -1
+
+  const totalHeight = lines.length * lineHeight
+  const startY = CANVAS_HEIGHT / 2 - totalHeight / 2 + fontSize * 0.85
+
+  const highlightRects: string[] = []
+  const textSvg = lines.map((line, i) => {
+    const y = startY + i * lineHeight
+    if (i === highlightLineIndex && highlightedPhrase) {
+      const idx = line.toLowerCase().indexOf(highlightedPhrase.toLowerCase())
+      const before = line.slice(0, idx)
+      const match = line.slice(idx, idx + highlightedPhrase.length)
+      const lineWidth = estimateTextWidth(line, fontSize)
+      const beforeWidth = estimateTextWidth(before, fontSize)
+      const matchWidth = estimateTextWidth(match, fontSize)
+      const lineStartX = CANVAS_WIDTH / 2 - lineWidth / 2
+      const boxPad = 8
+      highlightRects.push(
+        `<rect x="${lineStartX + beforeWidth - boxPad}" y="${y - fontSize * 0.82}" width="${matchWidth + boxPad * 2}" height="${fontSize * 1.08}" rx="8" fill="${CHECKLIST_HIGHLIGHT_COLOR}" fill-opacity="0.25"/>`
+      )
+    }
+    return `<text x="50%" y="${y}" text-anchor="middle" font-family="StoryFont, sans-serif" font-weight="900" font-size="${fontSize}" fill="${textColor}">${escapeXml(line)}</text>`
+  }).join("")
+
+  return `<svg width="${CANVAS_WIDTH}" height="${CANVAS_HEIGHT}" xmlns="http://www.w3.org/2000/svg">${highlightRects.join("")}${textSvg}</svg>`
+}
+
+// Reveal/buildup slide -- exactly one ✗ wrong-way line paired with its ✓
+// right-way line, stacked vertically and centered on the slide. Item text
+// itself stays a uniform ink color for both rows (same as the Post
+// template's buildMarkedList) -- only the marks are colored.
+function buildChecklistPairOverlaySvg(slide: StoryCompositeSlide, textColor: string): string {
+  const scale = slide.text_size_scale ?? 1.0
+  const wrongItem = slide.checklist_wrong_item?.trim() ? sanitizeTextForCompositing(slide.checklist_wrong_item.trim()) : ""
+  const rightItem = slide.checklist_right_item?.trim() ? sanitizeTextForCompositing(slide.checklist_right_item.trim()) : ""
+
+  const fontSize = Math.round(52 * scale)
+  const lineHeight = fontSize * 1.3
+  const maxChars = Math.max(8, Math.round(22 / scale))
+  const markSize = fontSize * 0.62
+  const markGap = fontSize * 1.3
+  const padX = 90
+  const rowGap = fontSize * 1.6
+
+  const wrongLines = wrapText(wrongItem, maxChars, 3)
+  const rightLines = wrapText(rightItem, maxChars, 3)
+  const wrongBlockHeight = wrongLines.length * lineHeight
+  const rightBlockHeight = rightLines.length * lineHeight
+  const totalHeight = wrongBlockHeight + rowGap + rightBlockHeight
+
+  let cursorY = CANVAS_HEIGHT / 2 - totalHeight / 2
+
+  const wrongSvg = wrongLines.map((line, i) => {
+    const y = cursorY + i * lineHeight + fontSize * 0.8
+    const mark = i === 0 ? xMarkSvg(padX + markSize / 2, y - fontSize * 0.32, markSize) : ""
+    return `${mark}<text x="${padX + markGap}" y="${y}" text-anchor="start" font-family="StoryFont, sans-serif" font-weight="700" font-size="${fontSize}" fill="${textColor}">${escapeXml(line)}</text>`
+  }).join("")
+  cursorY += wrongBlockHeight + rowGap
+
+  const rightSvg = rightLines.map((line, i) => {
+    const y = cursorY + i * lineHeight + fontSize * 0.8
+    const mark = i === 0 ? checkMarkSvg(padX + markSize / 2, y - fontSize * 0.32, markSize) : ""
+    return `${mark}<text x="${padX + markGap}" y="${y}" text-anchor="start" font-family="StoryFont, sans-serif" font-weight="700" font-size="${fontSize}" fill="${textColor}">${escapeXml(line)}</text>`
+  }).join("")
+
+  return `<svg width="${CANVAS_WIDTH}" height="${CANVAS_HEIGHT}" xmlns="http://www.w3.org/2000/svg">${wrongSvg}${rightSvg}</svg>`
+}
+
+// A slide is "checklist-flagged" when it carries the fields only the
+// hard_truth_checklist vibe ever sets -- used both to pick the right
+// overlay builder below and to suppress the product-photo overlay (see
+// renderStorySlidesToPng), which would otherwise visually clash with this
+// vibe's fixed flat-card layout.
+function isChecklistFlaggedSlide(slide: StoryCompositeSlide): boolean {
+  return !!slide.checklist_highlighted_phrase || (!!slide.checklist_wrong_item && !!slide.checklist_right_item)
+}
+
 function buildTextOverlaySvg(slide: StoryCompositeSlide, textColor: string, subColor: string): string {
+  // Hard Truth Checklist vibe -- structurally different rendering per
+  // slide type (contrarian headline+highlight on hook, one ✗/✓ pair per
+  // reveal/buildup slide), detected purely from field presence. cta
+  // slides under this vibe fall through to the generic renderer below
+  // unchanged -- "closing line + usual handle/CTA" is exactly what a
+  // normal cta slide's text/subtext already render as, no special case
+  // needed for it.
+  if (slide.type === "hook" && slide.checklist_highlighted_phrase) {
+    return buildChecklistHookOverlaySvg(slide, textColor)
+  }
+  if ((slide.type === "reveal" || slide.type === "buildup") && slide.checklist_wrong_item && slide.checklist_right_item) {
+    return buildChecklistPairOverlaySvg(slide, textColor)
+  }
   const scale = slide.text_size_scale ?? 1.0
   // Sanitized right here, before any length-based sizing/wrapping below or
   // a <text> element uses these -- see sanitize-text-for-compositing.ts's
@@ -402,6 +562,22 @@ export interface StoryCompositeSlide {
    * fixed sizes exactly. See headlineStyle above for how this interacts
    * with the per-length maxChars wrap budget to avoid overflow. */
   text_size_scale?: number | null
+  /** Hard Truth Checklist vibe only -- hook slide's highlighted phrase.
+   * See StorySlide.checklist_highlighted_phrase's own comment
+   * (app/api/v1/ai/stories/generate/route.ts). Presence of this field
+   * (on a "hook" slide) is what triggers the checklist-specific headline
+   * rendering below instead of the generic one -- there's no separate
+   * vibe flag threaded into this file otherwise. */
+  checklist_highlighted_phrase?: string | null
+  /** Hard Truth Checklist vibe only -- reveal/buildup slide's one wrong/
+   * right pair. See StorySlide.checklist_wrong_item/checklist_right_item's
+   * own comment. BOTH must be present to trigger the ✗/✓ marked
+   * rendering below -- absent (or either one missing) falls through to
+   * the generic text/subtext renderer, which still shows the same
+   * content correctly (see that field's own comment on why `text`/
+   * `subtext` are always mirrored alongside these). */
+  checklist_wrong_item?: string | null
+  checklist_right_item?: string | null
 }
 
 /**
@@ -436,8 +612,14 @@ export async function renderStorySlidesToPng(slides: StoryCompositeSlide[]): Pro
       // show_product_overlay !== false (not a plain truthiness check) so
       // an older cached/persisted slide from before this field existed --
       // absent, not explicitly false -- still defaults to shown, matching
-      // this file's own prior always-on behavior.
-      if (shouldShowProductImage(slide.type, total) && slide.show_product_overlay !== false && slide.productImageSource) {
+      // this file's own prior always-on behavior. Checklist-flagged slides
+      // (hard_truth_checklist vibe) never get a product overlay regardless
+      // -- it would visually clash with that vibe's fixed flat-card
+      // layout, and a user's own selected product photo is resolved
+      // client-side independently of which vibe generated the text (see
+      // StorySequence.tsx's toExportSlide), so it can still be attached
+      // here even though no AI background was ever fetched for this slide.
+      if (shouldShowProductImage(slide.type, total) && slide.show_product_overlay !== false && slide.productImageSource && !isChecklistFlaggedSlide(slide)) {
         const productLayer = await buildProductLayer(slide.productImageSource)
         if (productLayer) {
           const center = slide.product_position_x !== undefined && slide.product_position_y !== undefined

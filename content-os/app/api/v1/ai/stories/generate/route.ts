@@ -22,10 +22,24 @@ export type StorySlide = {
   type: "hook" | "reveal" | "buildup" | "cta"
   text: string
   subtext: string
-  background: "gradient_violet" | "gradient_pink" | "gradient_dark" | "gradient_warm" | "white" | "vibe_fun_playful" | "vibe_professional" | "vibe_trendy_genz"
+  background: "gradient_violet" | "gradient_pink" | "gradient_dark" | "gradient_warm" | "white" | "vibe_fun_playful" | "vibe_professional" | "vibe_trendy_genz" | "checklist_cream"
   text_position: "top" | "center" | "bottom"
   has_poll: boolean
   poll_options?: [string, string]
+  /** Only populated when vibe is "hard_truth_checklist" -- hook slide
+   * only. A short, exact substring of `text` (the contrarian headline) to
+   * visually highlight -- same approach as the Post template's
+   * checklist_highlighted_phrase (types/app.ts's GeneratedCaption). See
+   * lib/image/story-compositor.ts's checklist-aware rendering. */
+  checklist_highlighted_phrase?: string | null
+  /** Only populated when vibe is "hard_truth_checklist" -- reveal/buildup
+   * slides only, exactly one wrong/right pair per slide. Also mirrored
+   * into `text`/`subtext` (text=wrong, subtext=right) so this slide reads
+   * correctly anywhere only those two generic fields are shown (the live
+   * CSS preview, plain-text copy/export) -- the compositor uses these two
+   * dedicated fields specifically to trigger the ✗/✓ marked rendering. */
+  checklist_wrong_item?: string | null
+  checklist_right_item?: string | null
   /** Client-only enrichment — never set by this route. Filled in by
    * StorySequence.tsx as a best-effort follow-up (hook/cta slides only)
    * after generation succeeds; falls back to the flat `background` gradient
@@ -141,6 +155,10 @@ const VIBE_TO_STORY_BACKGROUND: Record<string, StorySlide["background"]> = {
   warm_cozy: "gradient_warm",
   professional: "vibe_professional",
   trendy_genz: "vibe_trendy_genz",
+  // Same flat off-white/cream card the Post template's hard_truth_checklist
+  // uses (lib/image/post-compositor.ts's CHECKLIST_BG_COLOR) -- applied
+  // uniformly to every slide including cta, same as every other vibe here.
+  hard_truth_checklist: "checklist_cream",
 }
 
 function buildStoryTypeSequence(storyCount: number): string[] {
@@ -209,6 +227,117 @@ function buildExampleStoriesJson(typeSequence: string[]): string {
     .join("\n")
 }
 
+// ─── Hard Truth Checklist (Story vibe) ─────────────────────────────────────
+// Same concept the Post template (commit 16a7e8a) already shipped, adapted
+// to Stories' hook->reveal/buildup->cta sequence instead of one flat card:
+// the hook slide is the contrarian headline (one highlighted phrase), each
+// reveal/buildup slide holds exactly one ✗ wrong-way line paired with its
+// ✓ right-way line, and the cta slide is the closing reframing line + the
+// usual handle/CTA (that's exactly what a normal cta slide's text/subtext
+// already are -- no new field needed there). No AI photo on any slide --
+// see StorySequence.tsx's generate() early-exit and lib/image/
+// story-compositor.ts's checklist-aware rendering, both keyed off the
+// presence of the new checklist_* fields below, not a separate flag.
+const CHECKLIST_EXAMPLE_SLIDE_BY_TYPE: Record<string, { text: string; subtext: string; checklist_highlighted_phrase?: string; checklist_wrong_item?: string; checklist_right_item?: string }> = {
+  hook: {
+    text: "Cold showers aren't making you tougher",
+    subtext: "",
+    checklist_highlighted_phrase: "aren't making you tougher",
+  },
+  reveal: {
+    text: "Icy showers every single morning",
+    subtext: "A quick warm-to-cool rinse instead",
+    checklist_wrong_item: "Icy showers every single morning",
+    checklist_right_item: "A quick warm-to-cool rinse instead",
+  },
+  buildup: {
+    text: "Forcing yourself through the shock",
+    subtext: "Breathing calmly through 30 cool seconds",
+    checklist_wrong_item: "Forcing yourself through the shock",
+    checklist_right_item: "Breathing calmly through 30 cool seconds",
+  },
+  cta: {
+    text: "Real resilience is built gradually",
+    subtext: "Link in bio",
+  },
+}
+
+function buildChecklistExampleStoriesJson(typeSequence: string[]): string {
+  const exampleStories = typeSequence.map((type, i) => {
+    const example = CHECKLIST_EXAMPLE_SLIDE_BY_TYPE[type] ?? CHECKLIST_EXAMPLE_SLIDE_BY_TYPE.hook!
+    return {
+      story_number: i + 1,
+      type,
+      text: example.text,
+      subtext: example.subtext,
+      // Ignored entirely for this vibe (see the prose instructions below)
+      // -- still required fields on StorySlide, so any valid placeholder
+      // works; the route overrides `background` deterministically anyway
+      // (VIBE_TO_STORY_BACKGROUND above), same as every other vibe.
+      background: "white",
+      text_position: "center",
+      has_poll: false,
+      ...(example.checklist_highlighted_phrase ? { checklist_highlighted_phrase: example.checklist_highlighted_phrase } : {}),
+      ...(example.checklist_wrong_item ? { checklist_wrong_item: example.checklist_wrong_item } : {}),
+      ...(example.checklist_right_item ? { checklist_right_item: example.checklist_right_item } : {}),
+    }
+  })
+  // Indented so nested lines line up under the "stories": key it gets
+  // interpolated into below -- same convention buildExampleStoriesJson
+  // above already uses.
+  return JSON.stringify(exampleStories, null, 2)
+    .split("\n")
+    .map((line, i) => (i === 0 ? line : `  ${line}`))
+    .join("\n")
+}
+
+function buildHardTruthChecklistStoriesPrompt(
+  brandCtx: string,
+  pastExamplesBlock: string,
+  topic: string,
+  storyCount: number,
+  typeSequence: string[],
+  ctaPhrase: string,
+  handle: string
+): string {
+  return `${brandCtx}${pastExamplesBlock}
+
+STORY TOPIC: "${topic}"
+NUMBER OF STORIES: ${storyCount}
+
+Create a "Hard Truth Checklist" Instagram story sequence: a genuine myth-busting/contrarian or problem-and-solution take on the topic above, structured as a wrong-way vs. right-way comparison across the sequence.
+
+Story type sequence: ${typeSequence.join(" → ")}
+
+What each slide type means for THIS format specifically:
+- hook: a genuine contrarian/myth-busting headline challenging a real misconception in this space (under 10 words) -- goes in "text". Also set "checklist_highlighted_phrase" to a short 2-4 word phrase taken VERBATIM from "text" to visually highlight. Leave "subtext" as an empty string -- this slide has no subtext.
+- reveal / buildup: each of these slides holds EXACTLY ONE wrong-way vs. right-way pair -- a real mistake people make in this space, and its direct fix. Set "checklist_wrong_item" (the wrong way, under 8 words) and "checklist_right_item" (the direct fix for that SAME specific wrong item, under 8 words, matched 1-to-1 in theme). Also copy the same two lines into "text" (the wrong item) and "subtext" (the right item). Each reveal/buildup slide across the sequence must cover a DIFFERENT wrong/right pair -- never repeat the same mistake twice.
+- cta: one closing line that reframes the whole point (not a summary -- a sharper final statement) in "text". "subtext" is the usual brief sign-off ("Link in bio" or similar).
+
+"background" and "text_position" are ignored entirely for this format -- a fixed flat card layout renders regardless of what's set here. Just fill them with any valid placeholder value, e.g. "white" and "center". "has_poll" must always be false -- a poll doesn't fit this format.
+
+TEXT RULES: No exclamation marks, no hashtags, no emojis anywhere. Plain, punchy, specific language -- a genuine insight, not a generic productivity-hack list.
+
+CAPTION — separate from the story slides above: this is the actual Instagram caption text posted alongside the story sequence when it's scheduled, so it needs its own real copy, not a placeholder.
+- caption_text: a short hook line (can echo the story's opening headline, doesn't need to repeat it word-for-word), 1-2 lines of value or context, then end with "${ctaPhrase}" followed by "${handle}" on its own line. Keep it tight — a few short lines, not an essay. Aim for under ~150 characters total unless the topic genuinely needs more room to explain.
+- hashtags: 15 tags using the 5+5+5 rule:
+  - 5 niche-specific (medium competition, 100K–2M posts): e.g. #SkincareRoutine, #CleanBeautyIndia
+  - 5 brand/product-specific (low competition, unique to brand): e.g. #BrandName, #ProductName
+  - 5 broad/trending (high volume, 5M+ posts): e.g. #Skincare, #Beauty, #SelfCare
+${QUALITY_BAR}
+
+Respond with ONLY this JSON:
+{
+  "stories": ${buildChecklistExampleStoriesJson(typeSequence)},
+  "caption": {
+    "caption_text": "hook line, 1-2 lines of value, then ${ctaPhrase} and ${handle} on its own line — see CAPTION above",
+    "hashtags": ["niche1", "niche2", "niche3", "niche4", "niche5", "brand1", "brand2", "brand3", "brand4", "brand5", "broad1", "broad2", "broad3", "broad4", "broad5"]
+  }
+}
+
+Make the text punchy and specific. Each story should make the viewer want to tap to the next one.`
+}
+
 function buildStoriesPrompt(brand: BrandRow, topic: string, storyCount: number, vibe?: string, pastExamples: string[] = []): string {
   const brandCtx = [
     `Brand: ${brand.name}`,
@@ -224,6 +353,10 @@ function buildStoriesPrompt(brand: BrandRow, topic: string, storyCount: number, 
   const b = brand as BrandRow & { cta_phrase?: string | null }
   const ctaPhrase = b.cta_phrase || "Shop now"
   const handle = brand.instagram_handle ? `@${brand.instagram_handle}` : "@handle"
+
+  if (vibe === "hard_truth_checklist") {
+    return buildHardTruthChecklistStoriesPrompt(brandCtx, pastExamplesBlock, topic, storyCount, typeSequence, ctaPhrase, handle)
+  }
 
   return `${brandCtx}${pastExamplesBlock}
 
@@ -313,6 +446,9 @@ function sanitizeStorySlides(stories: Record<string, unknown>[]): Record<string,
     ...s,
     text: typeof s.text === "string" ? sanitizeStoryText(s.text) : s.text,
     subtext: typeof s.subtext === "string" ? sanitizeStoryText(s.subtext) : s.subtext,
+    checklist_highlighted_phrase: typeof s.checklist_highlighted_phrase === "string" ? sanitizeStoryText(s.checklist_highlighted_phrase) : s.checklist_highlighted_phrase,
+    checklist_wrong_item: typeof s.checklist_wrong_item === "string" ? sanitizeStoryText(s.checklist_wrong_item) : s.checklist_wrong_item,
+    checklist_right_item: typeof s.checklist_right_item === "string" ? sanitizeStoryText(s.checklist_right_item) : s.checklist_right_item,
   }))
 }
 

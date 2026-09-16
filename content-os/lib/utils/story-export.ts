@@ -53,6 +53,14 @@ export interface StoryExportSlide {
   /** Uniform font-size multiplier for this slide -- see
    * StorySlide.text_size_scale's own comment. */
   text_size_scale?: number | null
+  /** Hard Truth Checklist vibe only -- see StorySlide.
+   * checklist_highlighted_phrase/checklist_wrong_item/checklist_right_item's
+   * own comments (app/api/v1/ai/stories/generate/route.ts). Threaded
+   * through here so the real server-side render reflects the checklist
+   * marks/highlight, not just the live editor preview. */
+  checklist_highlighted_phrase?: string | null
+  checklist_wrong_item?: string | null
+  checklist_right_item?: string | null
 }
 
 /** Returns one data: URL PNG per slide (imageUrls, for the download flow

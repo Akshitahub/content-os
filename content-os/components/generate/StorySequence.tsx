@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useRef } from "react"
-import { Loader2, Download, Copy, Check, RefreshCw, AlertCircle, Image, Upload, X, Plus, Minus, Palette, Move, Type } from "lucide-react"
+import { Loader2, Download, Copy, Check, RefreshCw, AlertCircle, Image, Upload, X, Plus, Minus, Palette, Move, Type, ListChecks } from "lucide-react"
 import { resolveFonts, DEFAULT_FONT_ID, TEXT_SIZE_OPTIONS, DEFAULT_TEXT_SIZE_SCALE } from "@/lib/design/fonts"
 import { PREVIEW_FONT_CLASS } from "@/lib/design/preview-fonts"
 import { ProductPicker, type PickedProduct } from "@/components/shared/ProductPicker"
@@ -39,6 +39,14 @@ const STORY_BG: Record<string, { bg: string; text: string; sub: string }> = {
   vibe_fun_playful:   { bg: "bg-gradient-to-b from-orange-400 via-yellow-400 to-teal-400", text: "text-white", sub: "text-white/70" },
   vibe_professional:  { bg: "bg-gradient-to-b from-blue-900 via-slate-800 to-gray-900", text: "text-white", sub: "text-white/70" },
   vibe_trendy_genz:   { bg: "bg-gradient-to-b from-violet-500 via-fuchsia-500 to-cyan-400", text: "text-white", sub: "text-white/80" },
+  // Hard Truth Checklist vibe -- same cream/ink colors as the real
+  // compositor's own checklist_cream preset (lib/image/story-compositor.ts),
+  // which itself matches the Post template's checklist card exactly. The
+  // live preview here only shows this flat background + plain text/subtext
+  // -- it doesn't render the real ✗/✓ marks or headline highlight the
+  // final exported/scheduled PNG does (see PhoneStory's own comment on
+  // this being a plain DOM preview, not the exported asset).
+  checklist_cream:    { bg: "bg-[#F7F1E7] border border-[#E5DDD0]", text: "text-[#1A1A1A]", sub: "text-[#57534E]" },
 }
 
 // Curated preset swatches offered by the inline color picker below — the
@@ -85,6 +93,9 @@ function toExportSlide(story: StorySlide, productImageSource: string | null | un
     custom_text_color: story.custom_text_color,
     font_id: story.font_id,
     text_size_scale: story.text_size_scale,
+    checklist_highlighted_phrase: story.checklist_highlighted_phrase,
+    checklist_wrong_item: story.checklist_wrong_item,
+    checklist_right_item: story.checklist_right_item,
   }
 }
 
@@ -144,7 +155,12 @@ type SlideBackgroundResult = { url: string; provider: "flux" } | { error: "insuf
 
 async function fetchSlideBackgroundResult(
   brandId: string,
-  vibe: Vibe | undefined,
+  // Widened to also accept "hard_truth_checklist" -- that Story-only 8th
+  // vibe option (see the local state below) never actually reaches this
+  // function at runtime (generate() skips the whole image-fetch step for
+  // it entirely), but the shared `vibe` state's own type carries the
+  // wider union regardless.
+  vibe: Vibe | "hard_truth_checklist" | undefined,
   role: "hook" | "cta" | "body",
   productImageUrl?: string | null,
   textPosition?: StorySlide["text_position"],
@@ -180,7 +196,7 @@ async function fetchSlideBackgroundResult(
 // never matters here.
 async function fetchSlideBackground(
   brandId: string,
-  vibe: Vibe | undefined,
+  vibe: Vibe | "hard_truth_checklist" | undefined,
   role: "hook" | "cta",
   productImageUrl?: string | null,
   textPosition?: StorySlide["text_position"],
@@ -727,7 +743,11 @@ export function StorySequence({ brandId }: { brandId: string }) {
   // byte-identical text), so it now picks its own vibe as part of the same
   // JSON response (suggested_vibe). Kept as state + surfaced only inside
   // the "Customize" disclosure below for anyone who wants to force one.
-  const [vibe, setVibe] = useState<Vibe | undefined>()
+  // "hard_truth_checklist" is an 8th, Story-only option layered on top of
+  // the shared Vibe union (not added to VibePicker.tsx's own Vibe type,
+  // which is also reused by CarouselBuilder/AdMaker -- see the dedicated
+  // button rendered alongside <VibePicker> below rather than inside it).
+  const [vibe, setVibe] = useState<Vibe | "hard_truth_checklist" | undefined>()
   const [customColors, setCustomColors] = useState<string[]>([])
   const [showCustomize, setShowCustomize] = useState(false)
   // SocioPosts-authored (and possibly user-edited) visual scene prompt for
@@ -890,7 +910,12 @@ export function StorySequence({ brandId }: { brandId: string }) {
     // the actual text+image generation call fires below, mirroring
     // CarouselBuilder.tsx's identical gate exactly.
     const isCustomColorMode = vibe === "custom_color"
-    if (!isCustomColorMode) {
+    // Hard Truth Checklist has no photo on any slide -- there's nothing
+    // for SocioPosts to author a visual scene prompt for, same reasoning
+    // as Custom color, just for a different reason (no AI image at all
+    // for this vibe, vs. Custom color's "instant flat color, no AI ever").
+    const isHardTruthChecklistMode = vibe === "hard_truth_checklist"
+    if (!isCustomColorMode && !isHardTruthChecklistMode) {
       if (promptWriter.stage === "writing") return
       if (promptWriter.stage === "idle" || !visualPrompt.trim()) {
         writeVisualPrompt()
@@ -954,6 +979,18 @@ export function StorySequence({ brandId }: { brandId: string }) {
         // it on its own -- no separate PUT needed here.
         const coloredStories = savedStories.map((s) => ({ ...s, custom_background_colors: customColors }))
         if (generationIdRef.current === genId) setStories(coloredStories)
+      } else if (isHardTruthChecklistMode) {
+        // No photo on any slide for this vibe either -- the flat cream
+        // background is already applied server-side (VIBE_TO_STORY_BACKGROUND
+        // in the generate route), so -- same as Custom color -- there's no
+        // separate image step to wait for and success shows immediately.
+        // This is the actual credit savings, not just a UI choice: unlike
+        // every other vibe, generate() never calls fetchSlideBackground/
+        // fetchSlideBackgroundResult (and therefore never reaches Replicate/
+        // Flux, or charges STORY_SLIDE_AI_BACKGROUND for body slides) for
+        // this vibe at all.
+        setShowSuccess(true)
+        setTimeout(() => setShowSuccess(false), 4000)
       } else {
         // "✓ generated and saved" doesn't fire until the whole image step
         // below (hook/cta, then the body-slide loop) actually finishes --
@@ -1220,14 +1257,38 @@ export function StorySequence({ brandId }: { brandId: string }) {
               <div className="space-y-1.5">
                 <label className="text-xs font-medium">Vibe</label>
                 <VibePicker
-                  selected={vibe}
+                  selected={vibe === "hard_truth_checklist" ? undefined : vibe}
                   onSelect={setVibe}
                   compact
                   customColors={customColors}
                   onCustomColorsChange={setCustomColors}
                 />
+                {/* 8th option, Story-only -- deliberately NOT added to
+                    VibePicker.tsx's own Vibe type/VIBES list, since that
+                    shared component is also reused by CarouselBuilder.tsx
+                    and AdMaker.tsx, which shouldn't gain this option too.
+                    No AI photo on any slide when selected -- see
+                    generate()'s own isHardTruthChecklistMode branch and
+                    lib/image/story-compositor.ts's checklist-aware
+                    rendering. */}
+                <button
+                  type="button"
+                  onClick={() => setVibe("hard_truth_checklist")}
+                  className={`relative w-full rounded-xl border-2 p-3 text-left transition-all duration-150 hover:scale-[1.01] ${
+                    vibe === "hard_truth_checklist" ? "border-violet-500 bg-violet-50 dark:bg-violet-950/30" : "border-border bg-card hover:border-violet-300"
+                  }`}
+                >
+                  {vibe === "hard_truth_checklist" && (
+                    <div className="absolute right-2 top-2 flex h-5 w-5 items-center justify-center rounded-full bg-violet-500">
+                      <Check className="h-3 w-3 text-white" />
+                    </div>
+                  )}
+                  <ListChecks className="mb-1.5 h-5 w-5" />
+                  <p className="text-sm font-semibold leading-tight">Hard Truth Checklist</p>
+                  <p className="mt-0.5 text-xs text-muted-foreground leading-snug">Contrarian hook, a wrong-way vs. right-way list, no photo</p>
+                </button>
               </div>
-              {vibe && vibe !== "custom_color" && (
+              {vibe && vibe !== "custom_color" && vibe !== "hard_truth_checklist" && (
                 <PromptWriterField
                   label="Visual scene (optional)"
                   prompt={visualPrompt}
@@ -1248,7 +1309,7 @@ export function StorySequence({ brandId }: { brandId: string }) {
             already means "flat color everywhere, no AI", so the two are
             mutually exclusive rather than combinable. Mirrors
             CarouselBuilder.tsx's identical toggle exactly. */}
-        {vibe && vibe !== "custom_color" && (
+        {vibe && vibe !== "custom_color" && vibe !== "hard_truth_checklist" && (
           <label className="flex cursor-pointer items-start gap-2.5 rounded-lg border p-3 text-sm transition-colors hover:bg-secondary/40">
             <input
               type="checkbox"
