@@ -474,6 +474,7 @@ export function FullPostGenerator({ brandId, products }: Props) {
     abortControllerRef.current?.abort()
     abortControllerRef.current = new AbortController()
     setJustSaved(false)
+    setFullPostResult(null)
     setPostImageUrl(null)
     setImageSource(null)
     setImageError(null)
