@@ -218,6 +218,16 @@ export function FullPostGenerator({ brandId, products }: Props) {
   const [aiImagePrompt, setAiImagePrompt] = useState("")
   const promptWriter = usePromptWriter(setAiImagePrompt)
   const [pendingImageGen, setPendingImageGen] = useState<{ data: FullPostResult; sessionId: string } | null>(null)
+  // Drives the auto-fire effect below: true means the user has either
+  // edited the authored prompt themselves, or explicitly asked for a
+  // rewrite -- both are a clear "let me review this" signal, so the
+  // pipeline falls back to requiring the manual "Generate image" click
+  // instead of running end-to-end on its own. Set fresh (false for a
+  // brand-new prompt, true for a rewrite) at the start of every
+  // beginImagePromptWriting call, and flipped true the moment the user
+  // actually types into the field -- see the PromptWriterField onChange
+  // below and beginImagePromptWriting's own comment.
+  const userEditedPromptRef = useRef(false)
 
   // colorThemes only resolves once the brand has loaded — falls back to the
   // first available theme (always non-empty, curated presets included).
@@ -321,6 +331,13 @@ export function FullPostGenerator({ brandId, products }: Props) {
       return
     }
 
+    // A fresh prompt (isRewrite false) starts eligible for the auto-fire
+    // effect below; an explicit rewrite is itself an "I want to review
+    // this" signal, same as manually editing the text, so it marks the
+    // ref as already-engaged and falls back to requiring the manual
+    // "Generate image" click once this rewrite's own prompt is ready.
+    userEditedPromptRef.current = isRewrite
+
     setPendingImageGen({ data, sessionId })
     setPostImageUrl(null)
     setImageSource(null)
@@ -344,6 +361,24 @@ export function FullPostGenerator({ brandId, products }: Props) {
     if (!pendingImageGen || !aiImagePrompt.trim()) return
     runImageGeneration(pendingImageGen.data, pendingImageGen.sessionId, aiImagePrompt.trim())
   }, [pendingImageGen, aiImagePrompt, runImageGeneration])
+
+  // Runs the whole caption -> prompt-authoring -> image pipeline end-to-end
+  // from a single "Generate" click: the moment the authored prompt reaches
+  // "ready", fire the same confirm logic the manual "Generate image"
+  // button already runs -- unless the user touched the prompt first
+  // (typed an edit, or asked for a rewrite), which is exactly what
+  // userEditedPromptRef tracks. The button stays visible and clickable
+  // either way, so a mid-edit user can still confirm manually and there's
+  // never dead time waiting on this effect.
+  useEffect(() => {
+    if (promptWriter.stage !== "ready") return
+    if (userEditedPromptRef.current) return
+    handleConfirmGenerateImage()
+    // Deliberately narrow: only the stage transition itself should trigger
+    // this, not every identity change of handleConfirmGenerateImage (which
+    // changes on every aiImagePrompt keystroke, including during writing).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [promptWriter.stage])
 
   // A real regenerate -- always an explicit rewrite, telling Groq to give
   // this a genuinely different creative treatment rather than another pass
@@ -561,7 +596,7 @@ export function FullPostGenerator({ brandId, products }: Props) {
               <PromptWriterField
                 label="AI image prompt"
                 prompt={aiImagePrompt}
-                onChange={setAiImagePrompt}
+                onChange={(text) => { userEditedPromptRef.current = true; setAiImagePrompt(text) }}
                 stage={promptWriter.stage}
                 error={promptWriter.error}
                 onRewrite={() => pendingImageGen && beginImagePromptWriting(pendingImageGen.data, pendingImageGen.sessionId, true)}
