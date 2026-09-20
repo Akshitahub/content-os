@@ -1,6 +1,11 @@
 import { createClient } from "@/lib/supabase/server"
 
 export interface DailyDraft {
+  /** daily_draft_cache row id -- threaded through so the "Today's draft"
+   * card's "Copy preview link" action (app/(dashboard)/dashboard/page.tsx)
+   * has a content_id to hand POST /api/v1/share, same as every other
+   * shareable content type. */
+  id: string
   hookText: string
   captionText: string
   hashtags: string[]
@@ -62,6 +67,7 @@ export async function getCachedDailyDraft(brandId: string, draftDate: string): P
     if (!existing || existing.generation_failed) return null
 
     return {
+      id: existing.id,
       hookText: existing.hook_text,
       captionText: existing.caption_text,
       hashtags: existing.hashtags ?? [],

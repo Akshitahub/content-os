@@ -8,6 +8,7 @@ import { DetailedStatsToggle } from "@/components/dashboard/DetailedStatsToggle"
 import { DashboardStats } from "@/components/dashboard/DashboardStats"
 import { UpcomingOccasions } from "@/components/dashboard/UpcomingOccasions"
 import { DailyDraftTrigger } from "@/components/dashboard/DailyDraftTrigger"
+import { CopyPreviewLinkButton } from "@/components/dashboard/CopyPreviewLinkButton"
 import { ScheduleAction } from "@/components/shared/ScheduleAction"
 import { getUpcomingOccasions } from "@/lib/occasions/get-upcoming-occasions"
 import { getCachedDailyDraft } from "@/lib/dashboard/get-or-create-daily-draft"
@@ -272,10 +273,6 @@ export default async function DashboardPage({
 
   const [occasions, dailyDraft, bestHookType] = await Promise.all([occasionsPromise, dailyDraftPromise, bestHookTypePromise])
 
-  const shareText = dailyDraft
-    ? `${dailyDraft.hookText}\n\n${dailyDraft.captionText}${dailyDraft.hashtags.length > 0 ? `\n\n${dailyDraft.hashtags.map((h) => `#${h}`).join(" ")}` : ""}`
-    : ""
-
   return (
     <div className="px-4 py-6 md:p-8">
       {/* Header row -- date + greeting on the left, a quiet always-on
@@ -344,14 +341,7 @@ export default async function DashboardPage({
                   <p className="text-lg font-semibold leading-snug">{dailyDraft.hookText}</p>
                   <p className="line-clamp-3 text-sm leading-relaxed text-muted-foreground">{dailyDraft.captionText}</p>
                   <div className="flex flex-wrap items-center gap-2 pt-1">
-                    <a
-                      href={`https://wa.me/?text=${encodeURIComponent(shareText)}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex h-9 items-center gap-1.5 rounded-md bg-violet-600 px-3 text-sm font-medium text-white transition-colors hover:bg-violet-700"
-                    >
-                      Send
-                    </a>
+                    {firstBrandId && <CopyPreviewLinkButton brandId={firstBrandId} contentId={dailyDraft.id} />}
                     <Link
                       href={`/brands/${firstBrandId}/generate?tab=full_post`}
                       className="inline-flex h-9 items-center gap-1.5 rounded-md border px-3 text-sm font-medium transition-colors hover:bg-muted"

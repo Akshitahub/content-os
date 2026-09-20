@@ -1,7 +1,7 @@
 "use client"
 
-import { X, Copy, Check } from "lucide-react"
-import { useState } from "react"
+import { X, Copy, Check, Link2, Loader2 } from "lucide-react"
+import { useEffect, useState } from "react"
 import { ScheduleAction } from "@/components/shared/ScheduleAction"
 import type { StoryExportSlide } from "@/lib/utils/story-export"
 import type { CarouselExportSlide } from "@/lib/utils/carousel-export"
@@ -9,6 +9,9 @@ import { DeleteConfirmButton } from "@/components/shared/DeleteConfirmButton"
 import { PlatformPreviewFrame } from "@/components/shared/PlatformPreviewFrame"
 import { resolveCarouselBgStyle } from "@/lib/design/carousel-slide-styles"
 import { cssBackgroundFromColors } from "@/components/shared/ColorWheelPicker"
+import { useCopyPreviewLink } from "@/hooks/useCopyPreviewLink"
+import { CopyLinkToast } from "@/components/shared/CopyLinkToast"
+import type { ShareContentType } from "@/lib/share/resolve-content"
 
 // Modeled on components/calendar/CalendarEntryPanel.tsx's slide-in panel --
 // same backdrop/fixed-panel/header/scrollable-body pattern, generalized to
@@ -88,6 +91,11 @@ export interface DetailItem {
    * itself; the caller's own mutation is responsible for making the item
    * disappear from whatever list opened this panel (query invalidation). */
   onDelete?: () => Promise<void>
+  /** Identifies this item for POST/GET/DELETE /api/v1/share -- same
+   * content_type + content_id every card's "Copy preview link" menu item
+   * already uses. Absent for content types with no share target of their
+   * own (there are none today, but kept optional for forward safety). */
+  shareTarget?: { contentType: ShareContentType; contentId: string }
 }
 
 interface ContentDetailPanelProps {
@@ -156,6 +164,100 @@ const KIND_LABEL: Record<DetailItem["kind"], string> = {
   carousel: "Carousel",
   story: "Story sequence",
   ad_copy: "Ad copy",
+}
+
+interface ShareLinkStatus {
+  url: string
+  expiresAt: string | null
+}
+
+// Optional small addition alongside the panel's existing Copy/Schedule/
+// Delete actions: shows whether a "Copy preview link" URL already exists
+// for this item (GET /api/v1/share, which only looks up -- never mints --
+// a link) and lets the user disable it (DELETE /api/v1/share), without
+// requiring them to have gone through a card menu first.
+function SharePanelSection({ brandId, shareTarget }: { brandId: string; shareTarget: NonNullable<DetailItem["shareTarget"]> }) {
+  // Always starts "loading" -- the caller mounts a fresh instance of this
+  // component (via a key keyed on contentType+contentId) whenever the
+  // panel switches to a different item, so there's no stale-status window
+  // to reset on a query change the way an in-effect setState would need to.
+  const [status, setStatus] = useState<ShareLinkStatus | null | "loading">("loading")
+  const [revoking, setRevoking] = useState(false)
+  const { copyPreviewLink, isPending: copyLinkPending, feedback } = useCopyPreviewLink()
+  const query = `brandId=${encodeURIComponent(brandId)}&contentType=${encodeURIComponent(shareTarget.contentType)}&contentId=${encodeURIComponent(shareTarget.contentId)}`
+
+  useEffect(() => {
+    let cancelled = false
+    fetch(`/api/v1/share?${query}`)
+      .then((res) => res.json())
+      .then((json) => { if (!cancelled) setStatus(json?.data ?? null) })
+      .catch(() => { if (!cancelled) setStatus(null) })
+    return () => { cancelled = true }
+  }, [query])
+
+  // Refreshes the status right after a successful copy -- covers both "just
+  // created a link for the first time" and "re-copied an existing one" --
+  // so "Link active until <date>" appears without the user reopening the panel.
+  useEffect(() => {
+    if (feedback?.type !== "success") return
+    fetch(`/api/v1/share?${query}`)
+      .then((res) => res.json())
+      .then((json) => setStatus(json?.data ?? null))
+      .catch(() => {})
+  }, [feedback, query])
+
+  async function handleDisable() {
+    setRevoking(true)
+    try {
+      await fetch(`/api/v1/share?${query}`, { method: "DELETE" })
+      setStatus(null)
+    } finally {
+      setRevoking(false)
+    }
+  }
+
+  if (status === "loading") return null
+
+  return (
+    <div className="border-t pt-3">
+      <CopyLinkToast feedback={feedback} />
+      {status ? (
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-xs text-muted-foreground">
+            Link active{status.expiresAt ? ` until ${new Date(status.expiresAt).toLocaleDateString()}` : ""}
+          </p>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => copyPreviewLink(brandId, shareTarget.contentType, shareTarget.contentId)}
+              disabled={copyLinkPending}
+              className="text-xs font-medium text-violet-600 hover:underline disabled:opacity-50"
+            >
+              Copy link
+            </button>
+            <button
+              type="button"
+              onClick={handleDisable}
+              disabled={revoking}
+              className="text-xs font-medium text-destructive hover:underline disabled:opacity-50"
+            >
+              {revoking ? "Disabling…" : "Disable link"}
+            </button>
+          </div>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => copyPreviewLink(brandId, shareTarget.contentType, shareTarget.contentId)}
+          disabled={copyLinkPending}
+          className="flex items-center gap-1.5 text-xs font-medium text-violet-600 hover:underline disabled:opacity-50"
+        >
+          {copyLinkPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Link2 className="h-3 w-3" />}
+          {copyLinkPending ? "Copying…" : "Copy preview link"}
+        </button>
+      )}
+    </div>
+  )
 }
 
 export function ContentDetailPanel({ item, onClose, brandId }: ContentDetailPanelProps) {
@@ -287,6 +389,13 @@ export function ContentDetailPanel({ item, onClose, brandId }: ContentDetailPane
                   itemLabel={item.kind === "story" ? "story" : "slide"}
                   caption={item.scheduleCaption}
                   hashtags={item.hashtags}
+                />
+              )}
+              {item.shareTarget && (
+                <SharePanelSection
+                  key={`${item.shareTarget.contentType}-${item.shareTarget.contentId}`}
+                  brandId={brandId}
+                  shareTarget={item.shareTarget}
                 />
               )}
               {item.onDelete && (

@@ -83,6 +83,7 @@ export async function POST(request: Request) {
       return NextResponse.json(buildError(ErrorCodes.AI_GENERATION_FAILED, "Already attempted today."), { status: 409 })
     }
     const draft: DailyDraft = {
+      id: existing.id,
       hookText: existing.hook_text,
       captionText: existing.caption_text,
       hashtags: existing.hashtags ?? [],
@@ -184,7 +185,7 @@ export async function POST(request: Request) {
     const { data: publicUrlData } = admin.storage.from(BUCKET).getPublicUrl(storagePath)
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { error: insertError } = await (supabase.from("daily_draft_cache") as any).insert({
+    const { data: insertedRow, error: insertError } = await (supabase.from("daily_draft_cache") as any).insert({
       brand_id: brand.id,
       draft_date: today,
       hook_text: hook.hook_text,
@@ -193,10 +194,11 @@ export async function POST(request: Request) {
       image_url: publicUrlData.publicUrl,
       content_project_id: contentProjectId,
       generation_failed: false,
-    })
-    if (insertError) throw new Error(insertError.message)
+    }).select("id").single() as { data: { id: string } | null; error: { message: string } | null }
+    if (insertError || !insertedRow) throw new Error(insertError?.message ?? "Failed to save the daily draft.")
 
     const draft: DailyDraft = {
+      id: insertedRow.id,
       hookText: hook.hook_text,
       captionText: caption.caption_text,
       hashtags: caption.hashtags,

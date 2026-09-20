@@ -17,6 +17,11 @@ const SCHEDULE_POST_DAILY_LIMIT = 100
 // AI extraction routes (each call fetches an arbitrary URL and hits an AI
 // model, with no other cost/limit tied to it).
 const URL_EXTRACTION_DAILY_LIMIT = 20
+// Generous — a real user creating share links for their own content one
+// click at a time will never come close; exists to bound a script minting
+// links in a loop. Doesn't tie into the generation-credit system (creating
+// a share link for already-generated content isn't a generation).
+const SHARE_LINK_DAILY_LIMIT = 100
 
 interface DailyCounterRow {
   count: number
@@ -91,5 +96,18 @@ export async function checkAndIncrementUrlExtractionUsage(userId: string): Promi
     "url_extraction_count_reset_at",
     URL_EXTRACTION_DAILY_LIMIT,
     `You've reached today's limit of ${URL_EXTRACTION_DAILY_LIMIT} URL imports. Try again tomorrow.`
+  )
+}
+
+/** Bounds how many public "Copy preview link" share links a user can create
+ * per day (POST /api/v1/share) — see supabase/migrations/054_share_links.sql. */
+export async function checkAndIncrementShareLinkUsage(userId: string): Promise<AbuseLimitCheckResult> {
+  return checkAndIncrementDailyCounter(
+    userId,
+    "share_link_count_today, share_link_count_reset_at",
+    "share_link_count_today",
+    "share_link_count_reset_at",
+    SHARE_LINK_DAILY_LIMIT,
+    `You've reached today's limit of ${SHARE_LINK_DAILY_LIMIT} preview links. Try again tomorrow.`
   )
 }

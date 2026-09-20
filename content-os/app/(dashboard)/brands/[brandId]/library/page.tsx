@@ -3,7 +3,7 @@
 import { useState, useCallback, useEffect } from "react"
 import { useParams, useSearchParams } from "next/navigation"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
-import { Archive, Copy, Check, Star, Sparkles, BookOpen, ChevronDown, ChevronUp, Film, LayoutGrid, Megaphone, Download, Search, Zap, Timer, Newspaper, MoreVertical, Eye, CalendarClock, Trash2, MessageCircle, Loader2 } from "lucide-react"
+import { Archive, Copy, Check, Star, Sparkles, BookOpen, ChevronDown, ChevronUp, Film, LayoutGrid, Megaphone, Download, Search, Zap, Timer, Newspaper, MoreVertical, Eye, CalendarClock, Trash2, Link2, Loader2 } from "lucide-react"
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
@@ -20,6 +20,8 @@ import type { StoryExportSlide } from "@/lib/utils/story-export"
 import { downloadCarouselSlidesAsImages, downloadCarouselSlidesAsPdf, type CarouselExportSlide } from "@/lib/utils/carousel-export"
 import { useBrand } from "@/hooks/useBrand"
 import { useGenerateContent } from "@/hooks/useGeneration"
+import { useCopyPreviewLink } from "@/hooks/useCopyPreviewLink"
+import { CopyLinkToast } from "@/components/shared/CopyLinkToast"
 import type { GenerateContentInput } from "@/lib/validations/ai"
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -165,7 +167,8 @@ function CardQuickActions({
   rating,
   onRatingChange,
   ratingPending,
-  shareText,
+  onCopyPreviewLink,
+  copyPreviewLinkPending,
   onRemixToReelScript,
   remixPending,
 }: {
@@ -175,7 +178,11 @@ function CardQuickActions({
   rating: number | null
   onRatingChange: (r: number, note?: string) => void
   ratingPending?: boolean
-  shareText?: string
+  /** Undefined hides the menu item entirely -- same conditional-render
+   * convention shareText used before it (e.g. a not-yet-generated caption
+   * has nothing to share yet). */
+  onCopyPreviewLink?: () => void
+  copyPreviewLinkPending?: boolean
   onRemixToReelScript?: () => void
   remixPending?: boolean
 }) {
@@ -211,11 +218,20 @@ function CardQuickActions({
             {remixPending ? "Remixing…" : "Remix to Reel Script"}
           </DropdownMenuItem>
         )}
-        {shareText && (
+        {onCopyPreviewLink && (
           <DropdownMenuItem
-            onSelect={() => window.open(`https://wa.me/?text=${encodeURIComponent(shareText)}`, "_blank")}
+            disabled={copyPreviewLinkPending}
+            onSelect={(e) => {
+              // Same "keep the menu open through the async call" pattern as
+              // Remix to Reel Script above -- this fires a real network
+              // request (POST /api/v1/share) before there's a link to
+              // copy, so the loading state needs to stay visible.
+              e.preventDefault()
+              onCopyPreviewLink()
+            }}
           >
-            <MessageCircle className="h-3.5 w-3.5" /> Share to WhatsApp
+            {copyPreviewLinkPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Link2 className="h-3.5 w-3.5" />}
+            {copyPreviewLinkPending ? "Copying…" : "Copy preview link"}
           </DropdownMenuItem>
         )}
         {canSchedule && (
@@ -424,6 +440,7 @@ function CaptionCard({
   const generateContent = useGenerateContent()
   const [remixError, setRemixError] = useState<string | null>(null)
   const [remixSuccess, setRemixSuccess] = useState(false)
+  const { copyPreviewLink, isPending: copyLinkPending, feedback: copyLinkFeedback } = useCopyPreviewLink()
 
   async function handleRemixToReelScript() {
     setRemixError(null)
@@ -465,6 +482,7 @@ function CaptionCard({
       scheduleImageUrl: thumbnail,
       platform: caption.platform,
       onDelete: () => deleteMutation.mutateAsync(),
+      shareTarget: { contentType: "caption", contentId: caption.id },
     })
   }
 
@@ -510,7 +528,8 @@ function CaptionCard({
               rating={caption.user_rating}
               onRatingChange={(r, note) => ratingMutation.mutate({ rating: r, note })}
               ratingPending={ratingMutation.isPending}
-              shareText={`${caption.caption_text}${caption.hashtags.length > 0 ? `\n\n${caption.hashtags.map(h => `#${h}`).join(" ")}` : ""}`}
+              onCopyPreviewLink={() => copyPreviewLink(brandId, "caption", caption.id)}
+              copyPreviewLinkPending={copyLinkPending}
               onRemixToReelScript={handleRemixToReelScript}
               remixPending={generateContent.isPending}
             />
@@ -518,6 +537,7 @@ function CaptionCard({
         </div>
       </CardHeader>
       <CardContent className="space-y-3">
+        <CopyLinkToast feedback={copyLinkFeedback} />
         <p className="text-sm leading-relaxed whitespace-pre-wrap">{displayText}</p>
         {isLong && (
           <button
@@ -667,6 +687,7 @@ function CarouselCard({ carousel, brandId, onOpenDetail }: { carousel: CarouselR
   const [deleteConfirming, setDeleteConfirming] = useState(false)
   const qc = useQueryClient()
   const { data: brand } = useBrand(brandId)
+  const { copyPreviewLink, isPending: copyLinkPending, feedback: copyLinkFeedback } = useCopyPreviewLink()
   const slides = (carousel.slides as Json[] as SlideShape[]) ?? []
   // A saved carousel reopened later in the Library had no download option
   // at all -- downloadCarouselSlidesAsImages/renderCarouselSlides already
@@ -763,6 +784,7 @@ function CarouselCard({ carousel, brandId, onOpenDetail }: { carousel: CarouselR
       scheduleBrandName: brand?.name ?? "",
       platform: carousel.platform,
       onDelete: () => deleteMutation.mutateAsync(),
+      shareTarget: { contentType: "carousel", contentId: carousel.id },
     })
   }
 
@@ -798,12 +820,14 @@ function CarouselCard({ carousel, brandId, onOpenDetail }: { carousel: CarouselR
               rating={carousel.user_rating}
               onRatingChange={(r) => ratingMutation.mutate(r)}
               ratingPending={ratingMutation.isPending}
-              shareText={`${slides.map((s, i) => `${i + 1}. ${s.headline ?? ""}`).join("\n")}${carousel.hashtags.length > 0 ? `\n\n${carousel.hashtags.map(h => `#${h}`).join(" ")}` : ""}`}
+              onCopyPreviewLink={() => copyPreviewLink(brandId, "carousel", carousel.id)}
+              copyPreviewLinkPending={copyLinkPending}
             />
           </div>
         </div>
       </CardHeader>
       <CardContent className="space-y-3">
+        <CopyLinkToast feedback={copyLinkFeedback} />
         {carousel.title && <p className="text-sm font-semibold line-clamp-2">{carousel.title}</p>}
         <p className="text-xs text-muted-foreground">{slides.length} slide{slides.length !== 1 ? "s" : ""}</p>
         {slides[0] && (
@@ -872,6 +896,7 @@ interface StorySlideShape {
 function StoryCard({ story, brandId, onOpenDetail }: { story: StoryRow; brandId: string; onOpenDetail: (item: DetailItem) => void }) {
   const [deleteConfirming, setDeleteConfirming] = useState(false)
   const qc = useQueryClient()
+  const { copyPreviewLink, isPending: copyLinkPending, feedback: copyLinkFeedback } = useCopyPreviewLink()
   const slides = (story.stories as Json[] as StorySlideShape[]) ?? []
   const ratingMutation = useMutation({
     mutationFn: async (rating: number) => {
@@ -946,6 +971,7 @@ function StoryCard({ story, brandId, onOpenDetail }: { story: StoryRow; brandId:
       // ScheduleAction's isMultiSlide path), not a guessed default.
       platform: "instagram",
       onDelete: () => deleteMutation.mutateAsync(),
+      shareTarget: { contentType: "story", contentId: story.id },
     })
   }
 
@@ -981,12 +1007,14 @@ function StoryCard({ story, brandId, onOpenDetail }: { story: StoryRow; brandId:
               rating={story.user_rating}
               onRatingChange={(r) => ratingMutation.mutate(r)}
               ratingPending={ratingMutation.isPending}
-              shareText={slides.map((s, i) => `${i + 1}. ${s.text ?? ""}`).join("\n")}
+              onCopyPreviewLink={() => copyPreviewLink(brandId, "story", story.id)}
+              copyPreviewLinkPending={copyLinkPending}
             />
           </div>
         </div>
       </CardHeader>
       <CardContent className="space-y-3">
+        <CopyLinkToast feedback={copyLinkFeedback} />
         <p className="text-xs text-muted-foreground">{slides.length} stor{slides.length !== 1 ? "ies" : "y"}</p>
         {slides[0] && (
           <p className="text-xs text-muted-foreground line-clamp-2 italic">
@@ -1017,6 +1045,7 @@ function StoryCard({ story, brandId, onOpenDetail }: { story: StoryRow; brandId:
 function AdCopyCard({ ad, brandId, onOpenDetail }: { ad: AdCopyRow; brandId: string; onOpenDetail: (item: DetailItem) => void }) {
   const [deleteConfirming, setDeleteConfirming] = useState(false)
   const qc = useQueryClient()
+  const { copyPreviewLink, isPending: copyLinkPending, feedback: copyLinkFeedback } = useCopyPreviewLink()
   const ratingMutation = useMutation({
     mutationFn: async (rating: number) => {
       const res = await fetch(`/api/v1/brands/${brandId}/ad-copies/${ad.id}`, {
@@ -1059,6 +1088,7 @@ function AdCopyCard({ ad, brandId, onOpenDetail }: { ad: AdCopyRow; brandId: str
       scheduleCaption: fullText,
       platform: ad.platform,
       onDelete: () => deleteMutation.mutateAsync(),
+      shareTarget: { contentType: "ad_copy", contentId: ad.id },
     })
   }
 
@@ -1085,12 +1115,14 @@ function AdCopyCard({ ad, brandId, onOpenDetail }: { ad: AdCopyRow; brandId: str
               rating={ad.user_rating}
               onRatingChange={(r) => ratingMutation.mutate(r)}
               ratingPending={ratingMutation.isPending}
-              shareText={[ad.headline, ad.primary_text, ad.description].filter(Boolean).join("\n\n")}
+              onCopyPreviewLink={() => copyPreviewLink(brandId, "ad_copy", ad.id)}
+              copyPreviewLinkPending={copyLinkPending}
             />
           </div>
         </div>
       </CardHeader>
       <CardContent className="space-y-3">
+        <CopyLinkToast feedback={copyLinkFeedback} />
         <p className="text-sm font-bold line-clamp-2">{ad.headline}</p>
         <p className="text-xs text-muted-foreground line-clamp-3 leading-relaxed">{ad.primary_text}</p>
         {ad.cta_button && (
