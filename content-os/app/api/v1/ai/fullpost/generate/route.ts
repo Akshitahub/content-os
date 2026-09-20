@@ -36,7 +36,11 @@ export async function POST(request: Request) {
   }
 
   const parsed = generateFullPostSchema.safeParse(body)
-  if (!parsed.success) return NextResponse.json(buildError(ErrorCodes.VALIDATION_ERROR, "Validation failed.", parsed.error.message), { status: 400 })
+  // issues[0]?.message surfaces the specific, human-written message (e.g.
+  // additionalContext's own .max() text) instead of parsed.error.message's
+  // raw JSON dump of every issue -- matches the convention already used
+  // elsewhere (e.g. carousel/generate/route.ts).
+  if (!parsed.success) return NextResponse.json(buildError(ErrorCodes.VALIDATION_ERROR, "Validation failed.", parsed.error.issues[0]?.message), { status: 400 })
 
   const { brandId, productId, format, platform, contentAngle, additionalContext } = parsed.data
 

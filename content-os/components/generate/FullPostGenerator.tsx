@@ -235,7 +235,12 @@ export function FullPostGenerator({ brandId, products }: Props) {
 
   const runImageGeneration = useCallback((data: FullPostResult, sessionId: string, imagePromptText: string) => {
     const caption = data.content.content as GeneratedCaption
-    const imagePrompt = imagePromptText.slice(0, 500)
+    // No client-side truncation -- the full Groq-authored prompt (up to a
+    // few hundred words) is sent as-is. The server's own zod max and
+    // post-image-pipeline.ts's sentence-boundary-aware safety cap are the
+    // single source of truth for any length limit, so it's never enforced
+    // twice with two different (and previously much shorter) values.
+    const imagePrompt = imagePromptText
     // Commit 3: captionText/fontId/textSizeScale are no longer sent here —
     // the image route always returns a clean, text-free background for
     // this tool now (see generatePostImage's own !willCompositeText
@@ -584,13 +589,11 @@ export function FullPostGenerator({ brandId, products }: Props) {
               <Label className="text-xs">What do you want to post</Label>
               <textarea
                 rows={2}
-                maxLength={500}
                 placeholder={topicPlaceholderForNiche(brand?.niche)}
                 className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring resize-none"
                 value={additionalContext}
                 onChange={(e) => setAdditionalContext(e.target.value)}
               />
-              <p className="text-xs text-muted-foreground text-right">{additionalContext.length}/500</p>
             </div>
           ) : (
             <div className="space-y-1.5">

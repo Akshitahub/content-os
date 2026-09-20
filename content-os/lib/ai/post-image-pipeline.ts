@@ -398,16 +398,37 @@ export const CENTERED_COMPOSITION_GUARD = "keep the main subject, text, logos, a
 // these two directly (rather than checking the assembled total after the
 // fact) guarantees the combined prompt can never silently balloon
 // regardless of how verbose a future LLM response or a brand's
-// target_audience field gets. The client already
-// caps imagePrompt at 500 chars (components/generate/FullPostGenerator.tsx)
-// but this pipeline is reachable without going through that specific
-// client path (e.g. "Regenerate image"), so it needs its own server-side
-// floor — never trust a length limit enforced only by the caller.
-const MAX_IMAGE_PROMPT_CHARS = 600
+// target_audience field gets. generatePostImageSchema's own zod .max()
+// (lib/validations/ai.ts) already rejects anything over the same limit
+// before it reaches here, but this pipeline is reachable without going
+// through that specific client path (e.g. "Regenerate image"), so it needs
+// its own server-side floor — never trust a length limit enforced only by
+// the caller.
+//
+// Was 600 -- shorter than the prompt-authoring stage's real target output
+// (80-150 words, lib/ai/image-prompt-writer.ts), so a genuine, complete
+// AI-authored prompt was being cut off before ever reaching Flux -- the
+// direct cause of the "generated prompt is too short/cut off" image
+// quality issue this constant exists to guard against, not to cause. 1500
+// gives real headroom above that target length while still bounding
+// worst-case (e.g. a hand-pasted essay) length.
+const MAX_IMAGE_PROMPT_CHARS = 1500
 const MAX_TARGET_AUDIENCE_CHARS = 150
 
+// Cuts at the last sentence boundary within budget, not mid-sentence/
+// mid-word -- a raw slice() previously here could (and did) chop a
+// complete AI-authored prompt off mid-clause, handing Flux a garbled
+// trailing fragment instead of a clean, complete description. Falls back
+// to a word boundary when no sentence end falls in the back half of the
+// budget (e.g. one unbroken run-on clause), and only cuts mid-word as an
+// absolute last resort (a single "word" longer than the entire budget).
 function capLength(text: string, max: number): string {
-  return text.length > max ? text.slice(0, max).trim() : text
+  if (text.length <= max) return text
+  const truncated = text.slice(0, max)
+  const lastSentenceEnd = Math.max(truncated.lastIndexOf(". "), truncated.lastIndexOf("! "), truncated.lastIndexOf("? "))
+  if (lastSentenceEnd > max * 0.5) return truncated.slice(0, lastSentenceEnd + 1).trim()
+  const lastSpace = truncated.lastIndexOf(" ")
+  return (lastSpace > 0 ? truncated.slice(0, lastSpace) : truncated).trim()
 }
 
 // Word-boundary match, not a raw substring — a plain .includes() would

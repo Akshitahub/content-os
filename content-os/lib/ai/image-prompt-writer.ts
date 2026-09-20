@@ -81,14 +81,21 @@ const SYSTEM_PROMPT = `You are an expert prompt writer for an AI image generatio
 
 Rules:
 - Output ONLY the prompt text itself. No preamble, no explanation, no surrounding quotes, no markdown, no labels like "Prompt:".
-- Write ONE flowing descriptive passage (not a list, not multiple options): the actual subject, setting, lighting, mood, and composition, in vivid, specific, unambiguous language a diffusion model can act on.
+- Write ONE flowing descriptive passage -- not a list, not multiple options, not bullet points or numbered lines -- of 80 to 150 words, moving through these in order:
+  1. The subject/product with concrete specifics: exact materials, colors, quantity, and finish (e.g. "three amber glass jar candles with brass lids"), never a vague generality.
+  2. The setting and any props relevant to the brief (e.g. diyas, marigolds, a brass thali, silk fabric for a Diwali scene) -- grounded in what the user described or the brand/product context, never generic filler unrelated to the brief.
+  3. Lighting and mood (e.g. a warm golden glow, a soft flicker, shallow depth of field).
+  4. Composition matched to the requested canvas shape, naming where to leave calm, uncluttered negative space for a headline to be overlaid afterward.
+  5. Style and camera language matched to the requested visual direction (e.g. a photorealistic studio product shot with specific lens/lighting language, versus a flat editorial graphic composition with no camera or DSLR language at all).
+  6. A short closing clause ruling out text, logos, watermarks, and distorted hands appearing anywhere in the image.
 - If the user provided their own description, treat it as the creative brief -- keep their intent and refine/complete any vague or underspecified part into something concrete. Do not discard what they asked for.
 - If the user gave no real description, invent one complete, specific scene from scratch using the brand/product context you're given -- never output a generic, vague, or placeholder-sounding scene.
 - Ground the scene in the brand's actual niche and product -- never a generic stock-photo scene that could belong to any company.
-- Do not describe any text, words, captions, logos, watermarks, or labels appearing in the image -- that is handled separately and must never be part of the scene you describe.
-- Do not mention camera brands, aspect ratio, resolution, or megapixels -- those are handled separately.
+- Never describe or write out any text, words, lettering, captions, logos, watermarks, or labels appearing in the image, no matter how short -- a diffusion model renders text as garbled nonsense, and any real headline is composited on separately in code afterward. This is a hard rule, not a style preference.
+- Do not mention camera brands, aspect ratio as a number/ratio, resolution, or megapixels -- describe composition in plain visual language instead (e.g. "wide open space across the top of the frame"); the exact technical values are handled separately in code.
 - If a real product reference photo is noted as attached, describe the SURROUNDING SCENE, setting, and lighting only -- do not redescribe the product's own appearance (color, shape, packaging), since that photo already shows it exactly.
-- Keep the prompt under 70 words.`
+- Never mention SocioPosts, Groq, Flux, Replicate, or any other AI tool/vendor name anywhere in the scene you write -- this is a plain visual description of a photograph, not a mention of the tools that made it.
+- Never let internal field or workflow names (e.g. "hook slide", "cta slide", "template", "checklist", "carousel") leak into the visual description -- describe only what a viewer would actually see in the finished photo.`
 
 function buildBrandLine(brand: WriteImagePromptInput["brand"]): string {
   const lines: string[] = [`Brand: ${brand.name}`]
@@ -109,6 +116,10 @@ function buildProductLine(product?: WriteImagePromptInput["product"] | null): st
 
 function buildConstraintsLine(constraints: ImagePromptConstraints): string {
   const lines: string[] = []
+  // Previously accepted on ImagePromptConstraints but never actually read
+  // here -- the model had no way to know the canvas shape at all, despite
+  // rule 4 above asking it to compose (and leave negative space) for one.
+  if (constraints.aspectRatioLabel) lines.push(`Canvas shape: ${constraints.aspectRatioLabel} -- compose for this shape specifically.`)
   if (constraints.styleLabel) lines.push(`Visual direction to write within: ${constraints.styleLabel}`)
   if (constraints.role === "hook") lines.push("This is the opening/cover slide -- make it an eye-catching first impression.")
   if (constraints.role === "cta") lines.push("This is the closing slide -- give it a warm, confident, closing mood.")
@@ -163,7 +174,12 @@ export async function requestImagePromptStream(input: WriteImagePromptInput) {
     model: MODELS.generation,
     temperature: 0.85,
     reasoning_effort: "low",
-    max_tokens: 250,
+    // Was 250 -- too tight for an 80-150 word (~110-200 token) completion
+    // plus this reasoning-class model's hidden reasoning tokens (both count
+    // against the same budget, see lib/ai/models.ts's own comment on this
+    // model), and was cutting responses off mid-sentence. 400 gives real
+    // headroom above the target length.
+    max_tokens: 400,
     stream: true,
     messages: [
       { role: "system", content: SYSTEM_PROMPT },

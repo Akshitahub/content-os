@@ -31,7 +31,15 @@ const schema = z.object({
     name: z.string().max(200),
     description: z.string().max(1000).nullable().optional(),
   }).optional(),
-  rawInput: z.string().max(500).nullable().optional().transform((v) => v?.replace(/<[^>]*>/g, "").trim() || null),
+  // The user's own typed brief, shared by every flow that reaches this
+  // route (Post's "What do you want to post", Story/Carousel/Ad Maker's
+  // "Visual scene") -- was capped at 500, matching (and inherited from) the
+  // old UI cap on Post's own textarea. Raised to 5000 so a genuinely long
+  // brief reaches Groq in full instead of being rejected outright; the
+  // model itself (openai/gpt-oss-120b, ~131k token context) has more than
+  // enough headroom for 5000 chars (~1250 tokens) of input alongside the
+  // system prompt and this call's own max_tokens budget.
+  rawInput: z.string().max(5000, "Your brief is too long -- please keep it under 5000 characters.").nullable().optional().transform((v) => v?.replace(/<[^>]*>/g, "").trim() || null),
   // True for an explicit "Rewrite"/"Regenerate" request -- see
   // lib/ai/image-prompt-writer.ts's WriteImagePromptInput.isRewrite for why
   // this exists (told to Groq explicitly, since it has no memory of a
@@ -58,7 +66,12 @@ export async function POST(request: Request) {
   }
 
   const parsed = schema.safeParse(body)
-  if (!parsed.success) return Response.json(buildError(ErrorCodes.VALIDATION_ERROR, "Validation failed.", parsed.error.message), { status: 400 })
+  // issues[0]?.message (a specific, human-written string like the one on
+  // rawInput's own .max() above), not parsed.error.message -- the latter is
+  // a raw JSON dump of every issue, which would otherwise surface verbatim
+  // in the UI's error banner instead of a clear, friendly message. Matches
+  // the convention already used elsewhere (e.g. carousel/generate/route.ts).
+  if (!parsed.success) return Response.json(buildError(ErrorCodes.VALIDATION_ERROR, "Validation failed.", parsed.error.issues[0]?.message), { status: 400 })
 
   const { flow, brandId, productId, product: inlineProduct, rawInput, isRewrite, constraints } = parsed.data
 

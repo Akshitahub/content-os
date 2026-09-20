@@ -23,7 +23,10 @@ const schema = z.object({
   // GenerateStorySlideBackgroundOptions.customPrompt.
   customPrompt: z
     .string()
-    .max(600, "Visual scene must be under 600 characters")
+    // Was 600 -- too short for the prompt-authoring stage's real 80-150
+    // word output (lib/ai/image-prompt-writer.ts). Matches
+    // lib/validations/ai.ts's identical fix on the same field elsewhere.
+    .max(1500, "Visual scene must be under 1500 characters")
     .optional()
     .transform((val) => val?.replace(/<[^>]*>/g, "").trim()),
 })
@@ -67,7 +70,10 @@ export async function POST(request: Request) {
   }
 
   const parsed = schema.safeParse(body)
-  if (!parsed.success) return NextResponse.json(buildError(ErrorCodes.VALIDATION_ERROR, "Validation failed.", parsed.error.message), { status: 400 })
+  // issues[0]?.message, not parsed.error.message -- see fullpost/generate's
+  // identical fix for why (a friendly per-field message instead of a raw
+  // JSON issues dump).
+  if (!parsed.success) return NextResponse.json(buildError(ErrorCodes.VALIDATION_ERROR, "Validation failed.", parsed.error.issues[0]?.message), { status: 400 })
 
   const { brandId, vibe, role, productImageUrl, textPosition, customPrompt } = parsed.data
 

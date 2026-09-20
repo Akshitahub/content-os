@@ -32,7 +32,10 @@ export async function POST(request: Request) {
   }
 
   const parsed = generateFullPostFromPhotoSchema.safeParse(body)
-  if (!parsed.success) return NextResponse.json(buildError(ErrorCodes.VALIDATION_ERROR, "Validation failed.", parsed.error.message), { status: 400 })
+  // issues[0]?.message, not parsed.error.message -- see fullpost/generate's
+  // identical fix for why (a friendly per-field message instead of a raw
+  // JSON issues dump).
+  if (!parsed.success) return NextResponse.json(buildError(ErrorCodes.VALIDATION_ERROR, "Validation failed.", parsed.error.issues[0]?.message), { status: 400 })
 
   const { brandId, imageDataUrl, additionalContext } = parsed.data
 

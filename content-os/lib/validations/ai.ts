@@ -158,7 +158,12 @@ export const generatePostImageSchema = z.object({
   imagePrompt: z
     .string()
     .min(3, "Image prompt is too short")
-    .max(500, "Image prompt must be under 500 characters")
+    // Was 500 -- shorter than the 80-150 word (~500-1000+ char) prompts the
+    // prompt-authoring stage (lib/ai/image-prompt-writer.ts) now writes, so
+    // a real AI-authored prompt could fail this check outright. 1500
+    // matches post-image-pipeline.ts's own MAX_IMAGE_PROMPT_CHARS safety
+    // cap, which sentence-boundary-trims anything beyond it regardless.
+    .max(1500, "Image prompt must be under 1500 characters")
     .transform((val) => val.replace(/<[^>]*>/g, "").trim()),
   template: postTemplateEnum,
   colorThemeId: z.string().min(1, "Color theme is required"),
@@ -239,7 +244,10 @@ export const generateAdMakerBackgroundSchema = z.object({
   // works exactly as before with just scene/customScene.
   customPrompt: z
     .string()
-    .max(600, "Scene prompt must be under 600 characters")
+    // Was 600 -- see generatePostImageSchema.imagePrompt's identical fix
+    // above for why: too short for the prompt-authoring stage's real
+    // 80-150 word output.
+    .max(1500, "Scene prompt must be under 1500 characters")
     .optional()
     .transform((val) => val?.replace(/<[^>]*>/g, "").trim()),
 })
@@ -253,9 +261,13 @@ export const generateFullPostSchema = z.object({
   platform: platformEnum,
   occasionId: z.string().optional(),
   contentAngle: z.enum(["auto", "problem_solution", "quick_tip", "myth_contrarian", "launch_offer"]).optional(),
+  // The user's own "What do you want to post" brief -- was 500, matching
+  // (and the origin of) the old UI textarea cap. Raised to 5000 alongside
+  // that UI cap's removal and image-prompt/write's identical rawInput fix,
+  // so a genuinely long brief is never silently rejected or truncated.
   additionalContext: z
     .string()
-    .max(500, "Additional context must be under 500 characters")
+    .max(5000, "Your brief is too long -- please keep it under 5000 characters.")
     .optional()
     .transform((val) => val?.replace(/<[^>]*>/g, "").trim()),
 })
@@ -274,9 +286,10 @@ export type GenerateFullPostInput = z.infer<typeof generateFullPostSchema>
 export const generateFullPostFromPhotoSchema = z.object({
   brandId: z.string().uuid("Invalid brand ID"),
   imageDataUrl: z.string().regex(/^data:image\/[a-zA-Z+.-]+;base64,/, "Invalid image data URL"),
+  // Same field/fix as generateFullPostSchema.additionalContext above.
   additionalContext: z
     .string()
-    .max(500, "Additional context must be under 500 characters")
+    .max(5000, "Your brief is too long -- please keep it under 5000 characters.")
     .optional()
     .transform((val) => val?.replace(/<[^>]*>/g, "").trim()),
 })

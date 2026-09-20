@@ -76,7 +76,10 @@ export async function POST(request: Request, { params }: RouteParams) {
   }
 
   const parsed = generateAdMakerBackgroundSchema.safeParse(body)
-  if (!parsed.success) return NextResponse.json(buildError(ErrorCodes.VALIDATION_ERROR, "Validation failed.", parsed.error.message), { status: 400 })
+  // issues[0]?.message, not parsed.error.message -- see fullpost/generate's
+  // identical fix for why (a friendly per-field message, e.g. customPrompt's
+  // own .max() text, instead of a raw JSON issues dump).
+  if (!parsed.success) return NextResponse.json(buildError(ErrorCodes.VALIDATION_ERROR, "Validation failed.", parsed.error.issues[0]?.message), { status: 400 })
   const { scene, customScene, format, productImageBase64, customPrompt } = parsed.data
 
   const usageCheck = await checkAndIncrementUsage(user.id, AD_MAKER, FEATURE)
