@@ -31,33 +31,74 @@ export const IMAGE_PROVIDER_CONFIG = {
    * never retried (see isModerationError below) since retrying the exact
    * same prompt against a content-policy rejection can't succeed. */
   maxRetries: 1,
+  /** Native generation sizes, one per aspect ratio a caller can ask for --
+   * resolveImageSize below picks the one whose ratio is closest to the
+   * requested canvas. Each matches its canvas's ratio EXACTLY (so the
+   * final `fit: "cover"` resize in the pipeline/compositors scales rather
+   * than crops). Every size must satisfy gpt-image-2's rules -- see
+   * isValidImageSize below; scripts/test-image-gen.ts checks them all.
+   * Was "1024x1536" (2:3) for both portrait canvases, which cropped ~17%
+   * of a 4:5 post's height and ~14% of a 9:16 story's width away. */
+  sizes: {
+    /** 1:1 -- the standalone Images tab, square Ad Maker. */
+    square: "1024x1024",
+    /** 4:5 -- Post, Carousel slides, portrait Ad Maker (canvas 1080x1350).
+     * Slightly larger than the canvas, so it's only ever scaled down.
+     * 1,479,680 px -- fewer than the old 1024x1536 (1,572,864). */
+    portrait: "1088x1360",
+    /** 9:16 -- Story slides, story Ad Maker (canvas 1080x1920). Scaled up
+     * ~7% to the canvas; 1152x2048 (also exact 9:16) would avoid that but
+     * is ~31% more pixels than this (cost/latency not published by OpenAI
+     * for custom sizes). 1,806,336 px. */
+    story: "1008x1792",
+    /** 3:2 -- landscape (Images-tab 16:9 still maps here; unchanged). */
+    landscape: "1536x1024",
+  },
 } as const
+
+// gpt-image-2's size rules, from OpenAI's image-generation guide
+// (developers.openai.com/api/docs/guides/image-generation, "Size
+// constraints" for gpt-image-2, checked 2026-10-25): both edges multiples
+// of 16px; max edge <= 3840px; long:short edge ratio <= 3:1; total pixels
+// between 655,360 and 8,294,400. The installed SDK's own docstring agrees
+// (`WIDTHxHEIGHT` strings, both edges divisible by 16).
+export function isValidImageSize(size: string): boolean {
+  const m = /^(\d+)x(\d+)$/.exec(size)
+  if (!m) return false
+  const w = Number(m[1])
+  const h = Number(m[2])
+  const pixels = w * h
+  return (
+    w % 16 === 0 && h % 16 === 0 &&
+    Math.max(w, h) <= 3840 &&
+    Math.max(w, h) / Math.min(w, h) <= 3 &&
+    pixels >= 655_360 && pixels <= 8_294_400
+  )
+}
 
 export interface ImageDimensions {
   width: number
   height: number
-  /** Content-type label (e.g. "1:1", "9:16") used only by resolveImageSize
-   * below to pick the nearest OpenAI-supported `size` string -- never sent
-   * to the API directly. */
+  /** Human-readable label (e.g. "1:1", "9:16") for logs only --
+   * resolveImageSize picks the native size from width/height, never from
+   * this label, and it's never sent to the API. */
   aspectRatio: string
 }
 
-// gpt-image-2 (like every GPT image model) natively supports these 3 fixed
-// sizes. Arbitrary WIDTHxHEIGHT is technically allowed too (OpenAI's own
-// SDK types document width/height divisible by 16, aspect ratio between
-// 1:3 and 3:1), but every downstream compositor already force-resizes the
-// result via sharp regardless of what comes back (see
-// lib/ai/post-image-pipeline.ts's generatePostImage), so there's no real
-// benefit to the added risk of an experimental arbitrary size -- picking
-// the nearest of these 3 standard, fully-supported sizes by aspect ratio
-// gets the same effective output quality with less surface area to break.
-export type OpenAIImageSize = "1024x1024" | "1024x1536" | "1536x1024"
+export type OpenAIImageSize = (typeof IMAGE_PROVIDER_CONFIG.sizes)[keyof typeof IMAGE_PROVIDER_CONFIG.sizes]
 
-function resolveImageSize(dimensions: ImageDimensions): OpenAIImageSize {
-  const ratio = dimensions.width / dimensions.height
-  if (ratio > 1.15) return "1536x1024"
-  if (ratio < 0.87) return "1024x1536"
-  return "1024x1024"
+function sizeRatio(size: string): number {
+  const [w, h] = size.split("x").map(Number)
+  return w! / h!
+}
+
+/** The configured size whose aspect ratio is closest to the requested canvas (compared on a log scale, so 2:1 and 1:2 are equally far from 1:1). */
+export function resolveImageSize(dimensions: ImageDimensions): OpenAIImageSize {
+  const target = Math.log(dimensions.width / dimensions.height)
+  const sizes = Object.values(IMAGE_PROVIDER_CONFIG.sizes)
+  return sizes.reduce((best, size) =>
+    Math.abs(Math.log(sizeRatio(size)) - target) < Math.abs(Math.log(sizeRatio(best)) - target) ? size : best
+  )
 }
 
 export type ImageProviderFailureReason = "network_error" | "api_error" | "moderation_blocked"

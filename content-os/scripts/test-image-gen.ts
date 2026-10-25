@@ -4,6 +4,16 @@
 // PNG files for a human to eyeball. Run manually: `npx tsx
 // scripts/test-image-gen.ts`.
 //
+// No-crop portrait check: also generates one 4:5 post and one 9:16 story at
+// the exact-ratio native sizes in IMAGE_PROVIDER_CONFIG.sizes, and saves
+// each twice -- the raw native image, and the final canvas exactly as the
+// app produces it (the post composited with on-image text by
+// compositePostImage; the story scaled to 1080x1920 the way
+// story-compositor.ts does) -- so cropping and text placement can be
+// eyeballed side by side. `--sizes-only` runs just these two generations.
+// Every configured size is also checked offline against gpt-image-2's size
+// rules (isValidImageSize) before anything is generated.
+//
 // NOT reachable in production: this is a standalone script, not an API
 // route or page -- Next.js never serves anything under scripts/ to a
 // browser. The NODE_ENV guard below is defense-in-depth only, in case
@@ -13,7 +23,11 @@
 import { writeFileSync, mkdirSync } from "fs"
 import { join } from "path"
 import { readFileSync, existsSync } from "fs"
-import { generateOpenAIImage, type ImageDimensions } from "@/lib/ai/image-provider"
+import sharp from "sharp"
+import { generateOpenAIImage, isValidImageSize, resolveImageSize, IMAGE_PROVIDER_CONFIG, type ImageDimensions } from "@/lib/ai/image-provider"
+import { compositePostImage } from "@/lib/image/post-compositor"
+import { resolveColorThemes } from "@/lib/design/color-themes"
+import { DEFAULT_POST_TEMPLATE_ID } from "@/lib/design/post-templates"
 
 function loadEnvLocal(): void {
   const envPath = join(process.cwd(), ".env.local")
@@ -37,9 +51,87 @@ if (process.env.NODE_ENV === "production") {
   process.exit(1)
 }
 
+// Offline: every configured native size must pass gpt-image-2's size rules.
+function checkConfiguredSizes(): boolean {
+  let ok = true
+  for (const [name, size] of Object.entries(IMAGE_PROVIDER_CONFIG.sizes)) {
+    const valid = isValidImageSize(size)
+    if (!valid) ok = false
+    console.log(`[test-image-gen] size ${name.padEnd(9)} ${size.padEnd(10)} ${valid ? "valid" : "INVALID for gpt-image-2"}`)
+  }
+  return ok
+}
+
+// One 4:5 post and one 9:16 story at the new exact-ratio sizes: saves the
+// raw native image and the final canvas the app would produce from it.
+async function runNoCropCases(outDir: string): Promise<{ label: string; ok: boolean; detail: string; ms: number }[]> {
+  const results: { label: string; ok: boolean; detail: string; ms: number }[] = []
+  const cases = [
+    {
+      label: "4:5 post, no crop (composited with on-image text)",
+      prompt: "a single amber glass serum bottle with a brass dropper on a sunlit bathroom shelf, soft morning light, fresh green plant leaves at the top and bottom edges of the frame, no people, no text, no logos",
+      canvas: { width: 1080, height: 1350, aspectRatio: "4:5" } satisfies ImageDimensions,
+      prefix: "nocrop-post-4x5",
+    },
+    {
+      label: "9:16 story, no crop",
+      prompt: "a tall vertical shot of a sunlit bathroom shelf with an amber serum bottle in the middle, a green plant at the very top of the frame and a woven basket at the very bottom, soft morning light, no people, no text, no logos",
+      canvas: { width: 1080, height: 1920, aspectRatio: "9:16" } satisfies ImageDimensions,
+      prefix: "nocrop-story-9x16",
+    },
+  ]
+  for (const c of cases) {
+    const startedAt = Date.now()
+    console.log(`[test-image-gen] -> ${c.label} (requesting ${resolveImageSize(c.canvas)})`)
+    const result = await generateOpenAIImage(c.prompt, c.canvas)
+    const ms = Date.now() - startedAt
+    if ("error" in result) {
+      console.error(`[test-image-gen]    FAILED (${result.reason}): ${result.error}`)
+      results.push({ label: c.label, ok: false, detail: `${result.reason}: ${result.error}`, ms })
+      continue
+    }
+    const meta = await sharp(result.buffer).metadata()
+    const nativePath = join(outDir, `${c.prefix}-native.png`)
+    writeFileSync(nativePath, result.buffer)
+
+    const finalBuffer = c.canvas.height === 1350
+      ? await compositePostImage(result.buffer, {
+          template: DEFAULT_POST_TEMPLATE_ID,
+          colorTheme: resolveColorThemes({ primary_color: "#E8A87C", color_palette: {} })[0]!,
+          captionText: "Your skin, but brighter",
+          logoUrl: null,
+        })
+      : await sharp(result.buffer).resize(c.canvas.width, c.canvas.height, { fit: "cover" }).png().toBuffer()
+    const finalMeta = await sharp(finalBuffer).metadata()
+    const finalPath = join(outDir, `${c.prefix}-final.png`)
+    writeFileSync(finalPath, finalBuffer)
+
+    const nativeRatio = (meta.width ?? 0) / (meta.height ?? 1)
+    const canvasRatio = c.canvas.width / c.canvas.height
+    const cropPct = Math.max(0, (1 - Math.min(nativeRatio, canvasRatio) / Math.max(nativeRatio, canvasRatio)) * 100)
+    console.log(`[test-image-gen]    OK -- native ${meta.width}x${meta.height}, final ${finalMeta.width}x${finalMeta.height}, cropped ${cropPct.toFixed(1)}%, costUsd=${result.costUsd ?? "unknown"}`)
+    console.log(`[test-image-gen]       ${nativePath}\n[test-image-gen]       ${finalPath}`)
+    results.push({ label: c.label, ok: true, detail: `${meta.width}x${meta.height} -> ${finalPath}`, ms })
+  }
+  return results
+}
+
 async function main() {
   const outDir = join(process.cwd(), "scripts", "output")
   mkdirSync(outDir, { recursive: true })
+
+  if (!checkConfiguredSizes()) {
+    console.error("[test-image-gen] a configured size breaks gpt-image-2's size rules -- fix IMAGE_PROVIDER_CONFIG.sizes before generating.")
+    process.exit(1)
+  }
+
+  if (process.argv.includes("--sizes-only")) {
+    const results = await runNoCropCases(outDir)
+    const failed = results.filter((r) => !r.ok).length
+    if (failed > 0) process.exit(1)
+    console.log(`\n[test-image-gen] no-crop check done -- open the *-native.png / *-final.png pairs in ${outDir}.`)
+    return
+  }
 
   const cases: { label: string; prompt: string; dimensions: ImageDimensions; filename: string }[] = [
     {
@@ -68,6 +160,8 @@ async function main() {
   console.log(`[test-image-gen] running ${cases.length} test generations, saving to ${outDir}\n`)
 
   const results: { label: string; ok: boolean; detail: string; ms: number }[] = []
+
+  results.push(...(await runNoCropCases(outDir)))
 
   for (const testCase of cases) {
     const startedAt = Date.now()

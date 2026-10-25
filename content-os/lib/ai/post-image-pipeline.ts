@@ -51,16 +51,12 @@ const SQUARE_DIMENSIONS: ImageDimensions = { width: CANVAS_SIZE, height: CANVAS_
 // needing to pass dimensions explicitly. Stories keeps its own explicit 9:16
 // STORY_DIMENSIONS (lib/ai/story-slide-background.ts) — untouched by this.
 //
-// `aspectRatio` here is deliberately "3:4", NOT the true "4:5" pixel ratio —
-// lib/ai/image-provider.ts's resolveImageSize only picks between 3 fixed
-// OpenAI-supported sizes (square/portrait/landscape) by aspect ratio, so
-// "3:4" and "4:5" both resolve to the same portrait size either way. It
-// only affects what aspect gpt-image-2 is asked to natively generate at,
-// since compositePostImage's own
-// `sharp(...).resize(width, height, { fit: "cover" })` already forces the
-// final output to these exact width/height regardless of what the
-// provider actually returned.
-const PORTRAIT_DIMENSIONS: ImageDimensions = { width: 1080, height: 1350, aspectRatio: "3:4" }
+// lib/ai/image-provider.ts's resolveImageSize picks the native generation
+// size from these width/height (IMAGE_PROVIDER_CONFIG.sizes.portrait, an
+// exact 4:5), so the `sharp(...).resize(width, height, { fit: "cover" })`
+// here and in compositePostImage only scales -- it no longer crops the
+// top/bottom ~17% the old 2:3 (1024x1536) generation size lost.
+const PORTRAIT_DIMENSIONS: ImageDimensions = { width: 1080, height: 1350, aspectRatio: "4:5" }
 
 // 9:16 — reuses the exact same dimensions Stories already generates at
 // (lib/ai/story-slide-background.ts's STORY_DIMENSIONS), kept as its own
