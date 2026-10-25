@@ -41,7 +41,7 @@ async function persistAttempts(supabase: any, brandId: string, attempts: ImageGe
   }
 }
 
-// Chains up to 2 sequential Flux calls (first attempt + retry) inside
+// Chains up to 2 sequential image-provider calls (first attempt + retry) inside
 // generatePostImage — each a real network round-trip that can individually
 // take 10-30s+, so this needs more headroom than Vercel's platform
 // default. Matches the convention already used by other slow-external-call
@@ -50,7 +50,7 @@ async function persistAttempts(supabase: any, brandId: string, attempts: ImageGe
 export const maxDuration = 60
 
 /**
- * Generates the final Create → Full Post AI image: Replicate/Flux (via
+ * Generates the final Create → Full Post AI image: OpenAI's gpt-image-2 (via
  * lib/ai/post-image-pipeline.ts) grounded in the caption's own message,
  * composited with the chosen template's logo/headline/accent/CTA overlay.
  * Serves both the initial image generation and the "Regenerate image"
@@ -111,7 +111,7 @@ export async function POST(request: Request) {
   }
   const productImageUrl = product?.image_urls?.[0] ?? null
 
-  // Every plan resolves to Flux now (lib/ai/post-image-pipeline.ts's
+  // Every plan resolves to the same image provider now (lib/ai/post-image-pipeline.ts's
   // fetchBackgroundImage) -- still looked up since that function's
   // signature expects it.
   const { data: userData } = await supabase.from("users").select("plan").eq("id", user.id).single<{ plan: UserPlan }>()
@@ -154,7 +154,7 @@ export async function POST(request: Request) {
     console.error(`[ai/post-image/generate] generation failed after ${Date.now() - startTime}ms:`, result.error)
     await persistAttempts(supabase, brandId, result.attempts)
     // Best-effort provider label from whatever was actually attempted —
-    // previously this was hardcoded to "flux+resvg-composite" regardless
+    // previously this was hardcoded to a fixed label regardless
     // of whether a generation attempt had even started.
     const lastProvider = result.attempts[result.attempts.length - 1]?.provider ?? "unknown"
     await logGenerationOutcome(supabase, logId, {
@@ -166,7 +166,7 @@ export async function POST(request: Request) {
     if (shouldCharge) await refundGenerationUsage(supabase, user.id, POST_CREDIT_COST, logId)
     // result.error is a real, useful diagnostic (already logged above and
     // in ai_generation_logs) but can name the underlying image provider
-    // (e.g. "Flux generation failed: ...") -- never forwarded to the user
+    // (e.g. "Image generation failed: ...") -- never forwarded to the user
     // as-is. A generic, SocioPosts-branded message goes to the client
     // instead; anyone debugging a real report can find the raw detail via
     // this response's correlationId in the server logs.
@@ -200,7 +200,7 @@ export async function POST(request: Request) {
 
   // model_used and provider both now record the real provider that
   // actually produced the base image — previously model_used was
-  // hardcoded to "flux+resvg-composite" regardless of what actually ran.
+  // hardcoded to a fixed label regardless of what actually ran.
   // provider is the new structured column; model_used keeps its existing
   // "<what produced this>+resvg-composite"
   // shape for anything still reading it as a single label -- only appends

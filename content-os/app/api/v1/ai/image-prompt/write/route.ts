@@ -52,7 +52,7 @@ const schema = z.object({
 // credit -- it's a soft creative-writing pass in front of the real,
 // billed image-generation routes (post-image/generate, images/generate,
 // carousel & stories slide-image/generate, ad-maker/generate), which are
-// what actually call Replicate/Flux and are what already charge. Whatever
+// what actually call the image provider and are what already charge. Whatever
 // this route produces is only ever a draft the user can still edit before
 // they hit the real Generate action downstream.
 export async function POST(request: Request) {

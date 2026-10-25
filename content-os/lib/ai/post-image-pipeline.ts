@@ -1,15 +1,17 @@
 import sharp from "sharp"
-import Replicate from "replicate"
+import { generateOpenAIImage, IMAGE_PROVIDER, type ImageDimensions } from "@/lib/ai/image-provider"
 import { compositePostImage, compositeHardTruthChecklist } from "@/lib/image/post-compositor"
 import type { PostTemplateId } from "@/lib/design/post-templates"
 import type { ColorTheme } from "@/lib/design/color-themes"
 import type { UserPlan } from "@/types/app"
 
+export type { ImageDimensions }
+
 const CANVAS_SIZE = 1080
 const MIN_BUFFER_BYTES = 5000
 // Near-black or near-blank/white images are treated as a failed attempt
-// even on a 200 response — Replicate/Flux occasionally returns a
-// placeholder image rather than a real error for a moderation refusal.
+// even on a 200 response — OpenAI occasionally returns a placeholder-like
+// image rather than a clean error for a moderation refusal.
 const NEAR_BLACK_MEAN = 8
 const NEAR_BLANK_MEAN = 247
 
@@ -35,45 +37,6 @@ async function isTooBlurry(buffer: Buffer): Promise<boolean> {
   return sqDiff / n < BLUR_VARIANCE_THRESHOLD
 }
 
-// Pinned to a specific version string (not just "black-forest-labs/flux-2-pro"'s
-// unversioned alias) isn't required here — Replicate's `owner/model` form
-// without a `:version` always resolves to that model's current default
-// version, which is what every other Flux example in this codebase's
-// research showed. Kept as one named constant so bumping to a newer Flux
-// release later is a one-line change, not a call-site hunt.
-const FLUX_MODEL = "black-forest-labs/flux-2-pro"
-
-// Replicate's black-forest-labs/flux-2-pro controls output resolution via a
-// `resolution` input — a string enum ("0.5 MP" | "1 MP" | "2 MP" | "4 MP" |
-// "match_input_image"), NOT the `megapixels` field (with bare numeric
-// strings) this code sent until 2026-08-17. That field name doesn't exist
-// in the model's live schema at all — confirmed directly from Replicate's
-// own OpenAPI schema for this model (pulled from the model page's embedded
-// JSON, since the page itself is client-rendered). The old `megapixels`
-// field was a validation-error-free no-op: Replicate silently drops
-// unrecognized input keys rather than rejecting the call, so every prior
-// Flux call ran at the schema's default ("1 MP", ~1024x1024) regardless of
-// what tier this code picked — smaller than this app's 1080x1080 (and
-// Stories' 1080x1920) compositing targets, which is exactly what was
-// causing compositePostImage's forced resize to upscale (blur) Flux
-// images. See docs/research/seedream-5-lite-evaluation.md for how this was
-// found. No "0.25 MP" tier exists in the real enum, so the smallest valid
-// tier is "0.5 MP".
-const FLUX_RESOLUTION_TIERS = ["0.5 MP", "1 MP", "2 MP", "4 MP"] as const
-
-function resolveFluxResolution(dimensions: ImageDimensions): string {
-  const targetMP = (dimensions.width * dimensions.height) / 1_000_000
-  const tier = FLUX_RESOLUTION_TIERS.find((t) => parseFloat(t) >= targetMP) ?? FLUX_RESOLUTION_TIERS[FLUX_RESOLUTION_TIERS.length - 1]
-  return tier
-}
-
-export interface ImageDimensions {
-  width: number
-  height: number
-  /** Replicate/Flux's own aspect-ratio param format, e.g. "1:1", "9:16". */
-  aspectRatio: string
-}
-
 // Square — kept available (not deleted) for a future square option or any
 // caller that explicitly wants it, but no longer the default (see
 // PORTRAIT_DIMENSIONS below).
@@ -88,15 +51,14 @@ const SQUARE_DIMENSIONS: ImageDimensions = { width: CANVAS_SIZE, height: CANVAS_
 // STORY_DIMENSIONS (lib/ai/story-slide-background.ts) — untouched by this.
 //
 // `aspectRatio` here is deliberately "3:4", NOT the true "4:5" pixel ratio —
-// Replicate's flux-2-pro model only accepts a fixed aspect_ratio enum
-// (confirmed from its own schema, see docs/research/seedream-5-lite-evaluation.md):
-// ["match_input_image","1:1","4:3","3:4","16:9","9:16","3:2","2:3","21:9"].
-// "4:5" isn't in it — sending it would risk the call failing outright.
-// "3:4" is the closest valid enum value; it only affects what aspect Flux is
-// asked to natively generate at, since compositePostImage's own
+// lib/ai/image-provider.ts's resolveImageSize only picks between 3 fixed
+// OpenAI-supported sizes (square/portrait/landscape) by aspect ratio, so
+// "3:4" and "4:5" both resolve to the same portrait size either way. It
+// only affects what aspect gpt-image-2 is asked to natively generate at,
+// since compositePostImage's own
 // `sharp(...).resize(width, height, { fit: "cover" })` already forces the
-// final output to these exact width/height regardless of what Flux
-// actually returned.
+// final output to these exact width/height regardless of what the
+// provider actually returned.
 const PORTRAIT_DIMENSIONS: ImageDimensions = { width: 1080, height: 1350, aspectRatio: "3:4" }
 
 // 9:16 — reuses the exact same dimensions Stories already generates at
@@ -116,7 +78,7 @@ function resolvePostImageDimensions(aspectRatio: "4:5" | "1:1" | "9:16" | undefi
 }
 
 export type PostImagePipelineResult =
-  | { success: true; buffer: Buffer; mimeType: string; fullPrompt: string; provider: "flux" | "none"; attempts: ImageGenerationAttempt[]; textComposited: boolean }
+  | { success: true; buffer: Buffer; mimeType: string; fullPrompt: string; provider: typeof IMAGE_PROVIDER | "none"; attempts: ImageGenerationAttempt[]; textComposited: boolean }
   | { success: false; error: string; attempts: ImageGenerationAttempt[] }
 
 // Structured failure classification — distinct from the free-text `error`
@@ -126,7 +88,7 @@ export type PostImagePipelineResult =
 // question is whether the near-black/near-blank quality check is
 // over-triggering on legitimate photography — that's unanswerable if every
 // failure mode collapses into one generic reason.
-export type ImageAttemptFailureReason = "too_small" | "near_black" | "near_blank" | "blurry" | "unreadable" | "network_error" | "api_error"
+export type ImageAttemptFailureReason = "too_small" | "near_black" | "near_blank" | "blurry" | "unreadable" | "network_error" | "api_error" | "moderation_blocked"
 
 /**
  * One row per real attempt inside fetchBackgroundImage below — not just
@@ -140,7 +102,7 @@ export type ImageAttemptFailureReason = "too_small" | "near_black" | "near_blank
  */
 export interface ImageGenerationAttempt {
   attemptNumber: number
-  provider: "flux"
+  provider: typeof IMAGE_PROVIDER
   promptVariant: "primary" | "fallback"
   success: boolean
   failureReason: ImageAttemptFailureReason | null
@@ -176,85 +138,18 @@ async function checkImageQuality(buffer: Buffer): Promise<{ ok: true } | { error
   return { ok: true }
 }
 
-function getReplicateApiToken(): string {
-  const token = process.env.REPLICATE_API_TOKEN
-  if (!token) throw new Error("REPLICATE_API_TOKEN is not set")
-  return token
-}
+// Thin wrapper around lib/ai/image-provider.ts's generateOpenAIImage --
+// this file owns the quality check (blank/black/blurry), the provider
+// module owns everything about actually talking to OpenAI. `attemptLabel`
+// is for logging only -- there's no seed param in the images API to vary
+// generations by.
+async function fetchAndCheckImage(prompt: string, attemptLabel: string, dimensions: ImageDimensions, productImageUrl?: string | null): Promise<{ buffer: Buffer } | { error: string; reason: ImageAttemptFailureReason }> {
+  console.log(`[post-image-pipeline] attempt=${attemptLabel} dimensions=${dimensions.width}x${dimensions.height} productReference=${productImageUrl ? "yes" : "no"}`)
 
-function getReplicateClient(): Replicate {
-  return new Replicate({ auth: getReplicateApiToken() })
-}
+  const result = await generateOpenAIImage(prompt, dimensions, productImageUrl)
+  if ("error" in result) return result
 
-// The Node client's `.run()` return type is deliberately loose (`Promise<object>`)
-// since its actual shape depends on both the model (single output vs. an
-// array of outputs) and the client's `useFileOutput` setting (defaults to
-// true, wrapping each URL in a `FileOutput` — a ReadableStream with a
-// `.blob()`/`.url()` — rather than a plain string). Handled defensively
-// here instead of assuming one specific shape.
-async function bufferFromReplicateOutput(output: unknown): Promise<{ buffer: Buffer } | { error: string; reason: ImageAttemptFailureReason }> {
-  const first = Array.isArray(output) ? output[0] : output
-  if (first === undefined || first === null) {
-    return { error: "Replicate returned no image output.", reason: "api_error" }
-  }
-
-  if (typeof first === "object" && "blob" in first && typeof (first as { blob: unknown }).blob === "function") {
-    const blob = await (first as { blob(): Promise<Blob> }).blob()
-    return { buffer: Buffer.from(await blob.arrayBuffer()) }
-  }
-
-  const url = typeof first === "string" ? first : String(first)
-  try {
-    const res = await fetch(url)
-    if (!res.ok) return { error: `Failed to fetch Flux image from Replicate (${res.status}).`, reason: "api_error" }
-    return { buffer: Buffer.from(await res.arrayBuffer()) }
-  } catch (err) {
-    return { error: err instanceof Error ? err.message : "Failed to fetch Flux image from Replicate.", reason: "network_error" }
-  }
-}
-
-async function fetchAndCheckFluxImage(prompt: string, seed: number, dimensions: ImageDimensions, productImageUrl?: string | null): Promise<{ buffer: Buffer } | { error: string; reason: ImageAttemptFailureReason }> {
-  const resolution = resolveFluxResolution(dimensions)
-  console.log(`[post-image-pipeline] calling Replicate (${FLUX_MODEL}): attemptSeed=${seed} promptLen=${prompt.length} aspectRatio=${dimensions.aspectRatio} resolution=${resolution} productReference=${productImageUrl ? "yes" : "no"}`)
-
-  let output: unknown
-  try {
-    const replicate = getReplicateClient()
-    output = await replicate.run(FLUX_MODEL, {
-      input: {
-        prompt,
-        aspect_ratio: dimensions.aspectRatio,
-        resolution,
-        output_format: "png",
-        // Confirmed against Replicate's own live schema for
-        // black-forest-labs/flux-2-pro (not assumed — this file already
-        // shipped one silent-no-op bug from guessing a field name that
-        // didn't exist, see FLUX_RESOLUTION_TIERS above): "input_images"
-        // is an array of up to 8 reference image URLs, used for
-        // image-to-image generation/editing. Omitted entirely (not sent
-        // as an empty array) when there's no real product photo, so this
-        // never accidentally engages image-to-image mode with nothing to
-        // reference.
-        ...(productImageUrl ? { input_images: [productImageUrl] } : {}),
-      },
-    })
-  } catch (err) {
-    // Full error object logged server-side — Replicate's client throws
-    // errors whose .message often only has a generic summary, with the
-    // actual API-reported reason (moderation, invalid input, etc.) on the
-    // error's own `.response`/`.detail` — never swallowed here.
-    console.error(`[post-image-pipeline] Replicate call failed:`, err)
-    const detail = err instanceof Error ? err.message : String(err)
-    return { error: `Flux generation failed: ${detail}`, reason: "api_error" }
-  }
-
-  const result = await bufferFromReplicateOutput(output)
-  if ("error" in result) {
-    console.error(`[post-image-pipeline] Replicate output could not be read:`, result.error)
-    return result
-  }
-
-  console.log(`[post-image-pipeline] Flux image buffer: ${result.buffer.length} bytes`)
+  console.log(`[post-image-pipeline] image buffer: ${result.buffer.length} bytes`)
 
   const quality = await checkImageQuality(result.buffer)
   if ("error" in quality) return quality
@@ -342,7 +237,7 @@ export const NO_PEOPLE_BY_DEFAULT_GUARD = "prefer product-only or environmental/
 // entirely rather than attempting the isolation. Copying the real person
 // already in the reference photo carries much lower anatomy-defect risk
 // than NO_PEOPLE_BY_DEFAULT_GUARD's original invented-from-scratch case
-// (see that constant's comment above), since Flux is tracing real
+// (see that constant's comment above), since the model is tracing real
 // proportions from an attached photo rather than hallucinating a person —
 // so relaxing the bias specifically here doesn't reintroduce the problem
 // that guard exists to prevent.
@@ -354,11 +249,10 @@ export const REFERENCE_IMAGE_PEOPLE_GUARD = "if the reference photo shows the pr
 // that shared boilerplate: drops the redundant "professional photography"
 // (already covered by PHOTOGRAPHY_STYLE above) and "8K ultra HD, sharp
 // focus" (a generic superlative with nothing for the model to actually aim
-// at), and adds explicit negative-artifact language — confirmed via
-// Black Forest Labs' own FLUX.2 docs that Replicate/Flux 2 Pro has no
-// dedicated negative-prompt parameter ("FLUX.2 does not support negative
-// prompts" outright) — so this has to be folded into the single positive
-// prompt string, same as everything else here.
+// at), and adds explicit negative-artifact language — OpenAI's image
+// models have no dedicated negative-prompt parameter, so every constraint
+// has to be folded into the single positive prompt string, same as
+// everything else here.
 // "the main subject in crisp sharp focus... not soft, hazy, or out of
 // focus" — contrastive rather than a bare superlative (the prior "8K ultra
 // HD, sharp focus" removed in favor of PHOTOGRAPHY_STYLE's specific lens/
@@ -407,8 +301,8 @@ export const CENTERED_COMPOSITION_GUARD = "keep the main subject, text, logos, a
 //
 // Was 600 -- shorter than the prompt-authoring stage's real target output
 // (80-150 words, lib/ai/image-prompt-writer.ts), so a genuine, complete
-// AI-authored prompt was being cut off before ever reaching Flux -- the
-// direct cause of the "generated prompt is too short/cut off" image
+// AI-authored prompt was being cut off before ever reaching the image
+// provider -- the direct cause of the "generated prompt is too short/cut off" image
 // quality issue this constant exists to guard against, not to cause. 1500
 // gives real headroom above that target length while still bounding
 // worst-case (e.g. a hand-pasted essay) length.
@@ -417,8 +311,8 @@ const MAX_TARGET_AUDIENCE_CHARS = 150
 
 // Cuts at the last sentence boundary within budget, not mid-sentence/
 // mid-word -- a raw slice() previously here could (and did) chop a
-// complete AI-authored prompt off mid-clause, handing Flux a garbled
-// trailing fragment instead of a clean, complete description. Falls back
+// complete AI-authored prompt off mid-clause, handing the image provider a
+// garbled trailing fragment instead of a clean, complete description. Falls back
 // to a word boundary when no sentence end falls in the back half of the
 // budget (e.g. one unbroken run-on clause), and only cuts mid-word as an
 // absolute last resort (a single "word" longer than the entire budget).
@@ -458,8 +352,8 @@ function buildNegativeGuard(niche: string | null): string {
   return "avoid generic corporate stock-photo clichés — no laptops on a desk, no empty office interiors, no generic handshake or boardroom meeting scenes"
 }
 
-// When a real product photo is attached as a Flux image-to-image reference
-// (see fetchAndCheckFluxImage's input_images), the prompt needs to describe
+// When a real product photo is attached as an image-to-image reference
+// (see lib/ai/image-provider.ts's images.edit call), the prompt needs to describe
 // the SCENE/setting/lighting around the product rather than re-describing
 // the product's own appearance — the LLM-generated imagePrompt does the
 // latter by design (IMAGE_PROMPT_INSTRUCTION in prompts.ts explicitly asks
@@ -516,24 +410,25 @@ function simplifyPrompt(prompt: string, brandNiche: string | null, hasReferenceI
 }
 
 export type BackgroundImageResult =
-  | { success: true; buffer: Buffer; mimeType: string; provider: "flux"; attempts: ImageGenerationAttempt[] }
+  | { success: true; buffer: Buffer; mimeType: string; provider: typeof IMAGE_PROVIDER; attempts: ImageGenerationAttempt[] }
   | { success: false; error: string; attempts: ImageGenerationAttempt[] }
 
 /**
- * Fetches a single background image buffer via Replicate's Flux 2 Pro —
- * every plan, every trial, no provider branching — retrying once with
- * `fallbackPrompt`/a new seed on failure. Never throws. This is the shared
- * "get me a good image buffer" half of generatePostImage below, minus its
- * niche-specific prompt-building and template compositing — reused as-is
- * by any caller that just wants a plain, uncomposited background image
- * (e.g. carousel slide backgrounds in lib/ai/carousel-slide-background.ts).
+ * Fetches a single background image buffer via OpenAI's gpt-image-2 (see
+ * lib/ai/image-provider.ts) — every plan, every trial, no provider
+ * branching — retrying once with `fallbackPrompt` on failure. Never
+ * throws. This is the shared "get me a good image buffer" half of
+ * generatePostImage below, minus its niche-specific prompt-building and
+ * template compositing — reused as-is by any caller that just wants a
+ * plain, uncomposited background image (e.g. carousel slide backgrounds in
+ * lib/ai/carousel-slide-background.ts).
  *
  * `plan`/`isInternalUnlimitedUser` are kept as parameters (unused for
- * provider selection now that every plan resolves to Flux) rather than
- * removed, since every call site still has them on hand from resolving
- * the caller's plan for credit-charging purposes, and removing them here
- * would just be a cosmetic signature change across every caller for no
- * behavioral gain.
+ * provider selection now that every plan resolves to the same provider)
+ * rather than removed, since every call site still has them on hand from
+ * resolving the caller's plan for credit-charging purposes, and removing
+ * them here would just be a cosmetic signature change across every caller
+ * for no behavioral gain.
  */
 export async function fetchBackgroundImage(
   prompt: string,
@@ -541,11 +436,12 @@ export async function fetchBackgroundImage(
   _plan: UserPlan,
   _isInternalUnlimitedUser: boolean,
   dimensions: ImageDimensions = PORTRAIT_DIMENSIONS,
-  /** Real uploaded product photo (products.image_urls[0]) — sent as a Flux
-   * image-to-image reference (see fetchAndCheckFluxImage's input_images). */
+  /** Real uploaded product photo (products.image_urls[0]) — sent as an
+   * image-to-image reference via OpenAI's images.edit endpoint (see
+   * lib/ai/image-provider.ts). */
   productImageUrl?: string | null
 ): Promise<BackgroundImageResult> {
-  console.log(`[post-image-pipeline] fetchBackgroundImage provider=flux dimensions=${dimensions.width}x${dimensions.height} productReference=${productImageUrl ? "yes" : "no"}`)
+  console.log(`[post-image-pipeline] fetchBackgroundImage provider=${IMAGE_PROVIDER} dimensions=${dimensions.width}x${dimensions.height} productReference=${productImageUrl ? "yes" : "no"}`)
 
   // One entry per real attempt (not just the final outcome) — this is what
   // makes "how often does the near-blank/near-black check trip, and at
@@ -555,15 +451,13 @@ export async function fetchBackgroundImage(
   // inside this function was invisible in the data entirely.
   const attempts: ImageGenerationAttempt[] = []
 
-  const seed = Math.floor(Math.random() * 1_000_000)
-  let attempt = await fetchAndCheckFluxImage(prompt, seed, dimensions, productImageUrl)
-  attempts.push({ attemptNumber: 1, provider: "flux", promptVariant: "primary", success: !("error" in attempt), failureReason: "error" in attempt ? attempt.reason : null })
+  let attempt = await fetchAndCheckImage(prompt, "1-primary", dimensions, productImageUrl)
+  attempts.push({ attemptNumber: 1, provider: IMAGE_PROVIDER, promptVariant: "primary", success: !("error" in attempt), failureReason: "error" in attempt ? attempt.reason : null })
 
   if ("error" in attempt) {
     console.error(`[post-image-pipeline] first attempt failed:`, attempt.error)
-    const retrySeed = Math.floor(Math.random() * 1_000_000)
-    attempt = await fetchAndCheckFluxImage(fallbackPrompt, retrySeed, dimensions, productImageUrl)
-    attempts.push({ attemptNumber: 2, provider: "flux", promptVariant: "fallback", success: !("error" in attempt), failureReason: "error" in attempt ? attempt.reason : null })
+    attempt = await fetchAndCheckImage(fallbackPrompt, "2-fallback", dimensions, productImageUrl)
+    attempts.push({ attemptNumber: 2, provider: IMAGE_PROVIDER, promptVariant: "fallback", success: !("error" in attempt), failureReason: "error" in attempt ? attempt.reason : null })
 
     if ("error" in attempt) {
       console.error(`[post-image-pipeline] retry also failed:`, attempt.error)
@@ -571,7 +465,7 @@ export async function fetchBackgroundImage(
     }
   }
 
-  return { success: true, buffer: attempt.buffer, mimeType: "image/png", provider: "flux", attempts }
+  return { success: true, buffer: attempt.buffer, mimeType: "image/png", provider: IMAGE_PROVIDER, attempts }
 }
 
 export interface GeneratePostImageOptions {
@@ -595,14 +489,14 @@ export interface GeneratePostImageOptions {
   textSizeScale?: number | null
   logoUrl: string | null
   /** Kept for credit-charging/logging call sites that already have this on
-   * hand -- every plan resolves to Flux now (see fetchBackgroundImage). */
+   * hand -- every plan resolves to the same provider now (see fetchBackgroundImage). */
   plan: UserPlan
   /** Internal owner-bypass -- same reasoning as `plan` above, no longer
    * changes which provider is used. */
   isInternalUnlimitedUser: boolean
   /** Real uploaded product photo (products.image_urls[0]), if the user
-   * picked a product for this post. Used as a Flux image-to-image
-   * reference (see fetchAndCheckFluxImage) -- also switches the assembled
+   * picked a product for this post. Used as an image-to-image
+   * reference (see lib/ai/image-provider.ts) -- also switches the assembled
    * prompt onto the scene-focused hasReferenceImage path below rather than
    * re-describing the product's appearance from scratch. */
   productImageUrl?: string | null
@@ -623,7 +517,7 @@ export interface GeneratePostImageOptions {
    * compositeHardTruthChecklist. This template has no photo at all, so
    * imagePrompt/captionText/aspectRatio/visualStyle above are all ignored
    * for it -- see generatePostImage's own early-exit branch. Omitted (or
-   * checklistHeadline empty) falls through to the normal Flux path
+   * checklistHeadline empty) falls through to the normal AI-image path
    * instead of a broken empty checklist card -- see that branch's own
    * comment for why. */
   checklistHeadline?: string
@@ -634,18 +528,18 @@ export interface GeneratePostImageOptions {
 }
 
 /**
- * Generates the base image via Replicate's Flux 2 Pro — every plan, no
- * provider branching — retrying once with a simplified prompt and a new
- * seed if the first attempt fails outright or comes back low-quality —
- * capped at 1 auto-retry, 2 attempts total — then composites the chosen
- * template's overlay onto it. Never throws — every failure mode returns
- * { success: false } so the route can surface a clean inline error instead
- * of a silent blank preview.
+ * Generates the base image via OpenAI's gpt-image-2 (see
+ * lib/ai/image-provider.ts) — every plan, no provider branching — retrying
+ * once with a simplified prompt if the first attempt fails outright or
+ * comes back low-quality — capped at 1 auto-retry, 2 attempts total — then
+ * composites the chosen template's overlay onto it. Never throws — every
+ * failure mode returns { success: false } so the route can surface a clean
+ * inline error instead of a silent blank preview.
  */
 export async function generatePostImage(options: GeneratePostImageOptions): Promise<PostImagePipelineResult> {
   // hard_truth_checklist has no photo at all -- a flat card composited
   // entirely from its own checklist_* fields, never from imagePrompt/
-  // captionText. Skips fetchBackgroundImage (and the Replicate/Flux credit
+  // captionText. Skips fetchBackgroundImage (and the AI-image credit
   // spend that comes with it) entirely -- real credits saved per
   // generation for this template, not just a visual choice. Guarded on
   // checklistHeadline actually being present (not just the template id)
@@ -668,7 +562,7 @@ export async function generatePostImage(options: GeneratePostImageOptions): Prom
         rightItems: options.checklistRightItems ?? [],
         closingLine: options.checklistClosingLine ?? null,
       })
-      console.log(`[post-image-pipeline] hard_truth_checklist composited successfully: ${composited.length} bytes (no Flux call made)`)
+      console.log(`[post-image-pipeline] hard_truth_checklist composited successfully: ${composited.length} bytes (no AI image call made)`)
       return {
         success: true,
         buffer: composited,

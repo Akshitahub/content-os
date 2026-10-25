@@ -46,12 +46,12 @@ interface CarouselSlideRich {
   /** Client-only, set alongside image_url above from the same
    * /api/v1/ai/carousel/slide-image/generate response — which provider
    * actually produced it. Used by SlidePreview to skip the redundant
-   * productImage corner overlay for a "flux" background, since a Flux
+   * productImage corner overlay for an "openai" background, since an OpenAI
    * image-to-image reference generation already has the real product
    * realistically placed in the scene itself (unlike "pollinations",
    * which has no image-to-image capability and still needs that
    * overlay). Same field/reasoning as Stories' StorySlide.background_image_provider. */
-  background_image_provider?: "pollinations" | "flux"
+  background_image_provider?: "pollinations" | "openai"
   /** Set when this slide (or, from the "Custom color" Vibe option, every
    * slide in the carousel at once) uses an exact user-picked flat/gradient
    * color instead of an AI-generated image or a named background_style --
@@ -201,7 +201,7 @@ function withCtaSlideMerged(data: GeneratedCarousel): GeneratedCarousel {
 // distinction; fetchSlideBackground wraps it back down to the simpler
 // null-on-any-failure shape hook/cta (which are never credit-gated) have
 // always used.
-type SlideBackgroundResult = { url: string; provider?: "flux" } | { error: "insufficient_credits" | "failed" }
+type SlideBackgroundResult = { url: string; provider?: "openai" } | { error: "insufficient_credits" | "failed" }
 
 async function fetchSlideBackgroundResult(
   brandId: string,
@@ -221,7 +221,7 @@ async function fetchSlideBackgroundResult(
     })
     if (res.status === 429) return { error: "insufficient_credits" }
     if (!res.ok) return { error: "failed" }
-    const json = await res.json() as { data?: { public_url?: string; provider?: "flux" } }
+    const json = await res.json() as { data?: { public_url?: string; provider?: "openai" } }
     return json.data?.public_url ? { url: json.data.public_url, provider: json.data.provider } : { error: "failed" }
   } catch {
     return { error: "failed" }
@@ -242,7 +242,7 @@ async function fetchSlideBackground(
   productImageUrl?: string | null,
   slideType?: SlideType,
   customPrompt?: string
-): Promise<{ url: string; provider?: "flux" } | null> {
+): Promise<{ url: string; provider?: "openai" } | null> {
   const result = await fetchSlideBackgroundResult(brandId, vibe, role, productImageUrl, slideType, customPrompt)
   return "url" in result ? { url: result.url, provider: result.provider } : null
 }
@@ -349,13 +349,13 @@ function SlidePreview({
       )}
 
       {/* Product image — cover: right side; content: top-right badge; cta: centered top.
-       * Skipped for a "flux" background: that image already has the real
+       * Skipped for an "openai" background: that image already has the real
        * product realistically placed in the scene itself (see
        * lib/ai/carousel-slide-background.ts's reference-image path), so
        * this corner overlay would just double it up. "pollinations" (no
        * image-to-image capability) and slides with no AI background at
        * all render this exactly as before. */}
-      {productImage && !isThumb && slide.background_image_provider !== "flux" && (
+      {productImage && !isThumb && slide.background_image_provider !== "openai" && (
         <>
           {slide.type === "cover" && (
             // eslint-disable-next-line @next/next/no-img-element
@@ -431,7 +431,7 @@ function SlidePreview({
         )}
         {slide.type === "cover" && (
           <>
-            <h2 className={`font-extrabold leading-tight ${textColor} ${isThumb ? "text-[8px] line-clamp-2" : "text-3xl line-clamp-3"} ${productImage && !isThumb && slide.background_image_provider !== "flux" ? "max-w-[55%]" : ""}`}>
+            <h2 className={`font-extrabold leading-tight ${textColor} ${isThumb ? "text-[8px] line-clamp-2" : "text-3xl line-clamp-3"} ${productImage && !isThumb && slide.background_image_provider !== "openai" ? "max-w-[55%]" : ""}`}>
               {slide.headline}
             </h2>
             {!isThumb && slide.subtext && (
@@ -456,7 +456,7 @@ function SlidePreview({
 
         {isCta && (
           <>
-            <h2 className={`font-extrabold leading-tight ${textColor} ${isThumb ? "text-[8px] line-clamp-2" : "text-2xl mb-3 line-clamp-3"} ${productImage && !isThumb && slide.background_image_provider !== "flux" ? "mt-[40%]" : ""}`}>
+            <h2 className={`font-extrabold leading-tight ${textColor} ${isThumb ? "text-[8px] line-clamp-2" : "text-2xl mb-3 line-clamp-3"} ${productImage && !isThumb && slide.background_image_provider !== "openai" ? "mt-[40%]" : ""}`}>
               {ctaSlide.headline}
             </h2>
             {!isThumb && (
@@ -968,7 +968,7 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
           // they're requested one at a time rather than all at once, to
           // fail fast and stop asking once credits run out instead of
           // firing a batch of doomed requests.
-          const bodyUpdates: Record<number, { url: string; provider?: "flux" }> = {}
+          const bodyUpdates: Record<number, { url: string; provider?: "openai" }> = {}
           for (let n = 0; n < bodyIndices.length; n++) {
             setBodyBgProgress({ current: n + 1, total: bodyIndices.length })
             // Every body-loop slide is already type "content" -- unlike

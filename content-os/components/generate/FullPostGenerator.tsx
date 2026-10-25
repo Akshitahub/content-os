@@ -307,7 +307,7 @@ export function FullPostGenerator({ brandId, products }: Props) {
   // immediately -- fired both right after a fresh caption generation
   // succeeds and by "Regenerate image"/"Rewrite", so every image
   // generation for this flow goes through SocioPosts' authoring step
-  // first, not straight to Flux.
+  // first, not straight to the image provider.
   //
   // rawInput is the user's OWN typed brief (additionalContext, the "What
   // do you want to post" field) -- not caption.image_prompt, which is a
@@ -326,10 +326,10 @@ export function FullPostGenerator({ brandId, products }: Props) {
     // hard_truth_checklist has no photo at all -- the prompt-authoring
     // stage's whole job is writing a PHOTO scene description, which this
     // template never uses (see generatePostImage's own early-exit branch,
-    // which skips the Flux call entirely for it). Skip straight to
+    // which skips the image-provider call entirely for it). Skip straight to
     // compositing instead of running a Groq call to author a prompt that
     // would just be discarded -- one fewer credit-free but still real
-    // Groq call per generation, on top of the real Flux credits
+    // Groq call per generation, on top of the real image-generation credits
     // runImageGeneration/generatePostImage already saves.
     if (caption.suggested_template === "hard_truth_checklist") {
       runImageGeneration(data, sessionId, "hard_truth_checklist template (no photo)")
@@ -883,9 +883,9 @@ function ContentDisplay({ content, copied, onCopy, onSaveCaption }: { content: C
         {/* Storyboard scene cards -- used to show a per-scene preview image
             fetched directly from Pollinations client-side (free, keyless,
             no backend involvement). Removed along with Pollinations rather
-            than replaced with a Flux equivalent: Flux has no free, keyless,
-            instantly-embeddable preview endpoint -- a real per-scene
-            equivalent would mean a real paid Replicate call per scene, per
+            than replaced with an equivalent: the image provider has no free,
+            keyless, instantly-embeddable preview endpoint -- a real per-scene
+            equivalent would mean a real paid API call per scene, per
             render, which nothing here charges for. Text content only now. */}
         <div className="grid gap-3 sm:grid-cols-2">
           {c.scenes.map((scene, i) => (

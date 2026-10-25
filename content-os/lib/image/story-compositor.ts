@@ -536,7 +536,7 @@ export interface StoryCompositeSlide {
   /** Whether to actually composite productImageSource -- resolved by the
    * client (StorySequence.tsx's toExportSlide) from
    * StorySlide.show_product_overlay ?? background_image_provider !==
-   * "flux", since this file has no idea what provider generated
+   * "openai", since this file has no idea what provider generated
    * background_image_url. Absent (an older cached slide from before this
    * field existed) defaults to shown, same as this file's own prior
    * always-on behavior. */

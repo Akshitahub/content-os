@@ -8,7 +8,7 @@ type RouteParams = { params: Promise<{ brandId: string }> }
 
 /**
  * Undoes the charge from .../ad-maker/generate when the client-side
- * canvas compositing (drawing the already-generated Flux background +
+ * canvas compositing (drawing the already-generated AI background +
  * headline text) fails after credits were already charged — there's no
  * way for the server to know that failure happened on its own, since
  * compositing never touches the server. Best-effort: never blocks the

@@ -1,4 +1,5 @@
 import Groq from "groq-sdk"
+import OpenAI from "openai"
 
 export const GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 
@@ -21,11 +22,20 @@ export const GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 // completion budget on a visible <think> trace before ever writing the
 // actual JSON output. Confirmed live: one real photo, one call, ~1.3s,
 // ~1,400 prompt + ~130 completion tokens (~$0.0012).
+// `caption` is the one stage migrated to OpenAI so far (see
+// lib/ai/captions-generator.ts) -- every other stage below stays on Groq
+// for now, each still reading its own model id from this single constant
+// so the rest can migrate one at a time later without a call-site hunt.
+// "gpt-5.5" per the migration spec; falls back to "gpt-5.4" only if
+// gpt-5.5 turns out not to be available on this account's API key --
+// verify both IDs are live on the real key before shipping this to
+// production (not independently verifiable from here).
 export const MODELS = {
   extraction: "openai/gpt-oss-20b",
   generation: "openai/gpt-oss-120b",
   scoring: "openai/gpt-oss-20b",
   vision: "qwen/qwen3.6-27b",
+  caption: "gpt-5.5",
 } as const
 
 export type ModelKey = keyof typeof MODELS
@@ -38,6 +48,41 @@ export function getApiKey(): string {
 
 export function getGroqClient(): Groq {
   return new Groq({ apiKey: getApiKey() })
+}
+
+export function getOpenAIApiKey(): string {
+  const key = process.env.OPENAI_API_KEY
+  if (!key) throw new Error("OPENAI_API_KEY is not set")
+  return key
+}
+
+let cachedOpenAIClient: OpenAI | null = null
+export function getOpenAIClient(): OpenAI {
+  if (cachedOpenAIClient) return cachedOpenAIClient
+  cachedOpenAIClient = new OpenAI({ apiKey: getOpenAIApiKey() })
+  return cachedOpenAIClient
+}
+
+// Classifies a raw OpenAI SDK error into a short, user-facing message --
+// same provider-name-free convention as classifyGroqError below, for any
+// OpenAI-backed call site (captions, images) that forwards an error
+// message toward the user rather than handling it with its own generic
+// fallback.
+export function classifyOpenAIError(err: unknown): string {
+  const message = err instanceof Error ? err.message : String(err)
+  const errObj = err as Record<string, unknown>
+  const status = typeof errObj?.status === "number" ? errObj.status : null
+
+  if (message.includes("OPENAI_API_KEY not set") || status === 401) {
+    return "Configuration issue. Please contact support."
+  }
+  if (status === 429 || message.toLowerCase().includes("rate limit")) {
+    return "Generation limit reached, please try again in a moment"
+  }
+  if (message.toLowerCase().includes("model") && (message.toLowerCase().includes("not available") || message.toLowerCase().includes("not found") || message.toLowerCase().includes("does not exist"))) {
+    return "Selected AI model is not available"
+  }
+  return "AI generation failed, please try again"
 }
 
 // Classifies a raw Groq SDK error into a short, user-facing message --

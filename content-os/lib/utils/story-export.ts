@@ -32,7 +32,7 @@ export interface StoryExportSlide {
   /** Whether to actually render productImageSource, already resolved by
    * the caller (StorySequence.tsx's toExportSlide) from
    * StorySlide.show_product_overlay ?? background_image_provider !==
-   * "flux" -- the server-side compositor has no idea what provider
+   * "openai" -- the server-side compositor has no idea what provider
    * generated the background, so the default has to be decided
    * client-side before this ever reaches it. */
   show_product_overlay?: boolean

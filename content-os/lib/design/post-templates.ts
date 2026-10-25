@@ -29,7 +29,7 @@ export const POST_TEMPLATES: PostTemplateMeta[] = [
   // right-way ✓ list, closing line), no AI-generated photo at all. See
   // lib/image/post-compositor.ts's buildHardTruthChecklist and
   // lib/ai/post-image-pipeline.ts's generatePostImage, which skips the
-  // Flux call entirely for this one.
+  // AI image call entirely for this one.
   { id: "hard_truth_checklist", label: "Hard Truth Checklist", description: "Flat card: contrarian headline, a wrong-way list, a right-way list — no photo" },
 ]
 

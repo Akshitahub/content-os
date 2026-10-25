@@ -4,7 +4,7 @@ import { buildError, ErrorCodes } from "@/types/api"
 import type { CalendarEntryRow, Json } from "@/types/database"
 import { z } from "zod"
 
-// lib/ai/fastlane.ts's own Autopilot insert stores a real generated Flux
+// lib/ai/fastlane.ts's own Autopilot insert stores a real generated AI
 // image directly on the entry it belongs to (platformData.image_url,
 // around line 984) for hook/caption-format slots -- there's no
 // content_project_id chain to walk for those at all, unlike the linked-

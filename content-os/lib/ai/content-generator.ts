@@ -1,6 +1,6 @@
 import type { BrandRow, ProductRow } from "@/types/database"
 import type { ContentFormat, ContentFormatOutputMap, Platform } from "@/types/app"
-import { MODELS, getGroqClient } from "./models"
+import { MODELS, getGroqClient, getOpenAIClient } from "./models"
 import {
   buildCaptionSystemPrompt,
   buildCaptionUserPrompt,
@@ -25,9 +25,9 @@ export type GenerateContentOptions = {
   hookText?: string
   /** Brand's own past highly-rated content of this format, fed back in as few-shot examples. */
   pastExamples?: string[]
-  /** social_post only — asks the same Groq call to also produce an image_prompt grounded in this post's specific message, for the Create → Full Post AI image pipeline. */
+  /** social_post only — asks the same caption-model call to also produce an image_prompt grounded in this post's specific message, for the Create → Full Post AI image pipeline. */
   includeImagePrompt?: boolean
-  /** social_post + includeImagePrompt only — the brand's resolved color themes, so the same Groq call can pick a suggested_color_theme_id from real ids rather than guessing. */
+  /** social_post + includeImagePrompt only — the brand's resolved color themes, so the same caption-model call can pick a suggested_color_theme_id from real ids rather than guessing. */
   availableColorThemes?: { id: string; label: string }[]
 }
 
@@ -189,8 +189,6 @@ export async function generateContent(
   model: string
   usage: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } | undefined
 }> {
-  const groq = getGroqClient()
-  const model = MODELS.generation
   const { system, user, maxTokens, reasoningEffort } = buildPrompts(format, brand, options)
 
   // social_post is the only format with real production traffic that
@@ -198,18 +196,25 @@ export async function generateContent(
   // char limit) — see docs/research/captions-generation-audit.md. Routed
   // through the same generateValidatedCaption() orchestrator that
   // lib/ai/captions-generator.ts uses, so the two paths can't drift apart
-  // again. Every other format keeps the original single-call flow below.
+  // again. Captions moved to OpenAI (MODELS.caption) -- every other format
+  // keeps the original Groq single-call flow below (MODELS.generation),
+  // untouched by that migration.
   if (format === "social_post") {
+    const openai = getOpenAIClient()
+    const captionModel = MODELS.caption
     const b = brand as BrandRow & { cta_phrase?: string | null }
     const ctaPhrase = b.cta_phrase || "Shop now"
     const handle = brand.instagram_handle ? `@${brand.instagram_handle}` : ""
     const platform = options.platform ?? "instagram"
 
+    // max_completion_tokens (not the deprecated max_tokens), same reasoning
+    // as lib/ai/captions-generator.ts's identical call -- gpt-5.5-class
+    // models are reasoning models. `temperature` deliberately omitted, same
+    // reasoning as that file too.
     const requestParams = {
-      model,
-      temperature: 0.8,
+      model: captionModel,
       reasoning_effort: reasoningEffort,
-      max_tokens: maxTokens,
+      max_completion_tokens: maxTokens,
       response_format: { type: "json_object" as const },
     }
 
@@ -221,7 +226,7 @@ export async function generateContent(
     const { caption, usage } = await generateValidatedCaption({
       messages,
       callModel: async (msgs) => {
-        const res = await groq.chat.completions.create({ ...requestParams, messages: msgs })
+        const res = await openai.chat.completions.create({ ...requestParams, messages: msgs })
         return { content: res.choices[0]?.message?.content ?? "{}", usage: res.usage ?? undefined }
       },
       brand,
@@ -230,9 +235,11 @@ export async function generateContent(
       platform,
     })
 
-    return { data: caption, model, usage }
+    return { data: caption, model: captionModel, usage }
   }
 
+  const groq = getGroqClient()
+  const model = MODELS.generation
   const response = await groq.chat.completions.create({
     model,
     temperature: 0.8,

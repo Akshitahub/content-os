@@ -40,6 +40,9 @@ yarn-error.log*
 # vercel
 .vercel
 
+# scripts/test-image-gen.ts output -- local eyeball-check images, never committed
+/scripts/output/
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts

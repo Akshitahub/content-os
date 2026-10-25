@@ -1,9 +1,14 @@
 import type { BrandRow, ProductRow } from "@/types/database"
 import type { Platform } from "@/types/app"
 import { buildCaptionSystemPrompt, buildCaptionUserPrompt } from "./prompts"
-import { MODELS, getGroqClient } from "./models"
+import { MODELS, getOpenAIClient } from "./models"
 import { generateValidatedCaption, type CaptionChatMessage } from "./caption-validation"
 
+// Captions moved from Groq to OpenAI (MODELS.caption) -- every other
+// caption-producing call site (lib/ai/content-generator.ts's social_post
+// case) still shares generateValidatedCaption's provider-agnostic
+// call/validate/retry loop via the same `callModel` injection, so this is
+// the only file that actually talks to a model for captions.
 export async function generateCaption(
   brand: BrandRow,
   options: {
@@ -15,8 +20,8 @@ export async function generateCaption(
     pastExamples?: string[]
   }
 ): Promise<{ caption: import("@/types/app").GeneratedCaption; model: string; usage: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } | undefined }> {
-  const groq = getGroqClient()
-  const model = MODELS.generation
+  const openai = getOpenAIClient()
+  const model = MODELS.caption
 
   const b = brand as BrandRow & { cta_phrase?: string | null }
   const ctaPhrase = b.cta_phrase || "Shop now"
@@ -27,26 +32,26 @@ export async function generateCaption(
     { role: "user", content: buildCaptionUserPrompt(brand, options) },
   ]
 
-  // GPT-OSS reasoning tokens count against max_tokens. Measured live:
-  // this exact caption task at reasoning_effort "medium" burned 1079 of
-  // 1239 completion tokens (87%) on hidden reasoning — wildly wasteful
-  // for short, punchy copywriting. "low" dropped that to 232/364 (64%,
-  // but a much smaller absolute budget) with equally valid output, so
-  // that's what's used here. max_tokens raised well past the old
-  // Llama-era 400, which now 400s outright ("json_validate_failed") once
-  // reasoning tokens are in play at all.
+  // Same reasoning-effort budgeting concern as the old Groq call (reasoning
+  // tokens count against the completion budget for a reasoning-class
+  // model) -- "low" is plenty for short, punchy copywriting, no need for
+  // deeper reasoning here. max_completion_tokens (not the deprecated
+  // max_tokens) since gpt-5.5-class models are reasoning models.
+  // `temperature` deliberately omitted -- not verified live whether this
+  // reasoning model accepts a non-default sampling temperature the way
+  // Groq's gpt-oss models did; left at the model's own default rather than
+  // guessing and risking a rejected request.
   const requestParams = {
     model,
-    temperature: 0.8,
     reasoning_effort: "low" as const,
-    max_tokens: 1200,
+    max_completion_tokens: 1200,
     response_format: { type: "json_object" as const },
   }
 
   const { caption, usage } = await generateValidatedCaption({
     messages,
     callModel: async (msgs) => {
-      const res = await groq.chat.completions.create({ ...requestParams, messages: msgs })
+      const res = await openai.chat.completions.create({ ...requestParams, messages: msgs })
       return { content: res.choices[0]?.message?.content ?? "{}", usage: res.usage ?? undefined }
     },
     brand,

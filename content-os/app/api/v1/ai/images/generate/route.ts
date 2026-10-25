@@ -56,7 +56,7 @@ export async function POST(request: Request) {
     product = prod
   }
 
-  // Every plan resolves to Flux now (lib/ai/post-image-pipeline.ts's
+  // Every plan resolves to the same image provider now (lib/ai/post-image-pipeline.ts's
   // fetchBackgroundImage) -- still looked up since fetchBackgroundImage's
   // signature expects it, same lookup app/api/v1/ai/post-image/generate/route.ts
   // already does.
@@ -74,7 +74,7 @@ export async function POST(request: Request) {
   })
 
   if (!result.success) {
-    // Full raw error (e.g. Replicate/Flux API error text) stays server-side
+    // Full raw error (e.g. the image provider's own API error text) stays server-side
     // only — never shown to the user.
     console.error("[ai/images/generate] generation failed:", result.error)
     await logGenerationOutcome(supabase, logId, {

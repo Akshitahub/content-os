@@ -80,7 +80,7 @@ async function compositeAd(
   const results: string[] = []
 
   // Each entry is now a distinct server-generated (Storage-hosted)
-  // background -- one real Flux call per variation, run concurrently
+  // background -- one real image-provider call per variation, run concurrently
   // server-side (see .../ad-maker/generate/route.ts), instead of the old
   // per-variation client-side Pollinations fetch with its own bespoke
   // retry loop.
@@ -98,7 +98,7 @@ async function compositeAd(
       ctx.fillRect(0, 0, w, h)
     }
 
-    // Flux already has the product realistically placed in the photo
+    // The provider already has the product realistically placed in the photo
     // itself (see ad-maker-background.ts's reference-image path -- AdMaker
     // always has a real product photo by this step), so there's no
     // client-side cutout to paste back on top here.
@@ -248,8 +248,8 @@ export function AdMaker({ brandId, products }: AdMakerProps) {
   const [customScene, setCustomScene] = useState("")
   const [format, setFormat] = useState<ImageFormat>("square")
 
-  // Step 3 -- AI scene prompt, authored by SocioPosts before Flux ever
-  // runs (see usePromptWriter). Shared across all 3 variations, same as
+  // Step 3 -- AI scene prompt, authored by SocioPosts before the image
+  // provider ever runs (see usePromptWriter). Shared across all 3 variations, same as
   // scene/customScene already were.
   const [adPrompt, setAdPrompt] = useState("")
   const promptWriter = usePromptWriter(setAdPrompt)
@@ -351,7 +351,7 @@ export function AdMaker({ brandId, products }: AdMakerProps) {
 
   // Authors the shared AI scene prompt as soon as step 3 is reached, so the
   // user watches SocioPosts write it (see PromptWriterField below) instead
-  // of it going straight to Flux -- re-fires every time step 3 is
+  // of it going straight to the image provider -- re-fires every time step 3 is
   // (re-)entered, reflecting whatever scene/format was picked most
   // recently. Resets back to idle when leaving step 3 so returning later
   // always starts from a fresh write rather than a stale one.

@@ -4,8 +4,10 @@ import type { UserPlan } from "@/types/app"
 // Not currently imported/called anywhere in this codebase (confirmed via
 // repo-wide search) -- fixed as part of the Pollinations removal since it
 // was explicitly named in that cleanup, not because anything depends on it
-// today. Kept as a real, working Replicate/Flux implementation (not just
-// deleted) in case a future caller reaches for this module by name.
+// today. Kept as a real, working implementation (not just deleted) in case
+// a future caller reaches for this module by name -- it calls the same
+// shared fetchBackgroundImage pipeline as every other image call site, so
+// it automatically follows whichever provider that pipeline uses.
 
 export type ImageFormat = "square" | "portrait" | "story" | "landscape"
 
@@ -24,10 +26,10 @@ export interface ImageRequest {
     image_url?: string
   }
   custom_prompt?: string
-  /** Required now that generation is a real, credit-metered Replicate/Flux
+  /** Required now that generation is a real, credit-metered provider
    * call rather than a free, keyless Pollinations URL -- fetchBackgroundImage
    * needs these for its own logging even though every plan resolves to
-   * Flux (see that function's own doc comment). */
+   * the same provider (see that function's own doc comment). */
   plan: UserPlan
   isInternalUnlimitedUser: boolean
 }
@@ -45,10 +47,10 @@ const VIBE_STYLES: Record<string, string> = {
   trendy_genz: "trendy aesthetic photography, gen z vibes, editorial fresh, colourful",
 }
 
-// Replicate/Flux's own aspect_ratio enum (see post-image-pipeline.ts) has
-// no "landscape 16:9 at 1920x1080" tier as such -- "16:9" is the closest
-// valid value, same substitution post-image-pipeline.ts already makes for
-// "4:5" -> "3:4".
+// The image provider's own size resolution (see
+// lib/ai/image-provider.ts's resolveImageSize) has no "landscape 16:9 at
+// 1920x1080" tier as such -- "16:9" is the closest valid value, same
+// substitution post-image-pipeline.ts already makes for "4:5" -> "3:4".
 const FORMAT_DIMENSIONS: Record<ImageFormat, ImageDimensions> = {
   square: { width: 1080, height: 1080, aspectRatio: "1:1" },
   portrait: { width: 1080, height: 1350, aspectRatio: "3:4" },

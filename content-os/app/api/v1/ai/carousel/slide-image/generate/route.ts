@@ -31,7 +31,7 @@ const schema = z.object({
     .transform((val) => val?.replace(/<[^>]*>/g, "").trim()),
 })
 
-// Chains up to 2 sequential Flux calls (first attempt + retry) inside
+// Chains up to 2 sequential image-provider calls (first attempt + retry) inside
 // fetchBackgroundImage — each a real network round-trip that can
 // individually take 10-30s+, so this needs more headroom than Vercel's
 // platform default. Matches the
@@ -136,15 +136,15 @@ export async function POST(request: Request) {
     })
     // result.error is a real, useful diagnostic (already logged above and
     // in ai_generation_logs) but can name the underlying image provider
-    // (e.g. "Flux generation failed: ...") -- never forwarded to the user
+    // (e.g. "Image generation failed: ...") -- never forwarded to the user
     // as-is. A generic, SocioPosts-branded message goes to the client
     // instead.
     return NextResponse.json(buildError(ErrorCodes.AI_GENERATION_FAILED, "Couldn't generate that slide's background. Please try again."), { status: 500 })
   }
 
-  // Surfaced in ai_generation_logs below — Flux is a real paid-per-call
+  // Surfaced in ai_generation_logs below — the image provider is a real paid-per-call
   // cost, so persisting which provider ran per row matters for monitoring
-  // real cost as usage grows. Always "flux" now, but kept as a real field
+  // real cost as usage grows. Always "openai" now, but kept as a real field
   // (not a hardcoded literal) rather than assuming that never changes.
   const { provider } = result
 

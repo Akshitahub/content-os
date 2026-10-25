@@ -15,7 +15,7 @@ const BUCKET = "brand-images"
 
 type RouteParams = { params: Promise<{ brandId: string }> }
 
-// Chains up to 2 sequential Flux calls (primary attempt + a
+// Chains up to 2 sequential image-provider calls (primary attempt + a
 // fallback-prompt retry) inside fetchBackgroundImage, same headroom as
 // other slow-external-call routes (e.g. app/api/v1/ai/post-image/generate/route.ts).
 export const maxDuration = 60
@@ -26,10 +26,10 @@ const VARIATION_COUNT = 3
 // concurrency ceiling (a plain Promise.all for all 3 variations collided
 // with its "Queue full for IP...: 1 requests already queued (max: 1)"
 // limit almost every run). Pollinations is gone -- every variation now
-// goes through Replicate/Flux -- but this stagger is kept as a general
+// goes through the image provider -- but this stagger is kept as a general
 // precaution against bursting 3 concurrent paid API calls in the exact
 // same instant, paired with the partial-success handling below rather
-// than relied on alone. Worth revisiting if Replicate's own concurrency
+// than relied on alone. Worth revisiting if the provider's own concurrency
 // limits turn out to make this unnecessary.
 const STAGGER_MS = 400
 
@@ -39,14 +39,14 @@ function sleep(ms: number): Promise<void> {
 
 /**
  * Charges credits and generates Ad Maker's 3 background-image variations
- * server-side via the shared fetchBackgroundImage pipeline (Replicate/Flux,
- * retry-with-fallback-prompt, quality checks) -- previously this route was
+ * server-side via the shared fetchBackgroundImage pipeline (OpenAI's
+ * gpt-image-2, retry-with-fallback-prompt, quality checks) -- previously this route was
  * a credit-charge no-op and each of the 3 backgrounds was fetched entirely
  * client-side, straight from Pollinations, sequentially, each with its own
  * bespoke retry loop -- the actual source of the "slow/unreliable"
  * complaint. The 3
- * generateAdMakerBackground calls below run concurrently (each internally
- * picks its own random seed, so they naturally come out distinct) and only
+ * generateAdMakerBackground calls below run concurrently (each is an
+ * independent generation, so they naturally come out distinct) and only
  * one credit charge covers all 3, same as before. Canvas compositing
  * (product photo + text + logo) still happens client-side in AdMaker.tsx,
  * using the storage URLs this route returns as the background layer for
@@ -89,7 +89,7 @@ export async function POST(request: Request, { params }: RouteParams) {
   }
   const logId = usageCheck.logId
 
-  // Every plan resolves to Flux now (lib/ai/post-image-pipeline.ts's
+  // Every plan resolves to the same image provider now (lib/ai/post-image-pipeline.ts's
   // fetchBackgroundImage) -- still looked up since that function's
   // signature expects it, same as every other generation route.
   const { data: userData } = await supabase.from("users").select("plan").eq("id", user.id).single<{ plan: UserPlan }>()
@@ -104,8 +104,8 @@ export async function POST(request: Request, { params }: RouteParams) {
   // product reference photo can be uploaded before generation kicks off.
   const admin = await createAdminClient()
 
-  // A real uploaded product photo, used as a Flux image-to-image reference
-  // (see generateAdMakerBackground/fetchAndCheckFluxImage) -- optional, so
+  // A real uploaded product photo, used as an image-to-image reference
+  // (see generateAdMakerBackground/lib/ai/image-provider.ts) -- optional, so
   // an upload failure here degrades to the old background-only behavior
   // rather than failing the whole request.
   let productImageUrl: string | undefined

@@ -587,7 +587,7 @@ export type Database = {
           storage_path: string
           public_url: string
           model_used: string
-          /** Which provider actually produced the base image ("pollinations" | "flux") — see lib/ai/post-image-pipeline.ts's BackgroundImageResult.provider. */
+          /** Which provider actually produced the base image ("pollinations" | "flux" | "openai") — see lib/ai/post-image-pipeline.ts's BackgroundImageResult.provider. */
           provider: string | null
           /** Whether this specific image had user-typed caption text composited onto it — text overlay is opt-in (see lib/ai/post-image-pipeline.ts's generatePostImage), so this can no longer be assumed true. */
           text_composited: boolean
@@ -620,10 +620,10 @@ export type Database = {
           brand_id: string | null
           feature: string
           attempt_number: number
-          provider: "pollinations" | "flux"
+          provider: "pollinations" | "flux" | "openai"
           prompt_variant: "primary" | "fallback"
           success: boolean
-          failure_reason: "too_small" | "near_black" | "near_blank" | "unreadable" | "network_error" | "api_error" | null
+          failure_reason: "too_small" | "near_black" | "near_blank" | "blurry" | "unreadable" | "network_error" | "api_error" | "moderation_blocked" | null
           created_at: string
         }
         Insert: {
@@ -631,10 +631,10 @@ export type Database = {
           brand_id?: string | null
           feature: string
           attempt_number: number
-          provider: "pollinations" | "flux"
+          provider: "pollinations" | "flux" | "openai"
           prompt_variant: "primary" | "fallback"
           success: boolean
-          failure_reason?: "too_small" | "near_black" | "near_blank" | "unreadable" | "network_error" | "api_error" | null
+          failure_reason?: "too_small" | "near_black" | "near_blank" | "blurry" | "unreadable" | "network_error" | "api_error" | "moderation_blocked" | null
           created_at?: string
         }
         Update: never

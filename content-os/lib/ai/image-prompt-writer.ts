@@ -6,8 +6,8 @@ import type { BrandRow, ProductRow } from "@/types/database"
 // the standalone Image Generator) -- see each flow's own call site for how
 // its raw input/constraints map onto WriteImagePromptInput below. This
 // module's ONLY job is to turn that into one complete, well-formed
-// image-generation prompt via Groq; it never talks to Replicate/Flux and
-// never enforces a hard constraint itself -- aspect ratio, product
+// image-generation prompt via Groq; it never talks to the image provider
+// itself and never enforces a hard constraint itself -- aspect ratio, product
 // reference handling, "no text in image", niche photography style, and
 // every other real constraint stay exactly where they already lived
 // (lib/ai/post-image-pipeline.ts's guards, *-background.ts's own
@@ -20,8 +20,8 @@ export type ImagePromptFlow = "post" | "story" | "carousel" | "ad_maker" | "imag
 export interface ImagePromptConstraints {
   /** Human-readable label for whatever aspect ratio/canvas shape this
    * generation is locked to (e.g. "4:5 portrait", "9:16 vertical story") --
-   * informational context only. The actual aspect_ratio sent to Flux is a
-   * separate, code-only Replicate input param (see
+   * informational context only. The actual size sent to the image provider is a
+   * separate, code-only param (see
    * lib/ai/post-image-pipeline.ts's ImageDimensions) that this text prompt
    * never touches either way, so there's nothing here for Groq to
    * override even in principle. */
@@ -33,7 +33,7 @@ export interface ImagePromptConstraints {
    * SCENE_PROMPTS) are still appended in code regardless of what it
    * writes. */
   styleLabel?: string
-  /** True when a real uploaded product photo will be attached as a Flux
+  /** True when a real uploaded product photo will be attached as an
    * image-to-image reference for this generation -- when true, Groq is
    * told to describe the SCENE/setting around the product, not the
    * product's own appearance (re-describing it would fight the reference
@@ -94,7 +94,7 @@ Rules:
 - Never describe or write out any text, words, lettering, captions, logos, watermarks, or labels appearing in the image, no matter how short -- a diffusion model renders text as garbled nonsense, and any real headline is composited on separately in code afterward. This is a hard rule, not a style preference.
 - Do not mention camera brands, aspect ratio as a number/ratio, resolution, or megapixels -- describe composition in plain visual language instead (e.g. "wide open space across the top of the frame"); the exact technical values are handled separately in code.
 - If a real product reference photo is noted as attached, describe the SURROUNDING SCENE, setting, and lighting only -- do not redescribe the product's own appearance (color, shape, packaging), since that photo already shows it exactly.
-- Never mention SocioPosts, Groq, Flux, Replicate, or any other AI tool/vendor name anywhere in the scene you write -- this is a plain visual description of a photograph, not a mention of the tools that made it.
+- Never mention SocioPosts, Groq, OpenAI, gpt-image, or any other AI tool/vendor name anywhere in the scene you write -- this is a plain visual description of a photograph, not a mention of the tools that made it.
 - Never let internal field or workflow names (e.g. "hook slide", "cta slide", "template", "checklist", "carousel") leak into the visual description -- describe only what a viewer would actually see in the finished photo.`
 
 function buildBrandLine(brand: WriteImagePromptInput["brand"]): string {

@@ -349,8 +349,8 @@ function buildMinimal(captionText: string, theme: ColorTheme, font: fontkit.Font
 // ─── Hard Truth Checklist ───────────────────────────────────────────────
 // The first template that isn't a photo-background-plus-headline variant --
 // a flat, off-white/cream card (no AI-generated photo at all, see
-// lib/ai/post-image-pipeline.ts's generatePostImage, which skips the Flux
-// call entirely for this template): a hook headline with one highlighted
+// lib/ai/post-image-pipeline.ts's generatePostImage, which skips the AI
+// image call entirely for this template): a hook headline with one highlighted
 // phrase, a short ✗ "wrong way" list, a short ✓ "right way" list, and a
 // closing line. Deliberately does NOT attempt the reference format's
 // decorative illustrated sticky-note graphic -- that's a hand-designed
@@ -538,7 +538,7 @@ export interface CompositePostImageOptions {
 
 /**
  * Overlays brand logo, a brand-color accent, and the caller's one caption
- * text onto a base (Flux-generated) image, per the chosen
+ * text onto a base (AI-generated) image, per the chosen
  * template's layout. Same pipeline as lib/image/meme-compositor.ts: build
  * an SVG for the vector/text elements, rasterize via resvg, composite over
  * the base image with sharp. `template === "blank"` skips all of this and
@@ -634,9 +634,9 @@ export interface CompositeHardTruthChecklistOptions {
 /**
  * Renders the "Hard Truth Checklist" template entirely from its own
  * structured checklist_* fields -- no base photo at all, unlike every
- * other template's compositePostImage (which always overlays onto a
- * Flux-generated buffer). Called directly by lib/ai/post-image-pipeline.ts's
- * generatePostImage BEFORE it would otherwise fetch a Flux image, so this
+ * other template's compositePostImage (which always overlays onto an
+ * AI-generated buffer). Called directly by lib/ai/post-image-pipeline.ts's
+ * generatePostImage BEFORE it would otherwise fetch an AI image, so this
  * template never spends a photo-generation credit.
  */
 export async function compositeHardTruthChecklist(options: CompositeHardTruthChecklistOptions): Promise<Buffer> {

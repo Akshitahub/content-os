@@ -215,7 +215,7 @@ export type ContentFormatOutputMap = {
 //
 // The per-feature weights this is built from (lib/usage/credit-costs.ts)
 // are ESTIMATES, not measured from real usage — see the note at the top
-// of that file for what to check once real Groq/Replicate billing
+// of that file for what to check once real Groq/OpenAI billing
 // history exists.
 export interface AutopilotTier {
   days: number

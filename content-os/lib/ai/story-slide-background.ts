@@ -14,8 +14,8 @@ import type { BrandRow } from "@/types/database"
 export type StoryVibe = Vibe
 
 // Instagram Stories' native canvas — tall portrait, unlike carousel's
-// square slides. Passed through to fetchBackgroundImage so Flux is asked
-// for the right shape instead of a square crop.
+// square slides. Passed through to fetchBackgroundImage so the provider is
+// asked for the right shape instead of a square crop.
 const STORY_DIMENSIONS: ImageDimensions = { width: 1080, height: 1920, aspectRatio: "9:16" }
 
 function resolveBrandColors(brand: BrandRow): string[] {
@@ -142,7 +142,7 @@ export interface GenerateStorySlideBackgroundOptions {
   /** Real uploaded product photo, if the user attached one — switches the
    * prompt from abstract-only to a photorealistic reference-image scene
    * (see buildStorySlidePrompt) and is passed through to
-   * fetchBackgroundImage as a genuine Flux image-to-image reference. */
+   * fetchBackgroundImage as a genuine image-to-image reference. */
   productImageUrl?: string | null
   /** The slide's own text_position, already known by the caller before
    * this request fires — used only to pick which region of the

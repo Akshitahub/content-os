@@ -122,7 +122,7 @@ export function SceneComposer({ brandId }: SceneComposerProps) {
     setComposeError(null)
     setResultDataUrl(null)
 
-    // Routes through the billed generate-from-upload pipeline (Flux,
+    // Routes through the billed generate-from-upload pipeline (the image provider,
     // quality checks, a real reference-image path) instead of a raw
     // client-side Pollinations fetch — this tab previously never called a
     // billed route at all.
@@ -158,7 +158,7 @@ export function SceneComposer({ brandId }: SceneComposerProps) {
         bg.onload = () => {
           ctx.drawImage(bg, 0, 0, 1080, 1080)
 
-          // Flux already places the product realistically in the scene
+          // The provider already places the product realistically in the scene
           // itself (see the route's reference-image prompt path, always
           // engaged here since removedBgDataUrl is required above) --
           // there's no client-side cutout to paste back on top.

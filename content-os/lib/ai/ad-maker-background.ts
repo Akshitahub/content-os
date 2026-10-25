@@ -50,8 +50,8 @@ export interface GenerateAdMakerBackgroundOptions {
   plan: UserPlan
   isInternalUnlimitedUser: boolean
   /** Real uploaded product photo (products.image_urls[0]), if the user picked
-   * a product for this ad. Used as a Flux image-to-image reference (see
-   * fetchAndCheckFluxImage in post-image-pipeline.ts) -- also switches the
+   * a product for this ad. Used as an image-to-image reference (see
+   * lib/ai/image-provider.ts) -- also switches the
    * assembled prompt onto the reference-aware REFERENCE_IMAGE_PEOPLE_GUARD/
    * wrapForReferenceImage path below, same as generatePostImage. */
   productImageUrl?: string | null
@@ -68,7 +68,7 @@ export interface GenerateAdMakerBackgroundOptions {
 
 /**
  * Fetches Ad Maker's background image via the shared fetchBackgroundImage
- * pipeline (Replicate/Flux, retry-with-fallback, blur/near-black/near-blank
+ * pipeline (OpenAI's gpt-image-2, retry-with-fallback, blur/near-black/near-blank
  * quality checks) instead of Ad Maker's old client-side, Pollinations-only,
  * bespoke-retry fetch. Never throws -- same never-throw contract as
  * fetchBackgroundImage.

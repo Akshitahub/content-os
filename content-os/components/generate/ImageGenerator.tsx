@@ -73,8 +73,8 @@ export function ImageGenerator({ brandId, products }: ImageGeneratorProps) {
   //
   // Used to also fire 2 extra client-side Pollinations requests here for
   // free "bonus variations" with different seeds -- removed along with
-  // Pollinations, not replaced with a Flux equivalent: Flux is a real
-  // paid-per-call Replicate request, so generating 2 extra variations here
+  // Pollinations, not replaced with an equivalent: the image provider is a real
+  // paid-per-call request, so generating 2 extra variations here
   // would silently 3x this tool's per-click cost with no way to charge for
   // it. The single real generated image now just joins the existing
   // "images generated" grid below like any other saved image.
@@ -105,7 +105,7 @@ export function ImageGenerator({ brandId, products }: ImageGeneratorProps) {
   // empty) sends whatever the user typed -- a real description, or nothing
   // at all -- to the prompt-writing stage first, streaming SocioPosts'
   // authored prompt live into this same field instead of going straight to
-  // Flux. Only once that's written (and the user has had a chance to read
+  // the image provider. Only once that's written (and the user has had a chance to read
   // or edit it) does a second click actually generate, using the exact
   // text left in the field at that click -- never re-processed again.
   function handleGenerate() {

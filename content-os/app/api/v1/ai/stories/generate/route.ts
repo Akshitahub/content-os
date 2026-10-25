@@ -50,12 +50,12 @@ export type StorySlide = {
   /** Client-only, set alongside background_image_url above from the same
    * /api/v1/ai/stories/slide-image/generate response — which provider
    * actually produced it. Used by PhoneStory to skip the redundant
-   * full-bleed product-photo overlay for a "flux" background, since a
-   * Flux image-to-image reference generation already has the real
+   * full-bleed product-photo overlay for an "openai" background, since an
+   * OpenAI image-to-image reference generation already has the real
    * product realistically placed in the scene itself (unlike
    * "pollinations", which has no image-to-image capability and still
    * needs that overlay). */
-  background_image_provider?: "pollinations" | "flux"
+  background_image_provider?: "pollinations" | "openai"
   /** "Custom color" mode (see components/shared/VibePicker.tsx +
    * ColorWheelPicker) -- an exact user-picked flat/gradient, applied
    * uniformly to every slide when active. Client-only, same as
@@ -87,9 +87,9 @@ export type StorySlide = {
   text_position_x?: number
   text_position_y?: number
   /** Client-only, never set by this route. Overrides the default "hide the
-   * product overlay once background_image_provider is 'flux'" rule (see
+   * product overlay once background_image_provider is 'openai'" rule (see
    * StorySequence.tsx's PhoneStory) -- lets a user turn the raw product
-   * photo back on (or off) regardless of provider, e.g. when a Flux
+   * photo back on (or off) regardless of provider, e.g. when a
    * generation dropped the product from the scene. Absent means "use the
    * provider-based default", not "off". */
   show_product_overlay?: boolean

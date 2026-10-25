@@ -93,7 +93,7 @@ export async function POST(request: Request) {
     result = await generateCaption(brand, { hookText: resolvedHookText, platform, contentType, additionalContext, product, pastExamples })
   } catch (err) {
     await logGenerationOutcome(supabase, logId, {
-      user_id: user.id, brand_id: brandId, feature: FEATURE, model: MODELS.generation,
+      user_id: user.id, brand_id: brandId, feature: FEATURE, model: MODELS.caption,
       latency_ms: Date.now() - startTime, success: false,
       error_message: err instanceof Error ? err.message : "Unknown error",
     })

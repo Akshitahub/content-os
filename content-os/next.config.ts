@@ -16,7 +16,7 @@ validateRequiredEnv();
 // that matters here. style-src/font-src/img-src/connect-src/frame-src
 // allow the other real external dependencies this app has: Google Fonts
 // (post preview card rendering), Supabase (*.supabase.co, for both the
-// API and Storage-hosted media, including Flux-generated images), and
+// API and Storage-hosted media, including AI-generated images), and
 // Razorpay's own domains (checkout + its fraud-detection/analytics calls,
 // which span several razorpay.com and cardinalcommerce.com subdomains).
 const CSP = [

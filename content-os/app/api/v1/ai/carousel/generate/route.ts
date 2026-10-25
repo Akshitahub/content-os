@@ -185,7 +185,7 @@ Make every slide punchy, valuable, and shareable. The cover must stop the scroll
 // background-image enrichment step in CarouselBuilder.tsx (~line 421-444),
 // which only PUTs the full slides array back if at least one of its two
 // best-effort AI background fetches happens to succeed. If both fail
-// (rate-limiting, a Flux outage, etc.) or the user navigates away first,
+// (rate-limiting, an image-provider outage, etc.) or the user navigates away first,
 // the CTA slide never reaches
 // the database at all -- confirmed live as the root cause of Library
 // carousels showing 6 slides instead of 7. Doing the same merge here,

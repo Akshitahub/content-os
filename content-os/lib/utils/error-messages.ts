@@ -37,8 +37,12 @@ export function getFriendlyError(error: unknown): string {
   // regardless of which route or bug produced it -- confirmed live
   // (2026-09-15) that at least 5 call sites once forwarded a raw
   // Flux/Replicate/Groq error straight into this exact "pass through"
-  // branch before those were fixed at the source.
-  const namesProvider = /\b(groq|flux|replicate|pollinations|nvidia|llama|gpt-oss)\b/i.test(msg)
+  // branch before those were fixed at the source. "flux"/"replicate"/
+  // "pollinations" kept in the list even after the provider migration to
+  // OpenAI -- historical ai_generation_logs rows and any lingering error
+  // text can still name them, and there's no cost to continuing to mask
+  // retired provider names. "openai"/"gpt-image" added for the current provider.
+  const namesProvider = /\b(groq|flux|replicate|pollinations|nvidia|llama|gpt-oss|openai|gpt-image)\b/i.test(msg)
   if (msg.trim() && !looksLikeRawError && !namesProvider) {
     return msg
   }

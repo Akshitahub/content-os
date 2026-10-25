@@ -85,9 +85,9 @@ function toExportSlide(story: StorySlide, productImageSource: string | null | un
     text_position_y: story.text_position_y,
     // Resolved here (not left for the server to guess) since the
     // provider-based default -- hide once background_image_provider is
-    // "flux" -- depends on a field the export/compositor side never sees.
+    // "openai" -- depends on a field the export/compositor side never sees.
     // Same default PhoneStory's own render condition uses.
-    show_product_overlay: story.show_product_overlay ?? story.background_image_provider !== "flux",
+    show_product_overlay: story.show_product_overlay ?? story.background_image_provider !== "openai",
     product_position_x: story.product_position_x,
     product_position_y: story.product_position_y,
     custom_text_color: story.custom_text_color,
@@ -151,7 +151,7 @@ function slideShowsProduct(type: StorySlide["type"], total: number): boolean {
   return type === "reveal" || type === "cta" || (total === 1 && type === "hook")
 }
 
-type SlideBackgroundResult = { url: string; provider: "flux" } | { error: "insufficient_credits" | "failed" }
+type SlideBackgroundResult = { url: string; provider: "openai" } | { error: "insufficient_credits" | "failed" }
 
 async function fetchSlideBackgroundResult(
   brandId: string,
@@ -178,11 +178,11 @@ async function fetchSlideBackgroundResult(
     })
     if (res.status === 429) return { error: "insufficient_credits" }
     if (!res.ok) return { error: "failed" }
-    const json = await res.json() as { data?: { public_url?: string; provider?: "flux" } }
+    const json = await res.json() as { data?: { public_url?: string; provider?: "openai" } }
     // A public_url with no provider would be an incomplete/malformed
     // response -- treated the same as any other failure rather than
     // storing a background with an unknown provider (which PhoneStory's
-    // "!== flux" overlay gating needs to be trustworthy either way).
+    // "!== openai" overlay gating needs to be trustworthy either way).
     return json.data?.public_url && json.data.provider ? { url: json.data.public_url, provider: json.data.provider } : { error: "failed" }
   } catch {
     return { error: "failed" }
@@ -201,7 +201,7 @@ async function fetchSlideBackground(
   productImageUrl?: string | null,
   textPosition?: StorySlide["text_position"],
   customPrompt?: string
-): Promise<{ url: string; provider: "flux" } | null> {
+): Promise<{ url: string; provider: "openai" } | null> {
   const result = await fetchSlideBackgroundResult(brandId, vibe, role, productImageUrl, textPosition, customPrompt)
   return "url" in result ? { url: result.url, provider: result.provider } : null
 }
@@ -357,12 +357,12 @@ function PhoneStory({
     onCommit: (p) => onUpdateSlide({ product_position_x: p.x, product_position_y: p.y }),
   })
 
-  // Default: hidden once a "flux" background already has the product
+  // Default: hidden once an "openai" background already has the product
   // realistically placed in the scene itself; shown otherwise. Overridable
   // per-slide via the "Product" toggle button below, regardless of
-  // provider -- e.g. when a Flux generation dropped the product from the
+  // provider -- e.g. when a generation dropped the product from the
   // scene despite the reference photo.
-  const productOverlayOn = story.show_product_overlay ?? story.background_image_provider !== "flux"
+  const productOverlayOn = story.show_product_overlay ?? story.background_image_provider !== "openai"
 
   function copyText() {
     navigator.clipboard.writeText(`${story.text}\n${story.subtext}`)
@@ -402,7 +402,7 @@ function PhoneStory({
               "cta" always exists whenever storyCount >= 2, and for a
               single-slide sequence ("hook" only) that hook slide is the
               fallback, so the image is guaranteed to show up somewhere. */}
-          {/* A "flux" background_image_url already has the real product
+          {/* An "openai" background_image_url already has the real product
               realistically placed into the scene itself (see
               lib/ai/story-slide-background.ts's reference-image path), so
               this defaults to hidden there -- "pollinations" (no
@@ -535,7 +535,7 @@ function PhoneStory({
         {/* Only offered where the product overlay could ever actually show
             (see slideShowsProduct) and there's a real photo to show at
             all -- lets a user turn it back on (or off) regardless of
-            provider, e.g. when a Flux generation dropped the product from
+            provider, e.g. when a generation dropped the product from
             the scene despite the reference photo. */}
         {uploadedImage && slideShowsProduct(story.type, total) && (
           <button onClick={() => onUpdateSlide({ show_product_overlay: !productOverlayOn })}
@@ -986,8 +986,8 @@ export function StorySequence({ brandId }: { brandId: string }) {
         // separate image step to wait for and success shows immediately.
         // This is the actual credit savings, not just a UI choice: unlike
         // every other vibe, generate() never calls fetchSlideBackground/
-        // fetchSlideBackgroundResult (and therefore never reaches Replicate/
-        // Flux, or charges STORY_SLIDE_AI_BACKGROUND for body slides) for
+        // fetchSlideBackgroundResult (and therefore never reaches the image
+        // provider, or charges STORY_SLIDE_AI_BACKGROUND for body slides) for
         // this vibe at all.
         setShowSuccess(true)
         setTimeout(() => setShowSuccess(false), 4000)

@@ -155,7 +155,7 @@ export interface GenerateCarouselSlideBackgroundOptions {
   /** Real uploaded product photo, if the user attached one — switches the
    * prompt from abstract-only to a photorealistic reference-image scene
    * (see buildSlidePrompt) and is passed through to fetchBackgroundImage
-   * as a genuine Flux image-to-image reference. */
+   * as a genuine image-to-image reference. */
   productImageUrl?: string | null
   /** Which corner/region CarouselBuilder.tsx's SlidePreview will draw the
    * productImage overlay in for this slide -- used only to pick the
@@ -176,7 +176,7 @@ export interface GenerateCarouselSlideBackgroundOptions {
 /**
  * Generates an abstract, on-brand background image for a carousel slide
  * (hook, CTA, or an opted-in body slide) — reuses fetchBackgroundImage's
- * existing Flux fetch, retry, and quality-check logic as-is; this module
+ * existing provider fetch, retry, and quality-check logic as-is; this module
  * only owns the carousel-specific prompt (brand
  * niche + vibe + brand colors, deliberately abstract rather than literal
  * photography). Never throws — same never-throw contract as
