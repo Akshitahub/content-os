@@ -1,5 +1,6 @@
-// Dev-only sanity check for the Phase 1 Groq -> OpenAI creative-stages
-// migration (hooks, blog, reel_script, ad_copy, prompt-authoring, vision).
+// Dev-only sanity check for the Groq -> OpenAI creative-stages migration
+// -- Phase 1 (hooks, blog, reel_script, ad_copy, prompt-authoring, vision)
+// and Phase 1b (story, carousel, repurpose, occasion content, Autopilot).
 // Runs one real call per moved stage and prints latency + output. Run
 // manually: `npx tsx scripts/test-creative-stages.ts`.
 //
@@ -146,6 +147,65 @@ async function main() {
     const dataUrl = `data:image/png;base64,${testImageBuffer.toString("base64")}`
     const result = await analyzePhotoForPost(TEST_BRAND, dataUrl, "A warm beige/orange product shot background")
     return `model=${result.model} hook=${JSON.stringify(result.hook.hook_text)}`
+  })
+
+  // ─── Phase 1b stages ──────────────────────────────────────────────────
+  // Each lib function below logs its own provider/model/stage/latency/
+  // success line (lib/ai/creative-completion.ts) in addition to this
+  // script's per-stage timing.
+  const { requestStorySequence } = await import("@/lib/ai/story-sequence-generator")
+  await runStage("story (lib/ai/story-sequence-generator.ts)", async () => {
+    const raw = await requestStorySequence(TEST_BRAND, "Why a 3-step routine beats a 10-step one", 5, undefined, [])
+    const data = JSON.parse(raw) as { stories?: { text?: string }[] }
+    if (!Array.isArray(data.stories) || data.stories.length === 0) throw new Error(`no stories in response: ${raw.slice(0, 200)}`)
+    return `slides=${data.stories.length} texts=${JSON.stringify(data.stories.map((s) => s.text))}`
+  })
+
+  const { generateCarouselWithRetry } = await import("@/lib/ai/carousel-generator")
+  await runStage("carousel (lib/ai/carousel-generator.ts)", async () => {
+    const data = (await generateCarouselWithRetry(TEST_BRAND, "Sunscreen myths Indian skin still believes", 7, "instagram", undefined, [])) as { slides?: { headline?: string }[]; cover_hook?: string }
+    if (!Array.isArray(data.slides) || data.slides.length === 0) throw new Error("no slides in response")
+    return `slides=${data.slides.length} cover_hook=${JSON.stringify(data.cover_hook)} headlines=${JSON.stringify(data.slides.map((s) => s.headline))}`
+  })
+
+  const { generateRepurposedContent } = await import("@/lib/ai/repurpose-generator")
+  await runStage("repurpose (lib/ai/repurpose-generator.ts)", async () => {
+    const data = await generateRepurposedContent(
+      "Most people over-exfoliate. Your skin barrier needs a few days to recover between acid treatments, and stacking actives every night is the fastest way to end up red, tight and breaking out. Two nights a week is plenty for most skin types.",
+      TEST_BRAND
+    )
+    if (!data || !Array.isArray(data.hooks)) throw new Error("unparseable or malformed response")
+    return `hooks=${JSON.stringify(data.hooks)} tweets=${data.tweets?.length ?? 0} linkedinChars=${data.linkedin?.length ?? 0}`
+  })
+
+  const { generateOccasionContent } = await import("@/lib/ai/occasion-content-generator")
+  await runStage("occasion-content (lib/ai/occasion-content-generator.ts)", async () => {
+    const data = await generateOccasionContent(TEST_BRAND, "Diwali", "Festive glow without harsh products")
+    if (!data.hook && !data.caption) throw new Error("empty content")
+    return `hook=${JSON.stringify(data.hook)} caption=${JSON.stringify(data.caption)}`
+  })
+
+  // story/carousel through the shared content-generator path (Full Post,
+  // Content tab, calendar regenerate) -- a different, shorter prompt than
+  // the dedicated routes above.
+  await runStage("story format (lib/ai/content-generator.ts)", async () => {
+    const result = await generateContent(TEST_BRAND, "story", { additionalContext: "Launch of our new vitamin C serum" })
+    return `model=${result.model} text=${JSON.stringify((result.data as { text: string }).text)}`
+  })
+
+  await runStage("carousel format (lib/ai/content-generator.ts)", async () => {
+    const result = await generateContent(TEST_BRAND, "carousel", { additionalContext: "3 signs your moisturizer isn't working" })
+    return `model=${result.model} slides=${(result.data as { slides: unknown[] }).slides.length}`
+  })
+
+  // Autopilot's strategy preview -- the one fastlane.ts text call that's
+  // exported and has no database dependency. (generateContentStrategy
+  // reads occasions from the database and generateSlotContent is private;
+  // both go through the same createCreativeCompletion helper.)
+  const { generateStrategyOverview } = await import("@/lib/ai/fastlane")
+  await runStage("autopilot strategy overview (lib/ai/fastlane.ts)", async () => {
+    const result = await generateStrategyOverview(TEST_BRAND)
+    return `goal=${JSON.stringify(result.goal)} weeks=${JSON.stringify(result.week_themes)}`
   })
 
   console.log("\n[test-creative-stages] summary:")

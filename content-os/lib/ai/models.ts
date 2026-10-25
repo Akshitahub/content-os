@@ -10,25 +10,25 @@ export const GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 // `scoring`'s gpt-oss-20b) and MUST set reasoning_effort explicitly and
 // size max_tokens with real headroom for hidden reasoning tokens — see the
 // per-call-site fixes shipped alongside this change. Never leave
-// reasoning_effort unset on a call using this model. STILL GROQ as of the
-// Phase-1 OpenAI migration below — this exact constant is read directly by
-// several Groq call sites that must stay (lib/ai/fastlane.ts's Autopilot
-// strategy/slot generation, lib/ai/account-analytics.ts,
-// lib/ai/reel-prompt-optimizer.ts/blog-prompt-optimizer.ts,
-// app/api/v1/ai/repurpose/route.ts, app/api/v1/brands/[brandId]/
-// generate-occasion-content/route.ts, app/api/v1/ai/stories/generate/
-// route.ts and .../carousel/generate/route.ts, and the "story"/"carousel"
-// cases inside lib/ai/content-generator.ts) -- changing this constant's
-// value would silently break all of them. `creative` below is a
-// deliberately SEPARATE new constant for exactly that reason.
+// reasoning_effort unset on a call using this model. STILL GROQ after the
+// Phase 1/1b OpenAI migrations below, and now Groq-ONLY: every remaining
+// reader is a deliberately-kept Groq call site (lib/ai/account-analytics.ts,
+// lib/ai/reel-prompt-optimizer.ts, lib/ai/blog-prompt-optimizer.ts) --
+// every creative stage that used to read it now reads `creative` instead,
+// so it's no longer shared between a Groq and an OpenAI call site.
 //
 // `caption` was the first stage migrated to OpenAI (see
-// lib/ai/captions-generator.ts). `creative` is Phase 1 of migrating the
-// rest: hooks (lib/ai/hooks-generator.ts), blog (lib/ai/blog-generator.ts
-// and the "blog_post"/"reel_script"/"ad_copy" cases inside
-// lib/ai/content-generator.ts -- NOT "story"/"carousel", which share that
-// same function but stay on Groq/MODELS.generation), and prompt-authoring
-// (lib/ai/image-prompt-writer.ts). "gpt-5.5" per the migration spec; falls
+// lib/ai/captions-generator.ts). `creative` covers the rest. Phase 1:
+// hooks (lib/ai/hooks-generator.ts), blog (lib/ai/blog-generator.ts and
+// the "blog_post"/"reel_script"/"ad_copy" cases inside
+// lib/ai/content-generator.ts), and prompt-authoring
+// (lib/ai/image-prompt-writer.ts). Phase 1b (via
+// lib/ai/creative-completion.ts): story (lib/ai/story-sequence-generator.ts
+// and content-generator.ts's "story" case), carousel
+// (lib/ai/carousel-generator.ts and the "carousel" case), repurpose
+// (lib/ai/repurpose-generator.ts), occasion content
+// (lib/ai/occasion-content-generator.ts), and all three Autopilot text
+// calls in lib/ai/fastlane.ts. "gpt-5.5" per the migration spec; falls
 // back to "gpt-5.4" only if gpt-5.5 turns out not to be available on this
 // account's API key -- verify both IDs are live on the real key before
 // shipping this to production (not independently verifiable from here).

@@ -1,6 +1,6 @@
 import type { BrandRow, ProductRow } from "@/types/database"
 import type { ContentFormat, ContentFormatOutputMap, Platform } from "@/types/app"
-import { MODELS, getGroqClient, getOpenAIClient } from "./models"
+import { MODELS, getOpenAIClient } from "./models"
 import {
   buildCaptionSystemPrompt,
   buildCaptionUserPrompt,
@@ -236,71 +236,51 @@ export async function generateContent(
     return { data: caption, model: captionModel, usage }
   }
 
-  // Phase 1 of the creative-stages migration moves reel_script/blog_post/
-  // ad_copy to OpenAI (MODELS.creative) -- story/carousel share this exact
-  // function/call shape but were explicitly left on Groq (MODELS.generation)
-  // this phase, so this one shared code block now branches by format
-  // rather than always calling Groq. Only the client/model/token-param-name/
-  // timeout differ between the two branches -- the JSON parsing and
-  // validateAndCast/sanitizeContent below are identical either way, since
-  // the output SHAPE per format never changed, only which provider
-  // produced it.
-  const isOpenAIFormat = format === "reel_script" || format === "blog_post" || format === "ad_copy"
-  const model = isOpenAIFormat ? MODELS.creative : MODELS.generation
+  // Every non-social_post format is on OpenAI (MODELS.creative) now:
+  // reel_script/blog_post/ad_copy moved in Phase 1, story/carousel in
+  // Phase 1b. The JSON parsing and validateAndCast/sanitizeContent below
+  // are unchanged -- the output SHAPE per format never changed, only which
+  // provider produced it.
+  const model = MODELS.creative
   const startTime = Date.now()
 
   let raw: string
   let usage: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } | undefined
 
-  if (isOpenAIFormat) {
-    const openai = getOpenAIClient()
-    try {
-      const response = await openai.chat.completions.create(
-        {
-          model,
-          reasoning_effort: reasoningEffort,
-          // max_completion_tokens (not the deprecated max_tokens) since
-          // gpt-5.5-class models are reasoning models, same convention as
-          // lib/ai/captions-generator.ts. `temperature` deliberately
-          // omitted, same reasoning as that file.
-          max_completion_tokens: maxTokens,
-          response_format: { type: "json_object" },
-          messages: [
-            { role: "system", content: system },
-            { role: "user", content: user },
-          ],
-        },
-        // ESTIMATE, not measured live (no working OPENAI_API_KEY in the
-        // environment this was written in) -- see
-        // scripts/test-creative-stages.ts. reel_script/blog_post run at
-        // "medium" reasoning effort with a bigger token budget than
-        // ad_copy's "low"/1200, so this is sized for the slower case;
-        // revisit once real latency data exists.
-        { timeout: 40_000, maxRetries: 1 }
-      )
-      raw = response.choices[0]?.message?.content ?? "{}"
-      usage = response.usage ?? undefined
-    } catch (err) {
-      console.error(`[content-generator] provider=openai model=${model} stage=${format} latencyMs=${Date.now() - startTime} success=false:`, err)
-      throw err
-    }
-    console.log(`[content-generator] provider=openai model=${model} stage=${format} latencyMs=${Date.now() - startTime} success=true`)
-  } else {
-    const groq = getGroqClient()
-    const response = await groq.chat.completions.create({
-      model,
-      temperature: 0.8,
-      reasoning_effort: reasoningEffort,
-      max_tokens: maxTokens,
-      response_format: { type: "json_object" },
-      messages: [
-        { role: "system", content: system },
-        { role: "user", content: user },
-      ],
-    })
+  const openai = getOpenAIClient()
+  try {
+    const response = await openai.chat.completions.create(
+      {
+        model,
+        reasoning_effort: reasoningEffort,
+        // max_completion_tokens (not the deprecated max_tokens) since
+        // gpt-5.5-class models are reasoning models, same convention as
+        // lib/ai/captions-generator.ts. `temperature` deliberately
+        // omitted, same reasoning as that file.
+        max_completion_tokens: maxTokens,
+        response_format: { type: "json_object" },
+        messages: [
+          { role: "system", content: system },
+          { role: "user", content: user },
+        ],
+      },
+      // ESTIMATES, not measured live (no working OPENAI_API_KEY in the
+      // environment this was written in) -- see
+      // scripts/test-creative-stages.ts. 40s is sized for the "medium"
+      // formats (reel_script/blog_post/carousel); story runs at "low" with
+      // an 800-token budget. Carousel is deliberately NOT given more than
+      // 40s: calendar/[entryId]/regenerate (maxDuration 60) calls it, and
+      // a longer timeout would outlive that route. Revisit all of these
+      // once real latency data exists.
+      { timeout: format === "story" ? 30_000 : 40_000, maxRetries: 1 }
+    )
     raw = response.choices[0]?.message?.content ?? "{}"
     usage = response.usage ?? undefined
+  } catch (err) {
+    console.error(`[content-generator] provider=openai model=${model} stage=${format} latencyMs=${Date.now() - startTime} success=false:`, err)
+    throw err
   }
+  console.log(`[content-generator] provider=openai model=${model} stage=${format} latencyMs=${Date.now() - startTime} success=true`)
 
   let cleaned = raw.replace(/```json\n?/g, "").replace(/```\n?/g, "").replace(/[\x00-\x1F\x7F]/g, " ").trim()
   const jsonMatch = cleaned.match(/\{[\s\S]*\}/)

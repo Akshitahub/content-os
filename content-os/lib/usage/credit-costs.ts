@@ -3,11 +3,11 @@ import type { ContentFormat } from "@/types/app"
 /**
  * Weighted credit costs per feature — replaces the old flat "every
  * generation = 1 credit" model. Real provider cost varies enormously:
- * text-only generations on Groq still cost a fraction of a rupee (story,
- * carousel, scoring, extraction, repurpose, etc. -- see
- * lib/ai/models.ts for which stages stayed on Groq), while the stages
- * migrated to OpenAI (captions, hooks, reel scripts, blog, ad copy,
- * vision, and every image generation) have a real, much higher per-call
+ * text-only generations on Groq still cost a fraction of a rupee (scoring,
+ * extraction, account analytics, etc. -- see lib/ai/models.ts for which
+ * stages stayed on Groq), while the stages migrated to OpenAI (captions,
+ * hooks, reel scripts, blog, ad copy, vision, story, carousel, repurpose,
+ * Autopilot text, and every image generation) have a real, much higher per-call
  * provider cost. Charging flat 1 for all of these was selling the
  * expensive ones below their real cost.
  *
@@ -47,8 +47,12 @@ export const HOOK_OR_CAPTION = 1
 // sourced math. Was 1; real cost now runs close to 2x that.
 export const BLOG_POST = 2
 export const POST = 5
-export const STORY = 6
+// Recomputed for the Phase 1b text-stages migration (2026-10-25) -- was 6.
+// See the "Phase 1b text-stages migration" block further down for the math.
+export const STORY = 8
 export const AD_MAKER = 5
+// Re-checked for the Phase 1b text-stages migration (2026-10-25) -- still
+// covers the new OpenAI text cost, unchanged. See that block further down.
 export const CAROUSEL = 9
 // The standalone Images tab (lib/ai/image-generator.ts) — not in the
 // original weight table, found while tracing every checkAndIncrementUsage
@@ -157,19 +161,73 @@ export const PHOTO_CAPTION = HOOK_OR_CAPTION
 //
 // NOT recomputed: hooks/ad_copy's shared HOOK_OR_CAPTION value (real cost
 // is comfortably under it, see above) and vision/PHOTO_CAPTION (see its
-// own comment just above this block). story/carousel inside
-// content-generator.ts stayed on Groq this phase, so their STORY/CAROUSEL
-// weights are untouched and out of scope here.
+// own comment just above this block). story/carousel moved in Phase 1b --
+// see the next block.
 
-// Lightweight non-image AI actions, confirmed to stay at the base rate:
-// app/api/v1/ai/repurpose (repurposing existing content into a new
-// format — text-only) and app/api/v1/ai/remove-background (calls the
-// third-party remove.bg API, not the image-generation provider — a
-// different, much smaller cost than the image-generation weights above).
-// Named separately from HOOK_OR_CAPTION so a route importing one of these
-// isn't misleadingly labeled "hook or caption" — all three happen to
-// share the same value.
-export const REPURPOSE = 1
+// ─── Phase 1b text-stages migration (2026-10-25) ───────────────────────────
+// Groq -> OpenAI gpt-5.5 (MODELS.creative) for story, carousel, repurpose,
+// occasion content and Autopilot's text calls. Source: OpenAI's official
+// pricing page (developers.openai.com/api/docs/pricing, re-checked
+// 2026-10-25): gpt-5.5 (<272K context, standard tier) at $5.00/1M input
+// tokens, $30.00/1M output tokens (hidden reasoning tokens bill as output).
+// ESTIMATES: the prices are sourced, the token counts are typical sizes
+// for each prompt/budget, NOT measured from real usage. Same ~₹87/$ and
+// ~₹2.02/credit reference ratio as above; rounded UP, same
+// don't-underprice precedent as IMAGE/REEL.
+//
+// Per GENERATION, not per call: Story and Carousel each make ONE text call
+// for the whole sequence (every slide in one JSON response), plus the two
+// hook/CTA AI backgrounds already bundled into their price
+// (2 x IMAGE = 4 credits).
+//
+// - STORY (app/api/v1/ai/stories/generate, "medium", budget
+//   max(3000, slides*350)): ~2,500 input + ~2,000 output for a typical
+//   5-slide sequence ≈ (2500/1e6*$5)+(2000/1e6*$30) ≈ $0.073 ≈ ₹6.3 ≈ 3.1
+//   credits; a 10-slide sequence at its full ~3,500-token budget ≈ $0.118
+//   ≈ 5.1 credits. + 4 bundled-background credits = ~7.1 typical (~9.1
+//   worst case) -> 8 (was 6).
+// - CAROUSEL (app/api/v1/ai/carousel/generate, "medium", budget
+//   max(4000, slides*500)): ~3,000 input + ~2,000 output for a typical
+//   7-slide carousel (Groq measured 1,499 completion tokens for this) ≈
+//   $0.075 ≈ 3.2 credits; 10 slides ≈ ~3,000 output ≈ $0.105 ≈ 4.5
+//   credits. + 4 bundled-background credits = ~7.2 typical (~8.5 worst
+//   case, excluding the rare JSON-parse retry) -> existing 9 still covers
+//   it, unchanged.
+// - REPURPOSE (app/api/v1/ai/repurpose, "medium", 4500 budget, the widest
+//   single output in the app): ~2,000 input (up to 5,000 chars of source
+//   content) + ~2,500 output ≈ (2000/1e6*$5)+(2500/1e6*$30) ≈ $0.085 ≈
+//   ₹7.4 ≈ 3.7 credits -> 4 (was 1). A JSON-parse retry (rare) doubles it.
+// - Full Post / Content tab "story"/"carousel" formats (content-generator.ts,
+//   text only, no images) charge these same STORY/CAROUSEL weights via
+//   CONTENT_FORMAT_CREDIT_COSTS below. Their real cost is much lower
+//   (~$0.03-0.07 including the parallel hooks call), so they're
+//   overcharged relative to cost. Not changed here: lowering them is a
+//   business pricing call, and that map shares one weight per format by
+//   design.
+// - Occasion content (app/api/v1/brands/[brandId]/generate-occasion-content):
+//   ~300 input + ~600 output ≈ $0.020 ≈ 0.8 credits -- but this route has
+//   never charged credits at all (no checkAndIncrementUsage call), so
+//   there's no weight here to update. Flagged, not added.
+// - Autopilot (lib/ai/fastlane.ts, charged per slot via
+//   lib/ai/autopilot-content-mix.ts): per-slot text ("low", 1200-1800
+//   budget) ≈ ~400 input + ~800-1,200 output ≈ $0.026-0.038 ≈ 1.1-1.6
+//   credits. POST (5) and CAROUSEL (9) slot weights still cover that. The
+//   once-per-run 30-slot planner (~1,500 input + ~5,000 output ≈ $0.16 ≈
+//   6.8 credits) is absorbed by a run's total (~100+ credits for 30 slots).
+//   Reel slots at their flat 1 credit run slightly under the ~1.6-credit
+//   text cost, but reel credit logic is explicitly out of scope (see
+//   autopilot-content-mix.ts). The strategy preview (~$0.04) is uncharged,
+//   as before.
+
+// app/api/v1/ai/repurpose (repurposing existing content into new formats,
+// text-only) was on the base rate until it moved to OpenAI in Phase 1b
+// (2026-10-25) -- see that block above for why it's now 4.
+// app/api/v1/ai/remove-background (calls the third-party remove.bg API,
+// not the image-generation provider -- a different, much smaller cost
+// than the image-generation weights above) stays at the base rate. Named
+// separately from HOOK_OR_CAPTION so a route importing one of these isn't
+// misleadingly labeled "hook or caption".
+export const REPURPOSE = 4
 export const REMOVE_BACKGROUND = 1
 
 // Optional "AI background for every slide" carousel mode — extends the

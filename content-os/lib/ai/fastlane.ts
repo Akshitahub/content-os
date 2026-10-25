@@ -1,5 +1,6 @@
 import { after } from "next/server"
-import { MODELS, getGroqClient } from "./models"
+import { MODELS } from "./models"
+import { createCreativeCompletion } from "./creative-completion"
 import { generateCarouselHtml } from "@/lib/design/post-card-generator"
 import { getUpcomingOccasionsForAutopilot } from "@/lib/occasions/get-upcoming-occasions"
 import { generatePostImage } from "@/lib/ai/post-image-pipeline"
@@ -23,7 +24,7 @@ import type { SupabaseClient } from "@supabase/supabase-js"
 // `import { executeFastlane, estimateAutopilotCreditCost, computeAutopilotSlotCount } from "@/lib/ai/fastlane"`
 // keeps working unchanged -- the real implementations now live in
 // lib/ai/autopilot-content-mix.ts (a pure module, safe to import from
-// client code too, unlike this file's Groq/Supabase-heavy imports above).
+// client code too, unlike this file's AI/Supabase-heavy imports above).
 export { estimateAutopilotCreditCost, computeAutopilotSlotCount, buildContentMix } from "@/lib/ai/autopilot-content-mix"
 
 // Same bucket used by app/api/v1/ai/post-image/generate/route.ts — Autopilot
@@ -92,22 +93,6 @@ function sanitizeJsonString(raw: string): string {
 
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms))
-}
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function generateWithRetry(groq: ReturnType<typeof getGroqClient>, params: any, retries = 1): Promise<any> {
-  try {
-    return await groq.chat.completions.create(params)
-  } catch (err) {
-    const msg = err instanceof Error ? err.message.toLowerCase() : String(err).toLowerCase()
-    const isRateLimit = msg.includes("429") || msg.includes("rate_limit") || msg.includes("rate limit")
-    if (retries > 0 && isRateLimit) {
-      console.log("[fastlane] Rate limit hit, waiting 3000ms before retry...")
-      await sleep(3000)
-      return generateWithRetry(groq, params, retries - 1)
-    }
-    throw err
-  }
 }
 
 function buildStrategySystemPrompt(): string {
@@ -183,29 +168,29 @@ Respond with this exact JSON:
 }
 
 /**
- * A single lightweight Groq call producing a strategy preview the user
+ * A single lightweight model call producing a strategy preview the user
  * confirms BEFORE the full 30-slot generation runs. Cheap to regenerate —
  * unlike executeFastlane below, which this function never touches.
  */
 export async function generateStrategyOverview(brand: BrandRow, params?: AutopilotParams): Promise<StrategyOverview> {
-  const groq = getGroqClient()
-  // GPT-OSS reasoning tokens count against max_tokens. Short structured
-  // preview (goal + frequency + 4 week themes) that still benefits from
-  // real reasoning about the brand's specific strategy -- "medium". Budget
-  // raised well past the old Llama-era 500.
-  const res = await groq.chat.completions.create({
-    model: MODELS.generation,
-    temperature: 0.7,
-    reasoning_effort: "medium",
-    max_tokens: 1500,
-    response_format: { type: "json_object" },
-    messages: [
-      { role: "system", content: buildStrategyOverviewSystemPrompt() },
-      { role: "user", content: buildStrategyOverviewUserPrompt(brand, params) },
-    ],
+  // Moved from Groq to OpenAI (MODELS.creative) in the Phase 1b migration.
+  // Short structured preview (goal + frequency + 4 week themes) that still
+  // benefits from real reasoning about the brand's specific strategy --
+  // "medium", same effort and budget as on Groq (reasoning tokens count
+  // against it on gpt-5.5 too).
+  const { content } = await createCreativeCompletion({
+    stage: "autopilot_strategy_overview",
+    logPrefix: "fastlane",
+    system: buildStrategyOverviewSystemPrompt(),
+    user: buildStrategyOverviewUserPrompt(brand, params),
+    reasoningEffort: "medium",
+    maxCompletionTokens: 1500,
+    // ESTIMATE, not measured (no OPENAI_API_KEY where this was written) --
+    // see scripts/test-creative-stages.ts.
+    timeoutMs: 30_000,
   })
 
-  const raw = res.choices[0]?.message?.content ?? "{}"
+  const raw = content ?? "{}"
   let cleaned = sanitizeJsonString(raw)
   const jsonMatch = cleaned.match(/\{[\s\S]*\}/)
   if (jsonMatch) cleaned = jsonMatch[0]
@@ -378,25 +363,30 @@ Return this exact JSON (exactly 5 slides):
 }
 
 export async function generateContentStrategy(brand: BrandRow, products: ProductRow[], params?: AutopilotParams): Promise<ContentStrategy> {
-  const groq = getGroqClient()
   const userPrompt = await buildStrategyUserPrompt(brand, products, params)
-  // GPT-OSS reasoning tokens count against max_tokens. The big 30-day/
-  // 30-slot planner -- measured live with a comparable 30-slot test JSON
-  // consuming 4685/12000 total tokens (3128 of them reasoning), comfortably
-  // within this budget -- "medium" for real cross-slot planning coherence.
-  const res = await generateWithRetry(groq, {
-    model: MODELS.generation,
-    temperature: 0.7,
-    reasoning_effort: "medium",
-    max_tokens: 12000,
-    response_format: { type: "json_object" },
-    messages: [
-      { role: "system", content: buildStrategySystemPrompt() },
-      { role: "user", content: userPrompt },
-    ],
+  // Moved from Groq to OpenAI (MODELS.creative) in the Phase 1b migration.
+  // The big 30-day/30-slot planner -- measured on Groq's gpt-oss-120b with
+  // a comparable 30-slot test JSON consuming 4685/12000 total tokens (3128
+  // of them reasoning) -- "medium" for real cross-slot planning coherence,
+  // same budget. The SDK's own maxRetries: 1 (inside
+  // createCreativeCompletion) replaces the old Groq-specific 429 retry
+  // wrapper; it also honors OpenAI's retry-after header.
+  const { content } = await createCreativeCompletion({
+    stage: "autopilot_strategy",
+    logPrefix: "fastlane",
+    system: buildStrategySystemPrompt(),
+    user: userPrompt,
+    reasoningEffort: "medium",
+    maxCompletionTokens: 12000,
+    // ESTIMATE, not measured (no OPENAI_API_KEY where this was written) --
+    // see scripts/test-creative-stages.ts. The single slowest text call in
+    // the app (~4-5k completion tokens at medium effort); generous, but
+    // still well inside app/api/v1/brands/fastlane/route.ts's
+    // maxDuration=300 for the run as a whole.
+    timeoutMs: 90_000,
   })
 
-  const raw: string = res.choices[0]?.message?.content ?? "{}"
+  const raw: string = content ?? "{}"
   let cleaned = sanitizeJsonString(raw)
   const jsonMatch = cleaned.match(/\{[\s\S]*\}/)
   if (jsonMatch) cleaned = jsonMatch[0]
@@ -463,37 +453,33 @@ async function generateSlotContent(
   product: ProductRow | null,
   totalSlots: number,
 ): Promise<SlotContent> {
-  const groq = getGroqClient()
   const isCarousel = slot.content_type === "carousel"
   const isReel = slot.content_type === "reel_script"
 
-  // GPT-OSS reasoning tokens count against max_tokens. Final single-post
-  // content generation, similar scale/purpose to the tested captions/
-  // social_post call sites -- "low". Budget raised well past the old
-  // Llama-era 700/400.
-  const res = await generateWithRetry(groq, {
-    model: MODELS.generation,
-    temperature: 0.8,
-    reasoning_effort: "low",
-    max_tokens: isCarousel || isReel ? 1800 : 1200,
-    response_format: { type: "json_object" },
-    messages: [
-      {
-        role: "system",
-        content: "You are an expert social media content creator. Generate complete, ready-to-post content. Respond with valid JSON only. No markdown.",
-      },
-      {
-        role: "user",
-        content: isCarousel
-          ? buildCarouselSlotContentPrompt(brand, slot, product)
-          : isReel
-            ? buildReelScriptSlotContentPrompt(brand, slot, product, totalSlots)
-            : buildSlotContentPrompt(brand, slot, product, totalSlots),
-      },
-    ],
+  // Moved from Groq to OpenAI (MODELS.creative) in the Phase 1b migration.
+  // Final single-post content generation, similar scale/purpose to the
+  // captions/social_post call sites -- "low", same effort and budget as on
+  // Groq. Runs once per slot (up to 30 per run, 3 concurrently per batch
+  // in executeFastlane below -- already parallel, nothing further to fan
+  // out here).
+  const { content } = await createCreativeCompletion({
+    stage: `autopilot_slot_${slot.content_type}`,
+    logPrefix: "fastlane",
+    system: "You are an expert social media content creator. Generate complete, ready-to-post content. Respond with valid JSON only. No markdown.",
+    user: isCarousel
+      ? buildCarouselSlotContentPrompt(brand, slot, product)
+      : isReel
+        ? buildReelScriptSlotContentPrompt(brand, slot, product, totalSlots)
+        : buildSlotContentPrompt(brand, slot, product, totalSlots),
+    reasoningEffort: "low",
+    maxCompletionTokens: isCarousel || isReel ? 1800 : 1200,
+    // ESTIMATE, not measured (no OPENAI_API_KEY where this was written) --
+    // see scripts/test-creative-stages.ts. Kept tight: up to 10 sequential
+    // batches share the route's maxDuration=300 with image generation.
+    timeoutMs: 30_000,
   })
 
-  const raw: string = res.choices[0]?.message?.content ?? ""
+  const raw: string = content ?? ""
   let cleaned = sanitizeJsonString(raw)
   const jsonMatch = cleaned.match(/\{[\s\S]*\}/)
   if (jsonMatch) cleaned = jsonMatch[0]
@@ -810,7 +796,7 @@ async function executeFastlaneInner(
                 hook_text: generated.hook,
                 hook_type: "bold_statement",
                 generation_prompt: `fastlane day:${slot.day} platform:${slot.platform}`,
-                model_used: MODELS.generation,
+                model_used: MODELS.creative,
                 is_saved: true,
               })
               .select("id")
@@ -835,7 +821,7 @@ async function executeFastlaneInner(
                 cta: generated.call_to_action || null,
                 character_count: mergedCaption.length,
                 platform: slot.platform,
-                model_used: MODELS.generation,
+                model_used: MODELS.creative,
                 is_saved: true,
               })
               .select("id")

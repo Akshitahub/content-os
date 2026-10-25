@@ -1,20 +1,12 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
-import { MODELS, getGroqClient } from "@/lib/ai/models"
+import { MODELS } from "@/lib/ai/models"
 import { buildError, ErrorCodes } from "@/types/api"
-import { findContentQualityIssues, sanitizeLeakedArtifacts } from "@/lib/ai/content-quality-check"
+import { generateOccasionContent, type OccasionContent } from "@/lib/ai/occasion-content-generator"
 import { z } from "zod"
 import type { BrandRow } from "@/types/database"
 
 type RouteParams = { params: Promise<{ brandId: string }> }
-
-function sanitizeJsonString(raw: string): string {
-  return raw
-    .replace(/```json\n?/g, "")
-    .replace(/```\n?/g, "")
-    .replace(/[\x00-\x1F\x7F]/g, " ")
-    .trim()
-}
 
 const occasionContentSchema = z.object({
   occasionName: z.string().min(1).max(200),
@@ -66,69 +58,13 @@ export async function POST(request: Request, { params }: RouteParams) {
 
   const { occasionName, occasionAngle } = parsed.data
 
-  const groq = getGroqClient()
-
-  let generated: {
-    hook: string
-    caption: string
-    hashtags: string[]
-    visual_direction: string
-  }
+  let generated: OccasionContent
 
   try {
-    const res = await groq.chat.completions.create({
-      model: MODELS.generation,
-      temperature: 0.7,
-      // GPT-OSS reasoning tokens count against max_tokens. Short structured
-      // output (hook + caption + hashtags + visual_direction), same scale
-      // as the tested hooks/captions call sites -- "low" is right here.
-      // Budget raised well past the old Llama-era 600.
-      reasoning_effort: "low",
-      max_tokens: 1200,
-      messages: [
-        {
-          role: "system",
-          content: "You are an expert social media content creator for Indian D2C brands. Respond with valid JSON only. No markdown.",
-        },
-        {
-          role: "user",
-          content: `Generate a complete social media post for ${brand.name} for ${occasionName}.
-Brand niche: ${brand.niche ?? "D2C brand"}
-Brand voice: ${brand.ai_persona ?? brand.tone_of_voice ?? "friendly and authentic"}
-Content angle: ${occasionAngle}
-
-Return this exact JSON:
-{"hook":"attention-grabbing opening line","caption":"full post caption 2-4 sentences in brand voice","hashtags":["hashtag1","hashtag2","hashtag3","hashtag4","hashtag5"],"visual_direction":"describe the ideal image/video for this post"}`,
-        },
-      ],
-    })
-
-    const raw = res.choices[0]?.message?.content ?? "{}"
-    const aiParsed = JSON.parse(sanitizeJsonString(raw)) as {
-      hook?: string
-      caption?: string
-      hashtags?: string[]
-      visual_direction?: string
-    }
-
-    // Lightweight sanity pass -- see lib/ai/content-quality-check.ts for
-    // what this catches (leaked "✓"/"✗" formatting markers, unfilled
-    // "[Placeholder]" brackets, raw template expressions, a stray
-    // unattached "x"). Mechanical fix-in-place, same reasoning as every
-    // other generator in this codebase's identical helper.
-    const fix = (value: string, label: string): string => {
-      if (!value || findContentQualityIssues(value).length === 0) return value
-      const cleaned = sanitizeLeakedArtifacts(value)
-      console.error(`[generate-occasion-content] stripped leaked artifact(s) from generated ${label}: ${JSON.stringify(value)} -> ${JSON.stringify(cleaned)}`)
-      return cleaned
-    }
-
-    generated = {
-      hook: fix(aiParsed.hook ?? "", "hook"),
-      caption: fix(aiParsed.caption ?? "", "caption"),
-      hashtags: Array.isArray(aiParsed.hashtags) ? aiParsed.hashtags : [],
-      visual_direction: aiParsed.visual_direction ?? "",
-    }
+    // Moved from Groq to OpenAI (MODELS.creative) in the Phase 1b
+    // migration -- prompt + call + parse now live in
+    // lib/ai/occasion-content-generator.ts.
+    generated = await generateOccasionContent(brand, occasionName, occasionAngle)
 
     if (!generated.hook && !generated.caption) {
       return NextResponse.json(
@@ -153,7 +89,7 @@ Return this exact JSON:
         hook_text: generated.hook,
         hook_type: "bold_statement",
         generation_prompt: `occasion:${occasionName}`,
-        model_used: MODELS.generation,
+        model_used: MODELS.creative,
         is_saved: true,
       })
       .select("id")
@@ -166,7 +102,7 @@ Return this exact JSON:
         hook_id: hookData.id,
         caption_text: generated.caption,
         hashtags: generated.hashtags,
-        model_used: MODELS.generation,
+        model_used: MODELS.creative,
         is_saved: true,
       })
     }
