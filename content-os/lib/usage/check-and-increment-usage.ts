@@ -246,6 +246,18 @@ export interface GenerationOutcomeFields {
   latency_ms?: number | null
   success: boolean
   error_message?: string | null
+  /** The Post (content_projects row) this spend belongs to, for per-post
+   * cost (supabase/migrations/056_ai_generation_logs_content_project.sql).
+   * Omit when the flow has no content project. */
+  content_project_id?: string | null
+}
+
+// Errors caused only by content_project_id: the column not existing yet
+// (PostgREST PGRST204 "Could not find the 'x' column", Postgres 42703),
+// or an id with no matching content_projects row (23503, foreign key --
+// post-image/generate's id comes from the client).
+function isContentProjectWriteError(error: { code?: string; message?: string }): boolean {
+  return ["PGRST204", "42703", "23503"].includes(error.code ?? "") && (error.message ?? "").includes("content_project_id")
 }
 
 /**
@@ -266,12 +278,30 @@ export async function logGenerationOutcome(
   logId: string | null,
   fields: GenerationOutcomeFields
 ): Promise<void> {
-  if (logId) {
-    const { user_id: _user_id, feature: _feature, ...updateFields } = fields
-    const { error } = await supabase.from("ai_generation_logs").update(updateFields).eq("id", logId)
-    if (error) console.error(`[check-and-increment-usage] logGenerationOutcome update failed for log ${logId}:`, error.message)
-    return
+  // Tolerates migration 056 not having been run yet (and a stale project
+  // id): if the write fails only because of content_project_id, it's
+  // retried once without that field, so tokens/cost/latency are never
+  // lost over it.
+  const write = (f: GenerationOutcomeFields) => {
+    if (logId) {
+      const { user_id: _user_id, feature: _feature, ...updateFields } = f
+      return supabase.from("ai_generation_logs").update(updateFields).eq("id", logId)
+    }
+    return supabase.from("ai_generation_logs").insert(f)
   }
-  const { error } = await supabase.from("ai_generation_logs").insert(fields)
-  if (error) console.error(`[check-and-increment-usage] logGenerationOutcome insert failed:`, error.message)
+
+  let { error } = await write(fields)
+  if (error && fields.content_project_id !== undefined && isContentProjectWriteError(error)) {
+    const withoutProject = { ...fields }
+    delete withoutProject.content_project_id
+    ;({ error } = await write(withoutProject))
+  }
+  if (error) {
+    console.error(
+      logId
+        ? `[check-and-increment-usage] logGenerationOutcome update failed for log ${logId}:`
+        : "[check-and-increment-usage] logGenerationOutcome insert failed:",
+      error.message
+    )
+  }
 }

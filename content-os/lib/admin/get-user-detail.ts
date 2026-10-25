@@ -22,12 +22,66 @@ export type AdminUserPurchaseRow = {
   purchased_at: string
 }
 
+/** One Post's total spend, from the ai_generation_cost_by_project view
+ * (supabase/migrations/056_ai_generation_logs_content_project.sql). */
+export type AdminPostCostRow = {
+  content_project_id: string
+  title: string | null
+  log_rows: number
+  failed_rows: number
+  total_cost_usd: number | null
+  total_tokens: number | null
+  total_latency_ms: number | null
+  last_logged_at: string
+}
+
 export interface AdminUserDetail {
   profile: UserRow
   brands: Pick<BrandRow, "id" | "name" | "created_at">[]
   activity: AdminUserActivityRow[]
   purchases: AdminUserPurchaseRow[]
   creditSummary: UserCreditSummary
+  /** null when the view doesn't exist yet (migration 056 not run) --
+   * the page says so instead of showing an empty table. */
+  postCosts: AdminPostCostRow[] | null
+}
+
+// Most recent 20 Posts' totals for this user, with their titles. Never
+// throws: a missing view (migration 056 not run yet) or any other error
+// returns null and the rest of the page renders normally.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function getPostCosts(admin: any, userId: string): Promise<AdminPostCostRow[] | null> {
+  const { data, error } = await admin
+    .from("ai_generation_cost_by_project")
+    .select("content_project_id, log_rows, failed_rows, total_cost_usd, total_tokens, total_latency_ms, last_logged_at")
+    .eq("user_id", userId)
+    .order("last_logged_at", { ascending: false })
+    .limit(20)
+  if (error) {
+    console.error("[admin/get-user-detail] per-post cost query failed (migration 056 not run?):", error.message)
+    return null
+  }
+  const rows = (data ?? []) as Omit<AdminPostCostRow, "title">[]
+  if (rows.length === 0) return []
+
+  const { data: projects } = await admin
+    .from("content_projects")
+    .select("id, title")
+    .in("id", rows.map((r) => r.content_project_id))
+  const titleById = new Map(((projects ?? []) as { id: string; title: string }[]).map((p) => [p.id, p.title]))
+
+  // numeric/bigint aggregates can arrive as strings depending on
+  // PostgREST settings -- normalized to numbers here.
+  const num = (v: unknown) => (v === null || v === undefined ? null : Number(v))
+  return rows.map((r) => ({
+    ...r,
+    title: titleById.get(r.content_project_id) ?? null,
+    log_rows: Number(r.log_rows),
+    failed_rows: Number(r.failed_rows),
+    total_cost_usd: num(r.total_cost_usd),
+    total_tokens: num(r.total_tokens),
+    total_latency_ms: num(r.total_latency_ms),
+  }))
 }
 
 /**
@@ -51,7 +105,7 @@ export async function getAdminUserDetail(userId: string): Promise<AdminUserDetai
 
   if (!profile) return null
 
-  const [brandsResult, activityResult, purchasesResult, creditSummary] = await Promise.all([
+  const [brandsResult, activityResult, purchasesResult, creditSummary, postCosts] = await Promise.all([
     admin
       .from("brands")
       .select("id, name, created_at")
@@ -76,6 +130,7 @@ export async function getAdminUserDetail(userId: string): Promise<AdminUserDetai
     // reimplemented, via the admin (service-role) client instead of the
     // logged-in user's own RLS-scoped one.
     getUserCreditSummary(admin, userId),
+    getPostCosts(admin, userId),
   ])
 
   return {
@@ -84,5 +139,6 @@ export async function getAdminUserDetail(userId: string): Promise<AdminUserDetai
     activity: activityResult.data ?? [],
     purchases: purchasesResult.data ?? [],
     creditSummary,
+    postCosts,
   }
 }

@@ -161,6 +161,7 @@ export async function POST(request: Request) {
       user_id: user.id, brand_id: brandId, feature: FEATURE, model: lastProvider,
       cost_usd: attemptsCostUsd(result.attempts),
       latency_ms: Date.now() - startTime, success: false, error_message: result.error,
+      ...(contentProjectId ? { content_project_id: contentProjectId } : {}),
     })
     // Only refund if this call actually charged a credit — the free
     // regenerate (2nd call in a session) never did.
@@ -266,6 +267,7 @@ export async function POST(request: Request) {
     user_id: user.id, brand_id: brandId, feature: FEATURE, model: modelLabel,
     cost_usd: attemptsCostUsd(result.attempts),
     latency_ms: latencyMs, success: true,
+    ...(contentProjectId ? { content_project_id: contentProjectId } : {}),
   })
 
   return NextResponse.json({

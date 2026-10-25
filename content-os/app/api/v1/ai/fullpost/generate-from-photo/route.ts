@@ -165,6 +165,7 @@ export async function POST(request: Request) {
         total_tokens: usage?.total_tokens ?? null,
         cost_usd: costUsd,
         latency_ms: Date.now() - startTime, success: true,
+        ...(contentProjectId ? { content_project_id: contentProjectId } : {}),
       })
     })
 

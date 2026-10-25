@@ -18,7 +18,7 @@ export default async function AdminUserDetailPage({ params }: PageParams) {
   const detail = await getAdminUserDetail(id)
   if (!detail) notFound()
 
-  const { profile, brands, activity, purchases, creditSummary } = detail
+  const { profile, brands, activity, purchases, creditSummary, postCosts } = detail
 
   return (
     <div className="space-y-8">
@@ -97,6 +97,51 @@ export default async function AdminUserDetailPage({ params }: PageParams) {
                       </span>
                     </td>
                     <td className="py-2 text-muted-foreground">{new Date(row.created_at).toLocaleString()}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      {/* Cost per post (ai_generation_cost_by_project, migration 056) */}
+      <section className="rounded-xl border bg-card p-5">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+          Cost per post{postCosts && postCosts.length > 0 ? ` (last ${postCosts.length})` : ""}
+        </h2>
+        <p className="mt-1 text-xs text-muted-foreground">
+          Create → Full Post only (text + image, retries included). Latency is the sum of every call, not wall-clock time.
+        </p>
+        {postCosts === null ? (
+          <p className="mt-3 text-sm text-muted-foreground">Not available yet. Run migration 056 in the Supabase SQL Editor.</p>
+        ) : postCosts.length === 0 ? (
+          <p className="mt-3 text-sm text-muted-foreground">No posts with tracked cost yet.</p>
+        ) : (
+          <div className="mt-3 overflow-x-auto">
+            <table className="w-full text-left text-sm">
+              <thead>
+                <tr className="border-b text-xs uppercase tracking-wide text-muted-foreground">
+                  <th className="py-2 pr-4 font-medium">Post</th>
+                  <th className="py-2 pr-4 font-medium">Cost</th>
+                  <th className="py-2 pr-4 font-medium">Tokens</th>
+                  <th className="py-2 pr-4 font-medium">Latency</th>
+                  <th className="py-2 pr-4 font-medium">Calls</th>
+                  <th className="py-2 font-medium">Last</th>
+                </tr>
+              </thead>
+              <tbody>
+                {postCosts.map((row) => (
+                  <tr key={row.content_project_id} className="border-b last:border-0">
+                    <td className="max-w-[16rem] truncate py-2 pr-4">{row.title ?? row.content_project_id}</td>
+                    <td className="py-2 pr-4">{row.total_cost_usd !== null ? `$${row.total_cost_usd.toFixed(4)}` : "—"}</td>
+                    <td className="py-2 pr-4">{row.total_tokens !== null ? row.total_tokens.toLocaleString() : "—"}</td>
+                    <td className="py-2 pr-4">{row.total_latency_ms !== null ? `${(row.total_latency_ms / 1000).toFixed(1)}s` : "—"}</td>
+                    <td className="py-2 pr-4">
+                      {row.log_rows}
+                      {row.failed_rows > 0 && <span className="text-destructive"> ({row.failed_rows} failed)</span>}
+                    </td>
+                    <td className="py-2 text-muted-foreground">{new Date(row.last_logged_at).toLocaleString()}</td>
                   </tr>
                 ))}
               </tbody>

@@ -326,6 +326,7 @@ export async function POST(request: Request) {
         cost_usd: sumCostUsd(hookResult.costUsd, contentResult.costUsd),
         latency_ms: Date.now() - startTime,
         success: true,
+        ...(contentProjectId ? { content_project_id: contentProjectId } : {}),
       })
     })
 
