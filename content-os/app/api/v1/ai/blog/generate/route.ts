@@ -86,7 +86,7 @@ export async function POST(request: Request) {
     result = await generateBlogPost(brand, { userPrompt: prompt, product, pastExamples, wordLimit })
   } catch (err) {
     await logGenerationOutcome(supabase, logId, {
-      user_id: user.id, brand_id: brandId, feature: FEATURE, model: MODELS.generation,
+      user_id: user.id, brand_id: brandId, feature: FEATURE, model: MODELS.creative,
       latency_ms: Date.now() - startTime, success: false,
       error_message: err instanceof Error ? err.message : "Unknown error",
     })

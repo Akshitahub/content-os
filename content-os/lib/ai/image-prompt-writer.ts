@@ -1,4 +1,4 @@
-import { getGroqClient, MODELS } from "./models"
+import { getOpenAIClient, MODELS } from "./models"
 import type { BrandRow, ProductRow } from "@/types/database"
 
 // Shared "prompt-authoring" stage inserted in front of every image
@@ -6,7 +6,7 @@ import type { BrandRow, ProductRow } from "@/types/database"
 // the standalone Image Generator) -- see each flow's own call site for how
 // its raw input/constraints map onto WriteImagePromptInput below. This
 // module's ONLY job is to turn that into one complete, well-formed
-// image-generation prompt via Groq; it never talks to the image provider
+// image-generation prompt via a text model; it never talks to the image provider
 // itself and never enforces a hard constraint itself -- aspect ratio, product
 // reference handling, "no text in image", niche photography style, and
 // every other real constraint stay exactly where they already lived
@@ -23,31 +23,31 @@ export interface ImagePromptConstraints {
    * informational context only. The actual size sent to the image provider is a
    * separate, code-only param (see
    * lib/ai/post-image-pipeline.ts's ImageDimensions) that this text prompt
-   * never touches either way, so there's nothing here for Groq to
+   * never touches either way, so there's nothing here for the model to
    * override even in principle. */
   aspectRatioLabel?: string
   /** Selected visual direction/vibe/scene style label, e.g. "editorial
-   * graphic", "clean & minimal", "white studio background". Groq should
+   * graphic", "clean & minimal", "white studio background". The model should
    * write within this direction, but the actual guard strings (
    * PHOTOGRAPHY_STYLE/EDITORIAL_GRAPHIC_STYLE/VIBE_BACKGROUND_STYLES/
    * SCENE_PROMPTS) are still appended in code regardless of what it
    * writes. */
   styleLabel?: string
   /** True when a real uploaded product photo will be attached as an
-   * image-to-image reference for this generation -- when true, Groq is
+   * image-to-image reference for this generation -- when true, the model is
    * told to describe the SCENE/setting around the product, not the
    * product's own appearance (re-describing it would fight the reference
    * photo) -- same rule post-image-pipeline.ts's wrapForReferenceImage
    * comment already documents. Enforcement of this stays code-side too:
    * the reference-image wrapping/guard strings are applied unconditionally
    * whenever a reference photo is actually present, not based on anything
-   * Groq writes. */
+   * the model writes. */
   hasProductReference?: boolean
   /** Carousel/Story slide role -- changes what a slide's background needs
    * to leave room for (see resolveProductSafeZoneGuard-style reasoning in
    * lib/ai/carousel-slide-background.ts). Informational only -- the actual
    * safe-zone/no-text guards for these slides are still 100% code-enforced
-   * regardless of what Groq writes here. */
+   * regardless of what the model writes here. */
   role?: "hook" | "cta" | "body"
   /** Only meaningful for the standalone Image Generator tool, which is the
    * one flow with a real "AI can't render legible text" warning/override
@@ -69,7 +69,7 @@ export interface WriteImagePromptInput {
    * are otherwise identical between a first write and a rewrite (the
    * caller is expected to pass the same stable seed both times, not the
    * previous AI output) -- this flag is what actually asks for a
-   * meaningfully different take instead of Groq just re-describing the
+   * meaningfully different take instead of the model just re-describing the
    * same scene again given identical input. See buildUserPrompt below. */
   isRewrite?: boolean
   brand: Pick<BrandRow, "name" | "niche" | "target_audience" | "tone_of_voice" | "vibe">
@@ -156,34 +156,44 @@ Respond with ONLY the prompt text, nothing else.`
 }
 
 /**
- * Kicks off the Groq streaming completion and returns the raw async
- * iterable of chunks -- deliberately NOT wrapped in the route's own
- * ReadableStream here, so a synchronous/early failure (bad API key,
- * unreachable network) surfaces as a normal rejected promise the route can
- * catch and answer with a clean error response, before it has committed to
- * a streaming Response at all. Reasoning-model output only ever lands in
- * delta.content for Groq's chat.completions streaming endpoint on this
- * account's models (hidden reasoning tokens are a separate, un-streamed
- * field, see lib/ai/models.ts) -- confirmed against this file's own
- * non-streaming sibling calls elsewhere in lib/ai, none of which have ever
- * needed to filter one out.
+ * Prompt-authoring moved from Groq to OpenAI (MODELS.creative) as part of
+ * the Phase 1 creative-stages migration. Kicks off the streaming
+ * completion and returns the raw async iterable of chunks -- deliberately
+ * NOT wrapped in the route's own ReadableStream here, so a synchronous/
+ * early failure (bad API key, unreachable network) surfaces as a normal
+ * rejected promise the route can catch and answer with a clean error
+ * response, before it has committed to a streaming Response at all.
+ * Reasoning-model output lands in delta.content for this streaming
+ * endpoint, same shape as Groq's OpenAI-compatible API (hidden reasoning
+ * tokens are a separate, un-streamed field, see lib/ai/models.ts) --
+ * confirmed against this file's own non-streaming sibling calls elsewhere
+ * in lib/ai, none of which have ever needed to filter one out.
  */
 export async function requestImagePromptStream(input: WriteImagePromptInput) {
-  const groq = getGroqClient()
-  return groq.chat.completions.create({
-    model: MODELS.generation,
-    temperature: 0.85,
-    reasoning_effort: "low",
-    // Was 250 -- too tight for an 80-150 word (~110-200 token) completion
-    // plus this reasoning-class model's hidden reasoning tokens (both count
-    // against the same budget, see lib/ai/models.ts's own comment on this
-    // model), and was cutting responses off mid-sentence. 400 gives real
-    // headroom above the target length.
-    max_tokens: 400,
-    stream: true,
-    messages: [
-      { role: "system", content: SYSTEM_PROMPT },
-      { role: "user", content: buildUserPrompt(input) },
-    ],
-  })
+  const openai = getOpenAIClient()
+  return openai.chat.completions.create(
+    {
+      model: MODELS.creative,
+      // Speed matters here (this fires automatically on entering every
+      // image-generation flow) -- "low" per the migration spec.
+      reasoning_effort: "low",
+      // max_completion_tokens (not the deprecated max_tokens) since
+      // gpt-5.5-class models are reasoning models, same convention as
+      // lib/ai/captions-generator.ts. Was 400 on Groq for an 80-150 word
+      // (~110-200 token) completion plus hidden reasoning tokens; kept the
+      // same headroom here since the target output length is unchanged.
+      // `temperature` deliberately omitted, same reasoning as that file.
+      max_completion_tokens: 400,
+      stream: true,
+      messages: [
+        { role: "system", content: SYSTEM_PROMPT },
+        { role: "user", content: buildUserPrompt(input) },
+      ],
+    },
+    // ESTIMATE, not measured live (no working OPENAI_API_KEY in the
+    // environment this was written in) -- see scripts/test-creative-stages.ts.
+    // Streaming, so this bounds time-to-first-chunk/overall stream
+    // completion, not time-to-first-byte of a single blocking response.
+    { timeout: 25_000, maxRetries: 1 }
+  )
 }

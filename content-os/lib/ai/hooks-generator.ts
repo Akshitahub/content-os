@@ -1,9 +1,12 @@
 import type { BrandRow, ProductRow } from "@/types/database"
 import type { GeneratedHook, HookType, Platform } from "@/types/app"
 import { buildHookSystemPrompt, buildHookUserPrompt } from "./prompts"
-import { MODELS, getGroqClient } from "./models"
+import { MODELS, getOpenAIClient } from "./models"
 import { findContentQualityIssues, sanitizeLeakedArtifacts } from "./content-quality-check"
 
+// Hooks moved from Groq to OpenAI (MODELS.creative) as part of the Phase 1
+// creative-stages migration -- same API style as lib/ai/captions-generator.ts's
+// earlier OpenAI migration, for consistency.
 export async function generateHooks(
   brand: BrandRow,
   options: {
@@ -14,31 +17,47 @@ export async function generateHooks(
     product?: ProductRow | null
   }
 ): Promise<{ hooks: GeneratedHook[]; model: string; usage: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } | undefined }> {
-  const groq = getGroqClient()
+  const openai = getOpenAIClient()
 
   const hookTypes = options.hookTypes?.length
     ? options.hookTypes
     : (["question", "bold_statement", "story", "statistic", "controversial", "how_to"] as HookType[])
 
   const count = options.count ?? 3
-  const model = MODELS.generation
+  const model = MODELS.creative
 
-  const response = await groq.chat.completions.create({
-    model,
-    temperature: 0.85,
-    // GPT-OSS reasoning tokens count against max_tokens. Measured live: a
-    // short hook-list task at reasoning_effort "low" used only ~6 reasoning
-    // tokens (vs. hundreds+ at "medium" for comparable short tasks) — this
-    // is exactly the short-list-brainstorming case "low" is for. Budget
-    // raised well past the old Llama-era 600 for headroom.
-    reasoning_effort: "low",
-    max_tokens: 1000,
-    response_format: { type: "json_object" },
-    messages: [
-      { role: "system", content: buildHookSystemPrompt() },
-      { role: "user", content: buildHookUserPrompt(brand, { hookTypes, count, platform: options.platform, additionalContext: options.additionalContext, product: options.product }) },
-    ],
-  })
+  const startTime = Date.now()
+  let response: Awaited<ReturnType<typeof openai.chat.completions.create>>
+  try {
+    response = await openai.chat.completions.create(
+      {
+        model,
+        // Speed matters here (a short brainstorming list, same reasoning
+        // this stage already used on Groq) -- "low" per the migration spec.
+        reasoning_effort: "low",
+        // max_completion_tokens (not the deprecated max_tokens) since
+        // gpt-5.5-class models are reasoning models, same convention as
+        // lib/ai/captions-generator.ts. `temperature` deliberately omitted,
+        // same reasoning as that file: not verified live whether this
+        // reasoning model accepts a non-default sampling temperature.
+        max_completion_tokens: 1000,
+        response_format: { type: "json_object" },
+        messages: [
+          { role: "system", content: buildHookSystemPrompt() },
+          { role: "user", content: buildHookUserPrompt(brand, { hookTypes, count, platform: options.platform, additionalContext: options.additionalContext, product: options.product }) },
+        ],
+      },
+      // ESTIMATE, not measured live (no working OPENAI_API_KEY in the
+      // environment this was written in) -- see scripts/test-creative-stages.ts
+      // for the real measurement. 20s is generous headroom over a short,
+      // low-effort JSON completion; revisit once real latency data exists.
+      { timeout: 20_000, maxRetries: 1 }
+    )
+  } catch (err) {
+    console.error(`[hooks-generator] provider=openai model=${model} stage=hooks latencyMs=${Date.now() - startTime} success=false:`, err)
+    throw err
+  }
+  console.log(`[hooks-generator] provider=openai model=${model} stage=hooks latencyMs=${Date.now() - startTime} success=true`)
 
   const raw = response.choices[0]?.message?.content ?? "{}"
   let cleaned = raw.replace(/```json\n?/g, "").replace(/```\n?/g, "").replace(/[\x00-\x1F\x7F]/g, " ").trim()

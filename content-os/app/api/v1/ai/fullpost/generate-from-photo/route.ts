@@ -2,6 +2,7 @@ import { NextResponse, after } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import { generateFullPostFromPhotoSchema } from "@/lib/validations/ai"
 import { analyzePhotoForPost } from "@/lib/ai/vision"
+import { MODELS } from "@/lib/ai/models"
 import { uploadMediaToStorage } from "@/lib/storage/upload-media"
 import { buildError, ErrorCodes } from "@/types/api"
 import { checkAndIncrementUsage, refundGenerationUsage, logGenerationOutcome } from "@/lib/usage/check-and-increment-usage"
@@ -55,7 +56,7 @@ export async function POST(request: Request) {
   const startTime = Date.now()
 
   // Upload the real photo FIRST -- it needs a real public HTTPS URL both to
-  // hand to the vision model (Groq's vision input takes a URL, not a raw
+  // hand to the vision model (it takes a URL, not a raw
   // data: URI) and to save as this post's actual image. "published-media"
   // (not "brand-images", which is for AI-generated
   // backgrounds) since this is real, final, ready-to-schedule content from
@@ -178,7 +179,7 @@ export async function POST(request: Request) {
     console.error("[ai/fullpost/generate-from-photo] failed:", err)
     after(async () => {
       await logGenerationOutcome(supabase, logId, {
-        user_id: user.id, brand_id: brandId, feature: FEATURE, model: "qwen/qwen3.6-27b",
+        user_id: user.id, brand_id: brandId, feature: FEATURE, model: MODELS.vision,
         latency_ms: Date.now() - startTime, success: false,
         error_message: err instanceof Error ? err.message : "Unknown error",
       })

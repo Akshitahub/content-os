@@ -1,7 +1,7 @@
 import type { BrandRow, ProductRow } from "@/types/database"
 import type { BlogPost } from "@/types/app"
 import { buildBlogArticleSystemPrompt, buildBlogArticleUserPrompt } from "./prompts"
-import { MODELS, getGroqClient } from "./models"
+import { MODELS, getOpenAIClient } from "./models"
 import { findContentQualityIssues, sanitizeLeakedArtifacts } from "./content-quality-check"
 
 function sanitizeJsonString(raw: string): string {
@@ -12,6 +12,9 @@ function sanitizeJsonString(raw: string): string {
     .trim()
 }
 
+// Blog (this dedicated tool) moved from Groq to OpenAI (MODELS.creative) as
+// part of the Phase 1 creative-stages migration -- same API style as
+// lib/ai/captions-generator.ts's earlier OpenAI migration, for consistency.
 export async function generateBlogPost(
   brand: BrandRow,
   options: {
@@ -19,35 +22,52 @@ export async function generateBlogPost(
     product?: ProductRow | null
     pastExamples?: string[]
     /** Target body word count (see buildBlogArticleUserPrompt) — also
-     * drives max_tokens below so the ceiling scales with what was actually
-     * asked for, instead of a single fixed value regardless of length. */
+     * drives max_completion_tokens below so the ceiling scales with what
+     * was actually asked for, instead of a single fixed value regardless
+     * of length. */
     wordLimit: number
   }
 ): Promise<{ post: BlogPost; model: string; usage: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } | undefined }> {
-  const groq = getGroqClient()
-  const model = MODELS.generation
+  const openai = getOpenAIClient()
+  const model = MODELS.creative
 
   // ~3 tokens/word gives headroom for the JSON wrapper (title,
   // meta_description, tags) plus the tokenizer's real word:token ratio for
-  // English prose, PLUS hidden GPT-OSS reasoning tokens that count against
-  // this same budget. Measured live: an 800-word blog target at
-  // reasoning_effort "medium" consumed 1320 total tokens (273 of them
-  // reasoning, ~21% overhead) — moderate and worth paying for real long-form
-  // reasoning quality. Floored at 1800 so a short target still has room to
-  // finish the JSON structure cleanly rather than getting cut off mid-object.
+  // English prose, PLUS hidden reasoning tokens that count against this
+  // same budget on a reasoning model. Floored at 1800 so a short target
+  // still has room to finish the JSON structure cleanly rather than
+  // getting cut off mid-object. (The Groq-era comment this replaced had
+  // measured reasoning overhead specifically for openai/gpt-oss-120b --
+  // not re-measured yet for gpt-5.5, see scripts/test-creative-stages.ts.)
   const maxTokens = Math.max(1800, Math.round(options.wordLimit * 3))
 
-  const response = await groq.chat.completions.create({
-    model,
-    temperature: 0.75,
-    reasoning_effort: "medium",
-    max_tokens: maxTokens,
-    response_format: { type: "json_object" },
-    messages: [
-      { role: "system", content: buildBlogArticleSystemPrompt() },
-      { role: "user", content: buildBlogArticleUserPrompt(brand, options) },
-    ],
-  })
+  const startTime = Date.now()
+  let response: Awaited<ReturnType<typeof openai.chat.completions.create>>
+  try {
+    response = await openai.chat.completions.create(
+      {
+        model,
+        // Long-form -- "medium" (gpt-5.5's own default) per the migration
+        // spec's "default for long-form blog/reel scripts" guidance.
+        reasoning_effort: "medium",
+        max_completion_tokens: maxTokens,
+        response_format: { type: "json_object" },
+        messages: [
+          { role: "system", content: buildBlogArticleSystemPrompt() },
+          { role: "user", content: buildBlogArticleUserPrompt(brand, options) },
+        ],
+      },
+      // ESTIMATE, not measured live (no working OPENAI_API_KEY in the
+      // environment this was written in) -- see scripts/test-creative-stages.ts.
+      // 45s: long-form generation with a scaling token budget, plus a
+      // reasoning model is generally slower than Groq's LPU inference.
+      { timeout: 45_000, maxRetries: 1 }
+    )
+  } catch (err) {
+    console.error(`[blog-generator] provider=openai model=${model} stage=blog_post latencyMs=${Date.now() - startTime} success=false:`, err)
+    throw err
+  }
+  console.log(`[blog-generator] provider=openai model=${model} stage=blog_post latencyMs=${Date.now() - startTime} success=true`)
 
   const raw = response.choices[0]?.message?.content ?? "{}"
   let cleaned = sanitizeJsonString(raw)

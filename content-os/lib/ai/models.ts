@@ -10,32 +10,51 @@ export const GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 // `scoring`'s gpt-oss-20b) and MUST set reasoning_effort explicitly and
 // size max_tokens with real headroom for hidden reasoning tokens — see the
 // per-call-site fixes shipped alongside this change. Never leave
-// reasoning_effort unset on a call using this model.
-// `vision` confirmed live against Groq's actual /v1/models endpoint
-// (2026-08-26), not from documentation -- neither of the commonly-cited
-// meta-llama/llama-4-scout-17b-16e-instruct nor
-// meta-llama/llama-4-maverick-17b-128e-instruct exist on this account at
-// all right now. qwen/qwen3.6-27b is the only model whose live metadata
-// lists "image" in input_modalities. Its reasoning_effort only accepts
-// "none" or "default" (NOT the "low"/"medium"/"high" scale the gpt-oss
-// models use) -- "none" is required, otherwise it burns the whole
-// completion budget on a visible <think> trace before ever writing the
-// actual JSON output. Confirmed live: one real photo, one call, ~1.3s,
-// ~1,400 prompt + ~130 completion tokens (~$0.0012).
-// `caption` is the one stage migrated to OpenAI so far (see
-// lib/ai/captions-generator.ts) -- every other stage below stays on Groq
-// for now, each still reading its own model id from this single constant
-// so the rest can migrate one at a time later without a call-site hunt.
-// "gpt-5.5" per the migration spec; falls back to "gpt-5.4" only if
-// gpt-5.5 turns out not to be available on this account's API key --
-// verify both IDs are live on the real key before shipping this to
-// production (not independently verifiable from here).
+// reasoning_effort unset on a call using this model. STILL GROQ as of the
+// Phase-1 OpenAI migration below — this exact constant is read directly by
+// several Groq call sites that must stay (lib/ai/fastlane.ts's Autopilot
+// strategy/slot generation, lib/ai/account-analytics.ts,
+// lib/ai/reel-prompt-optimizer.ts/blog-prompt-optimizer.ts,
+// app/api/v1/ai/repurpose/route.ts, app/api/v1/brands/[brandId]/
+// generate-occasion-content/route.ts, app/api/v1/ai/stories/generate/
+// route.ts and .../carousel/generate/route.ts, and the "story"/"carousel"
+// cases inside lib/ai/content-generator.ts) -- changing this constant's
+// value would silently break all of them. `creative` below is a
+// deliberately SEPARATE new constant for exactly that reason.
+//
+// `caption` was the first stage migrated to OpenAI (see
+// lib/ai/captions-generator.ts). `creative` is Phase 1 of migrating the
+// rest: hooks (lib/ai/hooks-generator.ts), blog (lib/ai/blog-generator.ts
+// and the "blog_post"/"reel_script"/"ad_copy" cases inside
+// lib/ai/content-generator.ts -- NOT "story"/"carousel", which share that
+// same function but stay on Groq/MODELS.generation), and prompt-authoring
+// (lib/ai/image-prompt-writer.ts). "gpt-5.5" per the migration spec; falls
+// back to "gpt-5.4" only if gpt-5.5 turns out not to be available on this
+// account's API key -- verify both IDs are live on the real key before
+// shipping this to production (not independently verifiable from here).
+// Confirmed live against OpenAI's own model page
+// (developers.openai.com/api/docs/models/gpt-5.5, checked 2026-10-25) that
+// gpt-5.5 is real and supports reasoning_effort
+// none/low/medium(default)/high/xhigh. NOT yet in the installed `openai`
+// SDK's own hardcoded ChatModel literal union (which only goes up to
+// gpt-5.4 as of this package version) -- still compiles fine since that
+// type also accepts any plain string, just no autocomplete/typo-checking
+// for this specific literal.
+//
+// `vision` migrated from Groq's qwen/qwen3.6-27b to the same gpt-5.5 --
+// confirmed on the same model page that gpt-5.5 accepts image input (text
+// + image in, text out). Kept as its own named key rather than merged into
+// `creative` (even though the value is identical today), matching this
+// file's existing convention of separate named keys per logical stage --
+// `extraction`/`scoring` already share one value under two names for the
+// same reason.
 export const MODELS = {
   extraction: "openai/gpt-oss-20b",
   generation: "openai/gpt-oss-120b",
   scoring: "openai/gpt-oss-20b",
-  vision: "qwen/qwen3.6-27b",
+  vision: "gpt-5.5",
   caption: "gpt-5.5",
+  creative: "gpt-5.5",
 } as const
 
 export type ModelKey = keyof typeof MODELS

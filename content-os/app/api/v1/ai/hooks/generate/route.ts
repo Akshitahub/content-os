@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import { generateHooksSchema } from "@/lib/validations/ai"
 import { generateHooks } from "@/lib/ai/hooks-generator"
+import { MODELS } from "@/lib/ai/models"
 import { buildError, ErrorCodes } from "@/types/api"
 import { checkAndIncrementUsage, refundGenerationUsage, logGenerationOutcome } from "@/lib/usage/check-and-increment-usage"
 import { HOOK_OR_CAPTION } from "@/lib/usage/credit-costs"
@@ -60,7 +61,7 @@ export async function POST(request: Request) {
     console.error("HOOKS GEN ERROR:", err)
     // Log failure
     await logGenerationOutcome(supabase, logId, {
-      user_id: user.id, brand_id: brandId, feature: FEATURE, model: "meta/llama-3.1-70b-instruct",
+      user_id: user.id, brand_id: brandId, feature: FEATURE, model: MODELS.creative,
       latency_ms: Date.now() - startTime, success: false,
       error_message: err instanceof Error ? err.message : "Unknown error",
     })

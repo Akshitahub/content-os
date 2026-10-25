@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/server"
 import { buildError, ErrorCodes } from "@/types/api"
-import { classifyGroqError } from "@/lib/ai/models"
+import { classifyOpenAIError } from "@/lib/ai/models"
 import { requestImagePromptStream, type ImagePromptFlow, type ImagePromptConstraints } from "@/lib/ai/image-prompt-writer"
 import { z } from "zod"
 import type { BrandRow, ProductRow } from "@/types/database"
@@ -35,10 +35,10 @@ const schema = z.object({
   // route (Post's "What do you want to post", Story/Carousel/Ad Maker's
   // "Visual scene") -- was capped at 500, matching (and inherited from) the
   // old UI cap on Post's own textarea. Raised to 5000 so a genuinely long
-  // brief reaches Groq in full instead of being rejected outright; the
-  // model itself (openai/gpt-oss-120b, ~131k token context) has more than
+  // brief reaches the model in full instead of being rejected outright; the
+  // model itself (gpt-5.5, 1.05M token context) has more than
   // enough headroom for 5000 chars (~1250 tokens) of input alongside the
-  // system prompt and this call's own max_tokens budget.
+  // system prompt and this call's own max_completion_tokens budget.
   rawInput: z.string().max(5000, "Your brief is too long -- please keep it under 5000 characters.").nullable().optional().transform((v) => v?.replace(/<[^>]*>/g, "").trim() || null),
   // True for an explicit "Rewrite"/"Regenerate" request -- see
   // lib/ai/image-prompt-writer.ts's WriteImagePromptInput.isRewrite for why
@@ -96,9 +96,9 @@ export async function POST(request: Request) {
     product = { name: inlineProduct.name, description: inlineProduct.description ?? null, key_benefits: [] }
   }
 
-  let groqStream: Awaited<ReturnType<typeof requestImagePromptStream>>
+  let modelStream: Awaited<ReturnType<typeof requestImagePromptStream>>
   try {
-    groqStream = await requestImagePromptStream({
+    modelStream = await requestImagePromptStream({
       flow: flow as ImagePromptFlow,
       rawInput,
       isRewrite,
@@ -107,15 +107,15 @@ export async function POST(request: Request) {
       constraints: constraints as ImagePromptConstraints,
     })
   } catch (err) {
-    console.error("[ai/image-prompt/write] Groq stream failed to start:", err)
-    return Response.json(buildError(ErrorCodes.AI_GENERATION_FAILED, classifyGroqError(err)), { status: 500 })
+    console.error("[ai/image-prompt/write] stream failed to start:", err)
+    return Response.json(buildError(ErrorCodes.AI_GENERATION_FAILED, classifyOpenAIError(err)), { status: 500 })
   }
 
   const encoder = new TextEncoder()
   const body_ = new ReadableStream<Uint8Array>({
     async start(controller) {
       try {
-        for await (const chunk of groqStream) {
+        for await (const chunk of modelStream) {
           const delta = chunk.choices[0]?.delta?.content
           if (delta) controller.enqueue(encoder.encode(delta))
         }

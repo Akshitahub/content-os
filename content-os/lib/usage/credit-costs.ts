@@ -3,10 +3,13 @@ import type { ContentFormat } from "@/types/app"
 /**
  * Weighted credit costs per feature — replaces the old flat "every
  * generation = 1 credit" model. Real provider cost varies enormously:
- * text-only generations cost a fraction of a rupee via Groq, while
- * image-bearing generations have a real per-call image-provider cost.
- * Charging flat 1 for both was selling every image-bearing generation
- * below its real cost.
+ * text-only generations on Groq still cost a fraction of a rupee (story,
+ * carousel, scoring, extraction, repurpose, etc. -- see
+ * lib/ai/models.ts for which stages stayed on Groq), while the stages
+ * migrated to OpenAI (captions, hooks, reel scripts, blog, ad copy,
+ * vision, and every image generation) have a real, much higher per-call
+ * provider cost. Charging flat 1 for all of these was selling the
+ * expensive ones below their real cost.
  *
  * A "Post" (the Create → Full Post flow: hook + caption text, then a
  * composited AI image) is billed as ONE bundled 5-credit charge, not two
@@ -30,8 +33,19 @@ import type { ContentFormat } from "@/types/app"
  * as-is pending that decision. Revisit all of these against actual OpenAI
  * dashboard billing data once enough usage has accumulated to measure it.
  */
+// HOOK_OR_CAPTION stays 1 through the Phase 1 text-stages migration
+// (hooks, reel_script, ad_copy, social_post all moved or already on
+// OpenAI) -- see the per-stage cost notes further down (search
+// "Phase 1 text-stages migration") for why each of those stays
+// comfortably under this value's ~₹2.02/credit budget. reel_script is
+// the one exception: its real cost now exceeds this shared value, so it
+// gets its own override in CONTENT_FORMAT_CREDIT_COSTS below rather than
+// this constant being bumped for every stage that shares it.
 export const HOOK_OR_CAPTION = 1
-export const BLOG_POST = 1
+// Recomputed for the Phase 1 text-stages migration (2026-10-25) -- see the
+// "Phase 1 text-stages migration" comment block further down for the
+// sourced math. Was 1; real cost now runs close to 2x that.
+export const BLOG_POST = 2
 export const POST = 5
 export const STORY = 6
 export const AD_MAKER = 5
@@ -91,14 +105,61 @@ export const REEL = 75
 // Create -> Full Post's "upload your own photo" path (lib/ai/vision.ts +
 // app/api/v1/ai/fullpost/generate-from-photo/route.ts) — deliberately NOT
 // priced like POST above. That 5-credit weight prices in a real AI
-// image generation; this path skips image generation
-// entirely (the user's own photo IS the image) and costs only one
-// qwen/qwen3.6-27b vision+caption call. Measured live against a real
-// photo (2026-08-26): ~1,400 prompt + ~130 completion tokens, ~$0.0012 —
-// cheaper than an image-generation call and roughly in line with a
-// single text-only HOOK_OR_CAPTION call, so it's priced the same rather
-// than at POST's image-inclusive rate.
+// image generation; this path skips image generation entirely (the
+// user's own photo IS the image) and costs only one vision+caption call.
+//
+// Vision moved from Groq's qwen/qwen3.6-27b to OpenAI's gpt-5.5
+// (MODELS.vision) in the Phase 1 text-stages migration (2026-10-25). The
+// old $0.0012/call Groq measurement no longer applies. OpenAI's pricing
+// page (developers.openai.com/api/docs/pricing, checked 2026-10-25) bills
+// image input under the same per-token input rate as text for a chat
+// model ($5.00/1M input tokens, $30.00/1M output for gpt-5.5) rather than
+// a separate image-generation-style rate -- but doesn't publish exactly
+// how many tokens one photo costs at a given detail level, so this is a
+// looser estimate than PHOTO_CAPTION's old Groq-measured figure: assuming
+// ~1,000 combined image+text input tokens + ~300 output tokens,
+// (1000/1e6*$5) + (300/1e6*$30) ≈ $0.014/call ≈ ₹1.22 (at ~₹87/$) -- still
+// comfortably under HOOK_OR_CAPTION's ~₹2.02/credit budget, so this stays
+// at 1, but with less confidence than before; revisit once real OpenAI
+// billing data (or a confirmed image-token count for gpt-5.5) exists.
 export const PHOTO_CAPTION = HOOK_OR_CAPTION
+
+// ─── Phase 1 text-stages migration (2026-10-25) ────────────────────────────
+// Groq -> OpenAI gpt-5.5 (MODELS.creative) for hooks (lib/ai/hooks-generator.ts),
+// reel_script/blog_post/ad_copy inside lib/ai/content-generator.ts, and the
+// dedicated lib/ai/blog-generator.ts. Source for all the $ figures below:
+// developers.openai.com/api/docs/pricing (checked 2026-10-25), gpt-5.5 at
+// $5.00/1M input tokens, $30.00/1M output tokens. All of the following are
+// ESTIMATES (typical token counts, not measured from real usage), using
+// this file's existing ~₹2.02/credit reference ratio (at ~₹87/$, same
+// assumed FX rate already used elsewhere in this file) to convert $ to
+// credits:
+//
+// - hooks (reasoning_effort "low", max_completion_tokens 1000): a short
+//   brainstorm list -- ~1,000 input + ~400 output tokens ≈
+//   (1000/1e6*$5)+(400/1e6*$30) ≈ $0.017/call ≈ ₹1.48. Comfortably under
+//   HOOK_OR_CAPTION's 1-credit budget -- no change needed.
+// - ad_copy (reasoning_effort "low", max_completion_tokens 1200): similar
+//   short-form scale to hooks -- stays safely under HOOK_OR_CAPTION's
+//   1-credit budget, no change needed.
+// - reel_script (reasoning_effort "medium", max_completion_tokens 2500):
+//   a multi-scene script -- ~2,000 input + ~1,200 output tokens ≈
+//   (2000/1e6*$5)+(1200/1e6*$30) ≈ $0.046/call ≈ ₹4.0 -- roughly 2x
+//   HOOK_OR_CAPTION's ~₹2.02/credit value. Rather than bumping
+//   HOOK_OR_CAPTION itself (which would overcharge hooks/ad_copy/
+//   social_post, all genuinely cheaper), reel_script gets its own
+//   override below in CONTENT_FORMAT_CREDIT_COSTS.
+// - blog_post (both the dedicated tool and the Content-tab format,
+//   reasoning_effort "medium", token budget scales with word count): an
+//   800-word target ≈ ~2,000 input + ~1,200 output tokens ≈ the same
+//   ~$0.046/call ≈ ₹4.0 math as reel_script -- BLOG_POST above was
+//   recomputed from 1 to 2 for this reason.
+//
+// NOT recomputed: hooks/ad_copy's shared HOOK_OR_CAPTION value (real cost
+// is comfortably under it, see above) and vision/PHOTO_CAPTION (see its
+// own comment just above this block). story/carousel inside
+// content-generator.ts stayed on Groq this phase, so their STORY/CAROUSEL
+// weights are untouched and out of scope here.
 
 // Lightweight non-image AI actions, confirmed to stay at the base rate:
 // app/api/v1/ai/repurpose (repurposing existing content into a new
@@ -150,9 +211,18 @@ export const STORY_SLIDE_AI_BACKGROUND = IMAGE
 // caption-only cost (HOOK_OR_CAPTION); fullpost/generate overrides
 // "social_post" to 0 itself, per the bundled-Post design above — every
 // other format charges what this map says in both routes alike.
+//
+// "reel_script" is its own literal 2, not HOOK_OR_CAPTION, as of the Phase
+// 1 text-stages migration (2026-10-25) -- see that migration's comment
+// block above (search "Phase 1 text-stages migration") for why: its real
+// OpenAI cost (~₹4.0/call) runs close to 2x HOOK_OR_CAPTION's ~₹2.02/credit
+// value, and bumping HOOK_OR_CAPTION itself would overcharge the other
+// formats that share it (social_post, ad_copy) even though their own real
+// cost didn't move. ad_copy stays on HOOK_OR_CAPTION -- its real cost is
+// still comfortably within budget.
 export const CONTENT_FORMAT_CREDIT_COSTS: Record<ContentFormat, number> = {
   social_post: HOOK_OR_CAPTION,
-  reel_script: HOOK_OR_CAPTION,
+  reel_script: 2,
   story: STORY,
   carousel: CAROUSEL,
   blog_post: BLOG_POST,

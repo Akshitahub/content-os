@@ -196,9 +196,7 @@ export async function generateContent(
   // char limit) — see docs/research/captions-generation-audit.md. Routed
   // through the same generateValidatedCaption() orchestrator that
   // lib/ai/captions-generator.ts uses, so the two paths can't drift apart
-  // again. Captions moved to OpenAI (MODELS.caption) -- every other format
-  // keeps the original Groq single-call flow below (MODELS.generation),
-  // untouched by that migration.
+  // again. Captions moved to OpenAI (MODELS.caption).
   if (format === "social_post") {
     const openai = getOpenAIClient()
     const captionModel = MODELS.caption
@@ -238,21 +236,72 @@ export async function generateContent(
     return { data: caption, model: captionModel, usage }
   }
 
-  const groq = getGroqClient()
-  const model = MODELS.generation
-  const response = await groq.chat.completions.create({
-    model,
-    temperature: 0.8,
-    reasoning_effort: reasoningEffort,
-    max_tokens: maxTokens,
-    response_format: { type: "json_object" },
-    messages: [
-      { role: "system", content: system },
-      { role: "user", content: user },
-    ],
-  })
+  // Phase 1 of the creative-stages migration moves reel_script/blog_post/
+  // ad_copy to OpenAI (MODELS.creative) -- story/carousel share this exact
+  // function/call shape but were explicitly left on Groq (MODELS.generation)
+  // this phase, so this one shared code block now branches by format
+  // rather than always calling Groq. Only the client/model/token-param-name/
+  // timeout differ between the two branches -- the JSON parsing and
+  // validateAndCast/sanitizeContent below are identical either way, since
+  // the output SHAPE per format never changed, only which provider
+  // produced it.
+  const isOpenAIFormat = format === "reel_script" || format === "blog_post" || format === "ad_copy"
+  const model = isOpenAIFormat ? MODELS.creative : MODELS.generation
+  const startTime = Date.now()
 
-  const raw = response.choices[0]?.message?.content ?? "{}"
+  let raw: string
+  let usage: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } | undefined
+
+  if (isOpenAIFormat) {
+    const openai = getOpenAIClient()
+    try {
+      const response = await openai.chat.completions.create(
+        {
+          model,
+          reasoning_effort: reasoningEffort,
+          // max_completion_tokens (not the deprecated max_tokens) since
+          // gpt-5.5-class models are reasoning models, same convention as
+          // lib/ai/captions-generator.ts. `temperature` deliberately
+          // omitted, same reasoning as that file.
+          max_completion_tokens: maxTokens,
+          response_format: { type: "json_object" },
+          messages: [
+            { role: "system", content: system },
+            { role: "user", content: user },
+          ],
+        },
+        // ESTIMATE, not measured live (no working OPENAI_API_KEY in the
+        // environment this was written in) -- see
+        // scripts/test-creative-stages.ts. reel_script/blog_post run at
+        // "medium" reasoning effort with a bigger token budget than
+        // ad_copy's "low"/1200, so this is sized for the slower case;
+        // revisit once real latency data exists.
+        { timeout: 40_000, maxRetries: 1 }
+      )
+      raw = response.choices[0]?.message?.content ?? "{}"
+      usage = response.usage ?? undefined
+    } catch (err) {
+      console.error(`[content-generator] provider=openai model=${model} stage=${format} latencyMs=${Date.now() - startTime} success=false:`, err)
+      throw err
+    }
+    console.log(`[content-generator] provider=openai model=${model} stage=${format} latencyMs=${Date.now() - startTime} success=true`)
+  } else {
+    const groq = getGroqClient()
+    const response = await groq.chat.completions.create({
+      model,
+      temperature: 0.8,
+      reasoning_effort: reasoningEffort,
+      max_tokens: maxTokens,
+      response_format: { type: "json_object" },
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: user },
+      ],
+    })
+    raw = response.choices[0]?.message?.content ?? "{}"
+    usage = response.usage ?? undefined
+  }
+
   let cleaned = raw.replace(/```json\n?/g, "").replace(/```\n?/g, "").replace(/[\x00-\x1F\x7F]/g, " ").trim()
   const jsonMatch = cleaned.match(/\{[\s\S]*\}/)
   if (jsonMatch) cleaned = jsonMatch[0]
@@ -266,5 +315,5 @@ export async function generateContent(
 
   const data = sanitizeContent(format, validateAndCast(format, parsed))
 
-  return { data, model, usage: response.usage ?? undefined }
+  return { data, model, usage }
 }

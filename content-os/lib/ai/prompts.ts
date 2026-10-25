@@ -313,7 +313,7 @@ export function buildCaptionUserPrompt(
   const themeList = (options.availableColorThemes ?? []).map(t => t.id).join(" | ") || "curated_violet | curated_sunset | curated_forest | curated_midnight"
   // Only meaningful when suggested_template is "hard_truth_checklist" --
   // appended onto the same JSON contract every other caller already gets
-  // rather than a separate call, so this stays one Groq call regardless of
+  // rather than a separate call, so this stays one model call regardless of
   // which template gets picked. The model is told explicitly these are
   // conditional (see suggested_template's own instruction above) so it
   // doesn't feel obligated to fill them for an unrelated template.
