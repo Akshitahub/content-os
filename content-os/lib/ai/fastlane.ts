@@ -1,6 +1,7 @@
 import { after } from "next/server"
 import { MODELS } from "./models"
 import { createCreativeCompletion } from "./creative-completion"
+import { buildFactSource, guardCopy, stripGuard } from "./fact-guard"
 import { addTextUsage, sumCostUsd, type TextUsage } from "./pricing"
 import { generateCarouselHtml } from "@/lib/design/post-card-generator"
 import { getUpcomingOccasionsForAutopilot } from "@/lib/occasions/get-upcoming-occasions"
@@ -139,6 +140,10 @@ export interface AutopilotParams {
   /** Internal owner-bypass — same provider regardless of `plan` (see
    * isInternalUnlimited). Defaults to false if omitted. */
   isInternalUnlimitedUser?: boolean
+  /** Epoch ms after which a slot's fact-guard retry is skipped (claim
+   * stripped instead) -- set by app/api/v1/brands/fastlane/route.ts so
+   * retries can't push a run past its maxDuration. Omitted = no limit. */
+  factGuardDeadline?: number
 }
 
 export interface StrategyOverview {
@@ -474,6 +479,7 @@ async function generateSlotContent(
   product: ProductRow | null,
   totalSlots: number,
   tracker?: AutopilotUsageTracker,
+  factGuardDeadline?: number,
 ): Promise<SlotContent> {
   const isCarousel = slot.content_type === "carousel"
   const isReel = slot.content_type === "reel_script"
@@ -484,8 +490,9 @@ async function generateSlotContent(
   // Groq. Runs once per slot (up to 30 per run, 3 concurrently per batch
   // in executeFastlane below -- already parallel, nothing further to fan
   // out here).
-  const { content, usage, costUsd } = await createCreativeCompletion({
-    stage: `autopilot_slot_${slot.content_type}`,
+  const stage = `autopilot_slot_${slot.content_type}`
+  const callParams = {
+    stage,
     logPrefix: "fastlane",
     system: "You are an expert social media content creator. Generate complete, ready-to-post content. Respond with valid JSON only. No markdown.",
     user: isCarousel
@@ -493,60 +500,94 @@ async function generateSlotContent(
       : isReel
         ? buildReelScriptSlotContentPrompt(brand, slot, product, totalSlots)
         : buildSlotContentPrompt(brand, slot, product, totalSlots),
-    reasoningEffort: "low",
+    reasoningEffort: "low" as const,
     maxCompletionTokens: isCarousel || isReel ? 1800 : 1200,
     // ESTIMATE, not measured (no OPENAI_API_KEY where this was written) --
     // see scripts/test-creative-stages.ts. Kept tight: up to 10 sequential
     // batches share the route's maxDuration=300 with image generation.
     timeoutMs: 30_000,
-  })
+  }
+  const { content, usage, costUsd } = await createCreativeCompletion(callParams)
 
   trackUsage(tracker, usage, costUsd)
   const raw: string = content ?? ""
+  const cleaned = extractSlotJson(raw)
+  const facts = buildFactSource({ brand, product, brief: [slot.theme, slot.product_focus] })
+
+  let parsed: SlotContent
+  try {
+    parsed = parseSlotJson(raw, isCarousel, isReel)
+  } catch {
+    parsed = slotContentFromRegex(cleaned, brand, slot)
+    // No corrective retry on this path (the model's JSON was already
+    // broken) -- strip-only fact guard instead.
+    return stripGuard(stage, parsed, facts)
+  }
+
+  // Fact guard (lib/ai/fact-guard.ts): one corrective retry when the run's
+  // time budget allows, then strip. Fail-soft.
+  return guardCopy({
+    stage,
+    data: parsed,
+    facts,
+    normalTimeoutMs: callParams.timeoutMs,
+    deadline: factGuardDeadline,
+    retry: async (correction, timeoutMs) => {
+      const retry = await createCreativeCompletion({ ...callParams, timeoutMs, followUp: { previous: raw, correction } })
+      trackUsage(tracker, retry.usage, retry.costUsd)
+      return parseSlotJson(retry.content ?? "", isCarousel, isReel)
+    },
+  })
+}
+
+function extractSlotJson(raw: string): string {
   let cleaned = sanitizeJsonString(raw)
   const jsonMatch = cleaned.match(/\{[\s\S]*\}/)
   if (jsonMatch) cleaned = jsonMatch[0]
+  return cleaned
+}
 
-  try {
-    const parsed = JSON.parse(cleaned) as SlotContent
-    if (isCarousel && parsed.slides !== undefined && !Array.isArray(parsed.slides)) {
-      parsed.slides = []
-    }
-    if (isReel && parsed.scenes !== undefined && !Array.isArray(parsed.scenes)) {
-      parsed.scenes = []
-    }
-    return sanitizeSlotContent(parsed)
-  } catch {
-    // Regex fallback for malformed JSON -- see extractJsonStringValue's own
-    // comment for why this no longer uses a bare `[^"]*`-style capture
-    // group (that silently truncated any field containing a literal quote
-    // character).
-    const caption = extractJsonStringValue(cleaned, "caption")
-
-    let hashtags: string[] = []
-    const hashtagsMatch = cleaned.match(/"hashtags"\s*:\s*\[([^\]]*)\]/)
-    if (hashtagsMatch) {
-      hashtags = hashtagsMatch[1]
-        .split(",")
-        .map(h => h.trim().replace(/^"|"$/g, "").replace(/^#/, "").trim())
-        .filter(Boolean)
-    }
-
-    return sanitizeSlotContent({
-      title: extractJsonStringValue(cleaned, "title") ?? slot.theme,
-      hook: extractJsonStringValue(cleaned, "hook") ?? `${slot.theme} — you need to see this`,
-      // extractJsonStringValue already ran the matched text through
-      // JSON.parse, so a real newline character (not the literal two-byte
-      // "\n" escape the old code matched) is what needs flattening here.
-      caption: caption?.replace(/\n/g, " ") ?? `${brand.name} brings you ${slot.theme}.`,
-      hashtags,
-      visual_direction: extractJsonStringValue(cleaned, "visual_direction") ?? "",
-      audio_suggestion: extractJsonStringValue(cleaned, "audio_suggestion") ?? "",
-      call_to_action: extractJsonStringValue(cleaned, "call_to_action") ?? "",
-      slides: [],
-      scenes: [],
-    })
+function parseSlotJson(raw: string, isCarousel: boolean, isReel: boolean): SlotContent {
+  const parsed = JSON.parse(extractSlotJson(raw)) as SlotContent
+  if (isCarousel && parsed.slides !== undefined && !Array.isArray(parsed.slides)) {
+    parsed.slides = []
   }
+  if (isReel && parsed.scenes !== undefined && !Array.isArray(parsed.scenes)) {
+    parsed.scenes = []
+  }
+  return sanitizeSlotContent(parsed)
+}
+
+function slotContentFromRegex(cleaned: string, brand: BrandRow, slot: ContentSlot): SlotContent {
+  // Regex fallback for malformed JSON -- see extractJsonStringValue's own
+  // comment for why this no longer uses a bare `[^"]*`-style capture
+  // group (that silently truncated any field containing a literal quote
+  // character).
+  const caption = extractJsonStringValue(cleaned, "caption")
+
+  let hashtags: string[] = []
+  const hashtagsMatch = cleaned.match(/"hashtags"\s*:\s*\[([^\]]*)\]/)
+  if (hashtagsMatch) {
+    hashtags = hashtagsMatch[1]
+      .split(",")
+      .map(h => h.trim().replace(/^"|"$/g, "").replace(/^#/, "").trim())
+      .filter(Boolean)
+  }
+
+  return sanitizeSlotContent({
+    title: extractJsonStringValue(cleaned, "title") ?? slot.theme,
+    hook: extractJsonStringValue(cleaned, "hook") ?? `${slot.theme} — you need to see this`,
+    // extractJsonStringValue already ran the matched text through
+    // JSON.parse, so a real newline character (not the literal two-byte
+    // "\n" escape the old code matched) is what needs flattening here.
+    caption: caption?.replace(/\n/g, " ") ?? `${brand.name} brings you ${slot.theme}.`,
+    hashtags,
+    visual_direction: extractJsonStringValue(cleaned, "visual_direction") ?? "",
+    audio_suggestion: extractJsonStringValue(cleaned, "audio_suggestion") ?? "",
+    call_to_action: extractJsonStringValue(cleaned, "call_to_action") ?? "",
+    slides: [],
+    scenes: [],
+  })
 }
 
 // Same filtering as parseScenes() in
@@ -801,7 +842,7 @@ async function executeFastlaneInner(
         // describes.
         const scheduledDate = formatLocalDate(slotDate)
 
-        const generated = await generateSlotContent(brand, slot, product, totalSlots, tracker)
+        const generated = await generateSlotContent(brand, slot, product, totalSlots, tracker, params?.factGuardDeadline)
 
         // The per-slot prompt (buildSlotContentPrompt) has no structural
         // guarantee that `caption` already opens with the hook or closes

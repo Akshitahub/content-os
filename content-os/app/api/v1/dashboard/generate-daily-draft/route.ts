@@ -49,7 +49,14 @@ async function insertFailedRow(supabase: any, brandId: string, draftDate: string
   }
 }
 
+// Fact-guard time budget (lib/ai/fact-guard.ts): hooks + caption must
+// leave room inside maxDuration=60 for the (up to two-attempt) image
+// generation after them -- past this a fact-guard retry is skipped and the
+// unsupported claim stripped instead.
+const TEXT_DEADLINE_MS = 25_000
+
 export async function POST(request: Request) {
+  const requestStartedAt = Date.now()
   const supabase = await createClient()
   const { data: { user }, error: authError } = await supabase.auth.getUser()
   if (authError || !user) return NextResponse.json(buildError(ErrorCodes.UNAUTHENTICATED, "You must be logged in."), { status: 401 })
@@ -110,6 +117,7 @@ export async function POST(request: Request) {
       count: 1,
       platform: "instagram",
       product: null,
+      factGuardDeadline: requestStartedAt + TEXT_DEADLINE_MS,
     })
     const hook = hookResult.hooks[0]
     if (!hook) throw new Error("Hook generation returned no results")
@@ -121,6 +129,7 @@ export async function POST(request: Request) {
       hookText: hook.hook_text,
       includeImagePrompt: true,
       availableColorThemes: colorThemes.map((t) => ({ id: t.id, label: t.label })),
+      factGuardDeadline: requestStartedAt + TEXT_DEADLINE_MS,
     })
     const caption = contentResult.data as GeneratedCaption
     // Same post-generation merge fullpost/generate/route.ts applies, so

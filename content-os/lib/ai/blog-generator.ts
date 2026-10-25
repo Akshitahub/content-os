@@ -2,7 +2,8 @@ import type { BrandRow, ProductRow } from "@/types/database"
 import type { BlogPost } from "@/types/app"
 import { buildBlogArticleSystemPrompt, buildBlogArticleUserPrompt } from "./prompts"
 import { MODELS, getOpenAIClient } from "./models"
-import { textCostUsd, toTextUsage, type TextUsage } from "./pricing"
+import { addTextUsage, textCostUsd, toTextUsage, type TextUsage } from "./pricing"
+import { buildFactSource, guardCopy } from "./fact-guard"
 import { findContentQualityIssues, sanitizeLeakedArtifacts } from "./content-quality-check"
 
 function sanitizeJsonString(raw: string): string {
@@ -71,6 +72,44 @@ export async function generateBlogPost(
   console.log(`[blog-generator] provider=openai model=${model} stage=blog_post latencyMs=${Date.now() - startTime} success=true`)
 
   const raw = response.choices[0]?.message?.content ?? "{}"
+  const parsed = parseBlogPost(raw)
+  let usage = toTextUsage(response.usage)
+
+  // Fact guard (lib/ai/fact-guard.ts): one corrective retry, then strip
+  // whatever's still unsupported. Fail-soft -- never fails a post that
+  // already generated.
+  const post = await guardCopy({
+    stage: "blog_post",
+    data: parsed,
+    facts: buildFactSource({ brand, product: options.product, brief: [options.userPrompt] }),
+    normalTimeoutMs: 45_000,
+    retry: async (correction, timeoutMs) => {
+      const retry = await openai.chat.completions.create(
+        {
+          model,
+          reasoning_effort: "medium",
+          max_completion_tokens: maxTokens,
+          response_format: { type: "json_object" },
+          messages: [
+            { role: "system", content: buildBlogArticleSystemPrompt() },
+            { role: "user", content: buildBlogArticleUserPrompt(brand, options) },
+            { role: "assistant", content: raw },
+            { role: "user", content: correction },
+          ],
+        },
+        { timeout: timeoutMs, maxRetries: 1 }
+      )
+      usage = addTextUsage(usage, toTextUsage(retry.usage))
+      return parseBlogPost(retry.choices[0]?.message?.content ?? "{}")
+    },
+  })
+
+  return { post, model, usage, costUsd: textCostUsd(model, usage) }
+}
+
+// Parse + validate + artifact clean-up, shared by the first call and the
+// fact guard's retry.
+function parseBlogPost(raw: string): BlogPost {
   let cleaned = sanitizeJsonString(raw)
   const jsonMatch = cleaned.match(/\{[\s\S]*\}/)
   if (jsonMatch) cleaned = jsonMatch[0]
@@ -103,6 +142,5 @@ export async function generateBlogPost(
     }
   }
 
-  const usage = toTextUsage(response.usage)
-  return { post: parsed, model, usage, costUsd: textCostUsd(model, usage) }
+  return parsed
 }

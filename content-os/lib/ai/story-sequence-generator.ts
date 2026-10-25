@@ -2,7 +2,7 @@ import type { BrandRow } from "@/types/database"
 import type { StorySlide } from "@/app/api/v1/ai/stories/generate/route"
 import { buildPastExamplesBlock, QUALITY_BAR } from "./prompts"
 import { createCreativeCompletion } from "./creative-completion"
-import { buildFactCorrection, buildFactSource, findUnsupportedClaimsIn, logFactGuard, stripUnsupportedClaimsIn } from "./fact-guard"
+import { buildFactSource, guardCopy } from "./fact-guard"
 import { addTextUsage, sumCostUsd, type TextUsage } from "./pricing"
 
 // Story-sequence prompt building + the model call, moved verbatim out of
@@ -326,28 +326,23 @@ ${QUALITY_BAR}`,
   let usage = first.usage
   let costUsd = first.costUsd
 
-  const facts = buildFactSource({ brand, brief: [topic] })
-  let parsed = parseStoryJson(raw)
+  const parsed = parseStoryJson(raw)
   if (parsed) {
-    const claims = findUnsupportedClaimsIn(parsed, facts)
-    if (claims.length > 0) {
-      logFactGuard("story", "retry", claims.length)
-      try {
-        const retry = await createCreativeCompletion({ ...base, followUp: { previous: raw, correction: buildFactCorrection(claims) } })
+    const guarded = await guardCopy({
+      stage: "story",
+      data: parsed,
+      facts: buildFactSource({ brand, brief: [topic] }),
+      normalTimeoutMs: base.timeoutMs,
+      retry: async (correction, timeoutMs) => {
+        const retry = await createCreativeCompletion({ ...base, timeoutMs, followUp: { previous: raw, correction } })
         usage = addTextUsage(usage, retry.usage)
         costUsd = sumCostUsd(costUsd, retry.costUsd)
         const retryParsed = parseStoryJson(retry.content ?? "")
-        if (retryParsed) parsed = retryParsed
-      } catch (err) {
-        console.error("[ai/stories/generate] fact-guard retry failed, stripping instead:", err instanceof Error ? err.message : err)
-      }
-      const remaining = findUnsupportedClaimsIn(parsed, facts)
-      if (remaining.length > 0) {
-        logFactGuard("story", "strip", remaining.length)
-        parsed = stripUnsupportedClaimsIn(parsed, facts)
-      }
-      raw = JSON.stringify(parsed)
-    }
+        if (!retryParsed) throw new Error("unparseable retry")
+        return retryParsed
+      },
+    })
+    if (guarded !== parsed) raw = JSON.stringify(guarded)
   }
   return { raw, model: first.model, usage, costUsd }
 }

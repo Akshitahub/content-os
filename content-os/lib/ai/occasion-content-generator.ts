@@ -1,7 +1,8 @@
 import type { BrandRow } from "@/types/database"
 import { findContentQualityIssues, sanitizeLeakedArtifacts } from "./content-quality-check"
 import { createCreativeCompletion } from "./creative-completion"
-import { UsageCarryingError, type TextUsage } from "./pricing"
+import { UsageCarryingError, addTextUsage, sumCostUsd, type TextUsage } from "./pricing"
+import { buildFactSource, guardCopy } from "./fact-guard"
 
 // Occasion-content prompt + model call + parse, moved verbatim out of
 // app/api/v1/brands/[brandId]/generate-occasion-content/route.ts during the
@@ -35,7 +36,7 @@ export async function generateOccasionContent(
   occasionName: string,
   occasionAngle: string
 ): Promise<{ content: OccasionContent; model: string; usage: TextUsage | undefined; costUsd: number | null }> {
-  const { content, model, usage, costUsd } = await createCreativeCompletion({
+  const callParams = {
     stage: "occasion_content",
     logPrefix: "generate-occasion-content",
     system: "You are an expert social media content creator for Indian D2C brands. Respond with valid JSON only. No markdown.",
@@ -49,24 +50,49 @@ Return this exact JSON:
     // Short structured output (hook + caption + hashtags +
     // visual_direction), same scale as hooks/captions -- "low", same
     // effort and budget as on Groq.
-    reasoningEffort: "low",
+    reasoningEffort: "low" as const,
     maxCompletionTokens: 1200,
     // ESTIMATE, not measured (no OPENAI_API_KEY where this was written) --
     // see scripts/test-creative-stages.ts. Revisit against real latency.
     timeoutMs: 30_000,
+  }
+  const first = await createCreativeCompletion(callParams)
+  let usage = first.usage
+  let costUsd = first.costUsd
+  const raw = first.content ?? "{}"
+  let parsed: OccasionContent
+  try {
+    parsed = parseOccasionContent(raw)
+  } catch {
+    throw new UsageCarryingError("AI returned invalid JSON", usage, costUsd)
+  }
+
+  // Fact guard (lib/ai/fact-guard.ts): one corrective retry, then strip.
+  // Fail-soft -- never fails content that already generated.
+  const guarded = await guardCopy({
+    stage: "occasion_content",
+    data: parsed,
+    facts: buildFactSource({ brand, brief: [occasionName, occasionAngle] }),
+    normalTimeoutMs: callParams.timeoutMs,
+    retry: async (correction, timeoutMs) => {
+      const retry = await createCreativeCompletion({ ...callParams, timeoutMs, followUp: { previous: raw, correction } })
+      usage = addTextUsage(usage, retry.usage)
+      costUsd = sumCostUsd(costUsd, retry.costUsd)
+      return parseOccasionContent(retry.content ?? "{}")
+    },
   })
 
-  const raw = content ?? "{}"
-  let aiParsed: {
+  return { content: guarded, model: first.model, usage, costUsd }
+}
+
+// Parse + artifact clean-up, shared by the first call and the fact
+// guard's retry. Throws on unparseable JSON.
+function parseOccasionContent(raw: string): OccasionContent {
+  const aiParsed = JSON.parse(sanitizeJsonString(raw)) as {
     hook?: string
     caption?: string
     hashtags?: string[]
     visual_direction?: string
-  }
-  try {
-    aiParsed = JSON.parse(sanitizeJsonString(raw))
-  } catch {
-    throw new UsageCarryingError("AI returned invalid JSON", usage, costUsd)
   }
 
   // Lightweight sanity pass -- see lib/ai/content-quality-check.ts for
@@ -82,14 +108,9 @@ Return this exact JSON:
   }
 
   return {
-    content: {
-      hook: fix(aiParsed.hook ?? "", "hook"),
-      caption: fix(aiParsed.caption ?? "", "caption"),
-      hashtags: Array.isArray(aiParsed.hashtags) ? aiParsed.hashtags : [],
-      visual_direction: aiParsed.visual_direction ?? "",
-    },
-    model,
-    usage,
-    costUsd,
+    hook: fix(aiParsed.hook ?? "", "hook"),
+    caption: fix(aiParsed.caption ?? "", "caption"),
+    hashtags: Array.isArray(aiParsed.hashtags) ? aiParsed.hashtags : [],
+    visual_direction: aiParsed.visual_direction ?? "",
   }
 }

@@ -1,7 +1,7 @@
 import type { BrandRow } from "@/types/database"
 import { buildPastExamplesBlock, QUALITY_BAR } from "./prompts"
 import { createCreativeCompletion } from "./creative-completion"
-import { buildFactCorrection, buildFactSource, findUnsupportedClaimsIn, logFactGuard, stripUnsupportedClaimsIn } from "./fact-guard"
+import { buildFactSource, guardCopy } from "./fact-guard"
 import { UsageCarryingError, addTextUsage, sumCostUsd, type TextUsage } from "./pricing"
 
 // Carousel prompt building + the model call, moved verbatim out of
@@ -190,26 +190,18 @@ export async function generateCarouselWithRetry(
       continue
     }
 
-    const facts = buildFactSource({ brand, brief: [topic] })
-    const claims = findUnsupportedClaimsIn(data, facts)
-    if (claims.length > 0) {
-      logFactGuard("carousel", "retry", claims.length)
-      try {
-        const retry = await createCreativeCompletion({ ...carouselCallParams(prompt, slideCount), followUp: { previous: raw, correction: buildFactCorrection(claims) } })
+    data = await guardCopy({
+      stage: "carousel",
+      data,
+      facts: buildFactSource({ brand, brief: [topic] }),
+      normalTimeoutMs: carouselCallParams(prompt, slideCount).timeoutMs,
+      retry: async (correction, timeoutMs) => {
+        const retry = await createCreativeCompletion({ ...carouselCallParams(prompt, slideCount), timeoutMs, followUp: { previous: raw, correction } })
         usage = addTextUsage(usage, retry.usage)
         costUsd = sumCostUsd(costUsd, retry.costUsd)
-        data = JSON.parse(extractJSON(retry.content ?? ""))
-      } catch (err) {
-        // Unparseable retry or provider error: keep the first (valid)
-        // response and strip it below rather than failing the generation.
-        console.error("[ai/carousel/generate] fact-guard retry failed, stripping instead:", err instanceof Error ? err.message : err)
-      }
-      const remaining = findUnsupportedClaimsIn(data, facts)
-      if (remaining.length > 0) {
-        logFactGuard("carousel", "strip", remaining.length)
-        data = stripUnsupportedClaimsIn(data, facts)
-      }
-    }
+        return JSON.parse(extractJSON(retry.content ?? "")) as unknown
+      },
+    })
     return { data, model: result.model, usage, costUsd }
   }
   throw new UsageCarryingError("AI generation failed", usage, costUsd)

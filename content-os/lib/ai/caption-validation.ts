@@ -2,7 +2,7 @@ import type { BrandRow } from "@/types/database"
 import type { GeneratedCaption, Platform } from "@/types/app"
 import { PLATFORM_CHAR_LIMITS } from "./prompts"
 import { findContentQualityIssues, sanitizeLeakedArtifacts } from "./content-quality-check"
-import { FACT_CORRECTION_PREFIX, buildFactCorrection, findUnsupportedClaimsIn, logFactGuard, stripUnsupportedClaimsIn, type FactSource } from "./fact-guard"
+import { FACT_CORRECTION_PREFIX, buildFactCorrection, factRetryTimeoutMs, findUnsupportedClaimsIn, logFactGuard, stripGuard, type FactSource } from "./fact-guard"
 import { addTextUsage, type TextUsage } from "./pricing"
 
 export const MIN_HASHTAGS = 15
@@ -120,8 +120,14 @@ export function validateCaption(parsed: GeneratedCaption, ctaPhrase: string, han
   // Fact guard (lib/ai/fact-guard.ts) -- every copy field, not just
   // caption_text: the overlay text and checklist lines are published too.
   if (facts) {
-    const claims = findUnsupportedClaimsIn(parsed, facts)
-    if (claims.length > 0) issues.push(buildFactCorrection(claims))
+    try {
+      const claims = findUnsupportedClaimsIn(parsed, facts)
+      if (claims.length > 0) issues.push(buildFactCorrection(claims))
+    } catch (err) {
+      // Fail-soft: a guard error never blocks a caption -- the final
+      // stripGuard pass in generateValidatedCaption still runs.
+      console.error("[caption-validation] fact check errored (skipped):", err instanceof Error ? err.name : typeof err)
+    }
   }
 
   return issues
@@ -131,10 +137,7 @@ export function validateCaption(parsed: GeneratedCaption, ctaPhrase: string, han
 export function applyLastResortFixes(parsed: GeneratedCaption, brand: BrandRow, ctaPhrase: string, handle: string, platform: Platform, facts?: FactSource): GeneratedCaption {
   // Strip unsupported claims first, so the CTA/length fixes below run on
   // the text that will actually ship.
-  if (facts && findUnsupportedClaimsIn(parsed, facts).length > 0) {
-    logFactGuard("caption", "strip", findUnsupportedClaimsIn(parsed, facts).length)
-    parsed = stripUnsupportedClaimsIn(parsed, facts)
-  }
+  if (facts) parsed = stripGuard("caption", parsed, facts)
   let captionText = parsed.caption_text
   let hashtags = Array.isArray(parsed.hashtags) ? [...new Set(parsed.hashtags.map((h) => h.replace(/^#/, "")))] : []
 
@@ -205,15 +208,27 @@ export async function generateValidatedCaption(params: {
   platform: Platform
   /** Numbers the copy may use (lib/ai/fact-guard.ts) -- omitted = no fact check. */
   facts?: FactSource
+  /** Epoch ms the caption step must finish by (routes with a hard
+   * maxDuration). A retry triggered ONLY by unsupported numbers is skipped
+   * -- and the claim stripped -- when it can't fit before this. */
+  deadline?: number
 }): Promise<{ caption: GeneratedCaption; usage?: CaptionModelUsage }> {
-  const { messages, callModel, brand, ctaPhrase, handle, platform, facts } = params
+  const { messages, callModel, brand, ctaPhrase, handle, platform, facts, deadline } = params
 
-  let call = await callModel(messages)
+  const call = await callModel(messages)
   // Summed across the retry too (previously only the last call's usage was
   // returned, under-reporting tokens -- and now cost -- for every retried caption).
   let usage = call.usage
   let parsed = parseCaptionJson(call.content)
   let issues = validateCaption(parsed, ctaPhrase, handle, platform, facts)
+
+  // Same 20s ceiling the hooks call uses -- captions have no explicit
+  // per-call timeout of their own to compare against.
+  const factOnly = issues.length > 0 && issues.every((i) => i.startsWith(FACT_CORRECTION_PREFIX))
+  if (factOnly && factRetryTimeoutMs(deadline, 20_000) === null) {
+    logFactGuard("caption", "skip_retry", 1)
+    issues = []
+  }
 
   if (issues.length > 0) {
     console.error(`[caption-validation] validation failed, retrying once: ${logSafeIssues(issues)}`)
@@ -226,13 +241,18 @@ export async function generateValidatedCaption(params: {
       },
     ]
 
-    call = await callModel(retryMessages)
-    usage = addTextUsage(usage, call.usage)
-    const retryParsed = parseCaptionJson(call.content)
-    const retryIssues = validateCaption(retryParsed, ctaPhrase, handle, platform, facts)
-
-    parsed = retryParsed
-    issues = retryIssues
+    // Fail-soft: the first call already succeeded, so a retry that errors
+    // or returns unparseable JSON falls back to last-resort fixes on the
+    // first response rather than failing the whole caption.
+    try {
+      const retryCall = await callModel(retryMessages)
+      usage = addTextUsage(usage, retryCall.usage)
+      const retryParsed = parseCaptionJson(retryCall.content)
+      parsed = retryParsed
+      issues = validateCaption(retryParsed, ctaPhrase, handle, platform, facts)
+    } catch (err) {
+      console.error("[caption-validation] retry failed, applying last-resort fixes to the first response:", err instanceof Error ? err.name : typeof err)
+    }
 
     if (issues.length > 0) {
       // Retry still didn't comply — don't ship a rule-violating caption as
@@ -244,6 +264,8 @@ export async function generateValidatedCaption(params: {
     }
   }
 
+  // Final backstop -- covers a skipped retry and any guard error above.
+  if (facts) parsed = stripGuard("caption", parsed, facts)
   parsed.character_count = parsed.caption_text.length
 
   return { caption: parsed, usage }

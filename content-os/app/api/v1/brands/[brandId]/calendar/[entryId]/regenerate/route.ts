@@ -47,7 +47,16 @@ export const maxDuration = 60
  * webhook-driven job — see lib/ai/fastlane.ts's submitAutopilotReel) and
  * returns a clear error rather than a half-built attempt at it.
  */
+// Fact-guard time budget (lib/ai/fact-guard.ts): the text step must leave
+// room inside maxDuration=60 for what follows it -- slide rendering +
+// uploads for a carousel, the (up to two-attempt) image generation for a
+// post. Past these deadlines a fact-guard retry is skipped and the
+// unsupported claim stripped instead.
+const CAROUSEL_TEXT_DEADLINE_MS = 45_000
+const POST_TEXT_DEADLINE_MS = 25_000
+
 export async function POST(request: Request, { params }: RouteParams) {
+  const requestStartedAt = Date.now()
   const { brandId, entryId } = await params
   console.log(`[calendar/regenerate] POST called for brand ${brandId} entry ${entryId}`)
 
@@ -107,7 +116,7 @@ export async function POST(request: Request, { params }: RouteParams) {
   try {
     if (entry.content_type === "carousel") {
       const pastExamples = await fetchPastExamples(supabase, brandId, "carousel")
-      const contentResult = await generateContent(brand, "carousel", { platform, additionalContext, pastExamples })
+      const contentResult = await generateContent(brand, "carousel", { platform, additionalContext, pastExamples, factGuardDeadline: requestStartedAt + CAROUSEL_TEXT_DEADLINE_MS })
       const carousel = contentResult.data as CarouselContent
       const coverHook = carousel.slides[0]?.headline || entry.title
 
@@ -164,8 +173,8 @@ export async function POST(request: Request, { params }: RouteParams) {
     // content_type === "post"
     const pastExamples = await fetchPastExamples(supabase, brandId, "social_post")
     const [hookResult, contentResult] = await Promise.all([
-      generateHooks(brand, { hookTypes: ["bold_statement", "question", "story"], count: 1, platform, additionalContext }),
-      generateContent(brand, "social_post", { platform, additionalContext, pastExamples, includeImagePrompt: true }),
+      generateHooks(brand, { hookTypes: ["bold_statement", "question", "story"], count: 1, platform, additionalContext, factGuardDeadline: requestStartedAt + POST_TEXT_DEADLINE_MS }),
+      generateContent(brand, "social_post", { platform, additionalContext, pastExamples, includeImagePrompt: true, factGuardDeadline: requestStartedAt + POST_TEXT_DEADLINE_MS }),
     ])
 
     const hook = hookResult.hooks[0]

@@ -25,7 +25,14 @@ function resolvePlan(rawPlan: string | undefined): UserPlan {
   return rawPlan && rawPlan in PLAN_LIMITS ? (rawPlan as UserPlan) : "starter"
 }
 
+// Fact-guard time budget (lib/ai/fact-guard.ts): past this point in the
+// run, a slot's fact-guard retry is skipped and the claim stripped instead,
+// leaving the last minute of maxDuration=300 for the remaining images and
+// DB writes.
+const FACT_GUARD_DEADLINE_MS = 240_000
+
 export async function POST(request: Request) {
+  const requestStartedAt = Date.now()
   console.log("[fastlane] POST called")
 
   let supabase
@@ -291,6 +298,7 @@ export async function POST(request: Request) {
     const result = await executeFastlane(supabase, user.id, brandId, {
       frequency, platforms, vibe, focusAreas, totalSlots: totalSlots,
       plan, isInternalUnlimitedUser: isUnlimited,
+      factGuardDeadline: requestStartedAt + FACT_GUARD_DEADLINE_MS,
     }, runStatusRow?.id, usageTracker)
     // success = the run completed; individual slot failures are still
     // reported in result.errors, same as before.

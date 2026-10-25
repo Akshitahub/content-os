@@ -1,7 +1,7 @@
 import type { BrandRow, ProductRow } from "@/types/database"
 import type { ContentFormat, ContentFormatOutputMap, Platform } from "@/types/app"
 import { MODELS, getOpenAIClient } from "./models"
-import { buildFactCorrection, buildFactSource, findUnsupportedClaimsIn, logFactGuard, stripUnsupportedClaimsIn } from "./fact-guard"
+import { buildFactSource, guardCopy } from "./fact-guard"
 import { addTextUsage, textCostUsd, toTextUsage, type TextUsage } from "./pricing"
 import type { ChatCompletionMessageParam } from "openai/resources/chat/completions"
 import {
@@ -32,6 +32,10 @@ export type GenerateContentOptions = {
   includeImagePrompt?: boolean
   /** social_post + includeImagePrompt only — the brand's resolved color themes, so the same caption-model call can pick a suggested_color_theme_id from real ids rather than guessing. */
   availableColorThemes?: { id: string; label: string }[]
+  /** Epoch ms by which this text step must finish -- set by routes with a
+   * hard maxDuration. The fact guard's corrective retry is skipped (claim
+   * stripped instead) when it can't fit before this. Omitted = no limit. */
+  factGuardDeadline?: number
 }
 
 type ReasoningEffort = "none" | "low" | "medium" | "high"
@@ -237,6 +241,7 @@ export async function generateContent(
       handle,
       platform,
       facts,
+      deadline: options.factGuardDeadline,
     })
 
     return { data: caption, model: captionModel, usage, costUsd: textCostUsd(captionModel, usage) }
@@ -254,7 +259,8 @@ export async function generateContent(
     { role: "user", content: user },
   ]
 
-  const callOnce = async (messages: ChatCompletionMessageParam[]): Promise<{ raw: string; usage: TextUsage | undefined }> => {
+  const normalTimeoutMs = format === "story" ? 30_000 : 40_000
+  const callOnce = async (messages: ChatCompletionMessageParam[], timeoutMs = normalTimeoutMs): Promise<{ raw: string; usage: TextUsage | undefined }> => {
     const startTime = Date.now()
     try {
       const response = await openai.chat.completions.create(
@@ -277,7 +283,7 @@ export async function generateContent(
         // 40s: calendar/[entryId]/regenerate (maxDuration 60) calls it, and
         // a longer timeout would outlive that route. Revisit all of these
         // once real latency data exists.
-        { timeout: format === "story" ? 30_000 : 40_000, maxRetries: 1 }
+        { timeout: timeoutMs, maxRetries: 1 }
       )
       console.log(`[content-generator] provider=openai model=${model} stage=${format} latencyMs=${Date.now() - startTime} success=true`)
       return { raw: response.choices[0]?.message?.content ?? "{}", usage: toTextUsage(response.usage) }
@@ -291,28 +297,21 @@ export async function generateContent(
   let usage = first.usage
   let data = parseFormat(format, first.raw)
 
-  // Fact guard (lib/ai/fact-guard.ts) for story/carousel copy: one
-  // corrective retry, then strip whatever's still unsupported. A failed
-  // or unparseable retry keeps the first (valid) result and strips it --
-  // never fails a generation that had already succeeded.
-  if (format === "story" || format === "carousel") {
-    const claims = findUnsupportedClaimsIn(data, facts)
-    if (claims.length > 0) {
-      logFactGuard(format, "retry", claims.length)
-      try {
-        const retry = await callOnce([...baseMessages, { role: "assistant", content: first.raw }, { role: "user", content: buildFactCorrection(claims) }])
-        usage = addTextUsage(usage, retry.usage)
-        data = parseFormat(format, retry.raw)
-      } catch (err) {
-        console.error(`[content-generator] fact-guard retry failed for "${format}", stripping instead:`, err instanceof Error ? err.message : err)
-      }
-      const remaining = findUnsupportedClaimsIn(data, facts)
-      if (remaining.length > 0) {
-        logFactGuard(format, "strip", remaining.length)
-        data = stripUnsupportedClaimsIn(data, facts)
-      }
-    }
-  }
+  // Fact guard (lib/ai/fact-guard.ts) for every format's copy: one
+  // corrective retry (time budget permitting), then strip whatever's still
+  // unsupported. Fail-soft: never fails a generation that already succeeded.
+  data = await guardCopy({
+    stage: format,
+    data,
+    facts,
+    normalTimeoutMs,
+    deadline: options.factGuardDeadline,
+    retry: async (correction, timeoutMs) => {
+      const retry = await callOnce([...baseMessages, { role: "assistant", content: first.raw }, { role: "user", content: correction }], timeoutMs)
+      usage = addTextUsage(usage, retry.usage)
+      return parseFormat(format, retry.raw)
+    },
+  })
 
   return { data, model, usage, costUsd: textCostUsd(model, usage) }
 }

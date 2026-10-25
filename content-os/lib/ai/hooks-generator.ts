@@ -3,7 +3,7 @@ import type { GeneratedHook, HookType, Platform } from "@/types/app"
 import { buildHookSystemPrompt, buildHookUserPrompt } from "./prompts"
 import { MODELS, getOpenAIClient } from "./models"
 import { findContentQualityIssues, sanitizeLeakedArtifacts } from "./content-quality-check"
-import { buildFactCorrection, buildFactSource, findUnsupportedClaims, logFactGuard, stripUnsupportedClaims } from "./fact-guard"
+import { buildFactSource, guardCopy } from "./fact-guard"
 import { addTextUsage, textCostUsd, toTextUsage, type TextUsage } from "./pricing"
 import type { ChatCompletionMessageParam } from "openai/resources/chat/completions"
 
@@ -18,6 +18,10 @@ export async function generateHooks(
     platform?: Platform
     additionalContext?: string
     product?: ProductRow | null
+    /** Epoch ms this step must finish by (routes with a hard maxDuration)
+     * -- the fact guard's retry is skipped and the claim stripped when it
+     * can't fit. Omitted = no limit. */
+    factGuardDeadline?: number
   }
 ): Promise<{ hooks: GeneratedHook[]; model: string; usage: TextUsage | undefined; costUsd: number | null }> {
   const openai = getOpenAIClient()
@@ -33,7 +37,7 @@ export async function generateHooks(
     { role: "system", content: buildHookSystemPrompt() },
     { role: "user", content: buildHookUserPrompt(brand, { hookTypes, count, platform: options.platform, additionalContext: options.additionalContext, product: options.product }) },
   ]
-  const callModel = async (msgs: ChatCompletionMessageParam[]): Promise<{ raw: string; usage: TextUsage | undefined }> => {
+  const callModel = async (msgs: ChatCompletionMessageParam[], timeoutMs = 20_000): Promise<{ raw: string; usage: TextUsage | undefined }> => {
     const startTime = Date.now()
     let response: Awaited<ReturnType<typeof openai.chat.completions.create>>
     try {
@@ -56,7 +60,7 @@ export async function generateHooks(
         // environment this was written in) -- see scripts/test-creative-stages.ts
         // for the real measurement. 20s is generous headroom over a short,
         // low-effort JSON completion; revisit once real latency data exists.
-        { timeout: 20_000, maxRetries: 1 }
+        { timeout: timeoutMs, maxRetries: 1 }
       )
     } catch (err) {
       console.error(`[hooks-generator] provider=openai model=${model} stage=hooks latencyMs=${Date.now() - startTime} success=false:`, err)
@@ -70,31 +74,24 @@ export async function generateHooks(
   let usage = first.usage
   let hooks = parseHooks(first.raw)
 
-  // Fact guard (lib/ai/fact-guard.ts): a hook using a number that isn't in
-  // the brand/product facts or the brief gets one corrective retry; if the
-  // retry fails or still has one, the offending part is stripped. Hooks
-  // that strip down to nothing are dropped rather than shipped empty --
-  // unless that would leave no hooks at all, in which case the stripped
-  // set is kept (fail-soft, same as every other path here).
-  const facts = buildFactSource({ brand, product: options.product, brief: [options.additionalContext] })
-  const claims = hooks.flatMap((h) => findUnsupportedClaims(h.hook_text ?? "", facts))
-  if (claims.length > 0) {
-    logFactGuard("hooks", "retry", claims.length)
-    try {
-      const retry = await callModel([...messages, { role: "assistant", content: first.raw }, { role: "user", content: buildFactCorrection(claims) }])
+  // Fact guard (lib/ai/fact-guard.ts): one corrective retry (time budget
+  // permitting), then strip. Hooks that strip down to nothing are dropped
+  // rather than shipped empty -- unless that would leave no hooks at all,
+  // in which case the stripped set is kept (fail-soft).
+  const guarded = await guardCopy({
+    stage: "hooks",
+    data: hooks,
+    facts: buildFactSource({ brand, product: options.product, brief: [options.additionalContext] }),
+    normalTimeoutMs: 20_000,
+    deadline: options.factGuardDeadline,
+    retry: async (correction, timeoutMs) => {
+      const retry = await callModel([...messages, { role: "assistant", content: first.raw }, { role: "user", content: correction }], timeoutMs)
       usage = addTextUsage(usage, retry.usage)
-      hooks = parseHooks(retry.raw)
-    } catch (err) {
-      console.error("[hooks-generator] fact-guard retry failed, stripping instead:", err instanceof Error ? err.message : err)
-    }
-    const remaining = hooks.flatMap((h) => findUnsupportedClaims(h.hook_text ?? "", facts))
-    if (remaining.length > 0) {
-      logFactGuard("hooks", "strip", remaining.length)
-      const stripped = hooks.map((h) => ({ ...h, hook_text: stripUnsupportedClaims(h.hook_text ?? "", facts) }))
-      const nonEmpty = stripped.filter((h) => h.hook_text)
-      hooks = nonEmpty.length > 0 ? nonEmpty : stripped
-    }
-  }
+      return parseHooks(retry.raw)
+    },
+  })
+  const nonEmpty = guarded.filter((h) => h.hook_text)
+  hooks = nonEmpty.length > 0 ? nonEmpty : guarded
 
   return { hooks, model, usage, costUsd: textCostUsd(model, usage) }
 }

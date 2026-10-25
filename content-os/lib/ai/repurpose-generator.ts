@@ -1,6 +1,7 @@
 import type { BrandRow } from "@/types/database"
 import type { RepurposedContent } from "@/app/api/v1/ai/repurpose/route"
 import { createCreativeCompletion } from "./creative-completion"
+import { buildFactSource, guardCopy } from "./fact-guard"
 import { MODELS } from "./models"
 import { addTextUsage, sumCostUsd, type TextUsage } from "./pricing"
 
@@ -102,13 +103,42 @@ export async function generateRepurposedContent(content: string, brand: BrandRow
     costUsd = sumCostUsd(costUsd, result.costUsd)
     const raw = result.content ?? "{}"
     lastRaw = raw
+    let parsed: RepurposedContent
     try {
-      return { result: JSON.parse(extractJSON(raw)) as RepurposedContent, model: result.model, usage, costUsd }
+      parsed = JSON.parse(extractJSON(raw)) as RepurposedContent
     } catch {
       if (attempt === 1) {
         console.error("[ai/repurpose] JSON parse failed after retry. Raw:", lastRaw.slice(0, 500))
       }
+      continue
     }
+
+    // Fact guard (lib/ai/fact-guard.ts): numbers from the user's own source
+    // content count as facts. One corrective retry, then strip. Fail-soft.
+    const guarded = await guardCopy({
+      stage: "repurpose",
+      data: parsed,
+      facts: buildFactSource({ brand, brief: [content] }),
+      normalTimeoutMs: 60_000,
+      retry: async (correction, timeoutMs) => {
+        const retry = await createCreativeCompletion({
+          stage: "repurpose",
+          logPrefix: "ai/repurpose",
+          system: REPURPOSE_SYSTEM_PROMPTS[0],
+          user: buildRepurposePrompt(content, brand),
+          followUp: { previous: raw, correction },
+          reasoningEffort: "medium",
+          maxCompletionTokens: 4500,
+          timeoutMs,
+        })
+        usage = addTextUsage(usage, retry.usage)
+        costUsd = sumCostUsd(costUsd, retry.costUsd)
+        const retryParsed = JSON.parse(extractJSON(retry.content ?? "")) as RepurposedContent
+        if (!Array.isArray(retryParsed?.hooks)) throw new Error("malformed retry")
+        return retryParsed
+      },
+    })
+    return { result: guarded, model: result.model, usage, costUsd }
   }
   return { result: null, model: MODELS.creative, usage, costUsd }
 }
