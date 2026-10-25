@@ -2,6 +2,7 @@ import type { BrandRow, ProductRow } from "@/types/database"
 import type { BlogPost } from "@/types/app"
 import { buildBlogArticleSystemPrompt, buildBlogArticleUserPrompt } from "./prompts"
 import { MODELS, getOpenAIClient } from "./models"
+import { textCostUsd, toTextUsage, type TextUsage } from "./pricing"
 import { findContentQualityIssues, sanitizeLeakedArtifacts } from "./content-quality-check"
 
 function sanitizeJsonString(raw: string): string {
@@ -27,7 +28,7 @@ export async function generateBlogPost(
      * of length. */
     wordLimit: number
   }
-): Promise<{ post: BlogPost; model: string; usage: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } | undefined }> {
+): Promise<{ post: BlogPost; model: string; usage: TextUsage | undefined; costUsd: number | null }> {
   const openai = getOpenAIClient()
   const model = MODELS.creative
 
@@ -102,5 +103,6 @@ export async function generateBlogPost(
     }
   }
 
-  return { post: parsed, model, usage: response.usage ?? undefined }
+  const usage = toTextUsage(response.usage)
+  return { post: parsed, model, usage, costUsd: textCostUsd(model, usage) }
 }

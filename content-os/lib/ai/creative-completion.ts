@@ -1,4 +1,5 @@
 import { MODELS, getOpenAIClient } from "./models"
+import { textCostUsd, toTextUsage, type TextUsage } from "./pricing"
 
 // Shared OpenAI call for the Phase 1b creative-stages migration (story,
 // carousel, repurpose, occasion-content, Autopilot) -- same API style as
@@ -25,6 +26,10 @@ export type CreativeCompletionParams = {
   logPrefix: string
   system: string
   user: string
+  /** Optional correction turn (e.g. lib/ai/fact-guard.ts's retry): the
+   * model's own previous answer plus what to fix in it, appended after
+   * `user` -- same shape caption-validation.ts's retry already uses. */
+  followUp?: { previous: string; correction: string }
   reasoningEffort: "low" | "medium" | "high"
   maxCompletionTokens: number
   timeoutMs: number
@@ -32,11 +37,14 @@ export type CreativeCompletionParams = {
 
 // `content` is null (not a default) when the model returned nothing, so
 // each caller keeps applying the exact empty-response default it already
-// used ("{}" in most, "" in Autopilot's regex-fallback path).
+// used ("{}" in most, "" in Autopilot's regex-fallback path). `costUsd` is
+// priced from this call's real usage (lib/ai/pricing.ts) for
+// ai_generation_logs.cost_usd.
 export async function createCreativeCompletion(params: CreativeCompletionParams): Promise<{
   content: string | null
   model: string
-  usage: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } | undefined
+  usage: TextUsage | undefined
+  costUsd: number | null
 }> {
   const model = MODELS.creative
   const startTime = Date.now()
@@ -53,12 +61,20 @@ export async function createCreativeCompletion(params: CreativeCompletionParams)
         messages: [
           { role: "system", content: params.system },
           { role: "user", content: params.user },
+          ...(params.followUp
+            ? [
+                { role: "assistant" as const, content: params.followUp.previous },
+                { role: "user" as const, content: params.followUp.correction },
+              ]
+            : []),
         ],
       },
       { timeout: params.timeoutMs, maxRetries: 1 }
     )
-    console.log(`[${params.logPrefix}] provider=openai model=${model} stage=${params.stage} latencyMs=${Date.now() - startTime} success=true`)
-    return { content: response.choices[0]?.message?.content ?? null, model, usage: response.usage ?? undefined }
+    const usage = toTextUsage(response.usage)
+    const costUsd = textCostUsd(model, usage)
+    console.log(`[${params.logPrefix}] provider=openai model=${model} stage=${params.stage} latencyMs=${Date.now() - startTime} costUsd=${costUsd ?? "unknown"} success=true`)
+    return { content: response.choices[0]?.message?.content ?? null, model, usage, costUsd }
   } catch (err) {
     console.error(`[${params.logPrefix}] provider=openai model=${model} stage=${params.stage} latencyMs=${Date.now() - startTime} success=false:`, err)
     throw err

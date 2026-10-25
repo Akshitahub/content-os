@@ -2,11 +2,12 @@ import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import { buildError, ErrorCodes } from "@/types/api"
 import { fastlaneSchema } from "@/lib/validations/fastlane"
-import { executeFastlane, estimateAutopilotCreditCost, computeAutopilotSlotCount } from "@/lib/ai/fastlane"
+import { executeFastlane, estimateAutopilotCreditCost, computeAutopilotSlotCount, type AutopilotUsageTracker } from "@/lib/ai/fastlane"
+import { MODELS } from "@/lib/ai/models"
 import { PLAN_LIMITS } from "@/types/app"
 import type { UserPlan } from "@/types/app"
 import { isInternalUnlimited } from "@/lib/usage/is-internal-unlimited"
-import { checkAndIncrementUsage, refundGenerationUsage } from "@/lib/usage/check-and-increment-usage"
+import { checkAndIncrementUsage, refundGenerationUsage, logGenerationOutcome } from "@/lib/usage/check-and-increment-usage"
 import { resolveGenerationLimit } from "@/lib/usage/trial-status"
 import { getISTDateString } from "@/lib/utils/ist"
 
@@ -60,6 +61,22 @@ export async function POST(request: Request) {
   // Autopilot run.
   let chargedCost = 0
   let chargeLogId: string | null = null
+  // Running token/cost total across every model call in this run (see
+  // AutopilotUsageTracker) -- written onto the charge row's outcome below.
+  // generationStartedAt stays null until executeFastlane is actually
+  // called, so an early failure (validation, charge) logs no outcome.
+  const usageTracker: AutopilotUsageTracker = { usage: undefined, costUsd: null }
+  let generationStartedAt: number | null = null
+  const recordOutcome = (success: boolean, errorMessage?: string) =>
+    logGenerationOutcome(supabase, chargeLogId, {
+      user_id: user.id, brand_id: brandId, feature: "autopilot_slot", model: MODELS.creative,
+      prompt_tokens: usageTracker.usage?.prompt_tokens ?? null,
+      completion_tokens: usageTracker.usage?.completion_tokens ?? null,
+      total_tokens: usageTracker.usage?.total_tokens ?? null,
+      cost_usd: usageTracker.costUsd,
+      latency_ms: generationStartedAt ? Date.now() - generationStartedAt : null,
+      success, error_message: errorMessage ?? null,
+    })
   let runCountIncremented = false
   const isUnlimited = isInternalUnlimited(user.id)
 
@@ -270,10 +287,14 @@ export async function POST(request: Request) {
     }
 
     // Execute autopilot with user preferences, scaled to this plan's tier
+    generationStartedAt = Date.now()
     const result = await executeFastlane(supabase, user.id, brandId, {
       frequency, platforms, vibe, focusAreas, totalSlots: totalSlots,
       plan, isInternalUnlimitedUser: isUnlimited,
-    }, runStatusRow?.id)
+    }, runStatusRow?.id, usageTracker)
+    // success = the run completed; individual slot failures are still
+    // reported in result.errors, same as before.
+    await recordOutcome(true, result.errors.length > 0 ? `${result.errors.length} slot(s) failed` : undefined)
 
     // Surfaced back to the Fastlane UI so it can show the real credits this
     // run actually consumed (not just the pre-flight estimate shown before
@@ -291,6 +312,9 @@ export async function POST(request: Request) {
     }, { status: 201 })
   } catch (err) {
     console.error("[fastlane] POST unexpected error:", err)
+    if (generationStartedAt !== null) {
+      await recordOutcome(false, err instanceof Error ? err.message : "Unknown error").catch(() => {})
+    }
     // The credit charge (and run-count increment) already happened before
     // executeFastlane was attempted -- undo both on total failure, same as
     // this route's original guarantee that a failed run costs nothing

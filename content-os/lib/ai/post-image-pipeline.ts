@@ -1,5 +1,6 @@
 import sharp from "sharp"
 import { generateOpenAIImage, IMAGE_PROVIDER, type ImageDimensions } from "@/lib/ai/image-provider"
+import { sumCostUsd } from "@/lib/ai/pricing"
 import { compositePostImage, compositeHardTruthChecklist } from "@/lib/image/post-compositor"
 import type { PostTemplateId } from "@/lib/design/post-templates"
 import type { ColorTheme } from "@/lib/design/color-themes"
@@ -106,6 +107,16 @@ export interface ImageGenerationAttempt {
   promptVariant: "primary" | "fallback"
   success: boolean
   failureReason: ImageAttemptFailureReason | null
+  /** What OpenAI billed for this attempt (lib/ai/pricing.ts) -- a
+   * quality-check failure was still billed. Null if unknown. Not persisted
+   * to image_generation_attempts (no column); summed into
+   * ai_generation_logs.cost_usd by the calling route via attemptsCostUsd. */
+  costUsd: number | null
+}
+
+/** Total billed across every attempt of one generation (see ImageGenerationAttempt.costUsd). */
+export function attemptsCostUsd(attempts: ImageGenerationAttempt[]): number | null {
+  return sumCostUsd(...attempts.map((a) => a.costUsd))
 }
 
 // A failed generation can come back as a 200 with a placeholder/refusal
@@ -143,7 +154,7 @@ async function checkImageQuality(buffer: Buffer): Promise<{ ok: true } | { error
 // module owns everything about actually talking to OpenAI. `attemptLabel`
 // is for logging only -- there's no seed param in the images API to vary
 // generations by.
-async function fetchAndCheckImage(prompt: string, attemptLabel: string, dimensions: ImageDimensions, productImageUrl?: string | null): Promise<{ buffer: Buffer } | { error: string; reason: ImageAttemptFailureReason }> {
+async function fetchAndCheckImage(prompt: string, attemptLabel: string, dimensions: ImageDimensions, productImageUrl?: string | null): Promise<{ buffer: Buffer; costUsd: number | null } | { error: string; reason: ImageAttemptFailureReason; costUsd: number | null }> {
   console.log(`[post-image-pipeline] attempt=${attemptLabel} dimensions=${dimensions.width}x${dimensions.height} productReference=${productImageUrl ? "yes" : "no"}`)
 
   const result = await generateOpenAIImage(prompt, dimensions, productImageUrl)
@@ -152,8 +163,8 @@ async function fetchAndCheckImage(prompt: string, attemptLabel: string, dimensio
   console.log(`[post-image-pipeline] image buffer: ${result.buffer.length} bytes`)
 
   const quality = await checkImageQuality(result.buffer)
-  if ("error" in quality) return quality
-  return { buffer: result.buffer }
+  if ("error" in quality) return { ...quality, costUsd: result.costUsd }
+  return { buffer: result.buffer, costUsd: result.costUsd }
 }
 
 // Deterministic reinforcement layered on top of the LLM-generated
@@ -452,12 +463,12 @@ export async function fetchBackgroundImage(
   const attempts: ImageGenerationAttempt[] = []
 
   let attempt = await fetchAndCheckImage(prompt, "1-primary", dimensions, productImageUrl)
-  attempts.push({ attemptNumber: 1, provider: IMAGE_PROVIDER, promptVariant: "primary", success: !("error" in attempt), failureReason: "error" in attempt ? attempt.reason : null })
+  attempts.push({ attemptNumber: 1, provider: IMAGE_PROVIDER, promptVariant: "primary", success: !("error" in attempt), failureReason: "error" in attempt ? attempt.reason : null, costUsd: attempt.costUsd })
 
   if ("error" in attempt) {
     console.error(`[post-image-pipeline] first attempt failed:`, attempt.error)
     attempt = await fetchAndCheckImage(fallbackPrompt, "2-fallback", dimensions, productImageUrl)
-    attempts.push({ attemptNumber: 2, provider: IMAGE_PROVIDER, promptVariant: "fallback", success: !("error" in attempt), failureReason: "error" in attempt ? attempt.reason : null })
+    attempts.push({ attemptNumber: 2, provider: IMAGE_PROVIDER, promptVariant: "fallback", success: !("error" in attempt), failureReason: "error" in attempt ? attempt.reason : null, costUsd: attempt.costUsd })
 
     if ("error" in attempt) {
       console.error(`[post-image-pipeline] retry also failed:`, attempt.error)

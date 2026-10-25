@@ -1,6 +1,7 @@
 import OpenAI, { APIError } from "openai"
 import { toFile } from "openai/core/uploads"
 import { getOpenAIClient } from "./models"
+import { imageCostUsd } from "./pricing"
 
 // The only provider for AI image generation in this codebase -- every
 // caller (Post, Story, Carousel, Ad Maker, the standalone Images tab,
@@ -61,9 +62,12 @@ function resolveImageSize(dimensions: ImageDimensions): OpenAIImageSize {
 
 export type ImageProviderFailureReason = "network_error" | "api_error" | "moderation_blocked"
 
+// costUsd: priced from the response's real usage (lib/ai/pricing.ts) --
+// present whenever OpenAI actually returned a response (it billed for
+// it), null when the call failed before a response or reported no usage.
 export type ImageProviderResult =
-  | { buffer: Buffer }
-  | { error: string; reason: ImageProviderFailureReason }
+  | { buffer: Buffer; costUsd: number | null }
+  | { error: string; reason: ImageProviderFailureReason; costUsd: number | null }
 
 // OpenAI reports a moderation/safety rejection as a 400 whose error body
 // names it explicitly -- checked by `.code` first (the structured,
@@ -148,13 +152,14 @@ export async function generateOpenAIImage(
 
   try {
     const response = await callOpenAIImageAPI(prompt, size, referenceImageUrl)
+    const costUsd = imageCostUsd(IMAGE_PROVIDER_CONFIG.model, response.usage)
     const b64 = response.data?.[0]?.b64_json
     if (!b64) {
       console.error(`[image-provider] OpenAI returned no image data in its response`)
-      return { error: "The image provider returned no image data.", reason: "api_error" }
+      return { error: "The image provider returned no image data.", reason: "api_error", costUsd }
     }
-    console.log(`[image-provider] success: model=${IMAGE_PROVIDER_CONFIG.model} quality=${IMAGE_PROVIDER_CONFIG.quality} size=${size}`)
-    return { buffer: Buffer.from(b64, "base64") }
+    console.log(`[image-provider] success: model=${IMAGE_PROVIDER_CONFIG.model} quality=${IMAGE_PROVIDER_CONFIG.quality} size=${size} costUsd=${costUsd ?? "unknown"}`)
+    return { buffer: Buffer.from(b64, "base64"), costUsd }
   } catch (err) {
     console.error(`[image-provider] call failed: model=${IMAGE_PROVIDER_CONFIG.model} size=${size}`, err)
 
@@ -162,6 +167,7 @@ export async function generateOpenAIImage(
       return {
         error: "This image couldn't be generated because the request was flagged by the safety system. Try rephrasing the description.",
         reason: "moderation_blocked",
+        costUsd: null,
       }
     }
 
@@ -170,10 +176,10 @@ export async function generateOpenAIImage(
     // so a timeout is distinguishable from a real API error in
     // image_generation_attempts.
     if (err instanceof Error && /timed? ?out/i.test(err.message)) {
-      return { error: "Image generation timed out.", reason: "network_error" }
+      return { error: "Image generation timed out.", reason: "network_error", costUsd: null }
     }
 
     const detail = err instanceof Error ? err.message : String(err)
-    return { error: `Image generation failed: ${detail}`, reason: "api_error" }
+    return { error: `Image generation failed: ${detail}`, reason: "api_error", costUsd: null }
   }
 }

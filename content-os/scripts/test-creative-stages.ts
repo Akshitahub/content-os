@@ -155,34 +155,37 @@ async function main() {
   // script's per-stage timing.
   const { requestStorySequence } = await import("@/lib/ai/story-sequence-generator")
   await runStage("story (lib/ai/story-sequence-generator.ts)", async () => {
-    const raw = await requestStorySequence(TEST_BRAND, "Why a 3-step routine beats a 10-step one", 5, undefined, [])
+    const { raw, costUsd } = await requestStorySequence(TEST_BRAND, "Why a 3-step routine beats a 10-step one", 5, undefined, [])
     const data = JSON.parse(raw) as { stories?: { text?: string }[] }
+    console.log(`[test-creative-stages]    story costUsd=${costUsd}`)
     if (!Array.isArray(data.stories) || data.stories.length === 0) throw new Error(`no stories in response: ${raw.slice(0, 200)}`)
     return `slides=${data.stories.length} texts=${JSON.stringify(data.stories.map((s) => s.text))}`
   })
 
   const { generateCarouselWithRetry } = await import("@/lib/ai/carousel-generator")
   await runStage("carousel (lib/ai/carousel-generator.ts)", async () => {
-    const data = (await generateCarouselWithRetry(TEST_BRAND, "Sunscreen myths Indian skin still believes", 7, "instagram", undefined, [])) as { slides?: { headline?: string }[]; cover_hook?: string }
+    const result = await generateCarouselWithRetry(TEST_BRAND, "Sunscreen myths Indian skin still believes", 7, "instagram", undefined, [])
+    const data = result.data as { slides?: { headline?: string }[]; cover_hook?: string }
+    console.log(`[test-creative-stages]    carousel costUsd=${result.costUsd}`)
     if (!Array.isArray(data.slides) || data.slides.length === 0) throw new Error("no slides in response")
     return `slides=${data.slides.length} cover_hook=${JSON.stringify(data.cover_hook)} headlines=${JSON.stringify(data.slides.map((s) => s.headline))}`
   })
 
   const { generateRepurposedContent } = await import("@/lib/ai/repurpose-generator")
   await runStage("repurpose (lib/ai/repurpose-generator.ts)", async () => {
-    const data = await generateRepurposedContent(
+    const { result: data, costUsd } = await generateRepurposedContent(
       "Most people over-exfoliate. Your skin barrier needs a few days to recover between acid treatments, and stacking actives every night is the fastest way to end up red, tight and breaking out. Two nights a week is plenty for most skin types.",
       TEST_BRAND
     )
     if (!data || !Array.isArray(data.hooks)) throw new Error("unparseable or malformed response")
-    return `hooks=${JSON.stringify(data.hooks)} tweets=${data.tweets?.length ?? 0} linkedinChars=${data.linkedin?.length ?? 0}`
+    return `costUsd=${costUsd} hooks=${JSON.stringify(data.hooks)} tweets=${data.tweets?.length ?? 0} linkedinChars=${data.linkedin?.length ?? 0}`
   })
 
   const { generateOccasionContent } = await import("@/lib/ai/occasion-content-generator")
   await runStage("occasion-content (lib/ai/occasion-content-generator.ts)", async () => {
-    const data = await generateOccasionContent(TEST_BRAND, "Diwali", "Festive glow without harsh products")
+    const { content: data, costUsd } = await generateOccasionContent(TEST_BRAND, "Diwali", "Festive glow without harsh products")
     if (!data.hook && !data.caption) throw new Error("empty content")
-    return `hook=${JSON.stringify(data.hook)} caption=${JSON.stringify(data.caption)}`
+    return `costUsd=${costUsd} hook=${JSON.stringify(data.hook)} caption=${JSON.stringify(data.caption)}`
   })
 
   // story/carousel through the shared content-generator path (Full Post,

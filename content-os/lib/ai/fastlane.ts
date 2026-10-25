@@ -1,9 +1,10 @@
 import { after } from "next/server"
 import { MODELS } from "./models"
 import { createCreativeCompletion } from "./creative-completion"
+import { addTextUsage, sumCostUsd, type TextUsage } from "./pricing"
 import { generateCarouselHtml } from "@/lib/design/post-card-generator"
 import { getUpcomingOccasionsForAutopilot } from "@/lib/occasions/get-upcoming-occasions"
-import { generatePostImage } from "@/lib/ai/post-image-pipeline"
+import { attemptsCostUsd, generatePostImage } from "@/lib/ai/post-image-pipeline"
 import { DEFAULT_POST_TEMPLATE_ID } from "@/lib/design/post-templates"
 import { resolveColorThemes } from "@/lib/design/color-themes"
 import { mergeCaptionWithHookAndCta } from "@/lib/utils/caption-merge"
@@ -93,6 +94,25 @@ function sanitizeJsonString(raw: string): string {
 
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms))
+}
+
+/**
+ * Running model-usage/cost total for one Autopilot run, so
+ * app/api/v1/brands/fastlane/route.ts can write a single real
+ * ai_generation_logs outcome (tokens + cost_usd) onto the run's charge row
+ * instead of nothing. Mutated by every text and image call in the run;
+ * safe under the per-batch Promise.allSettled since each update happens
+ * synchronously after its own await.
+ */
+export type AutopilotUsageTracker = {
+  usage: TextUsage | undefined
+  costUsd: number | null
+}
+
+function trackUsage(tracker: AutopilotUsageTracker | undefined, usage: TextUsage | undefined, costUsd: number | null): void {
+  if (!tracker) return
+  tracker.usage = addTextUsage(tracker.usage, usage)
+  tracker.costUsd = sumCostUsd(tracker.costUsd, costUsd)
 }
 
 function buildStrategySystemPrompt(): string {
@@ -362,7 +382,7 @@ Return this exact JSON (exactly 5 slides):
 {"title":"carousel title","hook":"compelling cover headline","slides":[{"slide_number":1,"headline":"Cover headline","body":"Teaser of what readers will learn"},{"slide_number":2,"headline":"Point 1 title","body":"First key insight in 1-2 sentences"},{"slide_number":3,"headline":"Point 2 title","body":"Second key insight in 1-2 sentences"},{"slide_number":4,"headline":"Point 3 title","body":"Third key insight in 1-2 sentences"},{"slide_number":5,"headline":"Save this post!","body":"Call to action and follow for more"}],"hashtags":["hashtag1","hashtag2","hashtag3","hashtag4","hashtag5"],"visual_direction":"visual style for the carousel","audio_suggestion":"background music mood","call_to_action":"what you want the audience to do"}`
 }
 
-export async function generateContentStrategy(brand: BrandRow, products: ProductRow[], params?: AutopilotParams): Promise<ContentStrategy> {
+export async function generateContentStrategy(brand: BrandRow, products: ProductRow[], params?: AutopilotParams, tracker?: AutopilotUsageTracker): Promise<ContentStrategy> {
   const userPrompt = await buildStrategyUserPrompt(brand, products, params)
   // Moved from Groq to OpenAI (MODELS.creative) in the Phase 1b migration.
   // The big 30-day/30-slot planner -- measured on Groq's gpt-oss-120b with
@@ -371,7 +391,7 @@ export async function generateContentStrategy(brand: BrandRow, products: Product
   // same budget. The SDK's own maxRetries: 1 (inside
   // createCreativeCompletion) replaces the old Groq-specific 429 retry
   // wrapper; it also honors OpenAI's retry-after header.
-  const { content } = await createCreativeCompletion({
+  const { content, usage, costUsd } = await createCreativeCompletion({
     stage: "autopilot_strategy",
     logPrefix: "fastlane",
     system: buildStrategySystemPrompt(),
@@ -386,6 +406,7 @@ export async function generateContentStrategy(brand: BrandRow, products: Product
     timeoutMs: 90_000,
   })
 
+  trackUsage(tracker, usage, costUsd)
   const raw: string = content ?? "{}"
   let cleaned = sanitizeJsonString(raw)
   const jsonMatch = cleaned.match(/\{[\s\S]*\}/)
@@ -452,6 +473,7 @@ async function generateSlotContent(
   slot: ContentSlot,
   product: ProductRow | null,
   totalSlots: number,
+  tracker?: AutopilotUsageTracker,
 ): Promise<SlotContent> {
   const isCarousel = slot.content_type === "carousel"
   const isReel = slot.content_type === "reel_script"
@@ -462,7 +484,7 @@ async function generateSlotContent(
   // Groq. Runs once per slot (up to 30 per run, 3 concurrently per batch
   // in executeFastlane below -- already parallel, nothing further to fan
   // out here).
-  const { content } = await createCreativeCompletion({
+  const { content, usage, costUsd } = await createCreativeCompletion({
     stage: `autopilot_slot_${slot.content_type}`,
     logPrefix: "fastlane",
     system: "You are an expert social media content creator. Generate complete, ready-to-post content. Respond with valid JSON only. No markdown.",
@@ -479,6 +501,7 @@ async function generateSlotContent(
     timeoutMs: 30_000,
   })
 
+  trackUsage(tracker, usage, costUsd)
   const raw: string = content ?? ""
   let cleaned = sanitizeJsonString(raw)
   const jsonMatch = cleaned.match(/\{[\s\S]*\}/)
@@ -654,9 +677,12 @@ export async function executeFastlane(
   // strategy generation failure, etc.) is otherwise untouched and still
   // propagates to the caller exactly as before.
   runStatusId?: string,
+  // Optional running usage/cost total for the caller's ai_generation_logs
+  // outcome -- see AutopilotUsageTracker.
+  tracker?: AutopilotUsageTracker,
 ): Promise<FastlaneResult> {
   try {
-    return await executeFastlaneInner(supabase, userId, brandId, params, runStatusId)
+    return await executeFastlaneInner(supabase, userId, brandId, params, runStatusId, tracker)
   } catch (err) {
     if (runStatusId) {
       const message = err instanceof Error ? err.message : String(err)
@@ -686,6 +712,7 @@ async function executeFastlaneInner(
   brandId: string,
   params: AutopilotParams | undefined,
   runStatusId: string | undefined,
+  tracker: AutopilotUsageTracker | undefined,
 ): Promise<FastlaneResult> {
   const errors: string[] = []
 
@@ -734,7 +761,7 @@ async function executeFastlaneInner(
 
   let strategy: ContentStrategy
   try {
-    strategy = await generateContentStrategy(brand, productList, params)
+    strategy = await generateContentStrategy(brand, productList, params, tracker)
   } catch (err) {
     console.error("[fastlane] generateContentStrategy failed:", err)
     throw new Error("Failed to generate content strategy")
@@ -774,7 +801,7 @@ async function executeFastlaneInner(
         // describes.
         const scheduledDate = formatLocalDate(slotDate)
 
-        const generated = await generateSlotContent(brand, slot, product, totalSlots)
+        const generated = await generateSlotContent(brand, slot, product, totalSlots, tracker)
 
         // The per-slot prompt (buildSlotContentPrompt) has no structural
         // guarantee that `caption` already opens with the hook or closes
@@ -864,6 +891,7 @@ async function executeFastlaneInner(
               plan,
               isInternalUnlimitedUser,
             })
+            trackUsage(tracker, undefined, attemptsCostUsd(imageResult.attempts))
 
             if (imageResult.success) {
               const storagePath = `${userId}/${brandId}/${Date.now()}-${crypto.randomUUID()}.png`

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import { buildError, ErrorCodes } from "@/types/api"
 import { generateStorySlideBackground, type StoryVibe } from "@/lib/ai/story-slide-background"
+import { attemptsCostUsd } from "@/lib/ai/post-image-pipeline"
 import { uploadMediaToStorage } from "@/lib/storage/upload-media"
 import { isInternalUnlimited } from "@/lib/usage/is-internal-unlimited"
 import { checkAndIncrementUsage, refundGenerationUsage } from "@/lib/usage/check-and-increment-usage"
@@ -121,6 +122,7 @@ export async function POST(request: Request) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await (supabase.from("ai_generation_logs") as any).insert({
       user_id: user.id, brand_id: brandId, feature: `story_slide_bg_${role}`, model: "unknown",
+      cost_usd: attemptsCostUsd(result.attempts),
       latency_ms: latencyMs, success: false, error_message: result.error,
     })
     // result.error is a real, useful diagnostic (already logged above and
@@ -144,6 +146,7 @@ export async function POST(request: Request) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await (supabase.from("ai_generation_logs") as any).insert({
       user_id: user.id, brand_id: brandId, feature: `story_slide_bg_${role}`, model: provider,
+      cost_usd: attemptsCostUsd(result.attempts),
       latency_ms: latencyMs, success: false, error_message: uploadResult.error,
     })
     return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Image generated but upload to storage failed."), { status: 500 })
@@ -153,6 +156,7 @@ export async function POST(request: Request) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   await (supabase.from("ai_generation_logs") as any).insert({
     user_id: user.id, brand_id: brandId, feature: `story_slide_bg_${role}`, model: provider,
+    cost_usd: attemptsCostUsd(result.attempts),
     latency_ms: latencyMs, success: true,
   })
 

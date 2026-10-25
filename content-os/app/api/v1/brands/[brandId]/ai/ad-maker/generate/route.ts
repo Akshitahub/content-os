@@ -7,6 +7,8 @@ import { AD_MAKER } from "@/lib/usage/credit-costs"
 const FEATURE = "ad_maker"
 import { generateAdMakerBackgroundSchema } from "@/lib/validations/ai"
 import { generateAdMakerBackground } from "@/lib/ai/ad-maker-background"
+import { attemptsCostUsd } from "@/lib/ai/post-image-pipeline"
+import { sumCostUsd } from "@/lib/ai/pricing"
 import { isInternalUnlimited } from "@/lib/usage/is-internal-unlimited"
 import type { BrandRow } from "@/types/database"
 import type { UserPlan } from "@/types/app"
@@ -161,6 +163,7 @@ export async function POST(request: Request, { params }: RouteParams) {
     console.error(`[ai/ad-maker/generate] all ${VARIATION_COUNT} background variations failed after ${Date.now() - startTime}ms:`, firstFailure?.error)
     await logGenerationOutcome(supabase, logId, {
       user_id: user.id, brand_id: brandId, feature: FEATURE, model: "unknown",
+      cost_usd: sumCostUsd(...results.map((r) => attemptsCostUsd(r.attempts))),
       latency_ms: Date.now() - startTime, success: false, error_message: firstFailure?.error ?? "All variations failed",
     })
     await refundGenerationUsage(supabase, user.id, AD_MAKER, logId)
@@ -197,6 +200,8 @@ export async function POST(request: Request, { params }: RouteParams) {
 
   await logGenerationOutcome(supabase, logId, {
     user_id: user.id, brand_id: brandId, feature: FEATURE, model: provider,
+    // All variations, including failed ones -- each was billed.
+    cost_usd: sumCostUsd(...results.map((r) => attemptsCostUsd(r.attempts))),
     latency_ms: Date.now() - startTime, success: true,
   })
 

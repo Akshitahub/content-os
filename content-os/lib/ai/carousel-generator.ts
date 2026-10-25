@@ -1,6 +1,8 @@
 import type { BrandRow } from "@/types/database"
 import { buildPastExamplesBlock, QUALITY_BAR } from "./prompts"
 import { createCreativeCompletion } from "./creative-completion"
+import { buildFactCorrection, buildFactSource, findUnsupportedClaimsIn, logFactGuard, stripUnsupportedClaimsIn } from "./fact-guard"
+import { UsageCarryingError, addTextUsage, sumCostUsd, type TextUsage } from "./pricing"
 
 // Carousel prompt building + the model call, moved verbatim out of
 // app/api/v1/ai/carousel/generate/route.ts during the Phase 1b Groq ->
@@ -40,7 +42,7 @@ Create a high-performing ${platform} carousel on this topic for this brand.
 
 CRITICAL RULES:
 - NEVER use square-bracket placeholders like [Age], [Name], [Number], [Year], [Date] etc.
-- If you don't know a specific number (founding year, age, stats), write content that doesn't need it
+- Only use a number (founding year, age, stats, prices, results) if it appears in the brand facts or topic above — otherwise write content that doesn't need it
 - Write only actual, complete text — no template variables, no placeholders
 - No exclamation marks, no hashtags, no emojis in "headline", "subtext", "points", "cta", or "cover_hook" — plain, punchy text only
 - Keep headline under ~50 characters and each bullet point under ~12 words — slides are meant to be scanned in a swipe, not read like an essay
@@ -60,9 +62,10 @@ carousel through the same rotation, and don't use the same format twice
 in a row. Every format still uses only "headline" and "points" (the
 existing fields — a real UI, not just this prompt, renders these, so no
 new field names):
-- Bold statement / stat callout — a single striking claim or number does
-  all the work. "headline" carries it; "points" is an empty array. Best
-  for a fact that doesn't need supporting bullets to land.
+- Bold statement — a single striking line does all the work. "headline"
+  carries it; "points" is an empty array. Best for a point that doesn't
+  need supporting bullets to land. It may lead with a number only if that
+  exact number is in the brand facts or topic above — otherwise no number.
 - Short comparison — "points" has exactly 2 items framed as a contrast
   (before/after, old way/new way, myth/reality). "headline" names what's
   being compared.
@@ -112,7 +115,7 @@ Respond with ONLY this JSON (no markdown, no explanation):
     {
       "slide_number": 2,
       "type": "content",
-      "headline": "73% of first-time buyers never come back",
+      "headline": "Most first-time buyers never come back",
       "points": [],
       "background_style": "gradient_light"
     },
@@ -120,7 +123,7 @@ Respond with ONLY this JSON (no markdown, no explanation):
       "slide_number": 3,
       "type": "content",
       "headline": "Generic emails vs. personalized ones",
-      "points": ["Generic: 2% open rate", "Personalized: 41% open rate"],
+      "points": ["Generic: skimmed and deleted", "Personalized: opened and answered"],
       "background_style": "white_violet"
     },
     {
@@ -154,7 +157,13 @@ Make every slide punchy, valuable, and shareable. The cover must stop the scroll
  * hook and hashtags in a single JSON object -- nothing to parallelize per
  * slide), retried once only if the response isn't parseable JSON, exactly
  * as on Groq. Throws on provider error/timeout so the route's existing
- * refund-and-500 path handles it unchanged.
+ * refund-and-500 path handles it unchanged (a UsageCarryingError when the
+ * calls themselves were billed but both came back unparseable).
+ *
+ * Fact guard (lib/ai/fact-guard.ts): once parsed, any slide/cover/CTA copy
+ * using a number that isn't in the brand facts or topic gets one
+ * corrective retry; if that still fails (or errors), the offending
+ * sentences are stripped.
  */
 export async function generateCarouselWithRetry(
   brand: BrandRow,
@@ -163,32 +172,64 @@ export async function generateCarouselWithRetry(
   platform: string,
   vibe: string | undefined,
   pastExamples: string[]
-): Promise<unknown> {
+): Promise<{ data: unknown; model: string; usage: TextUsage | undefined; costUsd: number | null }> {
   const prompt = buildCarouselPrompt(brand, topic, slideCount, platform, vibe, pastExamples)
+  let usage: TextUsage | undefined
+  let costUsd: number | null = null
   for (let attempt = 0; attempt < 2; attempt++) {
-    const { content } = await createCreativeCompletion({
-      stage: "carousel",
-      logPrefix: "ai/carousel/generate",
-      system: "You are an expert carousel content creator for Indian D2C brands on Instagram and LinkedIn. CRITICAL: Respond with ONLY valid JSON. No markdown code fences, no explanation text before or after, no trailing commas. The response must be parseable by JSON.parse() directly.",
-      user: prompt,
-      // Structured multi-slide JSON genuinely benefits from real reasoning
-      // -- same "medium" as on Groq (measured there: a 7-slide carousel
-      // spent 828 of 1499 completion tokens on hidden reasoning). Budget
-      // unchanged; reasoning tokens count against it on gpt-5.5 too.
-      reasoningEffort: "medium",
-      maxCompletionTokens: Math.max(4000, slideCount * 500),
-      // ESTIMATE, not measured (no OPENAI_API_KEY where this was written) --
-      // see scripts/test-creative-stages.ts. Sized for a 10-slide carousel
-      // at medium effort; revisit against real latency.
-      timeoutMs: 60_000,
-    })
+    const result = await createCreativeCompletion(carouselCallParams(prompt, slideCount))
+    usage = addTextUsage(usage, result.usage)
+    costUsd = sumCostUsd(costUsd, result.costUsd)
 
-    const cleaned = extractJSON(content ?? "{}")
+    const raw = result.content ?? "{}"
+    let data: unknown
     try {
-      return JSON.parse(cleaned)
+      data = JSON.parse(extractJSON(raw))
     } catch {
-      if (attempt === 1) throw new Error("AI returned invalid JSON after retry")
+      if (attempt === 1) throw new UsageCarryingError("AI returned invalid JSON after retry", usage, costUsd)
+      continue
     }
+
+    const facts = buildFactSource({ brand, brief: [topic] })
+    const claims = findUnsupportedClaimsIn(data, facts)
+    if (claims.length > 0) {
+      logFactGuard("carousel", "retry", claims.length)
+      try {
+        const retry = await createCreativeCompletion({ ...carouselCallParams(prompt, slideCount), followUp: { previous: raw, correction: buildFactCorrection(claims) } })
+        usage = addTextUsage(usage, retry.usage)
+        costUsd = sumCostUsd(costUsd, retry.costUsd)
+        data = JSON.parse(extractJSON(retry.content ?? ""))
+      } catch (err) {
+        // Unparseable retry or provider error: keep the first (valid)
+        // response and strip it below rather than failing the generation.
+        console.error("[ai/carousel/generate] fact-guard retry failed, stripping instead:", err instanceof Error ? err.message : err)
+      }
+      const remaining = findUnsupportedClaimsIn(data, facts)
+      if (remaining.length > 0) {
+        logFactGuard("carousel", "strip", remaining.length)
+        data = stripUnsupportedClaimsIn(data, facts)
+      }
+    }
+    return { data, model: result.model, usage, costUsd }
   }
-  throw new Error("AI generation failed")
+  throw new UsageCarryingError("AI generation failed", usage, costUsd)
+}
+
+function carouselCallParams(prompt: string, slideCount: number) {
+  return {
+    stage: "carousel",
+    logPrefix: "ai/carousel/generate",
+    system: "You are an expert carousel content creator for Indian D2C brands on Instagram and LinkedIn. CRITICAL: Respond with ONLY valid JSON. No markdown code fences, no explanation text before or after, no trailing commas. The response must be parseable by JSON.parse() directly.",
+    user: prompt,
+    // Structured multi-slide JSON genuinely benefits from real reasoning
+    // -- same "medium" as on Groq (measured there: a 7-slide carousel
+    // spent 828 of 1499 completion tokens on hidden reasoning). Budget
+    // unchanged; reasoning tokens count against it on gpt-5.5 too.
+    reasoningEffort: "medium" as const,
+    maxCompletionTokens: Math.max(4000, slideCount * 500),
+    // ESTIMATE, not measured (no OPENAI_API_KEY where this was written) --
+    // see scripts/test-creative-stages.ts. Sized for a 10-slide carousel
+    // at medium effort; revisit against real latency.
+    timeoutMs: 60_000,
+  }
 }

@@ -2,6 +2,8 @@ import type { BrandRow } from "@/types/database"
 import type { StorySlide } from "@/app/api/v1/ai/stories/generate/route"
 import { buildPastExamplesBlock, QUALITY_BAR } from "./prompts"
 import { createCreativeCompletion } from "./creative-completion"
+import { buildFactCorrection, buildFactSource, findUnsupportedClaimsIn, logFactGuard, stripUnsupportedClaimsIn } from "./fact-guard"
+import { addTextUsage, sumCostUsd, type TextUsage } from "./pricing"
 
 // Story-sequence prompt building + the model call, moved verbatim out of
 // app/api/v1/ai/stories/generate/route.ts during the Phase 1b Groq ->
@@ -36,7 +38,7 @@ const EXAMPLE_SLIDE_BY_TYPE: Record<string, { text: string; subtext: string; bac
     has_poll: false,
   },
   reveal: {
-    text: "3 hours saved every single day",
+    text: "Your mornings, back to yourself",
     subtext: "That's what automation actually buys back",
     background: "gradient_pink",
     text_position: "center",
@@ -44,7 +46,7 @@ const EXAMPLE_SLIDE_BY_TYPE: Record<string, { text: string; subtext: string; bac
   },
   buildup: {
     text: "Manual replies vs. automated ones",
-    subtext: "18-minute average wait vs. instant",
+    subtext: "A customer left waiting vs. an instant answer",
     background: "gradient_warm",
     text_position: "bottom",
     has_poll: true,
@@ -240,8 +242,10 @@ through the same rotation, and don't use the same format twice in a row:
   but not for every slide.)
 - Question — "text" poses a real question the viewer would ask
   themselves, "subtext" teases the answer without fully giving it away.
-- Stat / number callout — "text" leads with a striking number or
-  statistic, "subtext" explains what it means.
+- Fact callout — only if the brand facts or topic above supply a real
+  number or fact: "text" leads with that exact fact, "subtext" explains
+  what it means. If none is supplied, skip this format — never use a
+  number that wasn't supplied.
 - Contrast — "text" names a before/after or old-way/new-way shift,
   "subtext" is the other half of the contrast.
 Also vary "text_position" genuinely across the sequence (top/center/
@@ -283,8 +287,15 @@ Make the text punchy and emotion-led. Each story should make the viewer want to 
  * One OpenAI call for the WHOLE story sequence -- every slide plus the
  * caption come back in a single JSON object, so there is nothing to
  * parallelize per slide. Returns the raw model text (the route parses and
- * validates it, exactly as before); throws on provider error/timeout so
- * the route's existing refund-and-500 path handles it unchanged.
+ * validates it, exactly as before) plus usage/cost for
+ * ai_generation_logs; throws on provider error/timeout so the route's
+ * existing refund-and-500 path handles it unchanged.
+ *
+ * Fact guard (lib/ai/fact-guard.ts): if the parsed slides/caption use a
+ * number that isn't in the brand facts or topic, retries once with an
+ * explicit correction; if that still fails (or the retry itself errors),
+ * strips the offending sentences. Unparseable JSON is passed through
+ * untouched -- the route already handles that.
  */
 export async function requestStorySequence(
   brand: BrandRow,
@@ -292,8 +303,8 @@ export async function requestStorySequence(
   storyCount: number,
   vibe: string | undefined,
   pastExamples: string[]
-): Promise<string> {
-  const { content } = await createCreativeCompletion({
+): Promise<{ raw: string; model: string; usage: TextUsage | undefined; costUsd: number | null }> {
+  const base = {
     stage: "story",
     logPrefix: "ai/stories/generate",
     system: `You are an expert Instagram story creator for Indian D2C brands. Always return valid JSON only.
@@ -303,12 +314,50 @@ ${QUALITY_BAR}`,
     // narrative arc coherent across slides -- same "medium" as on Groq.
     // Budget scales with storyCount (up to 10), unchanged from Groq: hidden
     // reasoning tokens count against it on gpt-5.5 too.
-    reasoningEffort: "medium",
+    reasoningEffort: "medium" as const,
     maxCompletionTokens: Math.max(3000, storyCount * 350),
     // ESTIMATE, not measured (no OPENAI_API_KEY where this was written) --
     // see scripts/test-creative-stages.ts. Sized for a 10-slide sequence
     // at medium effort; revisit against real latency.
     timeoutMs: 60_000,
-  })
-  return content ?? "{}"
+  }
+  const first = await createCreativeCompletion(base)
+  let raw = first.content ?? "{}"
+  let usage = first.usage
+  let costUsd = first.costUsd
+
+  const facts = buildFactSource({ brand, brief: [topic] })
+  let parsed = parseStoryJson(raw)
+  if (parsed) {
+    const claims = findUnsupportedClaimsIn(parsed, facts)
+    if (claims.length > 0) {
+      logFactGuard("story", "retry", claims.length)
+      try {
+        const retry = await createCreativeCompletion({ ...base, followUp: { previous: raw, correction: buildFactCorrection(claims) } })
+        usage = addTextUsage(usage, retry.usage)
+        costUsd = sumCostUsd(costUsd, retry.costUsd)
+        const retryParsed = parseStoryJson(retry.content ?? "")
+        if (retryParsed) parsed = retryParsed
+      } catch (err) {
+        console.error("[ai/stories/generate] fact-guard retry failed, stripping instead:", err instanceof Error ? err.message : err)
+      }
+      const remaining = findUnsupportedClaimsIn(parsed, facts)
+      if (remaining.length > 0) {
+        logFactGuard("story", "strip", remaining.length)
+        parsed = stripUnsupportedClaimsIn(parsed, facts)
+      }
+      raw = JSON.stringify(parsed)
+    }
+  }
+  return { raw, model: first.model, usage, costUsd }
+}
+
+// Same lenient cleanup the route applies before its own JSON.parse.
+function parseStoryJson(raw: string): Record<string, unknown> | null {
+  try {
+    const parsed: unknown = JSON.parse(raw.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim())
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : null
+  } catch {
+    return null
+  }
 }

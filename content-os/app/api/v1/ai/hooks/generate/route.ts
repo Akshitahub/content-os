@@ -103,6 +103,7 @@ export async function POST(request: Request) {
     prompt_tokens: result.usage?.prompt_tokens ?? null,
     completion_tokens: result.usage?.completion_tokens ?? null,
     total_tokens: result.usage?.total_tokens ?? null,
+    cost_usd: result.costUsd,
     latency_ms: latencyMs, success: true,
   })
 

@@ -11,6 +11,7 @@ import { checkAndIncrementUsage, refundGenerationUsage, logGenerationOutcome } f
 import { CONTENT_FORMAT_CREDIT_COSTS } from "@/lib/usage/credit-costs"
 import { createPostImageSession } from "@/lib/usage/post-image-regenerate-session"
 import { fetchPastExamples } from "@/lib/ai/past-examples"
+import { addTextUsage, sumCostUsd } from "@/lib/ai/pricing"
 import type { BrandRow, ProductRow } from "@/types/database"
 import type { GeneratedCaption, ReelScript, CarouselContent, AdCopy } from "@/types/app"
 
@@ -310,12 +311,19 @@ export async function POST(request: Request) {
     // fire-and-forget isn't safe here (Vercel can freeze/kill the function
     // right after the response is written), so this still needs after()
     // rather than just dropping the await.
+    // Tokens and cost cover BOTH text calls (hooks + content) -- the
+    // image is billed and logged separately by post-image/generate.
+    const textUsage = addTextUsage(hookResult.usage, contentResult.usage)
     after(async () => {
       await logGenerationOutcome(supabase, logId, {
         user_id: user.id,
         brand_id: brandId,
         feature,
         model: hookResult.model,
+        prompt_tokens: textUsage?.prompt_tokens ?? null,
+        completion_tokens: textUsage?.completion_tokens ?? null,
+        total_tokens: textUsage?.total_tokens ?? null,
+        cost_usd: sumCostUsd(hookResult.costUsd, contentResult.costUsd),
         latency_ms: Date.now() - startTime,
         success: true,
       })

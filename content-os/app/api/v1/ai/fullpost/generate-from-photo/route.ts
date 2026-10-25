@@ -71,7 +71,7 @@ export async function POST(request: Request) {
   const photoStoragePath = uploadResult.storagePath
 
   try {
-    const { hook, caption, model } = await analyzePhotoForPost(brand, photoUrl, additionalContext)
+    const { hook, caption, model, usage, costUsd } = await analyzePhotoForPost(brand, photoUrl, additionalContext)
 
     // Same content_projects linking pattern as fullpost/generate — lets the
     // Library find this caption and its image as one post instead of two
@@ -160,6 +160,10 @@ export async function POST(request: Request) {
     after(async () => {
       await logGenerationOutcome(supabase, logId, {
         user_id: user.id, brand_id: brandId, feature: FEATURE, model,
+        prompt_tokens: usage?.prompt_tokens ?? null,
+        completion_tokens: usage?.completion_tokens ?? null,
+        total_tokens: usage?.total_tokens ?? null,
+        cost_usd: costUsd,
         latency_ms: Date.now() - startTime, success: true,
       })
     })

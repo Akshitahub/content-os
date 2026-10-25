@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import { MODELS } from "@/lib/ai/models"
+import { UsageCarryingError } from "@/lib/ai/pricing"
+import { logGenerationOutcome } from "@/lib/usage/check-and-increment-usage"
 import { buildError, ErrorCodes } from "@/types/api"
 import { generateOccasionContent, type OccasionContent } from "@/lib/ai/occasion-content-generator"
 import { z } from "zod"
@@ -60,13 +62,31 @@ export async function POST(request: Request, { params }: RouteParams) {
 
   let generated: OccasionContent
 
+  // This route never charges credits, so there's no charge row to
+  // finalize -- logGenerationOutcome inserts one (credits_charged left
+  // null, so user/credits-breakdown ignores it). Records model, tokens,
+  // cost, latency and outcome; never the occasion angle or generated copy.
+  const startTime = Date.now()
+  let gen: Awaited<ReturnType<typeof generateOccasionContent>> | null = null
+  const recordOutcome = (success: boolean, errorMessage?: string, failedUsage?: UsageCarryingError) =>
+    logGenerationOutcome(supabase, null, {
+      user_id: user.id, brand_id: brandId, feature: "occasion_content", model: gen?.model ?? MODELS.creative,
+      prompt_tokens: (gen?.usage ?? failedUsage?.usage)?.prompt_tokens ?? null,
+      completion_tokens: (gen?.usage ?? failedUsage?.usage)?.completion_tokens ?? null,
+      total_tokens: (gen?.usage ?? failedUsage?.usage)?.total_tokens ?? null,
+      cost_usd: gen?.costUsd ?? failedUsage?.costUsd ?? null,
+      latency_ms: Date.now() - startTime, success, error_message: errorMessage ?? null,
+    })
+
   try {
     // Moved from Groq to OpenAI (MODELS.creative) in the Phase 1b
     // migration -- prompt + call + parse now live in
     // lib/ai/occasion-content-generator.ts.
-    generated = await generateOccasionContent(brand, occasionName, occasionAngle)
+    gen = await generateOccasionContent(brand, occasionName, occasionAngle)
+    generated = gen.content
 
     if (!generated.hook && !generated.caption) {
+      await recordOutcome(false, "AI returned empty content")
       return NextResponse.json(
         buildError(ErrorCodes.AI_GENERATION_FAILED, "AI returned empty content."),
         { status: 500 },
@@ -74,6 +94,7 @@ export async function POST(request: Request, { params }: RouteParams) {
     }
   } catch (err) {
     console.error("[generate-occasion-content] AI failed:", err)
+    await recordOutcome(false, err instanceof Error ? err.message : "Unknown error", err instanceof UsageCarryingError ? err : undefined)
     return NextResponse.json(
       buildError(ErrorCodes.AI_GENERATION_FAILED, "Failed to generate content. Please try again."),
       { status: 500 },
@@ -110,5 +131,6 @@ export async function POST(request: Request, { params }: RouteParams) {
     console.error("[generate-occasion-content] persist failed (non-fatal):", persistErr)
   }
 
+  await recordOutcome(true)
   return NextResponse.json({ data: generated }, { status: 200 })
 }

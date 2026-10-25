@@ -1,7 +1,7 @@
 import type { BrandRow, ProductRow } from "@/types/database"
 import type { AspectRatio, ImageStyle, UserPlan } from "@/types/app"
 import { buildImagePrompt } from "./prompts"
-import { fetchBackgroundImage, type ImageDimensions } from "./post-image-pipeline"
+import { attemptsCostUsd, fetchBackgroundImage, type ImageDimensions } from "./post-image-pipeline"
 
 // Matches this tab's existing, long-standing 1024x1024 output. Note the
 // caller-supplied `aspectRatio` option below was never actually wired into
@@ -11,9 +11,11 @@ import { fetchBackgroundImage, type ImageDimensions } from "./post-image-pipelin
 // feature change outside this migration's scope.
 const IMAGE_TAB_DIMENSIONS: ImageDimensions = { width: 1024, height: 1024, aspectRatio: "1:1" }
 
+// costUsd: total billed across every attempt (attemptsCostUsd), for
+// ai_generation_logs.cost_usd -- null if unknown.
 export type GenerateImageResult =
-  | { success: true; buffer: Buffer; mimeType: string; fullPrompt: string; provider: "openai" }
-  | { success: false; error: string }
+  | { success: true; buffer: Buffer; mimeType: string; fullPrompt: string; provider: "openai"; costUsd: number | null }
+  | { success: false; error: string; costUsd: number | null }
 
 // gpt-image-2 renders text more reliably than older diffusion models, but
 // still isn't consistently legible for longer/multi-word text -- this
@@ -83,8 +85,8 @@ export async function generateImage(
   )
 
   if (!result.success) {
-    return { success: false, error: result.error }
+    return { success: false, error: result.error, costUsd: attemptsCostUsd(result.attempts) }
   }
 
-  return { success: true, buffer: result.buffer, mimeType: result.mimeType, fullPrompt, provider: result.provider }
+  return { success: true, buffer: result.buffer, mimeType: result.mimeType, fullPrompt, provider: result.provider, costUsd: attemptsCostUsd(result.attempts) }
 }

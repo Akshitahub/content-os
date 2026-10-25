@@ -1,6 +1,8 @@
 import type { BrandRow } from "@/types/database"
 import type { RepurposedContent } from "@/app/api/v1/ai/repurpose/route"
 import { createCreativeCompletion } from "./creative-completion"
+import { MODELS } from "./models"
+import { addTextUsage, sumCostUsd, type TextUsage } from "./pricing"
 
 // Repurpose prompt building + the model call, moved verbatim out of
 // app/api/v1/ai/repurpose/route.ts during the Phase 1b Groq -> OpenAI
@@ -65,13 +67,21 @@ const REPURPOSE_SYSTEM_PROMPTS = [
 /**
  * One OpenAI call producing every repurposed format in a single JSON blob,
  * retried once (with the stricter second system prompt, same as on Groq)
- * only if the response isn't parseable JSON. Returns null when both
+ * only if the response isn't parseable JSON. `result` is null when both
  * attempts were unparseable -- the route refunds and returns its existing
- * "invalid JSON" error for that. Throws on provider error/timeout so the
- * route's existing refund-and-500 path handles it unchanged.
+ * "invalid JSON" error for that (usage/cost still reported, since both
+ * calls were billed). Throws on provider error/timeout so the route's
+ * existing refund-and-500 path handles it unchanged.
  */
-export async function generateRepurposedContent(content: string, brand: BrandRow): Promise<RepurposedContent | null> {
+export async function generateRepurposedContent(content: string, brand: BrandRow): Promise<{
+  result: RepurposedContent | null
+  model: string
+  usage: TextUsage | undefined
+  costUsd: number | null
+}> {
   let lastRaw = ""
+  let usage: TextUsage | undefined
+  let costUsd: number | null = null
   for (let attempt = 0; attempt < 2; attempt++) {
     const result = await createCreativeCompletion({
       stage: "repurpose",
@@ -88,15 +98,17 @@ export async function generateRepurposedContent(content: string, brand: BrandRow
       // see scripts/test-creative-stages.ts. Revisit against real latency.
       timeoutMs: 60_000,
     })
+    usage = addTextUsage(usage, result.usage)
+    costUsd = sumCostUsd(costUsd, result.costUsd)
     const raw = result.content ?? "{}"
     lastRaw = raw
     try {
-      return JSON.parse(extractJSON(raw)) as RepurposedContent
+      return { result: JSON.parse(extractJSON(raw)) as RepurposedContent, model: result.model, usage, costUsd }
     } catch {
       if (attempt === 1) {
         console.error("[ai/repurpose] JSON parse failed after retry. Raw:", lastRaw.slice(0, 500))
       }
     }
   }
-  return null
+  return { result: null, model: MODELS.creative, usage, costUsd }
 }

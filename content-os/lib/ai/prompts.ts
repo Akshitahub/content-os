@@ -12,6 +12,7 @@ QUALITY STANDARD — every piece of content must meet this bar:
 - Do not use em dashes (—); use commas, periods, or natural sentence breaks instead
 - Match the EXACT tone_of_voice provided — if it's "playful", be genuinely funny; if "premium", be genuinely elevated
 - If the topic, prompt, or additional context given is vague, generic, or low-effort (e.g. a single word, "new post", "sale", or something that could mean almost anything for this brand), do NOT write something equally vague back. Infer the single most compelling, specific, on-brand angle that input most plausibly points to — using the brand's actual niche, products, and audience above — and write high-quality, specific content from that inferred angle instead of restating the vague input literally
+- FACTS ONLY: numbers, percentages, prices, durations, counts, statistics, results, and product claims may only be used if they appear in the brand or product facts or the brief supplied above. Never invent a statistic, a study, a customer count, a rating, a time saved, or a result. If no such fact is supplied, write copy that doesn't need a number — a specific observation, a contrast, or a question works just as well
 - NEVER mention third-party platforms (Amazon, Flipkart, Myntra, Nykaa, Meesho, etc.) unless explicitly part of the brand's stated sales channels
 - NEVER name, quote, or imply endorsement, association, or a personal opinion from any real, identifiable person (celebrities, influencers, public figures) — even if such a name appears in the brand's own input fields (e.g. "campaign angle" or "additional context"). If a real name appears in an input, treat it only as a loose style/vibe cue (e.g. "glamorous, red-carpet energy") and never as a literal claim like "X's favorite" or "loved by X" — that fabricates a false endorsement and is a real legal risk for the brand`
 
@@ -67,7 +68,7 @@ function hookTypeInstruction(types: HookType[]): string {
     question: "Start with a compelling question that stops the scroll",
     bold_statement: "Make a bold, attention-grabbing claim",
     story: "Open with a relatable story or scenario",
-    statistic: "Lead with a surprising or powerful statistic",
+    statistic: "Lead with a specific number or fact taken from the supplied brand/product facts or brief; if none is supplied, don't use a number — lead with a concrete, specific observation instead",
     controversial: "Make a thought-provoking or contrarian statement",
     how_to: "Promise a specific transformation or skill",
   }
@@ -220,7 +221,7 @@ CAPTION STRUCTURE — vary the shape across generations for the same brand inste
 - Hook → Story/value → CTA (the default full shape) — opening hook line (1 punchy line, SPECIFIC to this brand/topic), then 2-4 lines building connection, value, or relatability, then a CTA line.
 - Hook → CTA only — a punchier, short-form shape for a snappy post: the hook line goes straight into the CTA with no middle section, best when the hook itself already carries the value.
 - Question-led — open with a real question the reader would ask themselves instead of a statement, then answer or tease it before the CTA.
-- Stat/number-led — open with a striking number or statistic instead of a statement hook, then explain what it means before the CTA.
+- Fact-led — only if the brand/product facts or brief above supply a real number or fact: open with that exact fact instead of a statement hook, then explain what it means before the CTA. If no such fact is supplied, don't use this shape and don't use a number.
 
 Whichever shape you pick, the opening line is still a real hook, not a generic template opener:
 
@@ -454,8 +455,10 @@ and don't use the same format twice in a row:
   but not for every slide.)
 - Question — "headline" poses a real question the viewer would ask
   themselves, "body" teases or answers it.
-- Stat / number callout — "headline" leads with a striking number or
-  statistic, "body" explains what it means.
+- Fact callout — only if the brand/product facts or brief supply a real
+  number or fact: "headline" leads with that exact fact, "body" explains
+  what it means. If none is supplied, skip this format — never use a
+  number that wasn't supplied.
 - Contrast — "headline" names a before/after or old-way/new-way shift,
   "body" is the other half of the contrast.
 
@@ -633,8 +636,8 @@ These read as generic AI filler, not a real hook.
 AD ANGLE VARIETY: Vary the angle across generations for the same brand instead of defaulting to the same shape every time:
 - Direct benefit-led — headline/primary_text states the core benefit or outcome outright
 - Question/pain-point-led — opens on a real question or frustration the customer already has
-- Stat or number-led — leads with a striking number, result, or statistic
-- Social-proof-led — leans on reviews, results, or "why customers choose us"
+- Fact-led — only if the brand/product facts or brief supply a real number, result, or fact: leads with that exact fact. If none is supplied, use another angle and don't use a number
+- Social-proof-led — leans on "why customers choose us" (never invent a review, rating, quote, or result that isn't in the supplied facts)
 
 VIBE MATCHING:${vibeLabel ? `\nThis brand's stated vibe is "${vibeLabel}" — use it together with the tone_of_voice above to decide which style below to lean into most (a brand can blend more than one, but the stated vibe should be the dominant signal, not a guess).` : ""}
 - Educational: "Here's why...", "The truth about...", teach a lesson

@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import { buildError, ErrorCodes } from "@/types/api"
-import { classifyOpenAIError } from "@/lib/ai/models"
-import { checkAndIncrementUsage, refundGenerationUsage } from "@/lib/usage/check-and-increment-usage"
+import { MODELS, classifyOpenAIError } from "@/lib/ai/models"
+import { UsageCarryingError } from "@/lib/ai/pricing"
+import { checkAndIncrementUsage, refundGenerationUsage, logGenerationOutcome } from "@/lib/usage/check-and-increment-usage"
 import { CAROUSEL } from "@/lib/usage/credit-costs"
 import { generateCarouselWithRetry } from "@/lib/ai/carousel-generator"
 import { findContentQualityIssues, sanitizeLeakedArtifacts } from "@/lib/ai/content-quality-check"
@@ -198,13 +199,31 @@ export async function POST(request: Request) {
     console.error("[ai/carousel/generate] fetching past examples failed (non-fatal):", err)
   }
 
+  // Finalizes this generation's ai_generation_logs row (created by
+  // checkAndIncrementUsage above) with model, tokens, cost, latency and
+  // outcome -- on every exit path below, success or failure. Never logs
+  // the topic or generated copy.
+  const startTime = Date.now()
+  let gen: Awaited<ReturnType<typeof generateCarouselWithRetry>> | null = null
+  const recordOutcome = (success: boolean, errorMessage?: string, failedUsage?: UsageCarryingError) =>
+    logGenerationOutcome(supabase, logId, {
+      user_id: user.id, brand_id: brandId, feature: "carousel", model: gen?.model ?? MODELS.creative,
+      prompt_tokens: (gen?.usage ?? failedUsage?.usage)?.prompt_tokens ?? null,
+      completion_tokens: (gen?.usage ?? failedUsage?.usage)?.completion_tokens ?? null,
+      total_tokens: (gen?.usage ?? failedUsage?.usage)?.total_tokens ?? null,
+      cost_usd: gen?.costUsd ?? failedUsage?.costUsd ?? null,
+      latency_ms: Date.now() - startTime, success, error_message: errorMessage ?? null,
+    })
+
   try {
     // Moved from Groq to OpenAI (MODELS.creative) in the Phase 1b
     // migration -- prompt + call now live in lib/ai/carousel-generator.ts.
-    const data = await generateCarouselWithRetry(brand, topic, slideCount, platform, vibe, pastExamples)
+    gen = await generateCarouselWithRetry(brand, topic, slideCount, platform, vibe, pastExamples)
+    const data = gen.data
 
     const d = data as Record<string, unknown>
     if (!Array.isArray(d.slides) || d.slides.length === 0) {
+      await recordOutcome(false, "AI returned no carousel slides")
       await refundGenerationUsage(supabase, user.id, CAROUSEL, logId)
       return NextResponse.json(buildError(ErrorCodes.AI_GENERATION_FAILED, "Carousel generation failed. Please try again."), { status: 500 })
     }
@@ -266,9 +285,11 @@ export async function POST(request: Request) {
     // for this), so this doesn't change client behavior, just keeps what
     // the client renders and what's in the database consistent from the
     // very first response.
+    await recordOutcome(true)
     return NextResponse.json({ data: { ...d, title: cleanTitle, cover_hook: cleanCoverHook, slides: mergedSlides, id: carouselId } }, { status: 200 })
   } catch (err) {
     console.error("[ai/carousel/generate] error:", err)
+    await recordOutcome(false, err instanceof Error ? err.message : "Unknown error", err instanceof UsageCarryingError ? err : undefined)
     await refundGenerationUsage(supabase, user.id, CAROUSEL, logId)
     // A raw thrown error here can be the OpenAI SDK's own error object
     // (network/auth/rate-limit/timeout failures), which can surface the

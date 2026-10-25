@@ -1,5 +1,6 @@
 import { MODELS, getOpenAIClient } from "./models"
 import { buildBrandContext } from "./prompts"
+import { textCostUsd, toTextUsage, type TextUsage } from "./pricing"
 import type { BrandRow } from "@/types/database"
 import type { GeneratedCaption, GeneratedHook } from "@/types/app"
 
@@ -15,6 +16,8 @@ export interface PhotoCaptionResult {
   hook: GeneratedHook
   caption: GeneratedCaption
   model: string
+  usage: TextUsage | undefined
+  costUsd: number | null
 }
 
 /**
@@ -123,5 +126,7 @@ Respond with valid JSON only, no markdown, in exactly this shape:
       character_count: caption_text.length,
     },
     model: MODELS.vision,
+    usage: toTextUsage(res.usage),
+    costUsd: textCostUsd(MODELS.vision, toTextUsage(res.usage)),
   }
 }

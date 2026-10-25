@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import { buildError, ErrorCodes } from "@/types/api"
-import { classifyOpenAIError } from "@/lib/ai/models"
+import { MODELS, classifyOpenAIError } from "@/lib/ai/models"
 import { generateRepurposedContent } from "@/lib/ai/repurpose-generator"
-import { checkAndIncrementUsage, refundGenerationUsage } from "@/lib/usage/check-and-increment-usage"
+import { checkAndIncrementUsage, refundGenerationUsage, logGenerationOutcome } from "@/lib/usage/check-and-increment-usage"
 import { REPURPOSE } from "@/lib/usage/credit-costs"
 import { z } from "zod"
 import type { BrandRow } from "@/types/database"
@@ -65,24 +65,44 @@ export async function POST(request: Request) {
     return NextResponse.json(buildError(ErrorCodes.BRAND_NOT_FOUND, "Brand not found."), { status: 404 })
   }
 
+  // Finalizes this generation's ai_generation_logs row (created by
+  // checkAndIncrementUsage above) with model, tokens, cost, latency and
+  // outcome -- on every exit path below. Never logs the source content.
+  const startTime = Date.now()
+  let gen: Awaited<ReturnType<typeof generateRepurposedContent>> | null = null
+  const recordOutcome = (success: boolean, errorMessage?: string) =>
+    logGenerationOutcome(supabase, logId, {
+      user_id: user.id, brand_id: brandId, feature: "repurpose", model: gen?.model ?? MODELS.creative,
+      prompt_tokens: gen?.usage?.prompt_tokens ?? null,
+      completion_tokens: gen?.usage?.completion_tokens ?? null,
+      total_tokens: gen?.usage?.total_tokens ?? null,
+      cost_usd: gen?.costUsd ?? null,
+      latency_ms: Date.now() - startTime, success, error_message: errorMessage ?? null,
+    })
+
   try {
     // Moved from Groq to OpenAI (MODELS.creative) in the Phase 1b
     // migration -- prompt + call + JSON retry now live in
     // lib/ai/repurpose-generator.ts. null = unparseable after the retry.
-    const result = await generateRepurposedContent(content, brand)
+    gen = await generateRepurposedContent(content, brand)
+    const result = gen.result
     if (!result) {
+      await recordOutcome(false, "AI returned invalid JSON")
       await refundGenerationUsage(supabase, user.id, REPURPOSE, logId)
       return NextResponse.json(buildError(ErrorCodes.AI_GENERATION_FAILED, "AI returned invalid JSON. Please try again."), { status: 500 })
     }
 
     if (!Array.isArray(result.hooks)) {
+      await recordOutcome(false, "AI response malformed")
       await refundGenerationUsage(supabase, user.id, REPURPOSE, logId)
       return NextResponse.json(buildError(ErrorCodes.AI_GENERATION_FAILED, "AI response malformed. Please try again."), { status: 500 })
     }
 
+    await recordOutcome(true)
     return NextResponse.json({ data: result }, { status: 200 })
   } catch (err) {
     console.error("[ai/repurpose] error:", err)
+    await recordOutcome(false, err instanceof Error ? err.message : "Unknown error")
     await refundGenerationUsage(supabase, user.id, REPURPOSE, logId)
     // A raw thrown error here can be the OpenAI SDK's own error object
     // (network/auth/rate-limit/timeout failures), which can surface the

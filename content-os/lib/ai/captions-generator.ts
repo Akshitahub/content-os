@@ -3,6 +3,8 @@ import type { Platform } from "@/types/app"
 import { buildCaptionSystemPrompt, buildCaptionUserPrompt } from "./prompts"
 import { MODELS, getOpenAIClient } from "./models"
 import { generateValidatedCaption, type CaptionChatMessage } from "./caption-validation"
+import { buildFactSource } from "./fact-guard"
+import { textCostUsd, toTextUsage, type TextUsage } from "./pricing"
 
 // Captions moved from Groq to OpenAI (MODELS.caption) -- every other
 // caption-producing call site (lib/ai/content-generator.ts's social_post
@@ -19,7 +21,7 @@ export async function generateCaption(
     product?: ProductRow | null
     pastExamples?: string[]
   }
-): Promise<{ caption: import("@/types/app").GeneratedCaption; model: string; usage: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } | undefined }> {
+): Promise<{ caption: import("@/types/app").GeneratedCaption; model: string; usage: TextUsage | undefined; costUsd: number | null }> {
   const openai = getOpenAIClient()
   const model = MODELS.caption
 
@@ -52,13 +54,14 @@ export async function generateCaption(
     messages,
     callModel: async (msgs) => {
       const res = await openai.chat.completions.create({ ...requestParams, messages: msgs })
-      return { content: res.choices[0]?.message?.content ?? "{}", usage: res.usage ?? undefined }
+      return { content: res.choices[0]?.message?.content ?? "{}", usage: toTextUsage(res.usage) }
     },
     brand,
     ctaPhrase,
     handle,
     platform: options.platform,
+    facts: buildFactSource({ brand, product: options.product, brief: [options.hookText, options.additionalContext] }),
   })
 
-  return { caption, model, usage }
+  return { caption, model, usage, costUsd: textCostUsd(model, usage) }
 }

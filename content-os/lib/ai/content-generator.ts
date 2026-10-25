@@ -1,6 +1,9 @@
 import type { BrandRow, ProductRow } from "@/types/database"
 import type { ContentFormat, ContentFormatOutputMap, Platform } from "@/types/app"
 import { MODELS, getOpenAIClient } from "./models"
+import { buildFactCorrection, buildFactSource, findUnsupportedClaimsIn, logFactGuard, stripUnsupportedClaimsIn } from "./fact-guard"
+import { addTextUsage, textCostUsd, toTextUsage, type TextUsage } from "./pricing"
+import type { ChatCompletionMessageParam } from "openai/resources/chat/completions"
 import {
   buildCaptionSystemPrompt,
   buildCaptionUserPrompt,
@@ -187,9 +190,11 @@ export async function generateContent(
 ): Promise<{
   data: ContentFormatOutputMap[ContentFormat]
   model: string
-  usage: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } | undefined
+  usage: TextUsage | undefined
+  costUsd: number | null
 }> {
   const { system, user, maxTokens, reasoningEffort } = buildPrompts(format, brand, options)
+  const facts = buildFactSource({ brand, product: options.product, brief: [options.hookText, options.additionalContext] })
 
   // social_post is the only format with real production traffic that
   // needs output enforcement (hashtag count, CTA/handle ending, platform
@@ -225,15 +230,16 @@ export async function generateContent(
       messages,
       callModel: async (msgs) => {
         const res = await openai.chat.completions.create({ ...requestParams, messages: msgs })
-        return { content: res.choices[0]?.message?.content ?? "{}", usage: res.usage ?? undefined }
+        return { content: res.choices[0]?.message?.content ?? "{}", usage: toTextUsage(res.usage) }
       },
       brand,
       ctaPhrase,
       handle,
       platform,
+      facts,
     })
 
-    return { data: caption, model: captionModel, usage }
+    return { data: caption, model: captionModel, usage, costUsd: textCostUsd(captionModel, usage) }
   }
 
   // Every non-social_post format is on OpenAI (MODELS.creative) now:
@@ -242,46 +248,76 @@ export async function generateContent(
   // are unchanged -- the output SHAPE per format never changed, only which
   // provider produced it.
   const model = MODELS.creative
-  const startTime = Date.now()
-
-  let raw: string
-  let usage: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } | undefined
-
   const openai = getOpenAIClient()
-  try {
-    const response = await openai.chat.completions.create(
-      {
-        model,
-        reasoning_effort: reasoningEffort,
-        // max_completion_tokens (not the deprecated max_tokens) since
-        // gpt-5.5-class models are reasoning models, same convention as
-        // lib/ai/captions-generator.ts. `temperature` deliberately
-        // omitted, same reasoning as that file.
-        max_completion_tokens: maxTokens,
-        response_format: { type: "json_object" },
-        messages: [
-          { role: "system", content: system },
-          { role: "user", content: user },
-        ],
-      },
-      // ESTIMATES, not measured live (no working OPENAI_API_KEY in the
-      // environment this was written in) -- see
-      // scripts/test-creative-stages.ts. 40s is sized for the "medium"
-      // formats (reel_script/blog_post/carousel); story runs at "low" with
-      // an 800-token budget. Carousel is deliberately NOT given more than
-      // 40s: calendar/[entryId]/regenerate (maxDuration 60) calls it, and
-      // a longer timeout would outlive that route. Revisit all of these
-      // once real latency data exists.
-      { timeout: format === "story" ? 30_000 : 40_000, maxRetries: 1 }
-    )
-    raw = response.choices[0]?.message?.content ?? "{}"
-    usage = response.usage ?? undefined
-  } catch (err) {
-    console.error(`[content-generator] provider=openai model=${model} stage=${format} latencyMs=${Date.now() - startTime} success=false:`, err)
-    throw err
-  }
-  console.log(`[content-generator] provider=openai model=${model} stage=${format} latencyMs=${Date.now() - startTime} success=true`)
+  const baseMessages: ChatCompletionMessageParam[] = [
+    { role: "system", content: system },
+    { role: "user", content: user },
+  ]
 
+  const callOnce = async (messages: ChatCompletionMessageParam[]): Promise<{ raw: string; usage: TextUsage | undefined }> => {
+    const startTime = Date.now()
+    try {
+      const response = await openai.chat.completions.create(
+        {
+          model,
+          reasoning_effort: reasoningEffort,
+          // max_completion_tokens (not the deprecated max_tokens) since
+          // gpt-5.5-class models are reasoning models, same convention as
+          // lib/ai/captions-generator.ts. `temperature` deliberately
+          // omitted, same reasoning as that file.
+          max_completion_tokens: maxTokens,
+          response_format: { type: "json_object" },
+          messages,
+        },
+        // ESTIMATES, not measured live (no working OPENAI_API_KEY in the
+        // environment this was written in) -- see
+        // scripts/test-creative-stages.ts. 40s is sized for the "medium"
+        // formats (reel_script/blog_post/carousel); story runs at "low" with
+        // an 800-token budget. Carousel is deliberately NOT given more than
+        // 40s: calendar/[entryId]/regenerate (maxDuration 60) calls it, and
+        // a longer timeout would outlive that route. Revisit all of these
+        // once real latency data exists.
+        { timeout: format === "story" ? 30_000 : 40_000, maxRetries: 1 }
+      )
+      console.log(`[content-generator] provider=openai model=${model} stage=${format} latencyMs=${Date.now() - startTime} success=true`)
+      return { raw: response.choices[0]?.message?.content ?? "{}", usage: toTextUsage(response.usage) }
+    } catch (err) {
+      console.error(`[content-generator] provider=openai model=${model} stage=${format} latencyMs=${Date.now() - startTime} success=false:`, err)
+      throw err
+    }
+  }
+
+  const first = await callOnce(baseMessages)
+  let usage = first.usage
+  let data = parseFormat(format, first.raw)
+
+  // Fact guard (lib/ai/fact-guard.ts) for story/carousel copy: one
+  // corrective retry, then strip whatever's still unsupported. A failed
+  // or unparseable retry keeps the first (valid) result and strips it --
+  // never fails a generation that had already succeeded.
+  if (format === "story" || format === "carousel") {
+    const claims = findUnsupportedClaimsIn(data, facts)
+    if (claims.length > 0) {
+      logFactGuard(format, "retry", claims.length)
+      try {
+        const retry = await callOnce([...baseMessages, { role: "assistant", content: first.raw }, { role: "user", content: buildFactCorrection(claims) }])
+        usage = addTextUsage(usage, retry.usage)
+        data = parseFormat(format, retry.raw)
+      } catch (err) {
+        console.error(`[content-generator] fact-guard retry failed for "${format}", stripping instead:`, err instanceof Error ? err.message : err)
+      }
+      const remaining = findUnsupportedClaimsIn(data, facts)
+      if (remaining.length > 0) {
+        logFactGuard(format, "strip", remaining.length)
+        data = stripUnsupportedClaimsIn(data, facts)
+      }
+    }
+  }
+
+  return { data, model, usage, costUsd: textCostUsd(model, usage) }
+}
+
+function parseFormat(format: Exclude<ContentFormat, "social_post">, raw: string): ContentFormatOutputMap[ContentFormat] {
   let cleaned = raw.replace(/```json\n?/g, "").replace(/```\n?/g, "").replace(/[\x00-\x1F\x7F]/g, " ").trim()
   const jsonMatch = cleaned.match(/\{[\s\S]*\}/)
   if (jsonMatch) cleaned = jsonMatch[0]
@@ -293,7 +329,5 @@ export async function generateContent(
     throw new Error(`AI returned invalid JSON for format "${format}"`)
   }
 
-  const data = sanitizeContent(format, validateAndCast(format, parsed))
-
-  return { data, model, usage }
+  return sanitizeContent(format, validateAndCast(format, parsed))
 }

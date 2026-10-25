@@ -2,6 +2,8 @@ import type { BrandRow } from "@/types/database"
 import type { GeneratedCaption, Platform } from "@/types/app"
 import { PLATFORM_CHAR_LIMITS } from "./prompts"
 import { findContentQualityIssues, sanitizeLeakedArtifacts } from "./content-quality-check"
+import { FACT_CORRECTION_PREFIX, buildFactCorrection, findUnsupportedClaimsIn, logFactGuard, stripUnsupportedClaimsIn, type FactSource } from "./fact-guard"
+import { addTextUsage, type TextUsage } from "./pricing"
 
 export const MIN_HASHTAGS = 15
 export const MAX_HASHTAGS = 20
@@ -40,7 +42,7 @@ export function containsEmDash(captionText: string): boolean {
 }
 
 export type CaptionChatMessage = { role: "system" | "user" | "assistant"; content: string }
-export type CaptionModelUsage = { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number }
+export type CaptionModelUsage = TextUsage
 
 export function parseCaptionJson(raw: string): GeneratedCaption {
   let cleaned = raw.replace(/```json\n?/g, "").replace(/```\n?/g, "").replace(/[\x00-\x1F\x7F]/g, " ").trim()
@@ -79,7 +81,7 @@ export function endsWithCtaAndHandle(captionText: string, ctaPhrase: string, han
  * despite both being stated multiple times in the prompt. Returns a list
  * of specific, model-facing correction instructions (empty = compliant).
  */
-export function validateCaption(parsed: GeneratedCaption, ctaPhrase: string, handle: string, platform: Platform): string[] {
+export function validateCaption(parsed: GeneratedCaption, ctaPhrase: string, handle: string, platform: Platform, facts?: FactSource): string[] {
   const issues: string[] = []
 
   const hashtagCount = Array.isArray(parsed.hashtags) ? parsed.hashtags.length : 0
@@ -115,11 +117,24 @@ export function validateCaption(parsed: GeneratedCaption, ctaPhrase: string, han
     issues.push(issue.message)
   }
 
+  // Fact guard (lib/ai/fact-guard.ts) -- every copy field, not just
+  // caption_text: the overlay text and checklist lines are published too.
+  if (facts) {
+    const claims = findUnsupportedClaimsIn(parsed, facts)
+    if (claims.length > 0) issues.push(buildFactCorrection(claims))
+  }
+
   return issues
 }
 
 /** Mechanical fixups applied only if a real retry still fails validation — makes the shipped output compliant rather than silently accepting a rule-violating caption, logged loudly so it's never a silent fallback. */
-export function applyLastResortFixes(parsed: GeneratedCaption, brand: BrandRow, ctaPhrase: string, handle: string, platform: Platform): GeneratedCaption {
+export function applyLastResortFixes(parsed: GeneratedCaption, brand: BrandRow, ctaPhrase: string, handle: string, platform: Platform, facts?: FactSource): GeneratedCaption {
+  // Strip unsupported claims first, so the CTA/length fixes below run on
+  // the text that will actually ship.
+  if (facts && findUnsupportedClaimsIn(parsed, facts).length > 0) {
+    logFactGuard("caption", "strip", findUnsupportedClaimsIn(parsed, facts).length)
+    parsed = stripUnsupportedClaimsIn(parsed, facts)
+  }
   let captionText = parsed.caption_text
   let hashtags = Array.isArray(parsed.hashtags) ? [...new Set(parsed.hashtags.map((h) => h.replace(/^#/, "")))] : []
 
@@ -166,6 +181,12 @@ export function applyLastResortFixes(parsed: GeneratedCaption, brand: BrandRow, 
   return { ...parsed, caption_text: captionText, hashtags }
 }
 
+// The fact-guard issue quotes the offending generated text -- logged as a
+// marker instead, so validation logs never carry the copy itself.
+function logSafeIssues(issues: string[]): string {
+  return issues.map((i) => (i.startsWith(FACT_CORRECTION_PREFIX) ? "[fact-guard: unsupported number(s)]" : i)).join(" ")
+}
+
 /**
  * The full call → validate → retry-once → mechanical-fix cycle shared by
  * every caption-producing path (lib/ai/captions-generator.ts's
@@ -182,15 +203,20 @@ export async function generateValidatedCaption(params: {
   ctaPhrase: string
   handle: string
   platform: Platform
+  /** Numbers the copy may use (lib/ai/fact-guard.ts) -- omitted = no fact check. */
+  facts?: FactSource
 }): Promise<{ caption: GeneratedCaption; usage?: CaptionModelUsage }> {
-  const { messages, callModel, brand, ctaPhrase, handle, platform } = params
+  const { messages, callModel, brand, ctaPhrase, handle, platform, facts } = params
 
   let call = await callModel(messages)
+  // Summed across the retry too (previously only the last call's usage was
+  // returned, under-reporting tokens -- and now cost -- for every retried caption).
+  let usage = call.usage
   let parsed = parseCaptionJson(call.content)
-  let issues = validateCaption(parsed, ctaPhrase, handle, platform)
+  let issues = validateCaption(parsed, ctaPhrase, handle, platform, facts)
 
   if (issues.length > 0) {
-    console.error(`[caption-validation] validation failed, retrying once: ${issues.join(" ")}`)
+    console.error(`[caption-validation] validation failed, retrying once: ${logSafeIssues(issues)}`)
     const retryMessages: CaptionChatMessage[] = [
       ...messages,
       { role: "assistant", content: call.content },
@@ -201,8 +227,9 @@ export async function generateValidatedCaption(params: {
     ]
 
     call = await callModel(retryMessages)
+    usage = addTextUsage(usage, call.usage)
     const retryParsed = parseCaptionJson(call.content)
-    const retryIssues = validateCaption(retryParsed, ctaPhrase, handle, platform)
+    const retryIssues = validateCaption(retryParsed, ctaPhrase, handle, platform, facts)
 
     parsed = retryParsed
     issues = retryIssues
@@ -212,12 +239,12 @@ export async function generateValidatedCaption(params: {
       // a silent success. Fix mechanically instead of failing outright, so
       // a generation credit isn't wasted on nothing — but this is loudly
       // logged, never a quiet fallback.
-      console.error(`[caption-validation] retry still failed validation, applying last-resort fixes: ${issues.join(" ")}`)
-      parsed = applyLastResortFixes(parsed, brand, ctaPhrase, handle, platform)
+      console.error(`[caption-validation] retry still failed validation, applying last-resort fixes: ${logSafeIssues(issues)}`)
+      parsed = applyLastResortFixes(parsed, brand, ctaPhrase, handle, platform, facts)
     }
   }
 
   parsed.character_count = parsed.caption_text.length
 
-  return { caption: parsed, usage: call.usage }
+  return { caption: parsed, usage }
 }

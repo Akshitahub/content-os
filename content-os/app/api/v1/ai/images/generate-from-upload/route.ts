@@ -103,6 +103,7 @@ export async function POST(request: Request) {
     console.error("[ai/images/generate-from-upload] generation failed:", result.error)
     await logGenerationOutcome(supabase, logId, {
       user_id: user.id, brand_id: brandId, feature: FEATURE, model: "unknown",
+      cost_usd: result.costUsd,
       latency_ms: Date.now() - startTime, success: false,
       error_message: result.error,
     })
@@ -152,6 +153,7 @@ export async function POST(request: Request) {
 
   await logGenerationOutcome(supabase, logId, {
     user_id: user.id, brand_id: brandId, feature: FEATURE, model: result.provider,
+    cost_usd: result.costUsd,
     latency_ms: latencyMs, success: true,
   })
 

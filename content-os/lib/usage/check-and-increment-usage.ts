@@ -240,6 +240,9 @@ export interface GenerationOutcomeFields {
   prompt_tokens?: number | null
   completion_tokens?: number | null
   total_tokens?: number | null
+  /** Priced from real usage via lib/ai/pricing.ts -- null when unknown
+   * (no usage reported, or a model with no price entry). */
+  cost_usd?: number | null
   latency_ms?: number | null
   success: boolean
   error_message?: string | null

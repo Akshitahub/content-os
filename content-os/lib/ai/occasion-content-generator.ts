@@ -1,6 +1,7 @@
 import type { BrandRow } from "@/types/database"
 import { findContentQualityIssues, sanitizeLeakedArtifacts } from "./content-quality-check"
 import { createCreativeCompletion } from "./creative-completion"
+import { UsageCarryingError, type TextUsage } from "./pricing"
 
 // Occasion-content prompt + model call + parse, moved verbatim out of
 // app/api/v1/brands/[brandId]/generate-occasion-content/route.ts during the
@@ -26,14 +27,15 @@ function sanitizeJsonString(raw: string): string {
 /**
  * One OpenAI call. Throws on provider error/timeout AND on unparseable
  * JSON, exactly as the route's single try block did on Groq -- the route
- * catches both into the same "Failed to generate content" 500.
+ * catches both into the same "Failed to generate content" 500 (unparseable
+ * JSON throws a UsageCarryingError, since that call was still billed).
  */
 export async function generateOccasionContent(
   brand: BrandRow,
   occasionName: string,
   occasionAngle: string
-): Promise<OccasionContent> {
-  const { content } = await createCreativeCompletion({
+): Promise<{ content: OccasionContent; model: string; usage: TextUsage | undefined; costUsd: number | null }> {
+  const { content, model, usage, costUsd } = await createCreativeCompletion({
     stage: "occasion_content",
     logPrefix: "generate-occasion-content",
     system: "You are an expert social media content creator for Indian D2C brands. Respond with valid JSON only. No markdown.",
@@ -55,11 +57,16 @@ Return this exact JSON:
   })
 
   const raw = content ?? "{}"
-  const aiParsed = JSON.parse(sanitizeJsonString(raw)) as {
+  let aiParsed: {
     hook?: string
     caption?: string
     hashtags?: string[]
     visual_direction?: string
+  }
+  try {
+    aiParsed = JSON.parse(sanitizeJsonString(raw))
+  } catch {
+    throw new UsageCarryingError("AI returned invalid JSON", usage, costUsd)
   }
 
   // Lightweight sanity pass -- see lib/ai/content-quality-check.ts for
@@ -75,9 +82,14 @@ Return this exact JSON:
   }
 
   return {
-    hook: fix(aiParsed.hook ?? "", "hook"),
-    caption: fix(aiParsed.caption ?? "", "caption"),
-    hashtags: Array.isArray(aiParsed.hashtags) ? aiParsed.hashtags : [],
-    visual_direction: aiParsed.visual_direction ?? "",
+    content: {
+      hook: fix(aiParsed.hook ?? "", "hook"),
+      caption: fix(aiParsed.caption ?? "", "caption"),
+      hashtags: Array.isArray(aiParsed.hashtags) ? aiParsed.hashtags : [],
+      visual_direction: aiParsed.visual_direction ?? "",
+    },
+    model,
+    usage,
+    costUsd,
   }
 }

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { createClient, createAdminClient } from "@/lib/supabase/server"
 import { generatePostImageSchema } from "@/lib/validations/ai"
-import { generatePostImage, type ImageGenerationAttempt } from "@/lib/ai/post-image-pipeline"
+import { attemptsCostUsd, generatePostImage, type ImageGenerationAttempt } from "@/lib/ai/post-image-pipeline"
 import { resolveColorThemes, findColorTheme } from "@/lib/design/color-themes"
 import { buildError, ErrorCodes } from "@/types/api"
 import { checkAndIncrementUsage, refundGenerationUsage, logGenerationOutcome } from "@/lib/usage/check-and-increment-usage"
@@ -159,6 +159,7 @@ export async function POST(request: Request) {
     const lastProvider = result.attempts[result.attempts.length - 1]?.provider ?? "unknown"
     await logGenerationOutcome(supabase, logId, {
       user_id: user.id, brand_id: brandId, feature: FEATURE, model: lastProvider,
+      cost_usd: attemptsCostUsd(result.attempts),
       latency_ms: Date.now() - startTime, success: false, error_message: result.error,
     })
     // Only refund if this call actually charged a credit — the free
@@ -263,6 +264,7 @@ export async function POST(request: Request) {
 
   await logGenerationOutcome(supabase, logId, {
     user_id: user.id, brand_id: brandId, feature: FEATURE, model: modelLabel,
+    cost_usd: attemptsCostUsd(result.attempts),
     latency_ms: latencyMs, success: true,
   })
 
