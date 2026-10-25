@@ -17,21 +17,10 @@ import { useGenerationStore } from "@/stores/generationStore"
 import { usePromptWriter } from "@/hooks/usePromptWriter"
 import { PromptWriterField } from "@/components/generate/PromptWriterField"
 import { useBrand } from "@/hooks/useBrand"
+import { flattenOverlayImage } from "@/lib/utils/post-overlay-export"
 import type { FullPostResult, ContentResult } from "@/hooks/useGeneration"
 import type { ProductRow } from "@/types/database"
 import type { GeneratedHook, GeneratedCaption, ReelScript, CarouselContent, BlogPost, AdCopy } from "@/types/app"
-
-// ─── Canvas compositing helpers ──────────────────────────────────────────────
-
-function loadImage(src: string): Promise<HTMLImageElement> {
-  return new Promise((resolve, reject) => {
-    const img = new Image()
-    img.crossOrigin = "anonymous"
-    img.onload = () => resolve(img)
-    img.onerror = reject
-    img.src = src
-  })
-}
 
 type ContentAngle = "auto" | "problem_solution" | "quick_tip" | "myth_contrarian" | "launch_offer"
 
@@ -58,77 +47,6 @@ function topicPlaceholderForNiche(niche: string | null | undefined): string {
     return "How to style pure linen so it doesn't look wrinkled by noon"
   }
   return "A festive Diwali offer post for our candle brand, warm and cozy"
-}
-
-// Shared word-wrap: greedily packs words onto lines up to maxWidth,
-// stopping once maxLines is hit (the last line keeps whatever didn't fit,
-// never ellipsized). ctx.font must already be set by the caller before
-// calling this.
-function wrapTextLines(ctx: CanvasRenderingContext2D, text: string, maxWidth: number, maxLines: number): string[] {
-  const words = text.split(" ")
-  const lines: string[] = []
-  let cur = ""
-  for (const word of words) {
-    const test = cur ? `${cur} ${word}` : word
-    if (ctx.measureText(test).width > maxWidth) {
-      if (cur) lines.push(cur)
-      cur = word
-      if (lines.length >= maxLines) break
-    } else {
-      cur = test
-    }
-  }
-  if (cur && lines.length < maxLines) lines.push(cur)
-  return lines
-}
-
-/**
- * Flattens the clean AI-generated background + the client-editable headline
- * overlay into a single downloadable/shareable PNG — the client-side
- * "compositing" step the Post tool's architecture calls for, run only when
- * the user actually wants an exported file (Download / Schedule), not on
- * every keystroke while editing. No credits are spent here: this never
- * calls generatePostImageMutate, it only draws on a canvas from an image
- * already sitting in the browser.
- */
-async function flattenOverlayImage(imageUrl: string, headlineText: string): Promise<string> {
-  const img = await loadImage(imageUrl)
-  const canvas = document.createElement("canvas")
-  canvas.width = img.naturalWidth
-  canvas.height = img.naturalHeight
-  const ctx = canvas.getContext("2d")!
-  ctx.drawImage(img, 0, 0)
-
-  const trimmed = headlineText.trim()
-  if (!trimmed) return canvas.toDataURL("image/png")
-
-  const w = canvas.width
-  const h = canvas.height
-  // Bottom-third scrim, same visual language as the server-side templates
-  // (a darkened band behind the headline) but drawn fresh here rather than
-  // ported pixel-for-pixel from post-compositor.ts's SVG anchors — this is
-  // a genuinely separate rendering surface (HTML/canvas, not SVG), not a
-  // port of those exact coordinates.
-  const scrimTop = h * 0.62
-  const grad = ctx.createLinearGradient(0, scrimTop, 0, h)
-  grad.addColorStop(0, "rgba(0,0,0,0)")
-  grad.addColorStop(0.35, "rgba(0,0,0,0.55)")
-  grad.addColorStop(1, "rgba(0,0,0,0.65)")
-  ctx.fillStyle = grad
-  ctx.fillRect(0, scrimTop, w, h - scrimTop)
-
-  ctx.fillStyle = "#ffffff"
-  ctx.textAlign = "left"
-  ctx.textBaseline = "alphabetic"
-  const fontSize = Math.round(w * 0.062)
-  ctx.font = `700 ${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`
-  const padX = w * 0.07
-  const lines = wrapTextLines(ctx, trimmed, w - padX * 2, 3)
-  const lineH = fontSize * 1.18
-  const startY = h - h * 0.09 - (lines.length - 1) * lineH
-  lines.forEach((line, i) => ctx.fillText(line, padX, startY + i * lineH))
-
-  return canvas.toDataURL("image/png")
 }
 
 interface Props {
@@ -1336,6 +1254,10 @@ function FullPostResults({
         <ScheduleAction
           brandId={brandId}
           imageUrl={shareableImageUrl}
+          // The clean AI background + overlay, so the scheduled entry's
+          // on-image text stays editable from the calendar later.
+          baseImageUrl={imageSource === "ai" ? postImageUrl : null}
+          overlayText={overlayText}
           caption={scheduleCaption.text}
           hashtags={scheduleCaption.hashtags}
         />

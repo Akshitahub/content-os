@@ -68,6 +68,13 @@ type ScheduleActionProps =
       /** Already-hosted image URL — schedules directly to whichever
        * connected platform the user picks. */
       imageUrl: string
+      /** Post tool only: the clean, text-free background `imageUrl` was
+       * flattened from, plus the overlay text drawn on it. Saved on the
+       * calendar entry so its on-image text can be re-edited later from
+       * the calendar without a new image generation (see
+       * CalendarEntryPanel's "Edit text on image"). Omitted = not editable. */
+      baseImageUrl?: string | null
+      overlayText?: string
       carouselSlides?: undefined
       storySlides?: undefined
       imageUrls?: undefined
@@ -79,6 +86,8 @@ type ScheduleActionProps =
       caption: string
       hashtags: string[]
       imageUrl?: undefined
+      baseImageUrl?: undefined
+      overlayText?: undefined
       /** Real slide data, rendered server-side via
        * lib/image/carousel-compositor.ts right before scheduling — a
        * clean full-bleed 1080x1350 raster (background + headline/points/
@@ -100,6 +109,8 @@ type ScheduleActionProps =
       caption: string
       hashtags: string[]
       imageUrl?: undefined
+      baseImageUrl?: undefined
+      overlayText?: undefined
       carouselSlides?: undefined
       /** Real slide data, rendered server-side via
        * lib/image/story-compositor.ts right before scheduling — a clean
@@ -115,6 +126,8 @@ type ScheduleActionProps =
       caption: string
       hashtags: string[]
       imageUrl?: undefined
+      baseImageUrl?: undefined
+      overlayText?: undefined
       carouselSlides?: undefined
       storySlides?: undefined
       /** Already-hosted slide image URLs — scheduled directly, no render
@@ -135,6 +148,8 @@ export function ScheduleAction(props: ScheduleActionProps) {
   // Pulled out of the union so the handleConfirm callback below can depend
   // on plain values instead of the whole `props` object.
   const imageUrl = props.imageUrl
+  const baseImageUrl = props.baseImageUrl
+  const overlayText = props.overlayText
   const carouselSlides = props.carouselSlides
   const brandName = props.carouselSlides ? props.brandName : undefined
   const storySlides = props.storySlides
@@ -239,7 +254,12 @@ export function ScheduleAction(props: ScheduleActionProps) {
       // no capture step needed, straight to scheduling.
       body = { brandId, platform: "instagram", imageUrls: preHostedImageUrls, contentFormat, caption, hashtags: hashtags.map((h) => h.replace(/^#+/, "")), scheduledDate: date, scheduledTime: time }
     } else {
-      body = { brandId, platform, imageUrl, caption, hashtags: hashtags.map((h) => h.replace(/^#+/, "")), scheduledDate: date, scheduledTime: time }
+      body = {
+        brandId, platform, imageUrl, caption, hashtags: hashtags.map((h) => h.replace(/^#+/, "")), scheduledDate: date, scheduledTime: time,
+        // Only a real hosted base is re-editable later (a data: URL would
+        // bloat the entry and can't be re-fetched reliably).
+        ...(baseImageUrl && /^https?:\/\//.test(baseImageUrl) ? { baseImageUrl, overlayText: overlayText ?? "" } : {}),
+      }
     }
 
     setSubmitState("loading")
@@ -262,7 +282,7 @@ export function ScheduleAction(props: ScheduleActionProps) {
       setErrorMsg("Network error. Please try again.")
       setSubmitState("error")
     }
-  }, [brandId, isMultiSlide, imageUrl, carouselSlides, brandName, storySlides, preHostedImageUrls, contentFormat, itemLabel, platform, caption, hashtags, date, time])
+  }, [brandId, isMultiSlide, imageUrl, baseImageUrl, overlayText, carouselSlides, brandName, storySlides, preHostedImageUrls, contentFormat, itemLabel, platform, caption, hashtags, date, time])
 
   const isBusy = submitState === "capturing" || submitState === "loading"
 

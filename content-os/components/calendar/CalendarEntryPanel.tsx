@@ -1,11 +1,12 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
-import { X, Copy, Check, Download, ExternalLink, RefreshCw } from "lucide-react"
+import { X, Copy, Check, Download, ExternalLink, RefreshCw, Type } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { PlatformPreviewFrame } from "@/components/shared/PlatformPreviewFrame"
 import type { CalendarEntryRow } from "@/types/database"
 import { isApiError } from "@/types/api"
+import { flattenOverlayImage } from "@/lib/utils/post-overlay-export"
 
 // Matches what app/api/v1/brands/[brandId]/calendar/[entryId]/regenerate/route.ts
 // actually supports — routing "reel" (or any other content_type) there
@@ -125,6 +126,12 @@ export function CalendarEntryPanel({ entry, onClose, onUpdate, brandId }: Calend
   const [showCancelConfirm, setShowCancelConfirm] = useState(false)
   const [isCancellingSchedule, setIsCancellingSchedule] = useState(false)
   const [cancelScheduleError, setCancelScheduleError] = useState<string | null>(null)
+  // "Edit text on image" -- only for Posts scheduled from the Post tool
+  // with a saved text-free base image (platform_specific_data.base_image_url).
+  const [isEditingImageText, setIsEditingImageText] = useState(false)
+  const [imageTextDraft, setImageTextDraft] = useState("")
+  const [isSavingImageText, setIsSavingImageText] = useState(false)
+  const [imageTextError, setImageTextError] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -151,6 +158,10 @@ export function CalendarEntryPanel({ entry, onClose, onUpdate, brandId }: Calend
       setRegenerateError(null)
       setShowCancelConfirm(false)
       setCancelScheduleError(null)
+      const data = entry.platform_specific_data as Record<string, unknown> | null
+      setImageTextDraft(typeof data?.overlay_text === "string" ? data.overlay_text : "")
+      setIsEditingImageText(false)
+      setImageTextError(null)
     }
   }, [entry])
 
@@ -205,6 +216,39 @@ export function CalendarEntryPanel({ entry, onClose, onUpdate, brandId }: Calend
       }
     } finally {
       setIsSaving(false)
+    }
+  }
+
+  // Re-draws the new text onto the saved text-free base image in the
+  // browser (the same flattening Create -> Full Post uses), then saves the
+  // result. No image generation, no credits.
+  async function saveImageText() {
+    if (!entry) return
+    const data = entry.platform_specific_data as Record<string, unknown> | null
+    const baseImageUrl = typeof data?.base_image_url === "string" ? data.base_image_url : null
+    if (!baseImageUrl) return
+    setIsSavingImageText(true)
+    setImageTextError(null)
+    try {
+      const imageDataUrl = await flattenOverlayImage(baseImageUrl, imageTextDraft, { type: "image/jpeg", quality: 0.92 })
+      const res = await fetch(`/api/v1/brands/${brandId}/calendar/${entry.id}/image-text`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ overlayText: imageTextDraft, imageDataUrl }),
+      })
+      const json: unknown = await res.json()
+      if (!res.ok || isApiError(json)) {
+        setImageTextError(isApiError(json) ? json.error.message : "Couldn't update the image text. Please try again.")
+        return
+      }
+      onUpdate((json as { data: CalendarEntryRow }).data)
+      setIsEditingImageText(false)
+    } catch {
+      // flattenOverlayImage failing (base image no longer loadable) or a
+      // network error -- the entry is left exactly as it was.
+      setImageTextError("Couldn't update the image text. Please try again.")
+    } finally {
+      setIsSavingImageText(false)
     }
   }
 
@@ -393,6 +437,10 @@ export function CalendarEntryPanel({ entry, onClose, onUpdate, brandId }: Calend
               {(() => {
                 const platformData = entry.platform_specific_data as Record<string, unknown> | null
                 const imageUrl = typeof platformData?.image_url === "string" ? platformData.image_url : null
+                // Older entries (and Autopilot/regenerated ones) have no
+                // saved base image -- the action is simply hidden for them.
+                const canEditImageText =
+                  typeof platformData?.base_image_url === "string" && entry.content_type === "post" && entry.status !== "published"
                 const carouselHtml = typeof platformData?.carousel_html === "string" ? platformData.carousel_html : null
 
                 if (imageUrl) {
@@ -413,7 +461,38 @@ export function CalendarEntryPanel({ entry, onClose, onUpdate, brandId }: Calend
                         >
                           <ExternalLink className="h-3 w-3" /> View full size
                         </a>
+                        {canEditImageText && !isEditingImageText && (
+                          <button
+                            type="button"
+                            onClick={() => { setIsEditingImageText(true); setImageTextError(null) }}
+                            className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+                          >
+                            <Type className="h-3 w-3" /> Edit text on image
+                          </button>
+                        )}
                       </div>
+                      {canEditImageText && isEditingImageText && (
+                        <div className="mb-2 space-y-2 rounded-md border p-2">
+                          <textarea
+                            value={imageTextDraft}
+                            onChange={(e) => setImageTextDraft(e.target.value)}
+                            maxLength={300}
+                            rows={2}
+                            placeholder="Text on the image (leave empty for no text)"
+                            className="w-full resize-none rounded-md border bg-background px-2 py-1.5 text-sm"
+                          />
+                          <p className="text-xs text-muted-foreground">Uses the same image. No new generation, no credits.</p>
+                          <div className="flex gap-2">
+                            <Button size="sm" disabled={isSavingImageText} onClick={saveImageText}>
+                              {isSavingImageText ? "Saving…" : "Save text"}
+                            </Button>
+                            <Button variant="ghost" size="sm" disabled={isSavingImageText} onClick={() => setIsEditingImageText(false)}>
+                              Cancel
+                            </Button>
+                          </div>
+                          {imageTextError && <p className="text-xs text-destructive">{imageTextError}</p>}
+                        </div>
+                      )}
                       <PlatformPreviewFrame brandId={brandId} platform={entry.platform} caption={entry.caption_text}>
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img

@@ -21,6 +21,12 @@ const schedulePostSchema = z.object({
   brandId: z.string().uuid(),
   platform: z.enum(["instagram", "facebook", "threads", "pinterest", "linkedin", "youtube", "twitter"]),
   imageUrl: z.string().min(1).optional(),
+  // Post tool only (single format): the clean, text-free background the
+  // image was flattened from + the overlay text drawn on it -- stored so
+  // the entry's on-image text can be re-edited later (see
+  // app/api/v1/brands/[brandId]/calendar/[entryId]/image-text/route.ts).
+  baseImageUrl: z.string().url().max(2000).regex(/^https?:\/\//).optional(),
+  overlayText: z.string().max(300).optional(),
   imageUrls: z.array(z.string().min(1)).optional(),
   videoUrl: z.string().min(1).optional(),
   contentFormat: z.enum(["single", "carousel", "story", "video"]).default("single"),
@@ -73,7 +79,7 @@ export async function POST(request: Request) {
   const parsed = schedulePostSchema.safeParse(body)
   if (!parsed.success) return NextResponse.json(buildError(ErrorCodes.VALIDATION_ERROR, "Validation failed.", parsed.error.message), { status: 400 })
 
-  const { brandId, platform, imageUrl, imageUrls, videoUrl, contentFormat, caption, hashtags, scheduledDate, scheduledTime } = parsed.data
+  const { brandId, platform, imageUrl, imageUrls, videoUrl, contentFormat, caption, hashtags, scheduledDate, scheduledTime, baseImageUrl, overlayText } = parsed.data
 
   const { data: brand } = await supabase.from("brands").select("user_id").eq("id", brandId).single<{ user_id: string }>()
   if (!brand) return NextResponse.json(buildError(ErrorCodes.BRAND_NOT_FOUND, "Brand not found."), { status: 404 })
@@ -145,7 +151,11 @@ export async function POST(request: Request) {
       )
     }
 
-    platformSpecificData = { image_url: imageUrl, hosted_image_url: uploadResult.publicUrl }
+    platformSpecificData = {
+      image_url: imageUrl,
+      hosted_image_url: uploadResult.publicUrl,
+      ...(baseImageUrl ? { base_image_url: baseImageUrl, overlay_text: overlayText ?? "" } : {}),
+    }
   }
 
   const title = caption.split("\n")[0].slice(0, 80) || "Scheduled post"
