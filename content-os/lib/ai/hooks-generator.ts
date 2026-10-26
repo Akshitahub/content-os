@@ -1,7 +1,7 @@
 import type { BrandRow, ProductRow } from "@/types/database"
 import type { GeneratedHook, HookType, Platform } from "@/types/app"
 import { buildHookSystemPrompt, buildHookUserPrompt } from "./prompts"
-import { MODELS, getOpenAIClient } from "./models"
+import { MODELS, getTextClientFor, textProviderFor } from "./models"
 import { findContentQualityIssues, sanitizeLeakedArtifacts } from "./content-quality-check"
 import { buildFactSource, guardCopy } from "./fact-guard"
 import { addTextUsage, textCostUsd, toTextUsage, type TextUsage } from "./pricing"
@@ -24,7 +24,7 @@ export async function generateHooks(
     factGuardDeadline?: number
   }
 ): Promise<{ hooks: GeneratedHook[]; model: string; usage: TextUsage | undefined; costUsd: number | null }> {
-  const openai = getOpenAIClient()
+  const openai = getTextClientFor(MODELS.creative)
 
   const hookTypes = options.hookTypes?.length
     ? options.hookTypes
@@ -63,10 +63,10 @@ export async function generateHooks(
         { timeout: timeoutMs, maxRetries: 1 }
       )
     } catch (err) {
-      console.error(`[hooks-generator] provider=openai model=${model} stage=hooks latencyMs=${Date.now() - startTime} success=false:`, err)
+      console.error(`[hooks-generator] provider=${textProviderFor(model)} model=${model} stage=hooks latencyMs=${Date.now() - startTime} success=false:`, err)
       throw err
     }
-    console.log(`[hooks-generator] provider=openai model=${model} stage=hooks latencyMs=${Date.now() - startTime} success=true`)
+    console.log(`[hooks-generator] provider=${textProviderFor(model)} model=${model} stage=hooks latencyMs=${Date.now() - startTime} success=true`)
     return { raw: response.choices[0]?.message?.content ?? "{}", usage: toTextUsage(response.usage) }
   }
 

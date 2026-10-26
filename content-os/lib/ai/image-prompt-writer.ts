@@ -1,4 +1,4 @@
-import { getOpenAIClient, MODELS } from "./models"
+import { getTextClientFor, MODELS } from "./models"
 import type { BrandRow, ProductRow } from "@/types/database"
 
 // Shared "prompt-authoring" stage inserted in front of every image
@@ -170,7 +170,7 @@ Respond with ONLY the prompt text, nothing else.`
  * in lib/ai, none of which have ever needed to filter one out.
  */
 export async function requestImagePromptStream(input: WriteImagePromptInput) {
-  const openai = getOpenAIClient()
+  const openai = getTextClientFor(MODELS.creative)
   return openai.chat.completions.create(
     {
       model: MODELS.creative,

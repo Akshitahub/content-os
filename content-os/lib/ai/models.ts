@@ -41,6 +41,13 @@ export const GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 // type also accepts any plain string, just no autocomplete/typo-checking
 // for this specific literal.
 //
+// 2026-10-26: `caption` and `creative` moved BACK to Groq's
+// openai/gpt-oss-120b (the gpt-5.5 notes above are history). Every call
+// site still uses the OpenAI SDK -- getTextClientFor() below points it at
+// GROQ_BASE_URL for Groq model ids -- so reasoning_effort (low/medium
+// only), max_completion_tokens, response_format json_object and streaming
+// are unchanged. `vision` stays on OpenAI gpt-5.5.
+//
 // `vision` migrated from Groq's qwen/qwen3.6-27b to the same gpt-5.5 --
 // confirmed on the same model page that gpt-5.5 accepts image input (text
 // + image in, text out). Kept as its own named key rather than merged into
@@ -53,8 +60,8 @@ export const MODELS = {
   generation: "openai/gpt-oss-120b",
   scoring: "openai/gpt-oss-20b",
   vision: "gpt-5.5",
-  caption: "gpt-5.5",
-  creative: "gpt-5.5",
+  caption: "openai/gpt-oss-120b",
+  creative: "openai/gpt-oss-120b",
 } as const
 
 export type ModelKey = keyof typeof MODELS
@@ -80,6 +87,26 @@ export function getOpenAIClient(): OpenAI {
   if (cachedOpenAIClient) return cachedOpenAIClient
   cachedOpenAIClient = new OpenAI({ apiKey: getOpenAIApiKey() })
   return cachedOpenAIClient
+}
+
+/** Groq model ids served through its OpenAI-compatible API. */
+export function isGroqTextModel(model: string): boolean {
+  return model.startsWith("openai/gpt-oss")
+}
+
+/** "groq" | "openai" -- for the provider= field in text-call log lines. */
+export function textProviderFor(model: string): "groq" | "openai" {
+  return isGroqTextModel(model) ? "groq" : "openai"
+}
+
+// The OpenAI SDK pointed at Groq (same API shape), so text call sites keep
+// one code path whichever provider MODELS.caption / MODELS.creative name.
+let cachedGroqOpenAIClient: OpenAI | null = null
+export function getTextClientFor(model: string): OpenAI {
+  if (!isGroqTextModel(model)) return getOpenAIClient()
+  if (cachedGroqOpenAIClient) return cachedGroqOpenAIClient
+  cachedGroqOpenAIClient = new OpenAI({ apiKey: getApiKey(), baseURL: GROQ_BASE_URL })
+  return cachedGroqOpenAIClient
 }
 
 // Classifies a raw OpenAI SDK error into a short, user-facing message --

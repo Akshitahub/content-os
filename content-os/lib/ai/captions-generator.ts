@@ -1,7 +1,7 @@
 import type { BrandRow, ProductRow } from "@/types/database"
 import type { Platform } from "@/types/app"
 import { buildCaptionSystemPrompt, buildCaptionUserPrompt } from "./prompts"
-import { MODELS, getOpenAIClient } from "./models"
+import { MODELS, getTextClientFor } from "./models"
 import { generateValidatedCaption, type CaptionChatMessage } from "./caption-validation"
 import { buildFactSource } from "./fact-guard"
 import { textCostUsd, toTextUsage, type TextUsage } from "./pricing"
@@ -22,8 +22,8 @@ export async function generateCaption(
     pastExamples?: string[]
   }
 ): Promise<{ caption: import("@/types/app").GeneratedCaption; model: string; usage: TextUsage | undefined; costUsd: number | null }> {
-  const openai = getOpenAIClient()
   const model = MODELS.caption
+  const openai = getTextClientFor(model)
 
   const b = brand as BrandRow & { cta_phrase?: string | null }
   const ctaPhrase = b.cta_phrase || "Shop now"

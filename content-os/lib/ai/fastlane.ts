@@ -398,8 +398,9 @@ export async function generateContentStrategy(brand: BrandRow, products: Product
     // see scripts/test-creative-stages.ts. The single slowest text call in
     // the app (~4-5k completion tokens at medium effort); generous, but
     // still well inside app/api/v1/brands/fastlane/route.ts's
-    // maxDuration=300 for the run as a whole.
-    timeoutMs: 90_000,
+    // maxDuration=300 for the run as a whole. 60s since the 2026-10-26 move
+    // back to Groq gpt-oss-120b, which is much faster than gpt-5.5 was.
+    timeoutMs: 60_000,
   })
 
   trackUsage(tracker, usage, costUsd)

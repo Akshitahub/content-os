@@ -11,11 +11,17 @@ import type OpenAI from "openai"
 //     (cached $2.00), image output $30.00. The page lists no separate
 //     text-output rate for gpt-image-2, so all output tokens are priced at
 //     the image-output rate.
+// openai/gpt-oss-120b (Groq, on demand): input $0.15, cached input $0.075,
+//   output $0.60 per 1M tokens. Source: Groq's model page
+//   (console.groq.com/docs/model/openai/gpt-oss-120b), checked 2026-10-26 --
+//   groq.com/pricing didn't render its price table that day. Reasoning
+//   tokens are billed as output, same as above.
 // These are list prices, not our invoice -- if a request runs over 272K
 // context, or OpenAI changes prices, these numbers drift. Update this file
 // (and its date) rather than the call sites.
 const TEXT_PRICES_PER_1M: Record<string, { input: number; cachedInput: number; output: number }> = {
   "gpt-5.5": { input: 5.0, cachedInput: 0.5, output: 30.0 },
+  "openai/gpt-oss-120b": { input: 0.15, cachedInput: 0.075, output: 0.6 },
 }
 
 const IMAGE_PRICES_PER_1M: Record<string, { textInput: number; imageInput: number; output: number }> = {

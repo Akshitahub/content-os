@@ -1,4 +1,4 @@
-import { MODELS, getOpenAIClient } from "./models"
+import { MODELS, getTextClientFor, textProviderFor } from "./models"
 import { textCostUsd, toTextUsage, type TextUsage } from "./pricing"
 
 // Shared OpenAI call for the Phase 1b creative-stages migration (story,
@@ -51,7 +51,7 @@ export async function createCreativeCompletion(params: CreativeCompletionParams)
   try {
     // Inside the try so a missing OPENAI_API_KEY is logged as a failed
     // call too, not just thrown past the log line.
-    const openai = getOpenAIClient()
+    const openai = getTextClientFor(model)
     const response = await openai.chat.completions.create(
       {
         model,
@@ -73,10 +73,10 @@ export async function createCreativeCompletion(params: CreativeCompletionParams)
     )
     const usage = toTextUsage(response.usage)
     const costUsd = textCostUsd(model, usage)
-    console.log(`[${params.logPrefix}] provider=openai model=${model} stage=${params.stage} latencyMs=${Date.now() - startTime} costUsd=${costUsd ?? "unknown"} success=true`)
+    console.log(`[${params.logPrefix}] provider=${textProviderFor(model)} model=${model} stage=${params.stage} latencyMs=${Date.now() - startTime} costUsd=${costUsd ?? "unknown"} success=true`)
     return { content: response.choices[0]?.message?.content ?? null, model, usage, costUsd }
   } catch (err) {
-    console.error(`[${params.logPrefix}] provider=openai model=${model} stage=${params.stage} latencyMs=${Date.now() - startTime} success=false:`, err)
+    console.error(`[${params.logPrefix}] provider=${textProviderFor(model)} model=${model} stage=${params.stage} latencyMs=${Date.now() - startTime} success=false:`, err)
     throw err
   }
 }

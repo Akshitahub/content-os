@@ -1,7 +1,7 @@
 import type { BrandRow, ProductRow } from "@/types/database"
 import type { BlogPost } from "@/types/app"
 import { buildBlogArticleSystemPrompt, buildBlogArticleUserPrompt } from "./prompts"
-import { MODELS, getOpenAIClient } from "./models"
+import { MODELS, getTextClientFor, textProviderFor } from "./models"
 import { addTextUsage, textCostUsd, toTextUsage, type TextUsage } from "./pricing"
 import { buildFactSource, guardCopy } from "./fact-guard"
 import { findContentQualityIssues, sanitizeLeakedArtifacts } from "./content-quality-check"
@@ -30,8 +30,8 @@ export async function generateBlogPost(
     wordLimit: number
   }
 ): Promise<{ post: BlogPost; model: string; usage: TextUsage | undefined; costUsd: number | null }> {
-  const openai = getOpenAIClient()
   const model = MODELS.creative
+  const openai = getTextClientFor(model)
 
   // ~3 tokens/word gives headroom for the JSON wrapper (title,
   // meta_description, tags) plus the tokenizer's real word:token ratio for
@@ -66,10 +66,10 @@ export async function generateBlogPost(
       { timeout: 45_000, maxRetries: 1 }
     )
   } catch (err) {
-    console.error(`[blog-generator] provider=openai model=${model} stage=blog_post latencyMs=${Date.now() - startTime} success=false:`, err)
+    console.error(`[blog-generator] provider=${textProviderFor(model)} model=${model} stage=blog_post latencyMs=${Date.now() - startTime} success=false:`, err)
     throw err
   }
-  console.log(`[blog-generator] provider=openai model=${model} stage=blog_post latencyMs=${Date.now() - startTime} success=true`)
+  console.log(`[blog-generator] provider=${textProviderFor(model)} model=${model} stage=blog_post latencyMs=${Date.now() - startTime} success=true`)
 
   const raw = response.choices[0]?.message?.content ?? "{}"
   const parsed = parseBlogPost(raw)

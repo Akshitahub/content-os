@@ -1,6 +1,6 @@
 import type { BrandRow, ProductRow } from "@/types/database"
 import type { ContentFormat, ContentFormatOutputMap, Platform } from "@/types/app"
-import { MODELS, getOpenAIClient } from "./models"
+import { MODELS, getTextClientFor, textProviderFor } from "./models"
 import { buildFactSource, guardCopy } from "./fact-guard"
 import { addTextUsage, textCostUsd, toTextUsage, type TextUsage } from "./pricing"
 import type { ChatCompletionMessageParam } from "openai/resources/chat/completions"
@@ -207,8 +207,8 @@ export async function generateContent(
   // lib/ai/captions-generator.ts uses, so the two paths can't drift apart
   // again. Captions moved to OpenAI (MODELS.caption).
   if (format === "social_post") {
-    const openai = getOpenAIClient()
     const captionModel = MODELS.caption
+    const openai = getTextClientFor(captionModel)
     const b = brand as BrandRow & { cta_phrase?: string | null }
     const ctaPhrase = b.cta_phrase || "Shop now"
     const handle = brand.instagram_handle ? `@${brand.instagram_handle}` : ""
@@ -259,7 +259,7 @@ export async function generateContent(
   // are unchanged -- the output SHAPE per format never changed, only which
   // provider produced it.
   const model = MODELS.creative
-  const openai = getOpenAIClient()
+  const openai = getTextClientFor(model)
   const baseMessages: ChatCompletionMessageParam[] = [
     { role: "system", content: system },
     { role: "user", content: user },
@@ -291,10 +291,10 @@ export async function generateContent(
         // once real latency data exists.
         { timeout: timeoutMs, maxRetries: 1 }
       )
-      console.log(`[content-generator] provider=openai model=${model} stage=${format} latencyMs=${Date.now() - startTime} success=true`)
+      console.log(`[content-generator] provider=${textProviderFor(model)} model=${model} stage=${format} latencyMs=${Date.now() - startTime} success=true`)
       return { raw: response.choices[0]?.message?.content ?? "{}", usage: toTextUsage(response.usage) }
     } catch (err) {
-      console.error(`[content-generator] provider=openai model=${model} stage=${format} latencyMs=${Date.now() - startTime} success=false:`, err)
+      console.error(`[content-generator] provider=${textProviderFor(model)} model=${model} stage=${format} latencyMs=${Date.now() - startTime} success=false:`, err)
       throw err
     }
   }
