@@ -103,6 +103,10 @@ export interface ImageGenerationAttempt {
   promptVariant: "primary" | "fallback"
   success: boolean
   failureReason: ImageAttemptFailureReason | null
+  /** The provider's or quality check's own error text for a failed
+   * attempt -- logged by the calling route; not persisted
+   * (image_generation_attempts has no column for it). */
+  errorMessage?: string | null
   /** What OpenAI billed for this attempt (lib/ai/pricing.ts) -- a
    * quality-check failure was still billed. Null if unknown. Not persisted
    * to image_generation_attempts (no column); summed into
@@ -150,7 +154,7 @@ async function checkImageQuality(buffer: Buffer): Promise<{ ok: true } | { error
 // module owns everything about actually talking to OpenAI. `attemptLabel`
 // is for logging only -- there's no seed param in the images API to vary
 // generations by.
-async function fetchAndCheckImage(prompt: string, attemptLabel: string, dimensions: ImageDimensions, productImageUrl?: string | null): Promise<{ buffer: Buffer; costUsd: number | null } | { error: string; reason: ImageAttemptFailureReason; costUsd: number | null }> {
+async function fetchAndCheckImage(prompt: string, attemptLabel: string, dimensions: ImageDimensions, productImageUrl?: string | null): Promise<{ buffer: Buffer; costUsd: number | null } | { error: string; reason: ImageAttemptFailureReason; costUsd: number | null; timedOut?: boolean }> {
   console.log(`[post-image-pipeline] attempt=${attemptLabel} dimensions=${dimensions.width}x${dimensions.height} productReference=${productImageUrl ? "yes" : "no"}`)
 
   const result = await generateOpenAIImage(prompt, dimensions, productImageUrl)
@@ -459,16 +463,26 @@ export async function fetchBackgroundImage(
   const attempts: ImageGenerationAttempt[] = []
 
   let attempt = await fetchAndCheckImage(prompt, "1-primary", dimensions, productImageUrl)
-  attempts.push({ attemptNumber: 1, provider: IMAGE_PROVIDER, promptVariant: "primary", success: !("error" in attempt), failureReason: "error" in attempt ? attempt.reason : null, costUsd: attempt.costUsd })
+  attempts.push({ attemptNumber: 1, provider: IMAGE_PROVIDER, promptVariant: "primary", success: !("error" in attempt), failureReason: "error" in attempt ? attempt.reason : null, errorMessage: "error" in attempt ? attempt.error : null, costUsd: attempt.costUsd })
+
+  if ("error" in attempt && attempt.timedOut) {
+    // A simplified prompt doesn't make the provider any faster -- a second
+    // attempt after a timeout would just double the wait before failing.
+    console.error(`[post-image-pipeline] first attempt timed out, skipping the fallback attempt:`, attempt.error)
+    return { success: false, error: `Couldn't generate a usable image. Attempt 1 (primary): ${attempt.error}`, attempts }
+  }
 
   if ("error" in attempt) {
+    const firstError = attempt.error
     console.error(`[post-image-pipeline] first attempt failed:`, attempt.error)
     attempt = await fetchAndCheckImage(fallbackPrompt, "2-fallback", dimensions, productImageUrl)
-    attempts.push({ attemptNumber: 2, provider: IMAGE_PROVIDER, promptVariant: "fallback", success: !("error" in attempt), failureReason: "error" in attempt ? attempt.reason : null, costUsd: attempt.costUsd })
+    attempts.push({ attemptNumber: 2, provider: IMAGE_PROVIDER, promptVariant: "fallback", success: !("error" in attempt), failureReason: "error" in attempt ? attempt.reason : null, errorMessage: "error" in attempt ? attempt.error : null, costUsd: attempt.costUsd })
 
     if ("error" in attempt) {
       console.error(`[post-image-pipeline] retry also failed:`, attempt.error)
-      return { success: false, error: `Couldn't generate a usable image after two attempts. Last error: ${attempt.error}`, attempts }
+      // Both attempts' errors, not just the last -- they can differ (e.g. a
+      // moderation block, then a timeout).
+      return { success: false, error: `Couldn't generate a usable image after two attempts. Attempt 1 (primary): ${firstError} | Attempt 2 (fallback): ${attempt.error}`, attempts }
     }
   }
 

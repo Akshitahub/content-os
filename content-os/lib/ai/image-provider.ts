@@ -20,11 +20,16 @@ export const IMAGE_PROVIDER_CONFIG = {
   /** "low" | "medium" | "high" | "auto" -- GPT image models only. */
   quality: "medium" as const,
   /** Per-call timeout passed straight through as the SDK's own
-   * RequestOptions.timeout. Kept well under the 60s maxDuration every
-   * caller route sets, since fetchBackgroundImage can make up to 2
-   * sequential calls (primary + fallback-prompt retry) on top of whatever
-   * this SDK call retries internally. */
-  timeoutMs: 25_000,
+   * RequestOptions.timeout. Was 25s -- set when every caller route had a
+   * 60s maxDuration, and too short for a gpt-image-2 generation: a slower
+   * call timed out, the SDK retry timed out too, and the fallback attempt
+   * repeated both, so the image failed every time it ran slow (the
+   * suspected cause of production's "Couldn't generate your image"). The
+   * routes have 300s now with a 270s internal deadline; at 90s x (1 + one
+   * SDK retry) a single attempt is at most 180s, and fetchBackgroundImage
+   * no longer makes a fallback attempt after a timeout (a simplified prompt
+   * isn't any faster). Not measured -- see [image-provider] latency logs. */
+  timeoutMs: 90_000,
   /** SDK-native retry count for transient failures (network errors, 429,
    * 5xx) -- the SDK itself inspects the status code and retry-after header,
    * so there's no hand-rolled retry loop here. Moderation rejections are
@@ -106,9 +111,13 @@ export type ImageProviderFailureReason = "network_error" | "api_error" | "modera
 // costUsd: priced from the response's real usage (lib/ai/pricing.ts) --
 // present whenever OpenAI actually returned a response (it billed for
 // it), null when the call failed before a response or reported no usage.
+// timedOut: the call hit timeoutMs (stored as reason "network_error" --
+// image_generation_attempts' CHECK constraint has no separate timeout
+// value -- but kept distinct here so the caller can skip a pointless
+// fallback attempt).
 export type ImageProviderResult =
   | { buffer: Buffer; costUsd: number | null }
-  | { error: string; reason: ImageProviderFailureReason; costUsd: number | null }
+  | { error: string; reason: ImageProviderFailureReason; costUsd: number | null; timedOut?: boolean }
 
 // OpenAI reports a moderation/safety rejection as a 400 whose error body
 // names it explicitly -- checked by `.code` first (the structured,
@@ -191,6 +200,7 @@ export async function generateOpenAIImage(
   const size = resolveImageSize(dimensions)
   console.log(`[image-provider] calling ${IMAGE_PROVIDER_CONFIG.model}: size=${size} quality=${IMAGE_PROVIDER_CONFIG.quality} promptLen=${prompt.length} reference=${referenceImageUrl ? "yes" : "no"}`)
 
+  const startedAt = Date.now()
   try {
     const response = await callOpenAIImageAPI(prompt, size, referenceImageUrl)
     const costUsd = imageCostUsd(IMAGE_PROVIDER_CONFIG.model, response.usage)
@@ -199,10 +209,15 @@ export async function generateOpenAIImage(
       console.error(`[image-provider] OpenAI returned no image data in its response`)
       return { error: "The image provider returned no image data.", reason: "api_error", costUsd }
     }
-    console.log(`[image-provider] success: model=${IMAGE_PROVIDER_CONFIG.model} quality=${IMAGE_PROVIDER_CONFIG.quality} size=${size} costUsd=${costUsd ?? "unknown"}`)
+    console.log(`[image-provider] success: model=${IMAGE_PROVIDER_CONFIG.model} quality=${IMAGE_PROVIDER_CONFIG.quality} size=${size} latencyMs=${Date.now() - startedAt} costUsd=${costUsd ?? "unknown"}`)
     return { buffer: Buffer.from(b64, "base64"), costUsd }
   } catch (err) {
-    console.error(`[image-provider] call failed: model=${IMAGE_PROVIDER_CONFIG.model} size=${size}`, err)
+    // One structured line with everything needed to diagnose the failure
+    // from Vercel logs alone (status, OpenAI error code/type, request id,
+    // the provider's own message). Server-side only -- the user-facing
+    // message stays generic.
+    const detail = describeProviderError(err)
+    console.error(`[image-provider] call failed: model=${IMAGE_PROVIDER_CONFIG.model} size=${size} latencyMs=${Date.now() - startedAt} ${detail}`)
 
     if (isModerationError(err)) {
       return {
@@ -217,10 +232,21 @@ export async function generateOpenAIImage(
     // so a timeout is distinguishable from a real API error in
     // image_generation_attempts.
     if (err instanceof Error && /timed? ?out/i.test(err.message)) {
-      return { error: "Image generation timed out.", reason: "network_error", costUsd: null }
+      return { error: `Image generation timed out after ${Math.round((Date.now() - startedAt) / 1000)}s.`, reason: "network_error", costUsd: null, timedOut: true }
     }
 
-    const detail = err instanceof Error ? err.message : String(err)
     return { error: `Image generation failed: ${detail}`, reason: "api_error", costUsd: null }
   }
+}
+
+// e.g. `status=403 code=null type=invalid_request_error requestId=req_... message="Your organization must be verified to use the model gpt-image-2..."`
+function describeProviderError(err: unknown): string {
+  if (err instanceof APIError) {
+    const message = err.message ?? ""
+    const hint = /verif/i.test(message) ? " hint=OPENAI_ORG_VERIFICATION_REQUIRED" : ""
+    return `status=${err.status ?? "none"} code=${err.code ?? "none"} type=${err.type ?? "none"} requestId=${err.requestID ?? "none"} message=${JSON.stringify(message.slice(0, 500))}${hint}`
+  }
+  const name = err instanceof Error ? err.name : typeof err
+  const message = err instanceof Error ? err.message : String(err)
+  return `error=${name} message=${JSON.stringify(message.slice(0, 500))}`
 }

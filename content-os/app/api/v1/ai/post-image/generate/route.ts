@@ -27,7 +27,9 @@ const FEATURE = "post_image"
 async function persistAttempts(supabase: any, brandId: string, attempts: ImageGenerationAttempt[]): Promise<void> {
   if (attempts.length === 0) return
   try {
-    await supabase.from("image_generation_attempts").insert(
+    // The insert result was never checked, so a rejected row (e.g. a CHECK
+    // constraint) vanished without a trace -- now logged.
+    const { error } = await supabase.from("image_generation_attempts").insert(
       attempts.map((a) => ({
         brand_id: brandId,
         feature: FEATURE,
@@ -38,6 +40,7 @@ async function persistAttempts(supabase: any, brandId: string, attempts: ImageGe
         failure_reason: a.failureReason,
       }))
     )
+    if (error) console.error("[ai/post-image/generate] failed to persist generation attempts (non-fatal):", error.message)
   } catch (err) {
     console.error("[ai/post-image/generate] failed to persist generation attempts (non-fatal):", err)
   }
@@ -90,6 +93,11 @@ async function handlePost(request: Request, timer: GenerationTimer) {
     checklistHeadline, checklistHighlightedPhrase, checklistWrongItems, checklistRightItems, checklistClosingLine,
   } = parsed.data
 
+  // Looked up before the session check and the charge: a missing brand used
+  // to return 404 after the credits were already taken, with no refund.
+  const { data: brand } = await supabase.from("brands").select("*").eq("id", brandId).eq("user_id", user.id).single<BrandRow>()
+  if (!brand) return NextResponse.json(buildError(ErrorCodes.BRAND_NOT_FOUND, "Brand not found."), { status: 404 })
+
   const sessionCheck = await checkAndIncrementPostImageSession(user.id, postSessionId)
   const shouldCharge = sessionCheck.ok ? sessionCheck.shouldCharge : true
   console.log(
@@ -105,9 +113,6 @@ async function handlePost(request: Request, timer: GenerationTimer) {
     }
     logId = usageCheck.logId
   }
-
-  const { data: brand } = await supabase.from("brands").select("*").eq("id", brandId).eq("user_id", user.id).single<BrandRow>()
-  if (!brand) return NextResponse.json(buildError(ErrorCodes.BRAND_NOT_FOUND, "Brand not found."), { status: 404 })
 
   // productId was previously only ever written onto the output record
   // (product_id below) and never actually reached generation -- the
@@ -168,7 +173,14 @@ async function handlePost(request: Request, timer: GenerationTimer) {
   })
 
   if (!result.success) {
-    console.error(`[ai/post-image/generate] generation failed after ${Date.now() - startTime}ms:`, result.error)
+    // The full underlying error -- every attempt's own provider/quality
+    // message -- in one line, so a failure is never hidden behind the
+    // generic message the user sees. Also stored in
+    // ai_generation_logs.error_message below.
+    console.error(
+      `[ai/post-image/generate] generation failed after ${Date.now() - startTime}ms: ${result.error}`,
+      JSON.stringify(result.attempts.map((a) => ({ attempt: a.attemptNumber, variant: a.promptVariant, reason: a.failureReason, message: a.errorMessage ?? null })))
+    )
     await persistAttempts(supabase, brandId, result.attempts)
     // Best-effort provider label from whatever was actually attempted —
     // previously this was hardcoded to a fixed label regardless

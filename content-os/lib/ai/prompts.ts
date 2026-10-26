@@ -5,7 +5,8 @@ export const QUALITY_BAR = `
 
 QUALITY STANDARD — every piece of content must meet this bar:
 - Sound like a skilled human copywriter wrote it, not a generic AI
-- Be SPECIFIC to this brand's actual products/niche, never generic filler like "amazing deals" or "great quality"
+- SUBJECT PRIORITY: when the user gives a topic or brief (shown as POST TOPIC, topic, or additional context), THAT decides what the content is about -- its own product, offer, occasion or business, even if it differs from this brand's own products. The brand profile then sets only the voice, tone, audience and call to action, never the subject. Only when no real topic is given does the brand's own product/niche become the subject
+- Be SPECIFIC -- to the user's topic when one is given, otherwise to this brand's actual products/niche -- never generic filler like "amazing deals" or "great quality"
 - Have a clear emotional angle (curiosity, urgency, humor, relatability, aspiration) — never flat or purely informational
 - Write like the best Instagram accounts do right now — thumb-stopping opening line, short punchy fragments over long sentences, a real hook or pattern-interrupt in the first few words, current internet-native phrasing. This should read like it was made in 2026 by someone who lives on the app, not a corporate caption from 2015
 - Avoid generic AI-sounding phrases and clichés (e.g. "in today's fast-paced world", "unlock the power of", "elevate your", "game-changer", "look no further", "take it to the next level") — write like a real person who knows this specific brand, not generic marketing copy
@@ -60,7 +61,10 @@ export function buildBrandContext(brand: BrandRow, product?: ProductRow | null):
  */
 export function buildPastExamplesBlock(examples: string[], label: string): string {
   if (examples.length === 0) return ""
-  return `\n\nHere are examples of ${label} this brand's user has previously rated highly — match this style and quality bar where relevant:\n${examples.map((e, i) => `${i + 1}. ${e}`).join("\n\n")}`
+  // "tone and style only": these past examples are about whatever the
+  // brand posted before (often the brand itself) -- copying their SUBJECT
+  // is exactly how a new post's own topic got overridden.
+  return `\n\nHere are examples of ${label} this brand's user has previously rated highly — match their tone, style and quality bar only. Never copy their subject: what this post is about comes from the topic/brief, not from these examples:\n${examples.map((e, i) => `${i + 1}. ${e}`).join("\n\n")}`
 }
 
 // The user's own "What do you want to post" text is the post's SUBJECT.
@@ -163,7 +167,12 @@ export function buildHookUserPrompt(
           ? `Angle: ${options.product.description.slice(0, 80)}`
           : null,
       ].filter(Boolean).join("\n")
-    : `Category: ${brand.niche ?? "D2C"}`
+    // With a user topic and no picked product, "Category: <brand niche>"
+    // pulled hooks back onto the brand's own industry -- the topic (shown
+    // first as POST TOPIC) is the category now.
+    : options.additionalContext?.trim()
+      ? ""
+      : `Category: ${brand.niche ?? "D2C"}`
 
   const platformNote = options.platform ? `Platform: ${options.platform} (tailor energy and length to this platform's scroll behaviour)` : ""
 
@@ -194,7 +203,7 @@ Respond with this exact JSON:
 // Standalone caption generation (the Captions/Content tabs) never sets
 // this, so their JSON contract is unchanged.
 const IMAGE_PROMPT_INSTRUCTION = `
-IMAGE PROMPT: Also produce an "image_prompt" — a vivid, CONCRETE visual scene description for an AI image generator. It must be grounded in THIS brand's actual niche/industry and product category from the brand context above, and in this specific post's message/topic — never a generic, brand-agnostic scene that could belong to any company.
+IMAGE PROMPT: Also produce an "image_prompt" — a vivid, CONCRETE visual scene description for an AI image generator. It must show this specific post's subject: the POST TOPIC's own product, offer or occasion when one is given (e.g. candles for a candle-brand offer), otherwise THIS brand's actual niche/industry and product category from the brand context above — never a generic, brand-agnostic scene that could belong to any company.
 - Name the actual kind of product or scene the niche implies, not an abstraction: a skincare brand → the actual skincare product/routine/texture, not "a product"; a food or beverage brand → the actual dish, drink, or ingredient, not generic packaging on a white background; an apparel brand → the actual garment being worn or styled, not a mannequin in a void.
 - If there's a specific offer, event, or theme in this post (e.g. "weekend flash sale," "new packaging launch"), the scene must visually reflect that, not just show the brand/product in the abstract.
 - Avoid vague filler words ("amazing," "great quality," "high quality," "beautiful") — describe what's actually visible instead.
@@ -346,7 +355,7 @@ Content type: ${options.contentType}
 ${hookLine}
 
 Write a complete social media caption ${options.additionalContext?.trim() ? "about the POST TOPIC above, " : ""}following the brand voice exactly.
-
+${options.additionalContext?.trim() ? `SUBJECT CHECK: this caption, its hook line and its image_prompt must all be about "${options.additionalContext.trim()}" -- not about ${brand.name}'s own products, unless that topic is about them.\n` : ""}
 CRITICAL — the last 2 lines of caption_text MUST be exactly:
 ${endingExample}
 This is non-negotiable. Do not forget the @handle.
