@@ -127,6 +127,9 @@ async function handlePost(request: Request, timer: GenerationTimer) {
     productImageUrl,
     textPosition,
     customPrompt,
+    // Text is composited over slide backgrounds, so "low" is enough --
+    // raised to "medium" automatically when a product photo is attached.
+    quality: "low",
   }), deadlineAt - Date.now(), "story slide image")).catch((err): Awaited<ReturnType<typeof generateStorySlideBackground>> => ({
     // Deadline hit (or an unexpected throw): handled exactly like a failed
     // generation below -- logged and refunded.

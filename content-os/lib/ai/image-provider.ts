@@ -17,7 +17,8 @@ export const IMAGE_PROVIDER = "openai" as const
 // "gpt-image-2" is a real, currently-valid model literal, not a guess.
 export const IMAGE_PROVIDER_CONFIG = {
   model: "gpt-image-2" as const,
-  /** "low" | "medium" | "high" | "auto" -- GPT image models only. */
+  /** Default quality for a call that doesn't pass its own -- see
+   * ImageQuality / resolveImageQuality below for per-call overrides. */
   quality: "medium" as const,
   /** Per-call timeout passed straight through as the SDK's own
    * RequestOptions.timeout. Was 25s -- set when every caller route had a
@@ -139,10 +140,23 @@ async function fetchReferenceImageFile(url: string) {
   return toFile(buffer, "reference.png", { type: "image/png" })
 }
 
+/** Per-call gpt-image-2 quality. "low" is for backgrounds that get text
+ * composited on top (story / carousel slides, Autopilot posts). */
+export type ImageQuality = "low" | "medium" | "high"
+
+/** The quality a call actually runs at: the caller's request, else the
+ * IMAGE_PROVIDER_CONFIG default -- except a product reference photo
+ * (images.edit) is never below "medium", so product shots stay sharp. */
+export function resolveImageQuality(requested: ImageQuality | undefined, hasReferenceImage: boolean): ImageQuality {
+  const quality = requested ?? IMAGE_PROVIDER_CONFIG.quality
+  return hasReferenceImage && quality === "low" ? "medium" : quality
+}
+
 async function callOpenAIImageAPI(
   prompt: string,
   size: OpenAIImageSize,
-  referenceImageUrl?: string | null
+  referenceImageUrl: string | null | undefined,
+  quality: ImageQuality
 ): Promise<OpenAI.Images.ImagesResponse> {
   const openai = getOpenAIClient()
   const requestOptions = { timeout: IMAGE_PROVIDER_CONFIG.timeoutMs, maxRetries: IMAGE_PROVIDER_CONFIG.maxRetries }
@@ -160,7 +174,7 @@ async function callOpenAIImageAPI(
         image: imageFile,
         prompt,
         size,
-        quality: IMAGE_PROVIDER_CONFIG.quality,
+        quality,
         output_format: "png",
       },
       requestOptions
@@ -172,7 +186,7 @@ async function callOpenAIImageAPI(
       model: IMAGE_PROVIDER_CONFIG.model,
       prompt,
       size,
-      quality: IMAGE_PROVIDER_CONFIG.quality,
+      quality,
       n: 1,
       output_format: "png",
     },
@@ -195,21 +209,24 @@ export async function generateOpenAIImage(
   dimensions: ImageDimensions,
   /** Real uploaded product photo URL, if one is attached for this
    * generation -- routes through images.edit instead of images.generate. */
-  referenceImageUrl?: string | null
+  referenceImageUrl?: string | null,
+  /** Omitted = IMAGE_PROVIDER_CONFIG.quality; see resolveImageQuality. */
+  requestedQuality?: ImageQuality
 ): Promise<ImageProviderResult> {
   const size = resolveImageSize(dimensions)
-  console.log(`[image-provider] calling ${IMAGE_PROVIDER_CONFIG.model}: size=${size} quality=${IMAGE_PROVIDER_CONFIG.quality} promptLen=${prompt.length} reference=${referenceImageUrl ? "yes" : "no"}`)
+  const quality = resolveImageQuality(requestedQuality, !!referenceImageUrl)
+  console.log(`[image-provider] calling ${IMAGE_PROVIDER_CONFIG.model}: size=${size} quality=${quality} promptLen=${prompt.length} reference=${referenceImageUrl ? "yes" : "no"}`)
 
   const startedAt = Date.now()
   try {
-    const response = await callOpenAIImageAPI(prompt, size, referenceImageUrl)
+    const response = await callOpenAIImageAPI(prompt, size, referenceImageUrl, quality)
     const costUsd = imageCostUsd(IMAGE_PROVIDER_CONFIG.model, response.usage)
     const b64 = response.data?.[0]?.b64_json
     if (!b64) {
       console.error(`[image-provider] OpenAI returned no image data in its response`)
       return { error: "The image provider returned no image data.", reason: "api_error", costUsd }
     }
-    console.log(`[image-provider] success: model=${IMAGE_PROVIDER_CONFIG.model} quality=${IMAGE_PROVIDER_CONFIG.quality} size=${size} latencyMs=${Date.now() - startedAt} costUsd=${costUsd ?? "unknown"}`)
+    console.log(`[image-provider] success: model=${IMAGE_PROVIDER_CONFIG.model} quality=${quality} size=${size} latencyMs=${Date.now() - startedAt} costUsd=${costUsd ?? "unknown"}`)
     return { buffer: Buffer.from(b64, "base64"), costUsd }
   } catch (err) {
     // One structured line with everything needed to diagnose the failure

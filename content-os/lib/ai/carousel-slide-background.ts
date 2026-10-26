@@ -6,6 +6,7 @@ import {
   POST_IMAGE_QUALITY_AND_NEGATIVE_GUARD,
   type BackgroundImageResult,
 } from "./post-image-pipeline"
+import type { ImageQuality } from "./image-provider"
 import { type Vibe, DEFAULT_VIBE, VIBE_BACKGROUND_STYLES, VIBE_FALLBACK_COLORS, ABSTRACT_SAFETY_BOILERPLATE, describeColor } from "./vibe-background-styles"
 import type { UserPlan } from "@/types/app"
 import type { BrandRow } from "@/types/database"
@@ -171,6 +172,10 @@ export interface GenerateCarouselSlideBackgroundOptions {
    * buildSlidePrompt/simplifySlidePrompt below still applies exactly as
    * before regardless of what this contains. */
   customPrompt?: string
+  /** gpt-image-2 quality; omitted = "medium". The slide-image route
+   * passes "low" (text is composited on top); raised to "medium" when
+   * productImageUrl is set. */
+  quality?: ImageQuality
 }
 
 /**
@@ -194,5 +199,5 @@ export async function generateCarouselSlideBackground(
   const prompt = buildSlidePrompt(options.brand.niche, vibe, colors, options.role, options.productImageUrl, options.slideType, options.customPrompt)
   const fallbackPrompt = simplifySlidePrompt(vibe, options.productImageUrl, options.customPrompt)
 
-  return fetchBackgroundImage(prompt, fallbackPrompt, options.plan, options.isInternalUnlimitedUser, undefined, options.productImageUrl)
+  return fetchBackgroundImage(prompt, fallbackPrompt, options.plan, options.isInternalUnlimitedUser, undefined, options.productImageUrl, options.quality)
 }

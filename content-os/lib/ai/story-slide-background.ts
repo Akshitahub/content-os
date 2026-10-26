@@ -7,6 +7,7 @@ import {
   type BackgroundImageResult,
   type ImageDimensions,
 } from "./post-image-pipeline"
+import type { ImageQuality } from "./image-provider"
 import { type Vibe, DEFAULT_VIBE, VIBE_BACKGROUND_STYLES, VIBE_FALLBACK_COLORS, ABSTRACT_SAFETY_BOILERPLATE, describeColor } from "./vibe-background-styles"
 import type { UserPlan } from "@/types/app"
 import type { BrandRow } from "@/types/database"
@@ -157,6 +158,10 @@ export interface GenerateStorySlideBackgroundOptions {
    * buildStorySlidePrompt/simplifyStorySlidePrompt below still applies
    * exactly as before regardless of what this contains. */
   customPrompt?: string
+  /** gpt-image-2 quality; omitted = "medium". The slide-image route
+   * passes "low" (text is composited on top); raised to "medium" when
+   * productImageUrl is set. */
+  quality?: ImageQuality
 }
 
 /**
@@ -181,5 +186,5 @@ export async function generateStorySlideBackground(
   const prompt = buildStorySlidePrompt(options.brand.niche, vibe, colors, options.productImageUrl, options.textPosition, options.customPrompt)
   const fallbackPrompt = simplifyStorySlidePrompt(vibe, options.productImageUrl, options.customPrompt)
 
-  return fetchBackgroundImage(prompt, fallbackPrompt, options.plan, options.isInternalUnlimitedUser, STORY_DIMENSIONS, options.productImageUrl)
+  return fetchBackgroundImage(prompt, fallbackPrompt, options.plan, options.isInternalUnlimitedUser, STORY_DIMENSIONS, options.productImageUrl, options.quality)
 }

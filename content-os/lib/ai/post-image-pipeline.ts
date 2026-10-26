@@ -1,5 +1,5 @@
 import sharp from "sharp"
-import { generateOpenAIImage, IMAGE_PROVIDER, type ImageDimensions } from "@/lib/ai/image-provider"
+import { generateOpenAIImage, resolveImageQuality, IMAGE_PROVIDER, type ImageDimensions, type ImageQuality } from "@/lib/ai/image-provider"
 import { sumCostUsd } from "@/lib/ai/pricing"
 import { compositePostImage, compositeHardTruthChecklist } from "@/lib/image/post-compositor"
 import type { PostTemplateId } from "@/lib/design/post-templates"
@@ -154,10 +154,10 @@ async function checkImageQuality(buffer: Buffer): Promise<{ ok: true } | { error
 // module owns everything about actually talking to OpenAI. `attemptLabel`
 // is for logging only -- there's no seed param in the images API to vary
 // generations by.
-async function fetchAndCheckImage(prompt: string, attemptLabel: string, dimensions: ImageDimensions, productImageUrl?: string | null): Promise<{ buffer: Buffer; costUsd: number | null } | { error: string; reason: ImageAttemptFailureReason; costUsd: number | null; timedOut?: boolean }> {
+async function fetchAndCheckImage(prompt: string, attemptLabel: string, dimensions: ImageDimensions, productImageUrl: string | null | undefined, imageQuality: ImageQuality): Promise<{ buffer: Buffer; costUsd: number | null } | { error: string; reason: ImageAttemptFailureReason; costUsd: number | null; timedOut?: boolean }> {
   console.log(`[post-image-pipeline] attempt=${attemptLabel} dimensions=${dimensions.width}x${dimensions.height} productReference=${productImageUrl ? "yes" : "no"}`)
 
-  const result = await generateOpenAIImage(prompt, dimensions, productImageUrl)
+  const result = await generateOpenAIImage(prompt, dimensions, productImageUrl, imageQuality)
   if ("error" in result) return result
 
   console.log(`[post-image-pipeline] image buffer: ${result.buffer.length} bytes`)
@@ -450,9 +450,13 @@ export async function fetchBackgroundImage(
   /** Real uploaded product photo (products.image_urls[0]) — sent as an
    * image-to-image reference via OpenAI's images.edit endpoint (see
    * lib/ai/image-provider.ts). */
-  productImageUrl?: string | null
+  productImageUrl?: string | null,
+  /** gpt-image-2 quality; omitted = "medium". "low" is raised to "medium"
+   * when productImageUrl is set (see resolveImageQuality). */
+  requestedQuality?: ImageQuality
 ): Promise<BackgroundImageResult> {
-  console.log(`[post-image-pipeline] fetchBackgroundImage provider=${IMAGE_PROVIDER} dimensions=${dimensions.width}x${dimensions.height} productReference=${productImageUrl ? "yes" : "no"}`)
+  const quality = resolveImageQuality(requestedQuality, !!productImageUrl)
+  console.log(`[post-image-pipeline] fetchBackgroundImage provider=${IMAGE_PROVIDER} quality=${quality} dimensions=${dimensions.width}x${dimensions.height} productReference=${productImageUrl ? "yes" : "no"}`)
 
   // One entry per real attempt (not just the final outcome) — this is what
   // makes "how often does the near-blank/near-black check trip, and at
@@ -462,7 +466,7 @@ export async function fetchBackgroundImage(
   // inside this function was invisible in the data entirely.
   const attempts: ImageGenerationAttempt[] = []
 
-  let attempt = await fetchAndCheckImage(prompt, "1-primary", dimensions, productImageUrl)
+  let attempt = await fetchAndCheckImage(prompt, "1-primary", dimensions, productImageUrl, quality)
   attempts.push({ attemptNumber: 1, provider: IMAGE_PROVIDER, promptVariant: "primary", success: !("error" in attempt), failureReason: "error" in attempt ? attempt.reason : null, errorMessage: "error" in attempt ? attempt.error : null, costUsd: attempt.costUsd })
 
   if ("error" in attempt && attempt.timedOut) {
@@ -475,7 +479,7 @@ export async function fetchBackgroundImage(
   if ("error" in attempt) {
     const firstError = attempt.error
     console.error(`[post-image-pipeline] first attempt failed:`, attempt.error)
-    attempt = await fetchAndCheckImage(fallbackPrompt, "2-fallback", dimensions, productImageUrl)
+    attempt = await fetchAndCheckImage(fallbackPrompt, "2-fallback", dimensions, productImageUrl, quality)
     attempts.push({ attemptNumber: 2, provider: IMAGE_PROVIDER, promptVariant: "fallback", success: !("error" in attempt), failureReason: "error" in attempt ? attempt.reason : null, errorMessage: "error" in attempt ? attempt.error : null, costUsd: attempt.costUsd })
 
     if ("error" in attempt) {
@@ -521,6 +525,9 @@ export interface GeneratePostImageOptions {
    * prompt onto the scene-focused hasReferenceImage path below rather than
    * re-describing the product's appearance from scratch. */
   productImageUrl?: string | null
+  /** gpt-image-2 quality for the background; omitted = "medium". "low"
+   * is raised to "medium" when productImageUrl is set. */
+  quality?: ImageQuality
   /** Client-chosen aspect ratio (generatePostImageSchema's aspectRatio) —
    * only actually changes the output when there's no text overlay
    * (captionText empty). See resolvePostImageDimensions and the
@@ -640,7 +647,7 @@ export async function generatePostImage(options: GeneratePostImageOptions): Prom
   // wrapping itself, once it has the real core.
   const retryPrompt = simplifyPrompt(sceneDescription, options.brandNiche, hasReferenceImage)
   const requestedDimensions = resolvePostImageDimensions(options.aspectRatio)
-  const result = await fetchBackgroundImage(fullPrompt, retryPrompt, options.plan, options.isInternalUnlimitedUser, requestedDimensions, options.productImageUrl)
+  const result = await fetchBackgroundImage(fullPrompt, retryPrompt, options.plan, options.isInternalUnlimitedUser, requestedDimensions, options.productImageUrl, options.quality)
   if (!result.success) return result
 
   // No caption text (the new default) — skip compositePostImage entirely

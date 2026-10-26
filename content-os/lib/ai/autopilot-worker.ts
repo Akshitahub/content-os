@@ -286,6 +286,8 @@ async function prepareSlot(admin: Admin, job: SlotJobRow, ctx: RunContext, track
         logoUrl: brand.logo_url,
         plan: params.plan,
         isInternalUnlimitedUser: params.isInternalUnlimitedUser,
+        // Autopilot post backgrounds get text on top -- "low" is enough.
+        quality: "low",
       })
       trackUsage(tracker, undefined, attemptsCostUsd(imageResult.attempts))
       tracker.imageMs += Date.now() - imageStartedAt
