@@ -2,6 +2,7 @@
 
 import { useState } from "react"
 import { Sparkles, Loader2 } from "lucide-react"
+import { readJsonResponse } from "@/lib/utils/read-json-response"
 
 type ContentType = "hook" | "carousel" | "story"
 
@@ -28,7 +29,7 @@ export function TopicSuggestButton({ brandId, productId, contentType, currentInp
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ brandId, productId: productId ?? null, contentType, currentInput: currentInput?.trim() || undefined }),
       })
-      const json = await res.json() as { data?: { topics: string[] }; error?: { message?: string } }
+      const json = await readJsonResponse(res) as { data?: { topics: string[] }; error?: { message?: string } }
       if (!res.ok || !json.data) throw new Error(json.error?.message ?? "Failed to fetch suggestions")
       setTopics(json.data.topics)
     } catch (e) {

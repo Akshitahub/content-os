@@ -8,6 +8,7 @@ import { checkAndIncrementUsage, refundGenerationUsage, logGenerationOutcome } f
 import { POST as POST_CREDIT_COST } from "@/lib/usage/credit-costs"
 import { checkAndIncrementPostImageSession } from "@/lib/usage/post-image-regenerate-session"
 import { isInternalUnlimited } from "@/lib/usage/is-internal-unlimited"
+import { withDeadline, DeadlineExceededError, GENERATION_TIMED_OUT_MESSAGE } from "@/lib/utils/with-deadline"
 import type { BrandRow, ProductRow } from "@/types/database"
 import type { UserPlan } from "@/types/app"
 
@@ -41,13 +42,17 @@ async function persistAttempts(supabase: any, brandId: string, attempts: ImageGe
   }
 }
 
-// Chains up to 2 sequential image-provider calls (first attempt + retry) inside
-// generatePostImage — each a real network round-trip that can individually
-// take 10-30s+, so this needs more headroom than Vercel's platform
-// default. Matches the convention already used by other slow-external-call
-// routes in this repo (e.g. app/api/v1/brands/fastlane/route.ts,
-// app/api/v1/ai/stories/slide-image/generate/route.ts).
-export const maxDuration = 60
+// Chains up to 2 sequential image-provider calls (first attempt + fallback)
+// inside generatePostImage, each with its own SDK retry -- worst case
+// ~4 x 25s plus a reference-photo fetch and compositing, which the old 60s
+// limit couldn't hold: Vercel killed the function, the charged credits
+// were never refunded, and the client got a non-JSON error page. 300s is
+// the Hobby maximum with fluid compute (vercel.com/docs/functions/
+// configuring-functions/duration, checked 2026-10-26); IMAGE_DEADLINE_MS
+// keeps this route's own hard stop 30s below it so the refund path below
+// always runs.
+export const maxDuration = 300
+const IMAGE_DEADLINE_MS = 270_000
 
 /**
  * Generates the final Create → Full Post AI image: OpenAI's gpt-image-2 (via
@@ -58,6 +63,7 @@ export const maxDuration = 60
  * is decided (1st call charges, 2nd is free, 3rd+ charges again).
  */
 export async function POST(request: Request) {
+  const deadlineAt = Date.now() + IMAGE_DEADLINE_MS
   const supabase = await createClient()
   const { data: { user }, error: authError } = await supabase.auth.getUser()
   if (authError || !user) return NextResponse.json(buildError(ErrorCodes.UNAUTHENTICATED, "You must be logged in."), { status: 401 })
@@ -128,7 +134,8 @@ export async function POST(request: Request) {
   // (or didn't) -- no headline picked from the AI-generated hook, no CTA
   // defaulted from brand.cta_phrase/"Shop now". Empty/omitted means a
   // clean, text-free image.
-  const result = await generatePostImage({
+  let timedOut = false
+  const result = await withDeadline(generatePostImage({
     imagePrompt,
     brandNiche: brand.niche,
     targetAudience: brand.target_audience,
@@ -148,6 +155,11 @@ export async function POST(request: Request) {
     checklistWrongItems,
     checklistRightItems,
     checklistClosingLine,
+  }), deadlineAt - Date.now(), "post image").catch((err): Awaited<ReturnType<typeof generatePostImage>> => {
+    // Deadline hit (or an unexpected throw): treated exactly like a failed
+    // generation below -- logged and refunded.
+    timedOut = err instanceof DeadlineExceededError
+    return { success: false, error: err instanceof Error ? err.message : "Image generation failed", attempts: [] }
   })
 
   if (!result.success) {
@@ -172,7 +184,10 @@ export async function POST(request: Request) {
     // as-is. A generic, SocioPosts-branded message goes to the client
     // instead; anyone debugging a real report can find the raw detail via
     // this response's correlationId in the server logs.
-    return NextResponse.json(buildError(ErrorCodes.AI_GENERATION_FAILED, "Couldn't generate your image. Please try again."), { status: 500 })
+    return NextResponse.json(
+      buildError(ErrorCodes.AI_GENERATION_FAILED, timedOut ? GENERATION_TIMED_OUT_MESSAGE : "Couldn't generate your image. Please try again."),
+      { status: timedOut ? 504 : 500 }
+    )
   }
 
   await persistAttempts(supabase, brandId, result.attempts)

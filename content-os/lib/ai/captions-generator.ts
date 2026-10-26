@@ -53,7 +53,13 @@ export async function generateCaption(
   const { caption, usage } = await generateValidatedCaption({
     messages,
     callModel: async (msgs) => {
-      const res = await openai.chat.completions.create({ ...requestParams, messages: msgs })
+      // Explicit timeout + one retry, like every other model call here --
+      // this used to pass none, so the SDK default (10 minutes, 2
+      // retries) applied: a slow caption could outlive the route's
+      // maxDuration, Vercel killed the function, and the client got a
+      // non-JSON error page. 40s is the same estimate the other
+      // medium-length text calls use (not measured live).
+      const res = await openai.chat.completions.create({ ...requestParams, messages: msgs }, { timeout: 40_000, maxRetries: 1 })
       return { content: res.choices[0]?.message?.content ?? "{}", usage: toTextUsage(res.usage) }
     },
     brand,

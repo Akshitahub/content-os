@@ -22,6 +22,7 @@ import { useDraggableText, type TextPosition } from "@/components/shared/useDrag
 import { useBrand } from "@/hooks/useBrand"
 import type { BrandRow } from "@/types/database"
 import Link from "next/link"
+import { readJsonResponse } from "@/lib/utils/read-json-response"
 
 // ─── Story background gradients ────────────────────────────────────────────────
 
@@ -178,7 +179,7 @@ async function fetchSlideBackgroundResult(
     })
     if (res.status === 429) return { error: "insufficient_credits" }
     if (!res.ok) return { error: "failed" }
-    const json = await res.json() as { data?: { public_url?: string; provider?: "openai" } }
+    const json = await readJsonResponse(res) as { data?: { public_url?: string; provider?: "openai" } }
     // A public_url with no provider would be an incomplete/malformed
     // response -- treated the same as any other failure rather than
     // storing a background with an unknown provider (which PhoneStory's
@@ -947,7 +948,7 @@ export function StorySequence({ brandId }: { brandId: string }) {
           vibe: isCustomColorMode ? undefined : vibe,
         }),
       })
-      const json = await res.json() as { data?: { id?: string | null; stories: StorySlide[]; caption?: StoryCaption }; error?: { code?: string; message?: string } }
+      const json = await readJsonResponse(res) as { data?: { id?: string | null; stories: StorySlide[]; caption?: StoryCaption }; error?: { code?: string; message?: string } }
       if (!res.ok || !json.data?.stories) {
         if (isApiError(json)) throw new ApiResponseError(json.error.code, json.error.message)
         throw new Error(json.error?.message ?? "Generation failed")

@@ -10,6 +10,7 @@ import { isApiError } from "@/types/api"
 import { MUSIC_OPTIONS } from "@/lib/video/music-options"
 import { REELS_ENABLED } from "@/lib/constants"
 import { ComingSoonBadge } from "@/components/shared/ComingSoonBadge"
+import { readJsonResponse } from "@/lib/utils/read-json-response"
 
 type VideoJobStatus = "pending" | "generating_images" | "generating_voiceover" | "assets_ready" | "rendering" | "completed" | "failed"
 
@@ -362,7 +363,7 @@ function ScenePromptEditor({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ prompt }),
       })
-      const json = await res.json() as { data?: { suggestions: string[]; enhancedPrompt: string }; error?: { message?: string } }
+      const json = await readJsonResponse(res) as { data?: { suggestions: string[]; enhancedPrompt: string }; error?: { message?: string } }
       if (!res.ok || !json.data) throw new Error(json.error?.message ?? "Couldn't get suggestions.")
       setSuggestionState((prev) => ({
         ...prev,
@@ -453,7 +454,7 @@ export function GenerateVideoAction({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ...(scenePrompts.length > 0 ? { scenePrompts } : {}), musicTrackId }),
       })
-      const json = await res.json() as { data?: { jobId: string }; error?: { message?: string } }
+      const json = await readJsonResponse(res) as { data?: { jobId: string }; error?: { message?: string } }
       if (!res.ok || !json.data) throw new Error(json.error?.message ?? "Failed to start video generation.")
       return json.data
     },
@@ -466,7 +467,7 @@ export function GenerateVideoAction({
     queryKey: ["reel-video-job", scriptId, jobId],
     queryFn: async (): Promise<VideoJobStatusResponse> => {
       const res = await fetch(`/api/v1/brands/${brandId}/reel-scripts/${scriptId}/video?jobId=${jobId}`)
-      const json = await res.json() as { data?: VideoJobStatusResponse; error?: { message?: string } }
+      const json = await readJsonResponse(res) as { data?: VideoJobStatusResponse; error?: { message?: string } }
       if (!res.ok || !json.data) throw new Error(json.error?.message ?? "Failed to check video status.")
       return json.data
     },

@@ -4,6 +4,7 @@ import { useState, useRef } from "react"
 import { Loader2, Copy, Check, RefreshCw, Sparkles } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import type { RepurposedContent } from "@/app/api/v1/ai/repurpose/route"
+import { readJsonResponse } from "@/lib/utils/read-json-response"
 
 interface Props {
   brandId: string
@@ -68,7 +69,7 @@ export function ContentRepurposer({ brandId }: Props) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ brandId, content: content.trim() }),
       })
-      const json = await res.json() as { data?: RepurposedContent; error?: { message: string } }
+      const json = await readJsonResponse(res) as { data?: RepurposedContent; error?: { message: string } }
       if (!res.ok || !json.data) {
         throw new Error(json.error?.message ?? "Repurpose failed. Please try again.")
       }

@@ -22,6 +22,13 @@ const FEATURE = "fullpost_photo_upload"
  * that same URL is both what a real vision model (lib/ai/vision.ts) looks
  * at to write the caption, and what gets saved as this post's image.
  */
+// Photo upload + one vision call (25s timeout, one retry) + DB writes.
+// 300s = Vercel's Hobby maximum with fluid compute (vercel.com/docs/
+// functions/configuring-functions/duration, checked 2026-10-26) -- same as
+// the other Full Post routes, so a slow vision call can't get the function
+// killed before the catch block's refund runs.
+export const maxDuration = 300
+
 export async function POST(request: Request) {
   const supabase = await createClient()
   const { data: { user }, error: authError } = await supabase.auth.getUser()

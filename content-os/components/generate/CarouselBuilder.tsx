@@ -23,6 +23,7 @@ import { resolveFonts, DEFAULT_FONT_ID, TEXT_SIZE_OPTIONS, DEFAULT_TEXT_SIZE_SCA
 import type { FontId } from "@/lib/design/fonts"
 import type { ProductRow } from "@/types/database"
 import Link from "next/link"
+import { readJsonResponse } from "@/lib/utils/read-json-response"
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -221,7 +222,7 @@ async function fetchSlideBackgroundResult(
     })
     if (res.status === 429) return { error: "insufficient_credits" }
     if (!res.ok) return { error: "failed" }
-    const json = await res.json() as { data?: { public_url?: string; provider?: "openai" } }
+    const json = await readJsonResponse(res) as { data?: { public_url?: string; provider?: "openai" } }
     return json.data?.public_url ? { url: json.data.public_url, provider: json.data.provider } : { error: "failed" }
   } catch {
     return { error: "failed" }
@@ -894,7 +895,7 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ brandId, topic: topic.trim(), slideCount, platform: "instagram", vibe: isCustomColorMode ? undefined : vibe }),
       })
-      const json = await res.json() as { data?: GeneratedCarousel; error?: { code?: string; message?: string } }
+      const json = await readJsonResponse(res) as { data?: GeneratedCarousel; error?: { code?: string; message?: string } }
       if (!res.ok || !json.data) {
         if (isApiError(json)) throw new ApiResponseError(json.error.code, json.error.message)
         throw new Error(json.error?.message ?? "Generation failed")

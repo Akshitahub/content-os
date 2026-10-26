@@ -11,6 +11,7 @@ import { checkAndIncrementUsage, refundGenerationUsage, logGenerationOutcome } f
 import { CONTENT_FORMAT_CREDIT_COSTS } from "@/lib/usage/credit-costs"
 import { createPostImageSession } from "@/lib/usage/post-image-regenerate-session"
 import { fetchPastExamples } from "@/lib/ai/past-examples"
+import { withDeadline, DeadlineExceededError, GENERATION_TIMED_OUT_MESSAGE } from "@/lib/utils/with-deadline"
 import { addTextUsage, sumCostUsd } from "@/lib/ai/pricing"
 import type { BrandRow, ProductRow } from "@/types/database"
 import type { GeneratedCaption, ReelScript, CarouselContent, AdCopy } from "@/types/app"
@@ -19,6 +20,16 @@ import type { GeneratedCaption, ReelScript, CarouselContent, AdCopy } from "@/ty
 // ANGLE_HINT map verbatim -- moved server-side so the angle is a real,
 // validated parameter (generateFullPostSchema.contentAngle) rather than a
 // soft hint the client folded into additionalContext prose.
+// Hook + caption are several sequential model calls (each with its own
+// retry/fact-guard step). 300s is the maximum Vercel allows on the Hobby
+// plan with fluid compute (and the default on every plan) -- see
+// vercel.com/docs/functions/configuring-functions/duration, checked
+// 2026-10-26. TEXT_DEADLINE_MS keeps the route's own hard stop 30s below
+// it, so on a slow run the catch block below still runs (refund + a real
+// JSON error) instead of Vercel killing the function mid-flight.
+export const maxDuration = 300
+const TEXT_DEADLINE_MS = 270_000
+
 const ANGLE_HINT: Record<"problem_solution" | "quick_tip" | "myth_contrarian" | "launch_offer", string> = {
   problem_solution: "Write this as a problem-and-solution post: name a real customer pain point, then the fix.",
   quick_tip: "Write this as a quick tip / how-to post: concise, actionable steps worth saving.",
@@ -27,6 +38,8 @@ const ANGLE_HINT: Record<"problem_solution" | "quick_tip" | "myth_contrarian" | 
 }
 
 export async function POST(request: Request) {
+  const deadlineAt = Date.now() + TEXT_DEADLINE_MS
+  const remainingMs = () => deadlineAt - Date.now()
   const supabase = await createClient()
   const { data: { user }, error: authError } = await supabase.auth.getUser()
   if (authError || !user) return NextResponse.json(buildError(ErrorCodes.UNAUTHENTICATED, "You must be logged in."), { status: 401 })
@@ -93,20 +106,21 @@ export async function POST(request: Request) {
       // social_post's caption prompt is built from the hook's own text, so
       // content generation genuinely can't start until the hook exists —
       // this stays sequential.
-      hookResult = await generateHooks(brand, {
+      hookResult = await withDeadline(generateHooks(brand, {
         hookTypes: ["bold_statement", "question", "story"],
         count: 1,
         platform,
         additionalContext: combinedContext,
         product,
-      })
+        factGuardDeadline: deadlineAt - 30_000,
+      }), remainingMs(), "fullpost hooks")
       const firstHook = hookResult.hooks[0]
       if (!firstHook) throw new Error("Hook generation returned no results")
 
       // createPostImageSession only depends on user.id, not on
       // contentResult — run it alongside content generation instead of
       // after it.
-      const [contentRes, sessRes] = await Promise.all([
+      const [contentRes, sessRes] = await withDeadline(Promise.all([
         generateContent(brand, format, {
           product,
           platform,
@@ -115,22 +129,24 @@ export async function POST(request: Request) {
           pastExamples,
           includeImagePrompt: true,
           availableColorThemes: resolveColorThemes(brand).map(t => ({ id: t.id, label: t.label })),
+          factGuardDeadline: deadlineAt - 30_000,
         }),
         createPostImageSession(user.id),
-      ])
+      ]), remainingMs(), "fullpost caption")
       contentResult = contentRes
       sessionResult = sessRes
     } else {
       // Every other format ignores hookText entirely, so hook generation
       // and content generation have no real dependency on each other — run
       // them concurrently instead of paying for both latencies back to back.
-      ;[hookResult, contentResult] = await Promise.all([
+      ;[hookResult, contentResult] = await withDeadline(Promise.all([
         generateHooks(brand, {
           hookTypes: ["bold_statement", "question", "story"],
           count: 1,
           platform,
           additionalContext: combinedContext,
           product,
+          factGuardDeadline: deadlineAt - 30_000,
         }),
         generateContent(brand, format, {
           product,
@@ -139,8 +155,9 @@ export async function POST(request: Request) {
           additionalContext: combinedContext,
           pastExamples,
           includeImagePrompt: false,
+          factGuardDeadline: deadlineAt - 30_000,
         }),
-      ])
+      ]), remainingMs(), "fullpost content")
     }
 
     const hook = hookResult.hooks[0]
@@ -354,9 +371,10 @@ export async function POST(request: Request) {
       })
     })
     await refundGenerationUsage(supabase, user.id, cost, logId)
+    const timedOut = err instanceof DeadlineExceededError
     return NextResponse.json(
-      buildError(ErrorCodes.AI_GENERATION_FAILED, "Full post generation failed. Please try again."),
-      { status: 500 }
+      buildError(ErrorCodes.AI_GENERATION_FAILED, timedOut ? GENERATION_TIMED_OUT_MESSAGE : "Full post generation failed. Please try again."),
+      { status: timedOut ? 504 : 500 }
     )
   }
 }

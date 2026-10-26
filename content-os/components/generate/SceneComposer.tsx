@@ -5,6 +5,7 @@ import { Upload, Wand2, Download, Loader2, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { isApiError } from "@/types/api"
+import { readJsonResponse } from "@/lib/utils/read-json-response"
 
 const SCENE_PRESETS = [
   "Studio white",
@@ -104,7 +105,7 @@ export function SceneComposer({ brandId }: SceneComposerProps) {
         method: "POST",
         body: formData,
       })
-      const json = await res.json() as { data?: { base64: string }; error?: { message?: string } }
+      const json = await readJsonResponse(res) as { data?: { base64: string }; error?: { message?: string } }
       if (!res.ok || !json.data) {
         throw new Error(json.error?.message ?? "Failed to remove background")
       }
@@ -136,7 +137,7 @@ export function SceneComposer({ brandId }: SceneComposerProps) {
           productImageBase64: removedBgDataUrl,
         }),
       })
-      const json: unknown = await res.json()
+      const json: unknown = await readJsonResponse(res)
       if (!res.ok || isApiError(json)) {
         setComposeError(isApiError(json) ? json.error.message : "Couldn't compose the scene. Please try again.")
         setCompositing(false)

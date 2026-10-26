@@ -63,6 +63,24 @@ export function buildPastExamplesBlock(examples: string[], label: string): strin
   return `\n\nHere are examples of ${label} this brand's user has previously rated highly — match this style and quality bar where relevant:\n${examples.map((e, i) => `${i + 1}. ${e}`).join("\n\n")}`
 }
 
+// The user's own "What do you want to post" text is the post's SUBJECT.
+// It used to be appended last as "Additional context:" / "Additional angle
+// or occasion:" under a full brand profile, so the model treated the brand
+// profile as the subject and the user's request as a footnote -- e.g. a
+// SocioPosts brand profile + "Diwali offer post for our candle brand"
+// produced a post about SocioPosts. Placed FIRST now, with the brand
+// profile explicitly demoted to voice/audience only. Empty input = no
+// block, and the brand profile drives the topic as before.
+function buildPrimaryTopicBlock(userTopic: string | undefined): string {
+  const topic = userTopic?.trim()
+  if (!topic) return ""
+  return `POST TOPIC -- the user's own request. This is what the post is ABOUT:
+"${topic}"
+The brand profile below sets ONLY the voice, tone, style and audience. It does NOT set the subject. If the topic names its own product, offer, occasion or business (for example "our candle brand"), write about exactly that -- never swap in the brand profile's own products, niche or company as the subject.
+
+`
+}
+
 function hookTypeInstruction(types: HookType[]): string {
   const descriptions: Record<HookType, string> = {
     question: "Start with a compelling question that stops the scroll",
@@ -148,14 +166,12 @@ export function buildHookUserPrompt(
     : `Category: ${brand.niche ?? "D2C"}`
 
   const platformNote = options.platform ? `Platform: ${options.platform} (tailor energy and length to this platform's scroll behaviour)` : ""
-  const extraContext = options.additionalContext ? `Additional angle or occasion: ${options.additionalContext}` : ""
 
-  return `${audienceContext}
+  return `${buildPrimaryTopicBlock(options.additionalContext)}${audienceContext}
 ${contentAngle}
 ${platformNote}
-${extraContext}
 
-Generate ${options.count} scroll-stopping hooks. Remember: MAX 8 WORDS EACH. NEVER mention the product name or brand name.
+Generate ${options.count} scroll-stopping hooks${options.additionalContext?.trim() ? " about the POST TOPIC above" : ""}. Remember: MAX 8 WORDS EACH. NEVER mention the product name or brand name.
 
 Hook types to vary across:
 ${hookTypeInstruction(options.hookTypes)}
@@ -282,7 +298,6 @@ export function buildCaptionUserPrompt(
 ): string {
   const brandContext = buildBrandContext(brand, options.product)
   const hookLine = options.hookText ? `Opening hook to use: "${options.hookText}"` : "Create your own strong opening"
-  const extraContext = options.additionalContext ? `Additional context: ${options.additionalContext}` : ""
   const pastExamplesBlock = buildPastExamplesBlock(options.pastExamples ?? [], "captions")
 
   const b = brand as BrandRow & {
@@ -325,13 +340,12 @@ export function buildCaptionUserPrompt(
 
   const vibeLine = brand.vibe ? `Brand Vibe: ${CAPTION_VIBE_LABELS[brand.vibe] ?? brand.vibe}` : ""
 
-  return `${brandContext}${vibeLine ? `\n${vibeLine}` : ""}${pastExamplesBlock}
+  return `${buildPrimaryTopicBlock(options.additionalContext)}${brandContext}${vibeLine ? `\n${vibeLine}` : ""}${pastExamplesBlock}
 Platform: ${options.platform} — ${platformRules[options.platform]}
 Content type: ${options.contentType}
 ${hookLine}
-${extraContext}
 
-Write a complete social media caption following the brand voice exactly.
+Write a complete social media caption ${options.additionalContext?.trim() ? "about the POST TOPIC above, " : ""}following the brand voice exactly.
 
 CRITICAL — the last 2 lines of caption_text MUST be exactly:
 ${endingExample}

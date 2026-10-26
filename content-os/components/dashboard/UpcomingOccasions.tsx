@@ -6,6 +6,7 @@ import { Calendar, Loader2, Copy, Check, Sparkles } from "lucide-react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import type { OccasionCategory, DashboardOccasion } from "@/lib/occasions/get-upcoming-occasions"
+import { readJsonResponse } from "@/lib/utils/read-json-response"
 
 const CATEGORY_STYLES: Record<OccasionCategory, string> = {
   festival: "bg-orange-100 text-orange-700",
@@ -77,7 +78,7 @@ export function UpcomingOccasions({ brandId, occasions: allOccasions }: Props) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ occasionName, occasionAngle: suggestedAngle }),
       })
-      const json = await res.json() as { data?: GeneratedContent; error?: { message: string } }
+      const json = await readJsonResponse(res) as { data?: GeneratedContent; error?: { message: string } }
       if (res.ok && json.data) {
         setGenerated(prev => ({ ...prev, [occasionId]: json.data ?? null }))
       } else {

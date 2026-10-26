@@ -7,6 +7,7 @@ import { PlatformPreviewFrame } from "@/components/shared/PlatformPreviewFrame"
 import type { CalendarEntryRow } from "@/types/database"
 import { isApiError } from "@/types/api"
 import { flattenOverlayImage } from "@/lib/utils/post-overlay-export"
+import { readJsonResponse } from "@/lib/utils/read-json-response"
 
 // Matches what app/api/v1/brands/[brandId]/calendar/[entryId]/regenerate/route.ts
 // actually supports — routing "reel" (or any other content_type) there
@@ -236,7 +237,7 @@ export function CalendarEntryPanel({ entry, onClose, onUpdate, brandId }: Calend
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ overlayText: imageTextDraft, imageDataUrl }),
       })
-      const json: unknown = await res.json()
+      const json: unknown = await readJsonResponse(res)
       if (!res.ok || isApiError(json)) {
         setImageTextError(isApiError(json) ? json.error.message : "Couldn't update the image text. Please try again.")
         return
@@ -258,7 +259,7 @@ export function CalendarEntryPanel({ entry, onClose, onUpdate, brandId }: Calend
     setRegenerateError(null)
     try {
       const res = await fetch(`/api/v1/brands/${brandId}/calendar/${entry.id}/regenerate`, { method: "POST" })
-      const json: unknown = await res.json()
+      const json: unknown = await readJsonResponse(res)
       if (!res.ok || isApiError(json)) {
         setRegenerateError(isApiError(json) ? json.error.message : "Regeneration failed. Please try again.")
         return

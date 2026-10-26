@@ -1,6 +1,7 @@
 "use client"
 
 import { useCallback, useRef, useState } from "react"
+import { readJsonResponse } from "@/lib/utils/read-json-response"
 
 export type PromptWriterStage = "idle" | "writing" | "ready" | "error"
 
@@ -68,7 +69,7 @@ export function usePromptWriter(setPrompt: (value: string) => void) {
       if (!res.ok || !res.body) {
         let message = "Couldn't write a prompt automatically — write one yourself below."
         try {
-          const json = await res.json()
+          const json = await readJsonResponse(res)
           if (json?.error?.message) message = json.error.message
         } catch {}
         setError(message)

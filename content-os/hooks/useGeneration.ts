@@ -1,5 +1,6 @@
 import { useMutation } from "@tanstack/react-query"
 import { isApiError } from "@/types/api"
+import { readJsonResponse } from "@/lib/utils/read-json-response"
 
 export class ApiResponseError extends Error {
   constructor(public readonly code: string, message: string) {
@@ -69,7 +70,7 @@ async function fetchHooks(input: GenerateHooksInput): Promise<GeneratedHookWithI
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input),
   })
-  const json = await res.json()
+  const json = await readJsonResponse(res)
   if (!res.ok || isApiError(json)) throwApiError(json, "Hook generation failed")
   return json.data
 }
@@ -80,7 +81,7 @@ async function fetchCaption(input: GenerateCaptionsInput): Promise<GeneratedCapt
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input),
   })
-  const json = await res.json()
+  const json = await readJsonResponse(res)
   if (!res.ok || isApiError(json)) throwApiError(json, "Caption generation failed")
   return json.data
 }
@@ -99,7 +100,7 @@ async function fetchImage(input: GenerateImageInput): Promise<GenerateImageOutco
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input),
   })
-  const json = await res.json()
+  const json = await readJsonResponse(res)
   if (json?.warning) return { kind: "warning", message: json.message }
   if (!res.ok || isApiError(json)) throwApiError(json, "Image generation failed")
   return { kind: "success", data: json.data }
@@ -129,7 +130,7 @@ async function fetchPostImage(input: GeneratePostImageInput): Promise<GeneratedP
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input),
   })
-  const json = await res.json()
+  const json = await readJsonResponse(res)
   if (!res.ok || isApiError(json)) throwApiError(json, "Image generation failed")
   return json.data
 }
@@ -148,7 +149,7 @@ async function fetchContent(input: GenerateContentInput): Promise<ContentResult>
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input),
   })
-  const json = await res.json()
+  const json = await readJsonResponse(res)
   if (!res.ok || isApiError(json)) throwApiError(json, "Content generation failed")
   return json.data as ContentResult
 }
@@ -165,7 +166,7 @@ async function fetchFullPost(input: GenerateFullPostInput): Promise<FullPostResu
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input),
   })
-  const json = await res.json()
+  const json = await readJsonResponse(res)
   if (!res.ok || isApiError(json)) throwApiError(json, "Full post generation failed")
   return json.data as FullPostResult
 }
@@ -197,7 +198,7 @@ async function fetchFullPostFromPhoto(input: GenerateFullPostFromPhotoInput): Pr
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input),
   })
-  const json = await res.json()
+  const json = await readJsonResponse(res)
   if (!res.ok || isApiError(json)) throwApiError(json, "Couldn't generate a caption for your photo")
   return json.data as FullPostFromPhotoResult
 }

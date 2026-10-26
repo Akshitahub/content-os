@@ -7,6 +7,7 @@ import { GenerationWarning } from "@/components/shared/GenerationWarning"
 import { UsageLimitBanner } from "@/components/generate/UsageLimitBanner"
 import { ApiResponseError } from "@/hooks/useGeneration"
 import { isApiError } from "@/types/api"
+import { readJsonResponse } from "@/lib/utils/read-json-response"
 
 interface BlogPostResult {
   id: string | null
@@ -106,7 +107,7 @@ export function BlogPostGenerator({ brandId }: { brandId: string }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ brandId, prompt: prompt.trim() }),
       })
-      const json = await res.json() as { data?: { suggestions: string[]; enhancedPrompt: string }; error?: { message?: string } }
+      const json = await readJsonResponse(res) as { data?: { suggestions: string[]; enhancedPrompt: string }; error?: { message?: string } }
       if (!res.ok || !json.data) throw new Error(json.error?.message ?? "Couldn't get suggestions.")
       setSuggestion({ loading: false, suggestions: json.data.suggestions, enhancedPrompt: json.data.enhancedPrompt, error: null })
     } catch (err) {
@@ -131,7 +132,7 @@ export function BlogPostGenerator({ brandId }: { brandId: string }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ brandId, prompt: prompt.trim(), wordLimit }),
       })
-      const json: unknown = await res.json()
+      const json: unknown = await readJsonResponse(res)
       // Preserves the real error code (e.g. USAGE_LIMIT_EXCEEDED) instead
       // of collapsing straight to a message string -- same pattern
       // CarouselBuilder.tsx/StorySequence.tsx already use, needed so

@@ -15,6 +15,7 @@ import { AD_MAKER as AD_MAKER_CREDIT_COST } from "@/lib/usage/credit-costs"
 import { usePromptWriter } from "@/hooks/usePromptWriter"
 import { PromptWriterField } from "@/components/generate/PromptWriterField"
 import type { ProductRow } from "@/types/database"
+import { readJsonResponse } from "@/lib/utils/read-json-response"
 
 // ─── Scene definitions ─────────────────────────────────────────────────────
 
@@ -439,7 +440,7 @@ export function AdMaker({ brandId, products }: AdMakerProps) {
         formData.append("image", blob, "product.jpg")
       }
       const res = await fetch("/api/v1/ai/remove-background", { method: "POST", body: formData })
-      const json = await res.json() as { data?: { base64: string }; error?: { message?: string } }
+      const json = await readJsonResponse(res) as { data?: { base64: string }; error?: { message?: string } }
       if (!res.ok || !json.data) throw new Error(json.error?.message ?? "Background removal failed")
       setProductDataUrl(`data:image/png;base64,${json.data.base64}`)
       setTimeout(() => setStep(2), 600)
@@ -525,7 +526,7 @@ export function AdMaker({ brandId, products }: AdMakerProps) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ scene, customScene, format, productImageBase64: productDataUrl, customPrompt: adPrompt.trim() || undefined }),
       })
-      const chargeJson: unknown = await chargeRes.json()
+      const chargeJson: unknown = await readJsonResponse(chargeRes)
       if (!chargeRes.ok || isApiError(chargeJson)) {
         // Preserves the real error code (e.g. USAGE_LIMIT_EXCEEDED) instead
         // of collapsing straight to a message string -- needed so
