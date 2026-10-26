@@ -319,4 +319,6 @@ export interface FastlaneResult {
   strategy_summary: string
   errors: string[]
   created_entries: CalendarEntryRow[]
+  /** Credits actually charged for the run (background Autopilot charges per completed slot). */
+  credits_charged?: number
 }

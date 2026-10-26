@@ -647,6 +647,10 @@ export type Database = {
           status: "running" | "done" | "error"
           total_slots: number
           completed_slots: number
+          /** supabase/migrations/057_autopilot_slot_jobs.sql */
+          failed_slots: number
+          params: Json | null
+          log_id: string | null
           result: Json | null
           error_message: string | null
           started_at: string

@@ -1,52 +1,65 @@
-import { NextResponse } from "next/server"
-import { createClient } from "@/lib/supabase/server"
+import { NextResponse, after } from "next/server"
+import { createClient, createAdminClient } from "@/lib/supabase/server"
 import { buildError, ErrorCodes } from "@/types/api"
 import { fastlaneSchema } from "@/lib/validations/fastlane"
-import { executeFastlane, estimateAutopilotCreditCost, computeAutopilotSlotCount, type AutopilotUsageTracker } from "@/lib/ai/fastlane"
+import { estimateAutopilotCreditCost, computeAutopilotSlotCount, generateContentStrategy, type AutopilotUsageTracker } from "@/lib/ai/fastlane"
+import { enqueueAutopilotSlots, type AutopilotRunParams } from "@/lib/ai/autopilot-worker"
 import { slotCreditCost } from "@/lib/ai/autopilot-content-mix"
 import { MODELS } from "@/lib/ai/models"
 import { PLAN_LIMITS } from "@/types/app"
 import type { UserPlan } from "@/types/app"
+import type { BrandRow, ProductRow } from "@/types/database"
 import { isInternalUnlimited } from "@/lib/usage/is-internal-unlimited"
-import { checkAndIncrementUsage, refundGenerationUsage, logGenerationOutcome } from "@/lib/usage/check-and-increment-usage"
-import { resolveGenerationLimit } from "@/lib/usage/trial-status"
+import { logGenerationOutcome } from "@/lib/usage/check-and-increment-usage"
+import { getUserCreditSummary } from "@/lib/usage/get-user-credit-summary"
 import { getISTDateString } from "@/lib/utils/ist"
 import { timedGenerationRoute, type GenerationTimer } from "@/lib/utils/generation-timing"
+import { withDeadline, DeadlineExceededError, GENERATION_TIMED_OUT_MESSAGE } from "@/lib/utils/with-deadline"
 
-// Reel-script slots defer video generation into after() callbacks that run
-// once this response is sent — see lib/ai/fastlane.ts's submitAutopilotReel.
-// As of 2026-08-18 those callbacks only SUBMIT each scene's Kling job
-// (webhook-driven, not polled — see app/api/v1/webhooks/kling/route.ts,
-// which owns actual completion including the JSON2Video render step) plus
-// synchronous TTS, so they're fast regardless of reel count. 300s here is
-// mainly for the rest of an Autopilot run (a full month of content-slot
-// generation, images, etc.), not reel rendering specifically anymore.
+// Starts an Autopilot run and returns 202 straight away. This request only
+// checks limits, plans the month (one strategy call) and enqueues one job
+// per slot; the slots themselves are generated, charged and saved one by
+// one in the background by lib/ai/autopilot-worker.ts, drained via
+// app/api/v1/cron/autopilot-drain (Supabase Cron every 20s, plus an
+// immediate kick from here). The page polls autopilot_run_status for real
+// progress, so the user can close the tab and come back. Nothing is
+// charged in this request: each slot is charged only when it completes.
+//
+// 300s = Hobby maximum with fluid compute (vercel.com/docs/functions/
+// configuring-functions/duration, checked 2026-10-26) -- only the
+// strategy call runs here now, with its own deadline below.
 export const maxDuration = 300
+const STRATEGY_DEADLINE_MS = 240_000
 
 function resolvePlan(rawPlan: string | undefined): UserPlan {
   return rawPlan && rawPlan in PLAN_LIMITS ? (rawPlan as UserPlan) : "starter"
 }
 
-// Fact-guard time budget (lib/ai/fact-guard.ts): past this point in the
-// run, a slot's fact-guard retry is skipped and the claim stripped instead,
-// leaving the last minute of maxDuration=300 for the remaining images and
-// DB writes.
-const FACT_GUARD_DEADLINE_MS = 240_000
-// No NEW batch of slots starts after this point; a batch still running at
-// HARD_DEADLINE_MS is cut off. Either way the unfinished slots are refunded
-// and the run ends cleanly before maxDuration=300 (the Hobby maximum with
-// fluid compute, vercel.com/docs/functions/configuring-functions/duration,
-// checked 2026-10-26) -- previously a long run was killed by Vercel with
-// every slot's credits kept and the run status stuck on "running".
-const STOP_NEW_BATCHES_MS = 150_000
-const HARD_DEADLINE_MS = 270_000
+// Kicks one drain pass as its own request (its own 300s budget), so the
+// first slots start now instead of at the next Supabase Cron tick. The
+// drain answers immediately (202) and works in the background, so this
+// only waits for that acknowledgement. Best-effort: the cron picks the
+// run up within ~20s anyway if this fails.
+async function kickDrain(origin: string): Promise<void> {
+  const secret = process.env.CRON_SECRET
+  if (!secret) return
+  const base = process.env.NEXT_PUBLIC_APP_URL || origin
+  try {
+    await fetch(`${base}/api/v1/cron/autopilot-drain`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${secret}` },
+      signal: AbortSignal.timeout(10_000),
+    })
+  } catch (err) {
+    console.error("[fastlane] drain kick failed (cron will pick the run up):", err instanceof Error ? err.message : err)
+  }
+}
 
 export async function POST(request: Request) {
   return timedGenerationRoute("autopilot", (timer) => handlePost(request, timer))
 }
 
 async function handlePost(request: Request, timer: GenerationTimer) {
-  const requestStartedAt = Date.now()
   console.log("[fastlane] POST called")
 
   let supabase
@@ -74,31 +87,11 @@ async function handlePost(request: Request, timer: GenerationTimer) {
 
   const { brandId, force, clearAndRegenerate, frequency, platforms, vibe, focusAreas } = parsed.data
 
-  // Tracked outside the try block so the catch block below can undo
-  // exactly what was actually applied on total failure -- both are now
-  // applied upfront, before executeFastlane runs, so a thrown error after
-  // charging needs an explicit revert to keep this route's original
-  // guarantee that a failed run doesn't cost you credits or a monthly
-  // Autopilot run.
-  let chargedCost = 0
-  let chargeLogId: string | null = null
-  // Running token/cost total across every model call in this run (see
-  // AutopilotUsageTracker) -- written onto the charge row's outcome below.
-  // generationStartedAt stays null until executeFastlane is actually
-  // called, so an early failure (validation, charge) logs no outcome.
-  const usageTracker: AutopilotUsageTracker = { usage: undefined, costUsd: null, captionMs: 0, imageMs: 0, skippedSlotContentTypes: [] }
-  let generationStartedAt: number | null = null
-  const recordOutcome = (success: boolean, errorMessage?: string) =>
-    logGenerationOutcome(supabase, chargeLogId, {
-      user_id: user.id, brand_id: brandId, feature: "autopilot_slot", model: MODELS.creative,
-      prompt_tokens: usageTracker.usage?.prompt_tokens ?? null,
-      completion_tokens: usageTracker.usage?.completion_tokens ?? null,
-      total_tokens: usageTracker.usage?.total_tokens ?? null,
-      cost_usd: usageTracker.costUsd,
-      latency_ms: generationStartedAt ? Date.now() - generationStartedAt : null,
-      success, error_message: errorMessage ?? null,
-    })
+  // Nothing is charged in this request (see the header comment), so the
+  // only thing a failure here has to undo is the monthly run-count
+  // increment -- and mark the run row as errored so the page stops polling.
   let runCountIncremented = false
+  let runId: string | null = null
   const isUnlimited = isInternalUnlimited(user.id)
 
   try {
@@ -217,52 +210,44 @@ async function handlePost(request: Request, timer: GenerationTimer) {
       }
     }
 
-    // Check AND charge in one atomic step, upfront — not a separate
-    // pre-flight peek here followed by a second read-then-write after
-    // executeFastlane finishes (which is what this route used to do, and
-    // exactly why a real charge was silently lost live: that second write
-    // was a plain SELECT-then-UPDATE with no locking, split from the first
-    // read by up to this route's own maxDuration=300s, a huge window for
-    // another concurrent request touching the same user's generation_count
-    // to land in between and get overwritten). checkAndIncrementUsage now
-    // does the reset-check and increment in one atomic Postgres statement
-    // (supabase/migrations/036_atomic_generation_usage.sql) — confirmed
-    // live: 10 concurrent 1-credit charges against the same user landed as
-    // 10, not 2. Charging upfront also matches how every other generation
-    // route in this app already does it (e.g. app/api/v1/ai/fullpost/
-    // generate/route.ts) — this route was the odd one out.
+    // Affordability check only -- NOTHING is charged here. Each slot is
+    // charged when it completes (complete_autopilot_slot, migration 057),
+    // so an unfinished or failed slot is never charged and nothing needs
+    // refunding. If the user spends credits elsewhere mid-run, the last
+    // slots fail as "out of credits" rather than overdrawing.
     if (!isUnlimited) {
-      const usageCheck = await checkAndIncrementUsage(user.id, estimatedCost, "autopilot_slot")
-      if (!usageCheck.ok) {
-        // trial_expired mirrors run_cap_reached's shape below — a
+      const credits = await getUserCreditSummary(supabase, user.id)
+      if (credits.trialExpired) {
+        // trial_expired mirrors run_cap_reached's shape below -- a
         // dedicated discriminator the client checks before falling
-        // through to the generic credits-upsell state, since "your trial
-        // ended" needs its own subscribe-focused copy, not the
-        // "here's how many credits you're short" upsell screen.
-        const effectiveLimit = resolveGenerationLimit(plan, userData ?? { trial_ends_at: null, subscribed_at: null })
+        // through to the generic credits-upsell state.
         return NextResponse.json(
           {
-            error: { code: ErrorCodes.USAGE_LIMIT_EXCEEDED, message: usageCheck.message },
-            trial_expired: usageCheck.trialExpired ?? false,
-            remaining_credits: Math.max(0, effectiveLimit - estimatedCost),
+            error: { code: ErrorCodes.USAGE_LIMIT_EXCEEDED, message: "Your 7-day free trial has ended. Subscribe to a plan to keep generating." },
+            trial_expired: true,
+            remaining_credits: 0,
             plan,
             credits_needed: estimatedCost,
           },
-          { status: usageCheck.status }
+          { status: 429 }
         )
       }
-      chargedCost = estimatedCost
-      chargeLogId = usageCheck.logId
+      if (credits.remaining < estimatedCost) {
+        return NextResponse.json(
+          {
+            error: { code: ErrorCodes.USAGE_LIMIT_EXCEEDED, message: `This run needs about ${estimatedCost} credits and you have ${credits.remaining}.` },
+            trial_expired: false,
+            remaining_credits: credits.remaining,
+            plan,
+            credits_needed: estimatedCost,
+          },
+          { status: 429 }
+        )
+      }
     }
 
-    // Run-count isn't part of checkAndIncrementUsage's shared credit pool
-    // (it's Autopilot's own separate monthly cap, see maxRunsPerMonth) so
-    // it doesn't get the same atomic-RPC treatment here -- but moving it
-    // to right after the atomic credit charge, instead of after the whole
-    // (up to 300s) executeFastlane call, closes the vast majority of the
-    // same race window regardless: a stale run_cap_reached miscount is a
-    // far lower-stakes, rare edge case than the credit charge silently
-    // vanishing was, and isn't part of what live QA confirmed broken.
+    // Autopilot's own monthly run cap (see maxRunsPerMonth) -- counted when
+    // the run starts, reverted below if starting it fails.
     if (userData && !isUnlimited) {
       const now = new Date()
       const runsResetAt = userData.autopilot_run_count_reset_at ? new Date(userData.autopilot_run_count_reset_at) : null
@@ -275,106 +260,77 @@ async function handlePost(request: Request, timer: GenerationTimer) {
       runCountIncremented = true
     }
 
-    // A durable row this run's progress gets written to as it happens, so
-    // a navigation away (or just closing the tab) doesn't destroy all
-    // visibility into a run that's still going -- or already finished --
-    // server-side with real credits already charged. See
-    // app/api/v1/brands/[brandId]/fastlane/status/route.ts, which is what
-    // the frontend checks on mount to recover this.
-    //
-    // Explicitly checked -- this used to only destructure `data`, so a real
-    // Postgres/PostgREST rejection here (RLS denial, missing table, etc.)
-    // resolved as {data:null} and was silently indistinguishable from the
-    // status-tracking feature never having been built: executeFastlane
-    // already treats runStatusRow?.id as optional, so the run itself still
-    // fully completes and real content still gets generated -- but with no
-    // row to poll, the frontend's "recover progress after navigating away"
-    // mechanism (fetchRunStatus/startPolling in the Autopilot page) goes
-    // silently inert, reproducing exactly the "stuck spinner forever, lose
-    // everything on navigation" symptom this table exists to prevent. Same
-    // class of gap already confirmed live for app/api/v1/ai/fullpost/
-    // generate/route.ts's captions insert -- unlike that one, this isn't
-    // core content, so it doesn't abort the run; it proceeds without
-    // tracking and says so in the response instead of pretending nothing
-    // happened.
+    const admin = await createAdminClient()
+
+    // One ai_generation_logs row per run, as before (so the dashboard's
+    // generation count doesn't change); each completed slot adds its
+    // credits to it atomically, and its tokens/cost best-effort.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data: runStatusRow, error: runStatusError } = await (supabase.from("autopilot_run_status") as any)
-      .insert({ brand_id: brandId, user_id: user.id, status: "running", total_slots: totalSlots })
-      .select("id")
-      .single() as { data: { id: string } | null; error: { message: string } | null }
+    const { data: logRow } = await (admin.from("ai_generation_logs") as any)
+      .insert({ user_id: user.id, brand_id: brandId, feature: "autopilot_slot", model: MODELS.creative, credits_charged: 0, success: true })
+      .select("id").single() as { data: { id: string } | null }
 
-    if (runStatusError) {
-      console.error("[fastlane] autopilot_run_status insert failed (non-fatal, proceeding without progress tracking):", runStatusError.message)
+    // The run row exists BEFORE the strategy call, so a user who closes the
+    // tab right away still finds the run when they come back. The queue
+    // depends on it, so a failure here is fatal (unlike before).
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data: runRow, error: runError } = await (admin.from("autopilot_run_status") as any)
+      .insert({ brand_id: brandId, user_id: user.id, status: "running", total_slots: totalSlots, log_id: logRow?.id ?? null })
+      .select("id").single() as { data: { id: string } | null; error: { message: string } | null }
+    if (runError || !runRow) throw new Error(`Couldn't start the Autopilot run: ${runError?.message ?? "no row"}`)
+    runId = runRow.id
+
+    const { data: fullBrand } = await supabase.from("brands").select("*").eq("id", brandId).eq("user_id", user.id).single<BrandRow>()
+    if (!fullBrand) throw new Error("Brand not found")
+    const { data: products } = await supabase.from("products").select("*").eq("brand_id", brandId).eq("is_active", true).returns<ProductRow[]>()
+
+    const tracker: AutopilotUsageTracker = { usage: undefined, costUsd: null, captionMs: 0, imageMs: 0 }
+    const strategyStartedAt = Date.now()
+    const strategy = await timer.step("caption", withDeadline(
+      generateContentStrategy(fullBrand, products ?? [], { frequency, platforms, vibe, focusAreas, totalSlots, plan, isInternalUnlimitedUser: isUnlimited }, tracker),
+      STRATEGY_DEADLINE_MS,
+      "autopilot strategy"
+    ))
+    const slots = strategy.slots.slice(0, totalSlots)
+
+    const params: AutopilotRunParams = {
+      frequency, platforms, vibe, focusAreas, totalSlots, plan,
+      isInternalUnlimitedUser: isUnlimited,
+      strategySummary: strategy.strategy_summary,
+      // Slot day 1 = today in India, fixed now so slots generated minutes
+      // later still land on the planned calendar days.
+      baseDate: getISTDateString(),
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await (admin.from("autopilot_run_status") as any).update({ params, total_slots: slots.length }).eq("id", runId)
+    await enqueueAutopilotSlots(admin, { runId, userId: user.id, brandId, slots, creditCost: slotCreditCost })
+
+    if (logRow) {
+      await logGenerationOutcome(admin, logRow.id, {
+        user_id: user.id, brand_id: brandId, feature: "autopilot_slot", model: MODELS.creative,
+        prompt_tokens: tracker.usage?.prompt_tokens ?? null,
+        completion_tokens: tracker.usage?.completion_tokens ?? null,
+        total_tokens: tracker.usage?.total_tokens ?? null,
+        cost_usd: tracker.costUsd,
+        latency_ms: Date.now() - strategyStartedAt,
+        success: true,
+      })
     }
 
-    // Execute autopilot with user preferences, scaled to this plan's tier
-    generationStartedAt = Date.now()
-    const result = await executeFastlane(supabase, user.id, brandId, {
-      frequency, platforms, vibe, focusAreas, totalSlots: totalSlots,
-      plan, isInternalUnlimitedUser: isUnlimited,
-      factGuardDeadline: requestStartedAt + FACT_GUARD_DEADLINE_MS,
-      stopNewBatchesAt: requestStartedAt + STOP_NEW_BATCHES_MS,
-      hardDeadlineAt: requestStartedAt + HARD_DEADLINE_MS,
-    }, runStatusRow?.id, usageTracker)
-    timer.add("caption", usageTracker.captionMs)
-    timer.add("image", usageTracker.imageMs)
+    after(() => kickDrain(new URL(request.url).origin))
 
-    // Refund exactly the slots this run never finished (see
-    // STOP_NEW_BATCHES_MS). Without the log id, so the charge row isn't
-    // zeroed -- its credits_charged is corrected to what was kept instead.
-    const skippedCost = Math.min(
-      chargedCost,
-      usageTracker.skippedSlotContentTypes.reduce((sum, ct) => sum + slotCreditCost(ct), 0)
-    )
-    if (skippedCost > 0) {
-      await refundGenerationUsage(supabase, user.id, skippedCost)
-      chargedCost -= skippedCost
-      if (chargeLogId) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const { error: logUpdateError } = await (supabase.from("ai_generation_logs") as any)
-          .update({ credits_charged: chargedCost })
-          .eq("id", chargeLogId)
-        if (logUpdateError) console.error("[fastlane] failed to correct credits_charged after partial refund:", logUpdateError.message)
-      }
-      console.log(`[fastlane] partial refund: ${skippedCost} credit(s) for ${usageTracker.skippedSlotContentTypes.length} unfinished slot(s)`)
-    }
-    // success = the run completed; individual slot failures are still
-    // reported in result.errors, same as before.
-    await recordOutcome(true, result.errors.length > 0 ? `${result.errors.length} slot(s) failed` : undefined)
-
-    // Surfaced back to the Fastlane UI so it can show the real credits this
-    // run actually consumed (not just the pre-flight estimate shown before
-    // the run started): estimatedCost minus any slots the run never
-    // finished (refunded above). Slots that ran but failed are still not
-    // refunded individually. 0 for internal-unlimited accounts, who were
-    // never charged at all.
-    return NextResponse.json({
-      data: result,
-      credits_charged: isUnlimited ? 0 : chargedCost,
-      // Lets the frontend tell the user their run completed but progress
-      // couldn't have been recovered had they navigated away mid-run --
-      // see the runStatusError check above.
-      run_status_tracking: !runStatusError,
-    }, { status: 201 })
+    return NextResponse.json({ data: { run_id: runId, total_slots: slots.length, status: "running" }, accepted: true }, { status: 202 })
   } catch (err) {
     console.error("[fastlane] POST unexpected error:", err)
-    if (generationStartedAt !== null) {
-      await recordOutcome(false, err instanceof Error ? err.message : "Unknown error").catch(() => {})
-    }
-    // The credit charge (and run-count increment) already happened before
-    // executeFastlane was attempted -- undo both on total failure, same as
-    // this route's original guarantee that a failed run costs nothing
-    // (previously true simply because charging happened strictly after
-    // executeFastlane succeeded; now needs an explicit revert since
-    // charging moved earlier, upfront, to close the race window).
-    if (chargedCost > 0) {
-      await refundGenerationUsage(supabase, user.id, chargedCost, chargeLogId).catch(() => {})
+    if (runId) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await (supabase.from("autopilot_run_status") as any)
+        .update({ status: "error", error_message: "Autopilot couldn't start. Nothing was charged.", completed_at: new Date().toISOString() })
+        .eq("id", runId)
+        .then(() => undefined, () => undefined)
     }
     if (runCountIncremented) {
-      // Best-effort, not atomic -- acceptable here: this is the rare
-      // total-failure path for a low-stakes secondary counter (a monthly
-      // run cap), not the credit pool live QA confirmed was actually
-      // losing money-equivalent charges.
+      // Best-effort, not atomic -- a low-stakes secondary counter.
       const { data: u } = await supabase.from("users").select("autopilot_run_count").eq("id", user.id).single<{ autopilot_run_count: number }>()
       if (u) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -383,7 +339,10 @@ async function handlePost(request: Request, timer: GenerationTimer) {
           .eq("id", user.id)
       }
     }
-    const message = err instanceof Error ? err.message : "Failed to execute Autopilot."
-    return NextResponse.json(buildError(ErrorCodes.AI_GENERATION_FAILED, message), { status: 500 })
+    const timedOut = err instanceof DeadlineExceededError
+    return NextResponse.json(
+      buildError(ErrorCodes.AI_GENERATION_FAILED, timedOut ? GENERATION_TIMED_OUT_MESSAGE : "Autopilot couldn't start. Please try again."),
+      { status: timedOut ? 504 : 500 }
+    )
   }
 }

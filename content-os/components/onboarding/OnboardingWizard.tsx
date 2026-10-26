@@ -267,13 +267,18 @@ function Step3Fastlane({ brand }: Step3Props) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ brandId: brand.id }),
       })
-      const json = await readJsonResponse(res) as { data?: FastlaneResult; error?: { message?: string } }
+      const json = await readJsonResponse(res) as { data?: { run_id?: string }; error?: { message?: string } }
       if (!res.ok) throw new Error(json.error?.message ?? "Fastlane failed")
-      setResult(json.data ?? null)
+
+      // The POST only plans the month and queues the slots (202) -- the
+      // slots are generated in the background, so follow the run via the
+      // same status endpoint the Autopilot page polls until it's done.
+      const finished = await waitForAutopilotRun(brand.id)
+      setResult(finished)
       try {
         if (POSTHOG_KEY) posthog.capture("onboarding_completed", {
           fastlane: true,
-          calendar_entries: json.data?.calendar_entries_created ?? 0,
+          calendar_entries: finished.calendar_entries_created ?? 0,
         })
       } catch {}
     } catch (err) {
@@ -406,6 +411,22 @@ function Step3Fastlane({ brand }: Step3Props) {
 }
 
 // ─── Main wizard ──────────────────────────────────────────────────────────────
+
+// Polls the Autopilot run status until the background run finishes (or
+// fails / gives up after 20 minutes) and returns its result.
+async function waitForAutopilotRun(brandId: string): Promise<FastlaneResult> {
+  const deadline = Date.now() + 20 * 60 * 1000
+  while (Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 4500))
+    const res = await fetch(`/api/v1/brands/${brandId}/fastlane/status`).catch(() => null)
+    if (!res?.ok) continue
+    const json = await readJsonResponse(res) as { data?: { status?: string; result?: FastlaneResult | null; error_message?: string | null } | null }
+    const run = json.data
+    if (run?.status === "error") throw new Error(run.error_message ?? "Autopilot failed")
+    if (run?.status === "done" && run.result) return run.result
+  }
+  throw new Error("Autopilot is still running -- check the Autopilot page in a few minutes.")
+}
 
 export function OnboardingWizard() {
   const [step, setStep] = useState<Step>(1)

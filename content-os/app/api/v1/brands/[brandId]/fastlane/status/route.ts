@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import { buildError, ErrorCodes } from "@/types/api"
 import type { AutopilotRunStatusRow } from "@/types/database"
+import { buildAutopilotRunResult } from "@/lib/ai/autopilot-worker"
 
 type RouteParams = { params: Promise<{ brandId: string }> }
 
@@ -44,6 +45,23 @@ export async function GET(request: Request, { params }: RouteParams) {
 
   if (!run || Date.now() - new Date(run.started_at).getTime() > RECENT_WINDOW_MS) {
     return NextResponse.json({ data: null })
+  }
+
+  // Background Autopilot (lib/ai/autopilot-worker.ts) finishes a run from
+  // the database side (finish_autopilot_run_if_done), so no request ever
+  // holds the whole result. The first poll that sees it done builds the
+  // same FastlaneResult the page already renders from the slot jobs, and
+  // caches it on the row. Best-effort: on failure the page just shows the
+  // run as done without the review list, and the next poll retries.
+  if (run.status === "done" && !run.result && run.params) {
+    try {
+      const result = await buildAutopilotRunResult(supabase, run)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await (supabase.from("autopilot_run_status") as any).update({ result }).eq("id", run.id)
+      return NextResponse.json({ data: { ...run, result } })
+    } catch (err) {
+      console.error(`[fastlane/status] building result for run ${run.id} failed:`, err instanceof Error ? err.message : err)
+    }
   }
 
   return NextResponse.json({ data: run })

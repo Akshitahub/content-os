@@ -31,14 +31,15 @@ const STATUS_BADGE: Record<string, string> = {
 type AutopilotState = "SETUP" | "STRATEGY" | "RUNNING" | "DONE" | "ERROR" | "WARNING" | "UPSELL" | "RUN_CAP" | "TRIAL_EXPIRED"
 
 // How often the RUNNING view polls GET .../fastlane/status for real
-// progress (completed_slots/total_slots), both while this tab's own POST
-// is in flight and when resuming a run found on mount.
+// progress (completed_slots/total_slots). Runs are generated in the
+// background now (lib/ai/autopilot-worker.ts): the POST returns as soon as
+// the month is planned, and this poll is what follows the run to the end
+// -- in this tab, or after the user comes back.
 const POLL_INTERVAL_MS = 4500
-// A 'running' row older than this is treated as likely failed/timed out
-// rather than still actively working -- comfortably past the fastlane
-// route's own maxDuration=300s cap, so a genuinely still-running row
-// should never actually reach this age.
-const STALE_THRESHOLD_MS = 10 * 60 * 1000
+// A 'running' row older than this is treated as likely stuck. A 30-slot
+// background run takes several minutes (slots are drained a few at a
+// time), so this is well past a normal run, not the old 300s request cap.
+const STALE_THRESHOLD_MS = 30 * 60 * 1000
 
 interface RunCapData {
   message: string
@@ -214,17 +215,30 @@ export default function AutopilotPage() {
       return
     }
 
-    stopPolling()
     if (run.status === "done") {
       const recovered = (run.result as unknown as FastlaneResult | null)
-      if (recovered) {
-        setResult(recovered)
-        const createdEntries = recovered.created_entries ?? []
-        setEntries(createdEntries)
-        setSelectedIds(new Set(createdEntries.filter(e => e.status === "content_ready").map(e => e.id)))
-      }
+      // The status route builds the result on the first poll after the
+      // run finishes -- keep polling until it's there.
+      if (!recovered) return
+      stopPolling()
+      setResult(recovered)
+      setCreditsCharged(recovered.credits_charged ?? null)
+      const createdEntries = recovered.created_entries ?? []
+      setEntries(createdEntries)
+      setSelectedIds(new Set(createdEntries.filter(e => e.status === "content_ready").map(e => e.id)))
       setState("DONE")
-    } else if (run.status === "error") {
+      // Slots were charged as they completed -- refresh the shared balance.
+      queryClient.invalidateQueries({ queryKey: userCreditsKeys.all })
+      try {
+        if (POSTHOG_KEY) posthog.capture("autopilot_completed", {
+          brand_id: brandId,
+          calendar_entries: recovered.calendar_entries_created ?? 0,
+        })
+      } catch {}
+      return
+    }
+    stopPolling()
+    if (run.status === "error") {
       setErrorMsg(run.error_message ?? "Autopilot failed. Please try again.")
       setState("ERROR")
     }
@@ -332,12 +346,12 @@ export default function AutopilotPage() {
     setCompletedSlots(0)
     setTotalSlotsRunning(runTotalSlots)
     setIsStale(false)
-    // The POST below blocks for the whole run (up to maxDuration=300s) --
-    // this polls the real completed_slots/total_slots the route wrote to
-    // autopilot_run_status as it went, so the progress bar reflects actual
-    // work instead of a simulated animation. Stopped in `finally` once the
-    // POST itself resolves either way.
+    // The POST below only plans the month and queues the slots (202); the
+    // slots are generated in the background. Polling starts now and keeps
+    // running after the POST returns, until the run is done -- see
+    // applyRunRow. Stopped in `finally` only if the run never started.
     startPolling()
+    let keepPolling = false
 
     try {
       const res = await fetch("/api/v1/brands/fastlane", {
@@ -354,7 +368,7 @@ export default function AutopilotPage() {
       })
 
       const json = await readJsonResponse(res) as {
-        data?: FastlaneResult
+        data?: FastlaneResult & { run_id?: string; total_slots?: number }
         error?: { message?: string; code?: string }
         warning?: boolean
         message?: string
@@ -417,37 +431,17 @@ export default function AutopilotPage() {
         throw new Error(json.error?.message ?? "Autopilot failed")
       }
 
-      setResult(json.data ?? null)
-      setCreditsCharged(json.credits_charged ?? null)
-      // run_status_tracking is only ever absent on responses from before
-      // this field existed -- treated as "tracking worked" (`!== false`)
-      // rather than defaulting the other way, since a missing field here
-      // must never look like a new failure.
-      setStatusTrackingFailed(json.run_status_tracking === false)
-      const createdEntries = json.data?.created_entries ?? []
-      setEntries(createdEntries)
-      // Select all by default — Autopilot generated these intentionally,
-      // so the burden should be deselecting what you don't want, not the reverse.
-      setSelectedIds(new Set(createdEntries.filter(e => e.status === "content_ready").map(e => e.id)))
-      setState("DONE")
-      // This run just deducted credits server-side -- refetch the shared
-      // balance now so Header updates in lockstep with this page instead
-      // of only catching up on its own next refetch.
-      queryClient.invalidateQueries({ queryKey: userCreditsKeys.all })
-      try {
-        if (POSTHOG_KEY) posthog.capture("autopilot_completed", {
-          brand_id: brandId,
-          calendar_entries: json.data?.calendar_entries_created ?? 0,
-          frequency,
-          vibe,
-        })
-      } catch {}
+      // 202: the month is planned and the slots are queued -- the poll
+      // started above follows the run from here (and applyRunRow switches
+      // to DONE with the real results when it finishes).
+      if (json.data?.total_slots) setTotalSlotsRunning(json.data.total_slots)
+      keepPolling = true
     } catch (err) {
       const msg = err instanceof Error ? err.message : "An unexpected error occurred"
       setErrorMsg(msg)
       setState("ERROR")
     } finally {
-      stopPolling()
+      if (!keepPolling) stopPolling()
     }
   }
 
