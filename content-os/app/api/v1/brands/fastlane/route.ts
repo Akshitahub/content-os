@@ -40,16 +40,26 @@ function resolvePlan(rawPlan: string | undefined): UserPlan {
 // drain answers immediately (202) and works in the background, so this
 // only waits for that acknowledgement. Best-effort: the cron picks the
 // run up within ~20s anyway if this fails.
+//
+// Calls the origin this request arrived on, not NEXT_PUBLIC_APP_URL: if
+// that names a host that redirects (apex -> www), fetch follows the
+// redirect cross-origin and drops the Authorization header, so the kick
+// got a 401 -- and the response status was never checked, so it failed
+// silently. redirect: "manual" makes any redirect show up as a status.
 async function kickDrain(origin: string): Promise<void> {
-  const secret = process.env.CRON_SECRET
-  if (!secret) return
-  const base = process.env.NEXT_PUBLIC_APP_URL || origin
+  const secret = process.env.CRON_SECRET?.trim()
+  if (!secret) {
+    console.error("[fastlane] drain kick skipped: CRON_SECRET is not set (the cron drain will reject calls too)")
+    return
+  }
   try {
-    await fetch(`${base}/api/v1/cron/autopilot-drain`, {
+    const res = await fetch(`${origin}/api/v1/cron/autopilot-drain`, {
       method: "POST",
       headers: { Authorization: `Bearer ${secret}` },
+      redirect: "manual",
       signal: AbortSignal.timeout(10_000),
     })
+    if (res.status !== 202) console.error(`[fastlane] drain kick got HTTP ${res.status} from ${origin} (cron will pick the run up)`)
   } catch (err) {
     console.error("[fastlane] drain kick failed (cron will pick the run up):", err instanceof Error ? err.message : err)
   }

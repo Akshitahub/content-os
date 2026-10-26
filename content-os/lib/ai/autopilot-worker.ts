@@ -124,9 +124,11 @@ export async function drainAutopilotQueue(): Promise<{ claimed: number }> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data, error } = await (admin.rpc as any)("claim_autopilot_slots", {
     p_limit: CLAIM_BATCH, p_max_running: MAX_RUNNING, p_lease_seconds: LEASE_SECONDS,
-  }) as { data: SlotJobRow[] | null; error: { message: string } | null }
+  }) as { data: SlotJobRow[] | null; error: { message: string; code?: string; details?: string | null; hint?: string | null } | null }
   if (error) {
-    console.error("[autopilot-worker] claim failed:", error.message)
+    // code PGRST202 = the function isn't there (migration 057 not run, or
+    // PostgREST's schema cache not reloaded); 42501 = permission denied.
+    console.error(`[autopilot-worker] claim failed: code=${error.code ?? "none"} message=${error.message} details=${error.details ?? "none"} hint=${error.hint ?? "none"}`)
     return { claimed: 0 }
   }
   const jobs = data ?? []
