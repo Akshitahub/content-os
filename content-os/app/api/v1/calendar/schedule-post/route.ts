@@ -115,7 +115,8 @@ export async function POST(request: Request) {
       sourceUrls.map((sourceUrl, i) =>
         uploadMediaToStorage(
           sourceUrl.startsWith("data:") ? { kind: "dataUrl", dataUrl: sourceUrl } : { kind: "remoteUrl", url: sourceUrl },
-          `${brandId}/scheduled-${Date.now()}-${i}`
+          `${brandId}/scheduled-${Date.now()}-${i}`,
+          { generatedImage: true }
         )
       )
     )
@@ -141,7 +142,8 @@ export async function POST(request: Request) {
     // now, not days later when the cron tries and gives up after 3 attempts.
     const uploadResult = await uploadMediaToStorage(
       imageUrl!.startsWith("data:") ? { kind: "dataUrl", dataUrl: imageUrl! } : { kind: "remoteUrl", url: imageUrl! },
-      `${brandId}/scheduled-${Date.now()}`
+      `${brandId}/scheduled-${Date.now()}`,
+      { generatedImage: true }
     )
 
     if ("error" in uploadResult) {

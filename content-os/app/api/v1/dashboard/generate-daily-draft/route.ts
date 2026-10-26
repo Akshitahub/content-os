@@ -16,6 +16,7 @@ import type { GeneratedCaption, UserPlan } from "@/types/app"
 import type { DailyDraft, DailyDraftCacheRow } from "@/lib/dashboard/get-or-create-daily-draft"
 import { timedGenerationRoute, type GenerationTimer } from "@/lib/utils/generation-timing"
 import { withDeadline, DeadlineExceededError, GENERATION_TIMED_OUT_MESSAGE } from "@/lib/utils/with-deadline"
+import { prepareGeneratedImage } from "@/lib/storage/generated-image"
 
 const BUCKET = "brand-images"
 
@@ -198,10 +199,11 @@ async function handlePost(request: Request, timer: GenerationTimer) {
     // user's own auth uid, which brand ownership is already verified
     // above.
     const admin = await createAdminClient()
-    const storagePath = `${user.id}/${brand.id}/${Date.now()}-${crypto.randomUUID()}.png`
+    const image = await prepareGeneratedImage(imageResult.buffer, imageResult.mimeType, "dashboard/generate-daily-draft")
+    const storagePath = `${user.id}/${brand.id}/${Date.now()}-${crypto.randomUUID()}.${image.ext}`
     const { error: uploadError } = await admin.storage
       .from(BUCKET)
-      .upload(storagePath, imageResult.buffer, { contentType: imageResult.mimeType, upsert: false })
+      .upload(storagePath, image.buffer, { contentType: image.mimeType, upsert: false })
     if (uploadError) throw new Error(uploadError.message)
     const { data: publicUrlData } = admin.storage.from(BUCKET).getPublicUrl(storagePath)
 

@@ -52,7 +52,8 @@ export async function POST(request: Request, { params }: RouteParams) {
 
   const uploadResult = await uploadMediaToStorage(
     { kind: "buffer", buffer, mimeType: "image/png" },
-    `${brandId}/ads`
+    `${brandId}/ads`,
+    { generatedImage: true }
   )
 
   if ("error" in uploadResult) {

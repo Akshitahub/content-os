@@ -94,7 +94,7 @@ export async function POST(request: Request) {
     // existing "Save as PNG" download flow (story-export.ts's
     // downloadStorySlideAsImage/downloadStorySlidesAsImages) is untouched.
     const hostedResults = await Promise.all(
-      buffers.map((buf, i) => uploadMediaToStorage({ kind: "buffer", buffer: buf, mimeType: "image/png" }, `story-renders/${user.id}-${Date.now()}-${i}`))
+      buffers.map((buf, i) => uploadMediaToStorage({ kind: "buffer", buffer: buf, mimeType: "image/png" }, `story-renders/${user.id}-${Date.now()}-${i}`, { generatedImage: true }))
     )
     const hostedUrls = hostedResults.every(r => "publicUrl" in r) ? hostedResults.map(r => (r as { publicUrl: string }).publicUrl) : null
     return NextResponse.json({ data: { imageUrls, hostedUrls } })

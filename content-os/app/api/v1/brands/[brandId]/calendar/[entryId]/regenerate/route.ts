@@ -18,6 +18,7 @@ import type { BrandRow, CalendarEntryRow } from "@/types/database"
 import type { UserPlan, Platform, GeneratedCaption, CarouselContent } from "@/types/app"
 import { timedGenerationRoute, type GenerationTimer } from "@/lib/utils/generation-timing"
 import { withDeadline, DeadlineExceededError, GENERATION_TIMED_OUT_MESSAGE } from "@/lib/utils/with-deadline"
+import { prepareGeneratedImage } from "@/lib/storage/generated-image"
 
 const IMAGE_BUCKET = "brand-images"
 const FEATURE = "calendar_regenerate"
@@ -141,7 +142,8 @@ async function handlePost(request: Request, { params }: RouteParams, timer: Gene
           for (let idx = 0; idx < slidePngs.length; idx++) {
             const uploadResult = await uploadMediaToStorage(
               { kind: "buffer", buffer: slidePngs[idx]!, mimeType: "image/png" },
-              `${brandId}/carousel/${Date.now()}-${idx}`
+              `${brandId}/carousel/${Date.now()}-${idx}`,
+              { generatedImage: true }
             )
             if ("publicUrl" in uploadResult) {
               uploaded.push(uploadResult.publicUrl)
@@ -218,10 +220,11 @@ async function handlePost(request: Request, { params }: RouteParams, timer: Gene
 
     if (imageResult.success) {
       const admin = await createAdminClient()
-      const storagePath = `${user.id}/${brandId}/${Date.now()}-${crypto.randomUUID()}.png`
+      const image = await prepareGeneratedImage(imageResult.buffer, imageResult.mimeType, "calendar/regenerate")
+      const storagePath = `${user.id}/${brandId}/${Date.now()}-${crypto.randomUUID()}.${image.ext}`
       const { error: uploadError } = await admin.storage
         .from(IMAGE_BUCKET)
-        .upload(storagePath, imageResult.buffer, { contentType: imageResult.mimeType, upsert: false })
+        .upload(storagePath, image.buffer, { contentType: image.mimeType, upsert: false })
 
       if (uploadError) {
         console.error(`[calendar/regenerate] entry ${entryId}: image generated but storage upload failed:`, uploadError.message)

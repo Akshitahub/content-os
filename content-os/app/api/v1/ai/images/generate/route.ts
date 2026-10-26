@@ -8,6 +8,7 @@ import { IMAGE } from "@/lib/usage/credit-costs"
 import { isInternalUnlimited } from "@/lib/usage/is-internal-unlimited"
 import type { BrandRow, ProductRow } from "@/types/database"
 import type { UserPlan } from "@/types/app"
+import { prepareGeneratedImage } from "@/lib/storage/generated-image"
 
 const BUCKET = "brand-images"
 const FEATURE = "images"
@@ -91,12 +92,12 @@ export async function POST(request: Request) {
   // path to start with the user's auth uid — admin client bypasses RLS safely
   // here because we've already verified brand ownership above).
   const admin = await createAdminClient()
-  const ext = result.mimeType.includes("jpeg") ? "jpg" : "png"
-  const storagePath = `${user.id}/${brandId}/${Date.now()}-${crypto.randomUUID()}.${ext}`
+  const image = await prepareGeneratedImage(result.buffer, result.mimeType, "ai/images/generate")
+  const storagePath = `${user.id}/${brandId}/${Date.now()}-${crypto.randomUUID()}.${image.ext}`
 
   const { error: uploadError } = await admin.storage
     .from(BUCKET)
-    .upload(storagePath, result.buffer, { contentType: result.mimeType, upsert: false })
+    .upload(storagePath, image.buffer, { contentType: image.mimeType, upsert: false })
 
   if (uploadError) {
     // Image was generated but never actually delivered to the user — no

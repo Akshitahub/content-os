@@ -168,7 +168,8 @@ async function processEntry(admin: AdminClient, entry: CalendarEntryRow): Promis
         const sourceUrl = sourceUrls[i]!
         const uploadResult = await uploadMediaToStorage(
           sourceUrl.startsWith("data:") ? { kind: "dataUrl", dataUrl: sourceUrl } : { kind: "remoteUrl", url: sourceUrl },
-          `${entry.brand_id}/${entry.id}-${i}`
+          `${entry.brand_id}/${entry.id}-${i}`,
+          { generatedImage: true }
         )
         if ("error" in uploadResult) {
           console.error(`[cron/publish-scheduled] entry ${entry.id}: failed to host ${noun} ${i + 1}/${sourceUrls.length}:`, uploadResult.error)
@@ -201,7 +202,8 @@ async function processEntry(admin: AdminClient, entry: CalendarEntryRow): Promis
 
       const uploadResult = await uploadMediaToStorage(
         sourceUrl.startsWith("data:") ? { kind: "dataUrl", dataUrl: sourceUrl } : { kind: "remoteUrl", url: sourceUrl },
-        `${entry.brand_id}/${entry.id}`
+        `${entry.brand_id}/${entry.id}`,
+        { generatedImage: true }
       )
       if ("error" in uploadResult) {
         console.error(`[cron/publish-scheduled] entry ${entry.id}: failed to host image:`, uploadResult.error)

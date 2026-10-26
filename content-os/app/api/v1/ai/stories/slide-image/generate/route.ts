@@ -166,7 +166,8 @@ async function handlePost(request: Request, timer: GenerationTimer) {
 
   const uploadResult = await uploadMediaToStorage(
     { kind: "buffer", buffer: result.buffer, mimeType: result.mimeType },
-    `${brandId}/story-slides`
+    `${brandId}/story-slides`,
+    { generatedImage: true }
   )
 
   if ("error" in uploadResult) {

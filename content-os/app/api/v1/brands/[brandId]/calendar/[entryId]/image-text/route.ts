@@ -66,7 +66,7 @@ export async function POST(request: Request, { params }: RouteParams) {
   }
 
   // Same hosting convention as app/api/v1/calendar/schedule-post/route.ts.
-  const uploadResult = await uploadMediaToStorage({ kind: "dataUrl", dataUrl: imageDataUrl }, `${brandId}/scheduled-${Date.now()}`)
+  const uploadResult = await uploadMediaToStorage({ kind: "dataUrl", dataUrl: imageDataUrl }, `${brandId}/scheduled-${Date.now()}`, { generatedImage: true })
   if ("error" in uploadResult) {
     console.error(`[calendar/image-text] entry ${entryId}: upload failed:`, uploadResult.error)
     return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Couldn't save the updated image. Please try again."), { status: 500 })

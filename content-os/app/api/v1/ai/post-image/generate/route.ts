@@ -12,6 +12,7 @@ import { withDeadline, DeadlineExceededError, GENERATION_TIMED_OUT_MESSAGE } fro
 import type { BrandRow, ProductRow } from "@/types/database"
 import type { UserPlan } from "@/types/app"
 import { timedGenerationRoute, type GenerationTimer } from "@/lib/utils/generation-timing"
+import { prepareGeneratedImage } from "@/lib/storage/generated-image"
 
 const BUCKET = "brand-images"
 const FEATURE = "post_image"
@@ -213,11 +214,12 @@ async function handlePost(request: Request, timer: GenerationTimer) {
   // with the user's auth uid, admin bypasses RLS safely here since brand
   // ownership is already verified above (same pattern as images/generate).
   const admin = await createAdminClient()
-  const storagePath = `${user.id}/${brandId}/${Date.now()}-${crypto.randomUUID()}.png`
+  const image = await prepareGeneratedImage(result.buffer, result.mimeType, "ai/post-image/generate")
+  const storagePath = `${user.id}/${brandId}/${Date.now()}-${crypto.randomUUID()}.${image.ext}`
 
   const { error: uploadError } = await admin.storage
     .from(BUCKET)
-    .upload(storagePath, result.buffer, { contentType: result.mimeType, upsert: false })
+    .upload(storagePath, image.buffer, { contentType: image.mimeType, upsert: false })
 
   if (uploadError) {
     // Image was generated but never actually delivered to the user — no

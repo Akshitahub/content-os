@@ -14,6 +14,7 @@ import type { BrandRow } from "@/types/database"
 import type { UserPlan } from "@/types/app"
 import { timedGenerationRoute, type GenerationTimer } from "@/lib/utils/generation-timing"
 import { withDeadline, DeadlineExceededError, GENERATION_TIMED_OUT_MESSAGE } from "@/lib/utils/with-deadline"
+import { prepareGeneratedImage } from "@/lib/storage/generated-image"
 
 const BUCKET = "brand-images"
 
@@ -191,11 +192,11 @@ async function handlePost(request: Request, { params }: RouteParams, timer: Gene
   const uploadedPaths = (
     await Promise.all(
       successes.map(async (result, i) => {
-        const ext = result.mimeType.includes("jpeg") ? "jpg" : "png"
-        const storagePath = `${user.id}/${brandId}/ad-maker-${Date.now()}-${i}-${crypto.randomUUID()}.${ext}`
+        const image = await prepareGeneratedImage(result.buffer, result.mimeType, "ai/ad-maker/generate")
+        const storagePath = `${user.id}/${brandId}/ad-maker-${Date.now()}-${i}-${crypto.randomUUID()}.${image.ext}`
         const { error: uploadError } = await admin.storage
           .from(BUCKET)
-          .upload(storagePath, result.buffer, { contentType: result.mimeType, upsert: false })
+          .upload(storagePath, image.buffer, { contentType: image.mimeType, upsert: false })
         return uploadError ? null : storagePath
       })
     )

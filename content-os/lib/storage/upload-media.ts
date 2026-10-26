@@ -1,4 +1,5 @@
 import { createAdminClient } from "@/lib/supabase/server"
+import { prepareGeneratedImage } from "@/lib/storage/generated-image"
 
 const BUCKET = "published-media"
 
@@ -39,10 +40,15 @@ export type UploadMediaResult =
  * and returns a permanent, app-controlled public HTTPS URL. Instagram's
  * Graph API requires a publicly fetchable HTTPS URL — it cannot accept
  * data: URLs or rely on third-party hosts staying reachable.
+ *
+ * `generatedImage: true` (AI-generated or composited output only -- never a
+ * user's uploaded original) re-encodes the image via prepareGeneratedImage
+ * (JPEG unless it has real transparency) before upload.
  */
 export async function uploadMediaToStorage(
   input: UploadMediaInput,
-  pathPrefix: string
+  pathPrefix: string,
+  options: { generatedImage?: boolean } = {}
 ): Promise<UploadMediaResult> {
   try {
     let buffer: Buffer
@@ -86,6 +92,12 @@ export async function uploadMediaToStorage(
     }
     if (buffer.length > MAX_UPLOAD_BYTES) {
       return { error: `File too large (max ${MAX_UPLOAD_BYTES / 1024 / 1024}MB).` }
+    }
+
+    if (options.generatedImage) {
+      const prepared = await prepareGeneratedImage(buffer, mimeType, `upload-media ${pathPrefix}`)
+      buffer = prepared.buffer
+      mimeType = prepared.mimeType
     }
 
     // webp was already in ALLOWED_MIME_TYPES above but had no case here --

@@ -20,6 +20,7 @@ import { withDeadline } from "@/lib/utils/with-deadline"
 import { PLAN_LIMITS } from "@/types/app"
 import type { BrandRow, ProductRow, CalendarEntryRow, Json, Database } from "@/types/database"
 import type { ContentSlot, FastlaneResult, Platform, ReelScene, UserPlan } from "@/types/app"
+import { prepareGeneratedImage } from "@/lib/storage/generated-image"
 
 // Background Autopilot worker (supabase/migrations/057_autopilot_slot_jobs.sql).
 // A Supabase Cron job calls app/api/v1/cron/autopilot-drain every 20s while
@@ -292,9 +293,10 @@ async function prepareSlot(admin: Admin, job: SlotJobRow, ctx: RunContext, track
       trackUsage(tracker, undefined, attemptsCostUsd(imageResult.attempts))
       tracker.imageMs += Date.now() - imageStartedAt
       if (imageResult.success) {
-        const storagePath = `${job.user_id}/${job.brand_id}/${Date.now()}-${crypto.randomUUID()}.png`
+        const image = await prepareGeneratedImage(imageResult.buffer, imageResult.mimeType, `autopilot-worker slot ${job.id}`)
+        const storagePath = `${job.user_id}/${job.brand_id}/${Date.now()}-${crypto.randomUUID()}.${image.ext}`
         const { error: uploadError } = await admin.storage.from(IMAGE_BUCKET)
-          .upload(storagePath, imageResult.buffer, { contentType: imageResult.mimeType, upsert: false })
+          .upload(storagePath, image.buffer, { contentType: image.mimeType, upsert: false })
         if (uploadError) {
           console.error(`[autopilot-worker] slot ${job.id}: image upload failed:`, uploadError.message)
         } else {
@@ -326,7 +328,8 @@ async function prepareSlot(admin: Admin, job: SlotJobRow, ctx: RunContext, track
       for (let idx = 0; idx < slidePngs.length; idx++) {
         const uploadResult = await uploadMediaToStorage(
           { kind: "buffer", buffer: slidePngs[idx]!, mimeType: "image/png" },
-          `${job.brand_id}/carousel/${Date.now()}-${idx}`
+          `${job.brand_id}/carousel/${Date.now()}-${idx}`,
+          { generatedImage: true }
         )
         if ("publicUrl" in uploadResult) uploaded.push(uploadResult.publicUrl)
         else console.error(`[autopilot-worker] slot ${job.id}: carousel slide ${idx} upload failed:`, uploadResult.error)
