@@ -311,12 +311,58 @@ interface SlotContent {
   call_to_action: string
   slides?: CarouselSlide[]
   scenes?: ReelScene[]
+  /** The one angle the model committed to (see SLOT_COPY_RULES) -- informational only, never persisted. */
+  angle?: string
+}
+
+const SLOT_CONTENT_SYSTEM_PROMPT = "You write Instagram/social copy for Indian D2C brands that stops the scroll. Before writing, pick ONE sharp angle for this post and commit to it. Write like a sharp human creator, not a brand. Respond with valid JSON only. No markdown."
+
+// Shared by all three per-slot builders below. The fact guard
+// (lib/ai/fact-guard.ts) still backstops the "never invent facts" rule.
+const SLOT_COPY_RULES = `RULES:
+ANGLE — pick exactly one: myth vs truth · common mistake · surprising specific detail · before/after · us vs them · "what's trending in [month] for [niche]" · "things you probably missed" · confession/behind the scenes · a hyper-specific real-life situation · conflict ("the X war nobody saw coming"). Return the chosen one in the "angle" field.
+HOOK — under 12 words. Must create tension or a curiosity gap. Concrete, not abstract. Don't start with the brand name, "Are you", "Ever wondered", "Introducing", or "Discover".
+SPECIFICITY — use at least one real detail from the data above (₹ price, a named benefit, an ingredient, the target customer's situation). NEVER invent facts: no made-up stats, prices, discounts, awards, customer quotes or customer names. If the data is thin, get specific through a relatable everyday Indian situation instead of claims.
+CAPTION — short lines separated by line breaks, not one paragraph. The hook is shown above the caption, so the caption's first line continues the hook (don't repeat it). End with the brand's CTA phrase if one is given, else one clear action; call_to_action is that same closing line. No hashtags in the caption — they go in "hashtags" only.
+BANNED — elevate, unleash, unlock, discover, embark, journey, game-changer, revolutionize, indulge, "look no further", "say goodbye to", "in today's fast-paced world", "experience the", "dive into", "we've got you covered", three-adjective lists, more than 2 emojis.
+TESTIMONIAL pillar — describe a relatable customer situation; never a quote attributed to a person.`
+
+function formatProductPrice(product: ProductRow): string | null {
+  if (product.price == null) return null
+  return product.currency?.toUpperCase() === "INR" ? `₹${product.price}` : `${product.currency} ${product.price}`
+}
+
+// Every non-empty brand/product field the per-slot copy can draw specifics
+// from -- one line each, empty fields omitted.
+function buildSlotContextLines(brand: BrandRow, product: ProductRow | null): string {
+  const lines: string[] = [
+    `Brand: ${brand.name}`,
+    `Brand niche: ${brand.niche ?? "D2C brand"}`,
+    `Brand tone: ${brand.tone_of_voice ?? "conversational"}`,
+  ]
+  const add = (label: string, value: string | null | undefined) => {
+    if (value?.trim()) lines.push(`${label}: ${value.trim()}`)
+  }
+  add("Brand description", brand.description)
+  add("Target audience", brand.target_audience)
+  add("Positioning", brand.positioning)
+  add("Target emotion", brand.target_emotion)
+  add("Brand personality", brand.brand_personality)
+  add("Brand values", brand.brand_values?.filter(Boolean).join(", "))
+  add("Brand CTA phrase", brand.cta_phrase)
+  if (product) {
+    add("Product", product.name)
+    add("Product description", product.description)
+    add("Price", formatProductPrice(product))
+    add("Category", product.category)
+    add("Key benefits", product.key_benefits?.filter(Boolean).join("; "))
+    add("Ingredients", product.ingredients)
+    add("Target customer", product.target_customer)
+  }
+  return lines.join("\n")
 }
 
 function buildSlotContentPrompt(brand: BrandRow, slot: ContentSlot, product: ProductRow | null, totalSlots: number): string {
-  const productCtx = product
-    ? `\nProduct: ${product.name}${product.description ? ` - ${product.description}` : ""}`
-    : ""
   const pillarCtx = slot.content_pillar ? `\nContent Pillar: ${slot.content_pillar}` : ""
   const pillarDescriptions: Record<string, string> = {
     product: "showcase the product's features and benefits compellingly",
@@ -324,7 +370,7 @@ function buildSlotContentPrompt(brand: BrandRow, slot: ContentSlot, product: Pro
     educational: "teach something genuinely useful to the audience",
     humor_meme: "be witty and relatable — make them laugh or nod",
     occasion: "tie the brand to this occasion naturally without being forced",
-    testimonial: "share a customer success story or social proof angle",
+    testimonial: "show a relatable customer situation the product fits into — no quotes or named customers",
     announcement: "build excitement around something new or upcoming",
     inspiration: "uplift and motivate — connect values to the audience's aspirations",
     founder_story: "share the brand's origin, mission, or founder journey",
@@ -334,48 +380,48 @@ function buildSlotContentPrompt(brand: BrandRow, slot: ContentSlot, product: Pro
     : ""
 
   return `Create a complete ${slot.content_type} post for ${brand.name} on ${slot.platform}.
-Brand niche: ${brand.niche ?? "D2C brand"}
-Brand tone: ${brand.tone_of_voice ?? "conversational"}
-Theme: ${slot.theme}${productCtx}${pillarCtx}
+${buildSlotContextLines(brand, product)}
+Theme: ${slot.theme}${pillarCtx}
 Day: ${slot.day} of ${totalSlots}${pillarInstruction ? `\n${pillarInstruction}` : ""}
 
 IMPORTANT: This is slot ${slot.day}/${totalSlots}. Make it UNIQUE — different angle than typical posts for this brand.
 
+${SLOT_COPY_RULES}
+
 Return this exact JSON:
-{"title":"post title","hook":"attention-grabbing opening line that stops the scroll","caption":"full post caption (2-4 sentences, brand voice, ends with CTA)","hashtags":["hashtag1","hashtag2","hashtag3","hashtag4","hashtag5"],"visual_direction":"describe the ideal image/video for this post","audio_suggestion":"suggested background music mood or sound","call_to_action":"specific action you want the audience to take"}`
+{"angle":"the one angle you picked","title":"post title","hook":"the hook, per HOOK rules","caption":"caption as short lines separated by \\n, per CAPTION rules","hashtags":["hashtag1","hashtag2","hashtag3","hashtag4","hashtag5"],"visual_direction":"describe the ideal image/video for this post","audio_suggestion":"suggested background music mood or sound","call_to_action":"the caption's closing action line"}`
 }
 
 function buildReelScriptSlotContentPrompt(brand: BrandRow, slot: ContentSlot, product: ProductRow | null, totalSlots: number): string {
-  const productCtx = product
-    ? `\nProduct: ${product.name}${product.description ? ` - ${product.description}` : ""}`
-    : ""
   const pillarCtx = slot.content_pillar ? `\nContent Pillar: ${slot.content_pillar}` : ""
 
   return `Create a complete short-form reel script for ${brand.name} on ${slot.platform}.
-Brand niche: ${brand.niche ?? "D2C brand"}
-Brand tone: ${brand.tone_of_voice ?? "conversational"}
-Theme: ${slot.theme}${productCtx}${pillarCtx}
+${buildSlotContextLines(brand, product)}
+Theme: ${slot.theme}${pillarCtx}
 Day: ${slot.day} of ${totalSlots}
 
 IMPORTANT: This is slot ${slot.day}/${totalSlots}. Make it UNIQUE — different angle than typical posts for this brand.
 
-Break the reel into 3-5 scenes totaling 15-30 seconds (3-8 seconds each). Each scene needs exactly what the viewer sees (visual_direction) and exactly what's heard or read on screen (voiceover_or_text_overlay).
+${SLOT_COPY_RULES}
+
+Break the reel into 3-5 scenes totaling 15-30 seconds (3-8 seconds each). Each scene needs exactly what the viewer sees (visual_direction) and exactly what's heard or read on screen (voiceover_or_text_overlay). The first scene's voiceover/text delivers the hook.
 
 Return this exact JSON:
-{"title":"post title","hook":"attention-grabbing opening line that stops the scroll","caption":"full post caption (2-4 sentences, brand voice, ends with CTA)","hashtags":["hashtag1","hashtag2","hashtag3","hashtag4","hashtag5"],"visual_direction":"one-line overall visual style/mood for the reel","audio_suggestion":"suggested background music mood or sound","call_to_action":"specific action you want the audience to take","scenes":[{"visual_direction":"what the viewer sees in this scene","voiceover_or_text_overlay":"spoken words or on-screen text for this scene","duration_seconds":5}]}`
+{"angle":"the one angle you picked","title":"post title","hook":"the hook, per HOOK rules","caption":"caption as short lines separated by \\n, per CAPTION rules","hashtags":["hashtag1","hashtag2","hashtag3","hashtag4","hashtag5"],"visual_direction":"one-line overall visual style/mood for the reel","audio_suggestion":"suggested background music mood or sound","call_to_action":"the caption's closing action line","scenes":[{"visual_direction":"what the viewer sees in this scene","voiceover_or_text_overlay":"spoken words or on-screen text for this scene","duration_seconds":5}]}`
 }
 
 function buildCarouselSlotContentPrompt(brand: BrandRow, slot: ContentSlot, product: ProductRow | null): string {
-  const productCtx = product
-    ? `\nProduct: ${product.name}${product.description ? ` - ${product.description}` : ""}`
-    : ""
+  const pillarCtx = slot.content_pillar ? `\nContent Pillar: ${slot.content_pillar}` : ""
   return `Create a 5-slide carousel post for ${brand.name} on ${slot.platform}.
-Brand niche: ${brand.niche ?? "D2C brand"}
-Brand tone: ${brand.tone_of_voice ?? "conversational"}
-Theme: ${slot.theme}${productCtx}
+${buildSlotContextLines(brand, product)}
+Theme: ${slot.theme}${pillarCtx}
+
+${SLOT_COPY_RULES}
+
+CAROUSEL — exactly 5 slides. Slide 1's headline is the cover and follows the HOOK rules (same as "hook"). Slides 2-4 each make one concrete point that delivers on the angle — a real headline, never a label like "Point 1". Slide 5 is the CTA, using the brand's CTA phrase if one is given.
 
 Return this exact JSON (exactly 5 slides):
-{"title":"carousel title","hook":"compelling cover headline","slides":[{"slide_number":1,"headline":"Cover headline","body":"Teaser of what readers will learn"},{"slide_number":2,"headline":"Point 1 title","body":"First key insight in 1-2 sentences"},{"slide_number":3,"headline":"Point 2 title","body":"Second key insight in 1-2 sentences"},{"slide_number":4,"headline":"Point 3 title","body":"Third key insight in 1-2 sentences"},{"slide_number":5,"headline":"Save this post!","body":"Call to action and follow for more"}],"hashtags":["hashtag1","hashtag2","hashtag3","hashtag4","hashtag5"],"visual_direction":"visual style for the carousel","audio_suggestion":"background music mood","call_to_action":"what you want the audience to do"}`
+{"angle":"the one angle you picked","title":"carousel title","hook":"cover headline, per HOOK rules","slides":[{"slide_number":1,"headline":"cover headline (same as hook)","body":"one line that sets up what the next slides pay off"},{"slide_number":2,"headline":"first concrete point, stated as a headline","body":"1-2 sentences backing it with a specific detail"},{"slide_number":3,"headline":"second concrete point, stated as a headline","body":"1-2 sentences backing it with a specific detail"},{"slide_number":4,"headline":"third concrete point, stated as a headline","body":"1-2 sentences backing it with a specific detail"},{"slide_number":5,"headline":"closing CTA headline","body":"one line telling the reader exactly what to do next"}],"hashtags":["hashtag1","hashtag2","hashtag3","hashtag4","hashtag5"],"visual_direction":"visual style for the carousel","audio_suggestion":"background music mood","call_to_action":"the closing action, matching slide 5"}`
 }
 
 export async function generateContentStrategy(brand: BrandRow, products: ProductRow[], params?: AutopilotParams, tracker?: AutopilotUsageTracker): Promise<ContentStrategy> {
@@ -486,7 +532,7 @@ export async function generateSlotContent(
   const callParams = {
     stage,
     logPrefix: "fastlane",
-    system: "You are an expert social media content creator. Generate complete, ready-to-post content. Respond with valid JSON only. No markdown.",
+    system: SLOT_CONTENT_SYSTEM_PROMPT,
     user: isCarousel
       ? buildCarouselSlotContentPrompt(brand, slot, product)
       : isReel
