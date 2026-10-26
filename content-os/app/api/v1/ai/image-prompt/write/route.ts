@@ -107,7 +107,22 @@ export async function POST(request: Request) {
       constraints: constraints as ImagePromptConstraints,
     })
   } catch (err) {
-    console.error("[ai/image-prompt/write] stream failed to start:", err)
+    // Logged as explicit fields (not just a bare `console.error(err)`) so
+    // the actual cause -- missing key, a real 401 from OpenAI, rate limit,
+    // model not found, etc. -- is readable directly in Vercel logs instead
+    // of however the platform happens to serialize an Error/APIError
+    // object. classifyOpenAIError below only ever returns a short,
+    // provider-name-free message to the client; this is the one place the
+    // real detail survives at all.
+    const errObj = err as Record<string, unknown>
+    console.error("[ai/image-prompt/write] stream failed to start:", {
+      message: err instanceof Error ? err.message : String(err),
+      name: err instanceof Error ? err.name : undefined,
+      status: errObj?.status,
+      code: errObj?.code,
+      type: errObj?.type,
+      error: errObj?.error,
+    })
     return Response.json(buildError(ErrorCodes.AI_GENERATION_FAILED, classifyOpenAIError(err)), { status: 500 })
   }
 
