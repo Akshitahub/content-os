@@ -18,6 +18,7 @@ import type { FastlaneResult } from "@/types/app"
 import type { CalendarEntryRow, AutopilotRunStatusRow } from "@/types/database"
 import { useQueryClient } from "@tanstack/react-query"
 import { useUserCredits, userCreditsKeys } from "@/hooks/useUserCredits"
+import { readJsonResponse } from "@/lib/utils/read-json-response"
 
 const STATUS_BADGE: Record<string, string> = {
   planned: "bg-slate-100 text-slate-700",
@@ -300,7 +301,7 @@ export default function AutopilotPage() {
         }),
       })
 
-      const json = await res.json() as { data?: StrategyOverview; error?: { message?: string } }
+      const json = await readJsonResponse(res) as { data?: StrategyOverview; error?: { message?: string } }
       if (!res.ok || !json.data) {
         throw new Error(json.error?.message ?? "Couldn't generate a strategy preview.")
       }
@@ -352,7 +353,7 @@ export default function AutopilotPage() {
         }),
       })
 
-      const json = await res.json() as {
+      const json = await readJsonResponse(res) as {
         data?: FastlaneResult
         error?: { message?: string; code?: string }
         warning?: boolean

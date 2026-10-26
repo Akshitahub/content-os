@@ -16,6 +16,8 @@ import { fetchPastExamples } from "@/lib/ai/past-examples"
 import { isInternalUnlimited } from "@/lib/usage/is-internal-unlimited"
 import type { BrandRow, CalendarEntryRow } from "@/types/database"
 import type { UserPlan, Platform, GeneratedCaption, CarouselContent } from "@/types/app"
+import { timedGenerationRoute, type GenerationTimer } from "@/lib/utils/generation-timing"
+import { withDeadline, DeadlineExceededError, GENERATION_TIMED_OUT_MESSAGE } from "@/lib/utils/with-deadline"
 
 const IMAGE_BUCKET = "brand-images"
 const FEATURE = "calendar_regenerate"
@@ -33,9 +35,14 @@ function resolvePlatform(platform: string | null): Platform {
 }
 
 // Chains a hook call + a content call (run concurrently) and, for "post"
-// entries, a further image generation call — same headroom as
-// app/api/v1/ai/fullpost/generate/route.ts and .../post-image/generate/route.ts.
-export const maxDuration = 60
+// entries, a further image generation call.
+// 300s = Hobby maximum with fluid compute (vercel.com/docs/functions/
+// configuring-functions/duration, checked 2026-10-26). Was 60, below the
+// image step's own ~100s worst case: Vercel killed the function after the
+// credit charge and the catch block's refund never ran. ROUTE_DEADLINE_MS
+// stops this route's model work 30s earlier so the refund always runs.
+export const maxDuration = 300
+const ROUTE_DEADLINE_MS = 270_000
 
 /**
  * Regenerates exactly one calendar_entries row in place, routed by its
@@ -48,14 +55,18 @@ export const maxDuration = 60
  * returns a clear error rather than a half-built attempt at it.
  */
 // Fact-guard time budget (lib/ai/fact-guard.ts): the text step must leave
-// room inside maxDuration=60 for what follows it -- slide rendering +
+// room inside maxDuration for what follows it -- slide rendering +
 // uploads for a carousel, the (up to two-attempt) image generation for a
 // post. Past these deadlines a fact-guard retry is skipped and the
 // unsupported claim stripped instead.
-const CAROUSEL_TEXT_DEADLINE_MS = 45_000
-const POST_TEXT_DEADLINE_MS = 25_000
+const CAROUSEL_TEXT_DEADLINE_MS = 200_000
+const POST_TEXT_DEADLINE_MS = 150_000
 
-export async function POST(request: Request, { params }: RouteParams) {
+export async function POST(request: Request, ctx: RouteParams) {
+  return timedGenerationRoute("calendar-regenerate", (timer) => handlePost(request, ctx, timer))
+}
+
+async function handlePost(request: Request, { params }: RouteParams, timer: GenerationTimer) {
   const requestStartedAt = Date.now()
   const { brandId, entryId } = await params
   console.log(`[calendar/regenerate] POST called for brand ${brandId} entry ${entryId}`)
@@ -116,7 +127,7 @@ export async function POST(request: Request, { params }: RouteParams) {
   try {
     if (entry.content_type === "carousel") {
       const pastExamples = await fetchPastExamples(supabase, brandId, "carousel")
-      const contentResult = await generateContent(brand, "carousel", { platform, additionalContext, pastExamples, factGuardDeadline: requestStartedAt + CAROUSEL_TEXT_DEADLINE_MS })
+      const contentResult = await timer.step("caption", withDeadline(generateContent(brand, "carousel", { platform, additionalContext, pastExamples, factGuardDeadline: requestStartedAt + CAROUSEL_TEXT_DEADLINE_MS }), requestStartedAt + ROUTE_DEADLINE_MS - Date.now(), "regenerate carousel copy"))
       const carousel = contentResult.data as CarouselContent
       const coverHook = carousel.slides[0]?.headline || entry.title
 
@@ -172,10 +183,10 @@ export async function POST(request: Request, { params }: RouteParams) {
 
     // content_type === "post"
     const pastExamples = await fetchPastExamples(supabase, brandId, "social_post")
-    const [hookResult, contentResult] = await Promise.all([
+    const [hookResult, contentResult] = await timer.step("caption", withDeadline(Promise.all([
       generateHooks(brand, { hookTypes: ["bold_statement", "question", "story"], count: 1, platform, additionalContext, factGuardDeadline: requestStartedAt + POST_TEXT_DEADLINE_MS }),
       generateContent(brand, "social_post", { platform, additionalContext, pastExamples, includeImagePrompt: true, factGuardDeadline: requestStartedAt + POST_TEXT_DEADLINE_MS }),
-    ])
+    ]), requestStartedAt + ROUTE_DEADLINE_MS - Date.now(), "regenerate post copy"))
 
     const hook = hookResult.hooks[0]
     if (!hook) throw new Error("Hook generation returned no results")
@@ -193,7 +204,7 @@ export async function POST(request: Request, { params }: RouteParams) {
     // by merging the old separate headline/CTA into the pipeline's new
     // single captionText field, same reasoning as lib/ai/fastlane.ts.
     const regenCaptionText = [hook.hook_text, caption.cta || brand.cta_phrase || "Shop now"].filter(Boolean).join(" — ")
-    const imageResult = await generatePostImage({
+    const imageResult = await timer.step("image", withDeadline(generatePostImage({
       imagePrompt: caption.image_prompt || entry.visual_direction || "professional product photography",
       brandNiche: brand.niche,
       targetAudience: brand.target_audience,
@@ -203,7 +214,7 @@ export async function POST(request: Request, { params }: RouteParams) {
       logoUrl: brand.logo_url,
       plan,
       isInternalUnlimitedUser,
-    })
+    }), requestStartedAt + ROUTE_DEADLINE_MS - Date.now(), "regenerate image"))
 
     if (imageResult.success) {
       const admin = await createAdminClient()
@@ -243,6 +254,10 @@ export async function POST(request: Request, { params }: RouteParams) {
   } catch (err) {
     console.error(`[calendar/regenerate] entry ${entryId} failed:`, err instanceof Error ? err.message : err)
     await refundGenerationUsage(supabase, user.id, cost, logId)
-    return NextResponse.json(buildError(ErrorCodes.AI_GENERATION_FAILED, "Regeneration failed. Please try again."), { status: 500 })
+    const timedOut = err instanceof DeadlineExceededError
+    return NextResponse.json(
+      buildError(ErrorCodes.AI_GENERATION_FAILED, timedOut ? GENERATION_TIMED_OUT_MESSAGE : "Regeneration failed. Please try again."),
+      { status: timedOut ? 504 : 500 }
+    )
   }
 }

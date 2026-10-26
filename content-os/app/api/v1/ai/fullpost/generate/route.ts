@@ -15,6 +15,7 @@ import { withDeadline, DeadlineExceededError, GENERATION_TIMED_OUT_MESSAGE } fro
 import { addTextUsage, sumCostUsd } from "@/lib/ai/pricing"
 import type { BrandRow, ProductRow } from "@/types/database"
 import type { GeneratedCaption, ReelScript, CarouselContent, AdCopy } from "@/types/app"
+import { timedGenerationRoute, type GenerationTimer } from "@/lib/utils/generation-timing"
 
 // Mirrors components/generate/FullPostGenerator.tsx's former client-side
 // ANGLE_HINT map verbatim -- moved server-side so the angle is a real,
@@ -38,6 +39,10 @@ const ANGLE_HINT: Record<"problem_solution" | "quick_tip" | "myth_contrarian" | 
 }
 
 export async function POST(request: Request) {
+  return timedGenerationRoute("fullpost", (timer) => handlePost(request, timer))
+}
+
+async function handlePost(request: Request, timer: GenerationTimer) {
   const deadlineAt = Date.now() + TEXT_DEADLINE_MS
   const remainingMs = () => deadlineAt - Date.now()
   const supabase = await createClient()
@@ -106,21 +111,21 @@ export async function POST(request: Request) {
       // social_post's caption prompt is built from the hook's own text, so
       // content generation genuinely can't start until the hook exists —
       // this stays sequential.
-      hookResult = await withDeadline(generateHooks(brand, {
+      hookResult = await timer.step("caption", withDeadline(generateHooks(brand, {
         hookTypes: ["bold_statement", "question", "story"],
         count: 1,
         platform,
         additionalContext: combinedContext,
         product,
         factGuardDeadline: deadlineAt - 30_000,
-      }), remainingMs(), "fullpost hooks")
+      }), remainingMs(), "fullpost hooks"))
       const firstHook = hookResult.hooks[0]
       if (!firstHook) throw new Error("Hook generation returned no results")
 
       // createPostImageSession only depends on user.id, not on
       // contentResult — run it alongside content generation instead of
       // after it.
-      const [contentRes, sessRes] = await withDeadline(Promise.all([
+      const [contentRes, sessRes] = await timer.step("caption", withDeadline(Promise.all([
         generateContent(brand, format, {
           product,
           platform,
@@ -132,14 +137,14 @@ export async function POST(request: Request) {
           factGuardDeadline: deadlineAt - 30_000,
         }),
         createPostImageSession(user.id),
-      ]), remainingMs(), "fullpost caption")
+      ]), remainingMs(), "fullpost caption"))
       contentResult = contentRes
       sessionResult = sessRes
     } else {
       // Every other format ignores hookText entirely, so hook generation
       // and content generation have no real dependency on each other — run
       // them concurrently instead of paying for both latencies back to back.
-      ;[hookResult, contentResult] = await withDeadline(Promise.all([
+      ;[hookResult, contentResult] = await timer.step("caption", withDeadline(Promise.all([
         generateHooks(brand, {
           hookTypes: ["bold_statement", "question", "story"],
           count: 1,
@@ -157,7 +162,7 @@ export async function POST(request: Request) {
           includeImagePrompt: false,
           factGuardDeadline: deadlineAt - 30_000,
         }),
-      ]), remainingMs(), "fullpost content")
+      ]), remainingMs(), "fullpost content"))
     }
 
     const hook = hookResult.hooks[0]

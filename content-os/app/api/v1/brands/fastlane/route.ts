@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server"
 import { buildError, ErrorCodes } from "@/types/api"
 import { fastlaneSchema } from "@/lib/validations/fastlane"
 import { executeFastlane, estimateAutopilotCreditCost, computeAutopilotSlotCount, type AutopilotUsageTracker } from "@/lib/ai/fastlane"
+import { slotCreditCost } from "@/lib/ai/autopilot-content-mix"
 import { MODELS } from "@/lib/ai/models"
 import { PLAN_LIMITS } from "@/types/app"
 import type { UserPlan } from "@/types/app"
@@ -10,6 +11,7 @@ import { isInternalUnlimited } from "@/lib/usage/is-internal-unlimited"
 import { checkAndIncrementUsage, refundGenerationUsage, logGenerationOutcome } from "@/lib/usage/check-and-increment-usage"
 import { resolveGenerationLimit } from "@/lib/usage/trial-status"
 import { getISTDateString } from "@/lib/utils/ist"
+import { timedGenerationRoute, type GenerationTimer } from "@/lib/utils/generation-timing"
 
 // Reel-script slots defer video generation into after() callbacks that run
 // once this response is sent — see lib/ai/fastlane.ts's submitAutopilotReel.
@@ -30,8 +32,20 @@ function resolvePlan(rawPlan: string | undefined): UserPlan {
 // leaving the last minute of maxDuration=300 for the remaining images and
 // DB writes.
 const FACT_GUARD_DEADLINE_MS = 240_000
+// No NEW batch of slots starts after this point; a batch still running at
+// HARD_DEADLINE_MS is cut off. Either way the unfinished slots are refunded
+// and the run ends cleanly before maxDuration=300 (the Hobby maximum with
+// fluid compute, vercel.com/docs/functions/configuring-functions/duration,
+// checked 2026-10-26) -- previously a long run was killed by Vercel with
+// every slot's credits kept and the run status stuck on "running".
+const STOP_NEW_BATCHES_MS = 150_000
+const HARD_DEADLINE_MS = 270_000
 
 export async function POST(request: Request) {
+  return timedGenerationRoute("autopilot", (timer) => handlePost(request, timer))
+}
+
+async function handlePost(request: Request, timer: GenerationTimer) {
   const requestStartedAt = Date.now()
   console.log("[fastlane] POST called")
 
@@ -72,7 +86,7 @@ export async function POST(request: Request) {
   // AutopilotUsageTracker) -- written onto the charge row's outcome below.
   // generationStartedAt stays null until executeFastlane is actually
   // called, so an early failure (validation, charge) logs no outcome.
-  const usageTracker: AutopilotUsageTracker = { usage: undefined, costUsd: null }
+  const usageTracker: AutopilotUsageTracker = { usage: undefined, costUsd: null, captionMs: 0, imageMs: 0, skippedSlotContentTypes: [] }
   let generationStartedAt: number | null = null
   const recordOutcome = (success: boolean, errorMessage?: string) =>
     logGenerationOutcome(supabase, chargeLogId, {
@@ -299,20 +313,44 @@ export async function POST(request: Request) {
       frequency, platforms, vibe, focusAreas, totalSlots: totalSlots,
       plan, isInternalUnlimitedUser: isUnlimited,
       factGuardDeadline: requestStartedAt + FACT_GUARD_DEADLINE_MS,
+      stopNewBatchesAt: requestStartedAt + STOP_NEW_BATCHES_MS,
+      hardDeadlineAt: requestStartedAt + HARD_DEADLINE_MS,
     }, runStatusRow?.id, usageTracker)
+    timer.add("caption", usageTracker.captionMs)
+    timer.add("image", usageTracker.imageMs)
+
+    // Refund exactly the slots this run never finished (see
+    // STOP_NEW_BATCHES_MS). Without the log id, so the charge row isn't
+    // zeroed -- its credits_charged is corrected to what was kept instead.
+    const skippedCost = Math.min(
+      chargedCost,
+      usageTracker.skippedSlotContentTypes.reduce((sum, ct) => sum + slotCreditCost(ct), 0)
+    )
+    if (skippedCost > 0) {
+      await refundGenerationUsage(supabase, user.id, skippedCost)
+      chargedCost -= skippedCost
+      if (chargeLogId) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const { error: logUpdateError } = await (supabase.from("ai_generation_logs") as any)
+          .update({ credits_charged: chargedCost })
+          .eq("id", chargeLogId)
+        if (logUpdateError) console.error("[fastlane] failed to correct credits_charged after partial refund:", logUpdateError.message)
+      }
+      console.log(`[fastlane] partial refund: ${skippedCost} credit(s) for ${usageTracker.skippedSlotContentTypes.length} unfinished slot(s)`)
+    }
     // success = the run completed; individual slot failures are still
     // reported in result.errors, same as before.
     await recordOutcome(true, result.errors.length > 0 ? `${result.errors.length} slot(s) failed` : undefined)
 
     // Surfaced back to the Fastlane UI so it can show the real credits this
     // run actually consumed (not just the pre-flight estimate shown before
-    // the run started) -- there's no per-slot refund for individual
-    // generation failures within a run, so this is always exactly
-    // estimatedCost (0 for internal-unlimited accounts, who were never
-    // charged at all). Already charged upfront above, not computed here.
+    // the run started): estimatedCost minus any slots the run never
+    // finished (refunded above). Slots that ran but failed are still not
+    // refunded individually. 0 for internal-unlimited accounts, who were
+    // never charged at all.
     return NextResponse.json({
       data: result,
-      credits_charged: isUnlimited ? 0 : estimatedCost,
+      credits_charged: isUnlimited ? 0 : chargedCost,
       // Lets the frontend tell the user their run completed but progress
       // couldn't have been recovered had they navigated away mid-run --
       // see the runStatusError check above.

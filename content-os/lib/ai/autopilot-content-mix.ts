@@ -116,6 +116,11 @@ const SLOT_CONTENT_TYPE_CREDIT_COST: Record<string, number> = {
  * duplicating buildContentMix's mix-selection logic or drifting out of
  * sync with it.
  */
+/** Credits one slot of this content_type is charged at (same weights estimateAutopilotCreditCost sums) -- used to refund slots a run skipped. */
+export function slotCreditCost(contentType: string): number {
+  return SLOT_CONTENT_TYPE_CREDIT_COST[contentType] ?? 1
+}
+
 export function estimateAutopilotCreditCost(focusAreas?: string[], totalSlots = 30): number {
   const mix = buildContentMix(focusAreas, totalSlots)
   return mix.reduce((sum, m) => sum + m.count * (SLOT_CONTENT_TYPE_CREDIT_COST[m.format] ?? 1), 0)

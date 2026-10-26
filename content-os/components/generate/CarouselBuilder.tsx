@@ -223,7 +223,7 @@ async function fetchSlideBackgroundResult(
     if (res.status === 429) return { error: "insufficient_credits" }
     if (!res.ok) return { error: "failed" }
     const json = await readJsonResponse(res) as { data?: { public_url?: string; provider?: "openai" } }
-    return json.data?.public_url ? { url: json.data.public_url, provider: json.data.provider } : { error: "failed" }
+    return res.ok && json.data?.public_url ? { url: json.data.public_url, provider: json.data.provider } : { error: "failed" }
   } catch {
     return { error: "failed" }
   }

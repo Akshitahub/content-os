@@ -14,6 +14,8 @@ import { buildError, ErrorCodes } from "@/types/api"
 import type { BrandRow } from "@/types/database"
 import type { GeneratedCaption, UserPlan } from "@/types/app"
 import type { DailyDraft, DailyDraftCacheRow } from "@/lib/dashboard/get-or-create-daily-draft"
+import { timedGenerationRoute, type GenerationTimer } from "@/lib/utils/generation-timing"
+import { withDeadline, DeadlineExceededError, GENERATION_TIMED_OUT_MESSAGE } from "@/lib/utils/with-deadline"
 
 const BUCKET = "brand-images"
 
@@ -30,7 +32,13 @@ const FEATURE = "daily_draft"
 // critical path of any page render -- see get-or-create-daily-draft.ts's
 // own doc comment for the incident this fixes (the whole Home page used
 // to hang behind this exact chain running inside the server render).
-export const maxDuration = 60
+// 300s = Hobby maximum with fluid compute (vercel.com/docs/functions/
+// configuring-functions/duration, checked 2026-10-26). Was 60, below the
+// image step's own ~100s worst case: Vercel killed the function after the
+// credit charge and the catch block's refund never ran. ROUTE_DEADLINE_MS
+// stops this route's model work 30s earlier so the refund always runs.
+export const maxDuration = 300
+const ROUTE_DEADLINE_MS = 270_000
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function insertFailedRow(supabase: any, brandId: string, draftDate: string): Promise<void> {
@@ -50,12 +58,16 @@ async function insertFailedRow(supabase: any, brandId: string, draftDate: string
 }
 
 // Fact-guard time budget (lib/ai/fact-guard.ts): hooks + caption must
-// leave room inside maxDuration=60 for the (up to two-attempt) image
+// leave room inside maxDuration for the (up to two-attempt) image
 // generation after them -- past this a fact-guard retry is skipped and the
 // unsupported claim stripped instead.
-const TEXT_DEADLINE_MS = 25_000
+const TEXT_DEADLINE_MS = 150_000
 
 export async function POST(request: Request) {
+  return timedGenerationRoute("daily-draft", (timer) => handlePost(request, timer))
+}
+
+async function handlePost(request: Request, timer: GenerationTimer) {
   const requestStartedAt = Date.now()
   const supabase = await createClient()
   const { data: { user }, error: authError } = await supabase.auth.getUser()
@@ -112,25 +124,25 @@ export async function POST(request: Request) {
     // productId, no additionalContext (a generic on-brand post, not tied
     // to anything the user typed), and no contentAngle (omitted entirely
     // so it stays equivalent to that route's own "auto" default).
-    const hookResult = await generateHooks(brand, {
+    const hookResult = await timer.step("caption", withDeadline(generateHooks(brand, {
       hookTypes: ["bold_statement", "question", "story"],
       count: 1,
       platform: "instagram",
       product: null,
       factGuardDeadline: requestStartedAt + TEXT_DEADLINE_MS,
-    })
+    }), requestStartedAt + ROUTE_DEADLINE_MS - Date.now(), "daily draft hook"))
     const hook = hookResult.hooks[0]
     if (!hook) throw new Error("Hook generation returned no results")
 
     const colorThemes = resolveColorThemes(brand)
-    const contentResult = await generateContent(brand, "social_post", {
+    const contentResult = await timer.step("caption", withDeadline(generateContent(brand, "social_post", {
       product: null,
       platform: "instagram",
       hookText: hook.hook_text,
       includeImagePrompt: true,
       availableColorThemes: colorThemes.map((t) => ({ id: t.id, label: t.label })),
       factGuardDeadline: requestStartedAt + TEXT_DEADLINE_MS,
-    })
+    }), requestStartedAt + ROUTE_DEADLINE_MS - Date.now(), "daily draft caption"))
     const caption = contentResult.data as GeneratedCaption
     // Same post-generation merge fullpost/generate/route.ts applies, so
     // this cached draft's caption carries the hook and CTA the same way
@@ -166,7 +178,7 @@ export async function POST(request: Request) {
     // No captionText -- matches Create Post's current decoupled-overlay
     // architecture, a clean text-free background rather than a
     // server-composited one.
-    const imageResult = await generatePostImage({
+    const imageResult = await timer.step("image", withDeadline(generatePostImage({
       imagePrompt,
       brandNiche: brand.niche,
       targetAudience: brand.target_audience,
@@ -178,7 +190,7 @@ export async function POST(request: Request) {
       isInternalUnlimitedUser: isInternalUnlimited(user.id),
       productImageUrl: null,
       aspectRatio: "4:5",
-    })
+    }), requestStartedAt + ROUTE_DEADLINE_MS - Date.now(), "daily draft image"))
     if (!imageResult.success) throw new Error(imageResult.error)
 
     // Same storage upload as app/api/v1/ai/post-image/generate/route.ts --
@@ -219,6 +231,10 @@ export async function POST(request: Request) {
     console.error("[dashboard/generate-daily-draft] generation failed, refunding charge:", err instanceof Error ? err.message : err)
     await refundGenerationUsage(supabase, user.id, POST_CREDIT_COST, usageCheck.logId)
     await insertFailedRow(supabase, brand.id, today)
-    return NextResponse.json(buildError(ErrorCodes.AI_GENERATION_FAILED, "Daily draft generation failed."), { status: 500 })
+    const timedOut = err instanceof DeadlineExceededError
+    return NextResponse.json(
+      buildError(ErrorCodes.AI_GENERATION_FAILED, timedOut ? GENERATION_TIMED_OUT_MESSAGE : "Daily draft generation failed."),
+      { status: timedOut ? 504 : 500 }
+    )
   }
 }

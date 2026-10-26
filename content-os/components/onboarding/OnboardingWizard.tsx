@@ -11,6 +11,7 @@ import posthog from "posthog-js"
 import { POSTHOG_KEY } from "@/lib/analytics/posthog"
 import type { BrandRow } from "@/types/database"
 import { PLAN_LIMITS, type FastlaneResult } from "@/types/app"
+import { readJsonResponse } from "@/lib/utils/read-json-response"
 
 type Step = 1 | 2 | 3
 
@@ -266,7 +267,7 @@ function Step3Fastlane({ brand }: Step3Props) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ brandId: brand.id }),
       })
-      const json = await res.json() as { data?: FastlaneResult; error?: { message?: string } }
+      const json = await readJsonResponse(res) as { data?: FastlaneResult; error?: { message?: string } }
       if (!res.ok) throw new Error(json.error?.message ?? "Fastlane failed")
       setResult(json.data ?? null)
       try {

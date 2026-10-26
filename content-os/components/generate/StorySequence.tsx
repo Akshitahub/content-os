@@ -184,7 +184,7 @@ async function fetchSlideBackgroundResult(
     // response -- treated the same as any other failure rather than
     // storing a background with an unknown provider (which PhoneStory's
     // "!== openai" overlay gating needs to be trustworthy either way).
-    return json.data?.public_url && json.data.provider ? { url: json.data.public_url, provider: json.data.provider } : { error: "failed" }
+    return res.ok && json.data?.public_url && json.data.provider ? { url: json.data.public_url, provider: json.data.provider } : { error: "failed" }
   } catch {
     return { error: "failed" }
   }

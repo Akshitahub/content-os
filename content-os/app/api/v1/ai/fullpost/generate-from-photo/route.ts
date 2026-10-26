@@ -8,6 +8,7 @@ import { buildError, ErrorCodes } from "@/types/api"
 import { checkAndIncrementUsage, refundGenerationUsage, logGenerationOutcome } from "@/lib/usage/check-and-increment-usage"
 import { PHOTO_CAPTION } from "@/lib/usage/credit-costs"
 import type { BrandRow } from "@/types/database"
+import { timedGenerationRoute, type GenerationTimer } from "@/lib/utils/generation-timing"
 
 const FEATURE = "fullpost_photo_upload"
 
@@ -30,6 +31,10 @@ const FEATURE = "fullpost_photo_upload"
 export const maxDuration = 300
 
 export async function POST(request: Request) {
+  return timedGenerationRoute("fullpost-photo", (timer) => handlePost(request, timer))
+}
+
+async function handlePost(request: Request, timer: GenerationTimer) {
   const supabase = await createClient()
   const { data: { user }, error: authError } = await supabase.auth.getUser()
   if (authError || !user) return NextResponse.json(buildError(ErrorCodes.UNAUTHENTICATED, "You must be logged in."), { status: 401 })
@@ -78,7 +83,7 @@ export async function POST(request: Request) {
   const photoStoragePath = uploadResult.storagePath
 
   try {
-    const { hook, caption, model, usage, costUsd } = await analyzePhotoForPost(brand, photoUrl, additionalContext)
+    const { hook, caption, model, usage, costUsd } = await timer.step("caption", analyzePhotoForPost(brand, photoUrl, additionalContext))
 
     // Same content_projects linking pattern as fullpost/generate — lets the
     // Library find this caption and its image as one post instead of two

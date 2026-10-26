@@ -9,6 +9,8 @@ import { findContentQualityIssues, sanitizeLeakedArtifacts } from "@/lib/ai/cont
 import { z } from "zod"
 import type { BrandRow } from "@/types/database"
 import type { FontId } from "@/lib/design/fonts"
+import { timedGenerationRoute, type GenerationTimer } from "@/lib/utils/generation-timing"
+import { withDeadline, DeadlineExceededError, GENERATION_TIMED_OUT_MESSAGE } from "@/lib/utils/with-deadline"
 
 const schema = z.object({
   brandId: z.string().uuid(),
@@ -184,7 +186,21 @@ function sanitizeStorySlides(stories: Record<string, unknown>[]): Record<string,
   }))
 }
 
+// One model call for the whole sequence (60s timeout + one SDK retry), a
+// possible fact-guard retry -- the worst case can approach or pass
+// Vercel's 300s. 300s is the Hobby maximum with fluid compute
+// (vercel.com/docs/functions/configuring-functions/duration, checked
+// 2026-10-26); the route's own deadline stops 30s earlier so the refund +
+// JSON error path below always runs instead of Vercel killing the function.
+export const maxDuration = 300
+const COPY_DEADLINE_MS = 270_000
+
 export async function POST(request: Request) {
+  return timedGenerationRoute("stories", (timer) => handlePost(request, timer))
+}
+
+async function handlePost(request: Request, timer: GenerationTimer) {
+  const deadlineAt = Date.now() + COPY_DEADLINE_MS
   const supabase = await createClient()
   const { data: { user }, error: authError } = await supabase.auth.getUser()
   if (authError || !user) {
@@ -256,7 +272,7 @@ export async function POST(request: Request) {
   try {
     // Moved from Groq to OpenAI (MODELS.creative) in the Phase 1b
     // migration -- prompt + call now live in lib/ai/story-sequence-generator.ts.
-    gen = await requestStorySequence(brand, topic, storyCount, vibe, pastExamples)
+    gen = await timer.step("caption", withDeadline(requestStorySequence(brand, topic, storyCount, vibe, pastExamples), deadlineAt - Date.now(), "story copy"))
     const raw = gen.raw
     const cleaned = raw.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim()
 
@@ -344,6 +360,10 @@ export async function POST(request: Request) {
     // (network/auth/rate-limit/timeout failures), which can surface the
     // provider in its message text -- classifyOpenAIError strips that
     // before this ever reaches the user.
-    return NextResponse.json(buildError(ErrorCodes.AI_GENERATION_FAILED, classifyOpenAIError(err)), { status: 500 })
+    const timedOut = err instanceof DeadlineExceededError
+    return NextResponse.json(
+      buildError(ErrorCodes.AI_GENERATION_FAILED, timedOut ? GENERATION_TIMED_OUT_MESSAGE : classifyOpenAIError(err)),
+      { status: timedOut ? 504 : 500 }
+    )
   }
 }

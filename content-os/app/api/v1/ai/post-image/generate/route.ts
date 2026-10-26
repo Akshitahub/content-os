@@ -11,6 +11,7 @@ import { isInternalUnlimited } from "@/lib/usage/is-internal-unlimited"
 import { withDeadline, DeadlineExceededError, GENERATION_TIMED_OUT_MESSAGE } from "@/lib/utils/with-deadline"
 import type { BrandRow, ProductRow } from "@/types/database"
 import type { UserPlan } from "@/types/app"
+import { timedGenerationRoute, type GenerationTimer } from "@/lib/utils/generation-timing"
 
 const BUCKET = "brand-images"
 const FEATURE = "post_image"
@@ -63,6 +64,10 @@ const IMAGE_DEADLINE_MS = 270_000
  * is decided (1st call charges, 2nd is free, 3rd+ charges again).
  */
 export async function POST(request: Request) {
+  return timedGenerationRoute("post-image", (timer) => handlePost(request, timer))
+}
+
+async function handlePost(request: Request, timer: GenerationTimer) {
   const deadlineAt = Date.now() + IMAGE_DEADLINE_MS
   const supabase = await createClient()
   const { data: { user }, error: authError } = await supabase.auth.getUser()
@@ -135,7 +140,7 @@ export async function POST(request: Request) {
   // defaulted from brand.cta_phrase/"Shop now". Empty/omitted means a
   // clean, text-free image.
   let timedOut = false
-  const result = await withDeadline(generatePostImage({
+  const result = await timer.step("image", withDeadline(generatePostImage({
     imagePrompt,
     brandNiche: brand.niche,
     targetAudience: brand.target_audience,
@@ -155,7 +160,7 @@ export async function POST(request: Request) {
     checklistWrongItems,
     checklistRightItems,
     checklistClosingLine,
-  }), deadlineAt - Date.now(), "post image").catch((err): Awaited<ReturnType<typeof generatePostImage>> => {
+  }), deadlineAt - Date.now(), "post image")).catch((err): Awaited<ReturnType<typeof generatePostImage>> => {
     // Deadline hit (or an unexpected throw): treated exactly like a failed
     // generation below -- logged and refunded.
     timedOut = err instanceof DeadlineExceededError

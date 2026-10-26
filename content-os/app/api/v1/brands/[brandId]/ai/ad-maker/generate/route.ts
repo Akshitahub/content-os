@@ -12,15 +12,24 @@ import { sumCostUsd } from "@/lib/ai/pricing"
 import { isInternalUnlimited } from "@/lib/usage/is-internal-unlimited"
 import type { BrandRow } from "@/types/database"
 import type { UserPlan } from "@/types/app"
+import { timedGenerationRoute, type GenerationTimer } from "@/lib/utils/generation-timing"
+import { withDeadline, DeadlineExceededError, GENERATION_TIMED_OUT_MESSAGE } from "@/lib/utils/with-deadline"
 
 const BUCKET = "brand-images"
 
 type RouteParams = { params: Promise<{ brandId: string }> }
 
 // Chains up to 2 sequential image-provider calls (primary attempt + a
-// fallback-prompt retry) inside fetchBackgroundImage, same headroom as
-// other slow-external-call routes (e.g. app/api/v1/ai/post-image/generate/route.ts).
-export const maxDuration = 60
+// fallback-prompt retry) inside fetchBackgroundImage, for each of 3
+// variations -- worst case ~4 x 25s per variation (they run in parallel,
+// staggered), which the old 60s couldn't hold: Vercel killed the function
+// after AD_MAKER credits were charged and nothing was refunded. 300s =
+// Hobby maximum with fluid compute (vercel.com/docs/functions/
+// configuring-functions/duration, checked 2026-10-26). Each variation has
+// the route's own deadline 30s earlier, so finished variations are still
+// returned and an all-failed run still refunds.
+export const maxDuration = 300
+const IMAGE_DEADLINE_MS = 270_000
 
 const VARIATION_COUNT = 3
 
@@ -54,7 +63,12 @@ function sleep(ms: number): Promise<void> {
  * using the storage URLs this route returns as the background layer for
  * each of the 3 variations.
  */
-export async function POST(request: Request, { params }: RouteParams) {
+export async function POST(request: Request, ctx: RouteParams) {
+  return timedGenerationRoute("ad-maker", (timer) => handlePost(request, ctx, timer))
+}
+
+async function handlePost(request: Request, { params }: RouteParams, timer: GenerationTimer) {
+  const deadlineAt = Date.now() + IMAGE_DEADLINE_MS
   const { brandId } = await params
   console.log(`[ai/ad-maker/generate] POST called for brand ${brandId}`)
 
@@ -145,12 +159,16 @@ export async function POST(request: Request, { params }: RouteParams) {
     productImageUrl,
     customPrompt,
   }
-  const results = await Promise.all(
-    Array.from({ length: VARIATION_COUNT }, async (_, i) => {
+  const results = await timer.step("image", Promise.all(
+    Array.from({ length: VARIATION_COUNT }, async (_, i): Promise<Awaited<ReturnType<typeof generateAdMakerBackground>>> => {
       if (i > 0) await sleep(i * STAGGER_MS)
-      return generateAdMakerBackground(backgroundOptions)
+      return withDeadline(generateAdMakerBackground(backgroundOptions), deadlineAt - Date.now(), "ad maker variation").catch((err) => ({
+        success: false as const,
+        error: err instanceof DeadlineExceededError ? GENERATION_TIMED_OUT_MESSAGE : (err instanceof Error ? err.message : "Image generation failed"),
+        attempts: [],
+      }))
     })
-  )
+  ))
 
   // Partial success is the normal case now, not a failure -- zero usable
   // output is the only thing that actually justifies failing the whole

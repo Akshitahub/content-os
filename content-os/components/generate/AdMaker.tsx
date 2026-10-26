@@ -585,7 +585,7 @@ export function AdMaker({ brandId, products }: AdMakerProps) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ dataUrl: results[expandedIdx] }),
       })
-      const json = await res.json() as { data?: { publicUrl: string }; error?: { message?: string } }
+      const json = await readJsonResponse(res) as { data?: { publicUrl: string }; error?: { message?: string } }
       if (!res.ok || !json.data) throw new Error(json.error?.message ?? "Failed to prepare image for scheduling.")
       setScheduleImageUrl(json.data.publicUrl)
     } catch (err) {

@@ -10,6 +10,8 @@ import { CAROUSEL_SLIDE_AI_BACKGROUND } from "@/lib/usage/credit-costs"
 import { PLAN_LIMITS, type UserPlan } from "@/types/app"
 import { z } from "zod"
 import type { BrandRow } from "@/types/database"
+import { timedGenerationRoute, type GenerationTimer } from "@/lib/utils/generation-timing"
+import { withDeadline, DeadlineExceededError, GENERATION_TIMED_OUT_MESSAGE } from "@/lib/utils/with-deadline"
 
 const CAROUSEL_VIBES = ["fun_playful", "clean_minimal", "bold_dramatic", "warm_cozy", "professional", "trendy_genz"] as const
 
@@ -38,7 +40,14 @@ const schema = z.object({
 // platform default. Matches the
 // convention already used by other slow-external-call routes in this repo
 // (e.g. app/api/v1/brands/fastlane/route.ts, app/api/v1/ai/stories/slide-image/generate/route.ts).
-export const maxDuration = 60
+// Raised from 60: the worst case above is ~4 x 25s (two attempts, each
+// with one SDK retry), which 60s couldn't hold -- Vercel killed the
+// function after the slide credit was charged, so it was never refunded.
+// 300s = Hobby maximum with fluid compute (vercel.com/docs/functions/
+// configuring-functions/duration, checked 2026-10-26); the route's own
+// deadline stops 30s earlier so its refund path always runs.
+export const maxDuration = 300
+const IMAGE_DEADLINE_MS = 270_000
 
 /**
  * Generates an AI background image for a carousel's opening (hook),
@@ -60,6 +69,11 @@ export const maxDuration = 60
  * Stories' equivalent route).
  */
 export async function POST(request: Request) {
+  return timedGenerationRoute("carousel-slide-image", (timer) => handlePost(request, timer))
+}
+
+async function handlePost(request: Request, timer: GenerationTimer) {
+  const deadlineAt = Date.now() + IMAGE_DEADLINE_MS
   const supabase = await createClient()
   const { data: { user }, error: authError } = await supabase.auth.getUser()
   if (authError || !user) return NextResponse.json(buildError(ErrorCodes.UNAUTHENTICATED, "You must be logged in."), { status: 401 })
@@ -115,7 +129,7 @@ export async function POST(request: Request) {
   }
 
   const startTime = Date.now()
-  const result = await generateCarouselSlideBackground({
+  const result = await timer.step("image", withDeadline(generateCarouselSlideBackground({
     vibe: vibe as CarouselVibe | undefined,
     brand,
     plan,
@@ -124,7 +138,13 @@ export async function POST(request: Request) {
     productImageUrl,
     slideType,
     customPrompt,
-  })
+  }), deadlineAt - Date.now(), "carousel slide image")).catch((err): Awaited<ReturnType<typeof generateCarouselSlideBackground>> => ({
+    // Deadline hit (or an unexpected throw): handled exactly like a failed
+    // generation below -- logged and refunded.
+    success: false,
+    error: err instanceof DeadlineExceededError ? GENERATION_TIMED_OUT_MESSAGE : (err instanceof Error ? err.message : "Image generation failed"),
+    attempts: [],
+  }))
   const latencyMs = Date.now() - startTime
 
   if (!result.success) {

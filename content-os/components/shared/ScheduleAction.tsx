@@ -9,6 +9,7 @@ import { isApiError } from "@/types/api"
 import { renderStorySlides, type StoryExportSlide } from "@/lib/utils/story-export"
 import { renderCarouselSlides, type CarouselExportSlide } from "@/lib/utils/carousel-export"
 import Link from "next/link"
+import { readJsonResponse } from "@/lib/utils/read-json-response"
 
 // Extracted from five copy-pasted definitions (AdMaker.tsx,
 // FullPostGenerator.tsx, CarouselBuilder.tsx, StorySequence.tsx, and
@@ -269,7 +270,7 @@ export function ScheduleAction(props: ScheduleActionProps) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       })
-      const json: unknown = await res.json()
+      const json: unknown = await readJsonResponse(res)
       if (!res.ok || isApiError(json)) {
         const msg = isApiError(json) ? json.error.message : "Failed to schedule post."
         setErrorMsg(msg)

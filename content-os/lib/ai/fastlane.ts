@@ -1,6 +1,7 @@
 import { after } from "next/server"
 import { MODELS } from "./models"
 import { createCreativeCompletion } from "./creative-completion"
+import { withDeadline } from "@/lib/utils/with-deadline"
 import { buildFactSource, guardCopy, stripGuard } from "./fact-guard"
 import { addTextUsage, sumCostUsd, type TextUsage } from "./pricing"
 import { generateCarouselHtml } from "@/lib/design/post-card-generator"
@@ -108,6 +109,12 @@ function sleep(ms: number): Promise<void> {
 export type AutopilotUsageTracker = {
   usage: TextUsage | undefined
   costUsd: number | null
+  /** Summed across every slot (slots run 3 at a time, so these exceed wall-clock time). */
+  captionMs: number
+  imageMs: number
+  /** content_type of each slot never started because the run hit
+   * stopNewBatchesAt -- the route refunds exactly these. */
+  skippedSlotContentTypes: string[]
 }
 
 function trackUsage(tracker: AutopilotUsageTracker | undefined, usage: TextUsage | undefined, costUsd: number | null): void {
@@ -144,6 +151,16 @@ export interface AutopilotParams {
    * stripped instead) -- set by app/api/v1/brands/fastlane/route.ts so
    * retries can't push a run past its maxDuration. Omitted = no limit. */
   factGuardDeadline?: number
+  /** Epoch ms after which no NEW batch of slots is started -- the run ends
+   * cleanly with the rest reported as skipped (and refunded by the route)
+   * instead of Vercel killing the function mid-run at maxDuration, which
+   * left credits charged and the run status stuck on "running". */
+  stopNewBatchesAt?: number
+  /** Epoch ms by which an in-flight batch must finish -- slots still
+   * running then are reported as timed out (and refunded, like skipped
+   * slots) so the request always ends before maxDuration. Their work may
+   * still complete in the background; the user keeps anything it saves. */
+  hardDeadlineAt?: number
 }
 
 export interface StrategyOverview {
@@ -824,10 +841,17 @@ async function executeFastlaneInner(
   baseDate.setHours(0, 0, 0, 0)
 
   for (let i = 0; i < slots.length; i += batchSize) {
+    if (params?.stopNewBatchesAt !== undefined && Date.now() >= params.stopNewBatchesAt) {
+      const skipped = slots.slice(i)
+      tracker?.skippedSlotContentTypes.push(...skipped.map((s) => s.content_type))
+      errors.push(`${skipped.length} slot(s) skipped: the run ran out of time. Their credits were refunded.`)
+      console.error(`[fastlane] stopping early: ${skipped.length} slot(s) skipped at ${i}/${slots.length} (time budget reached)`)
+      break
+    }
     if (i > 0) await sleep(1500)
 
     const batch = slots.slice(i, i + batchSize)
-    const results = await Promise.allSettled(
+    const batchSettled = Promise.allSettled(
       batch.map(async (slot) => {
         const product = slot.product_focus
           ? (productByName.get(slot.product_focus.toLowerCase()) ?? null)
@@ -842,7 +866,9 @@ async function executeFastlaneInner(
         // describes.
         const scheduledDate = formatLocalDate(slotDate)
 
+        const captionStartedAt = Date.now()
         const generated = await generateSlotContent(brand, slot, product, totalSlots, tracker, params?.factGuardDeadline)
+        if (tracker) tracker.captionMs += Date.now() - captionStartedAt
 
         // The per-slot prompt (buildSlotContentPrompt) has no structural
         // guarantee that `caption` already opens with the hook or closes
@@ -922,6 +948,7 @@ async function executeFastlaneInner(
             // human picks (or skips) text per image. So it always takes the
             // pipeline's clean-image default (no captionText) rather than
             // fabricating text on the user's behalf.
+            const imageStartedAt = Date.now()
             const imageResult = await generatePostImage({
               imagePrompt: generated.visual_direction || "professional product photography",
               brandNiche: brand.niche,
@@ -933,6 +960,7 @@ async function executeFastlaneInner(
               isInternalUnlimitedUser,
             })
             trackUsage(tracker, undefined, attemptsCostUsd(imageResult.attempts))
+            if (tracker) tracker.imageMs += Date.now() - imageStartedAt
 
             if (imageResult.success) {
               const storagePath = `${userId}/${brandId}/${Date.now()}-${crypto.randomUUID()}.png`
@@ -1183,6 +1211,16 @@ async function executeFastlaneInner(
         return insertedEntry
       }),
     )
+    const results = params?.hardDeadlineAt !== undefined
+      ? await withDeadline(batchSettled, params.hardDeadlineAt - Date.now(), "autopilot batch").catch(() => null)
+      : await batchSettled
+    if (results === null) {
+      const notFinished = slots.slice(i)
+      tracker?.skippedSlotContentTypes.push(...notFinished.map((s) => s.content_type))
+      errors.push(`${notFinished.length} slot(s) didn't finish in time. Their credits were refunded.`)
+      console.error(`[fastlane] hard deadline reached mid-batch: ${notFinished.length} slot(s) refunded at ${i}/${slots.length}`)
+      break
+    }
 
     for (const result of results) {
       if (result.status === "fulfilled") {
