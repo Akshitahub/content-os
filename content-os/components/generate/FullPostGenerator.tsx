@@ -18,6 +18,8 @@ import { usePromptWriter } from "@/hooks/usePromptWriter"
 import { PromptWriterField } from "@/components/generate/PromptWriterField"
 import { useBrand } from "@/hooks/useBrand"
 import { flattenOverlayImage } from "@/lib/utils/post-overlay-export"
+import { resolveFonts, resolveSuggestedFont, DEFAULT_FONT_ID, type FontId } from "@/lib/design/fonts"
+import { PREVIEW_FONT_CLASS } from "@/lib/design/preview-fonts"
 import type { FullPostResult, ContentResult } from "@/hooks/useGeneration"
 import type { ProductRow } from "@/types/database"
 import type { GeneratedHook, GeneratedCaption, ReelScript, CarouselContent, BlogPost, AdCopy } from "@/types/app"
@@ -112,6 +114,11 @@ export function FullPostGenerator({ brandId, products }: Props) {
   // client-canvas-composited result of postImageUrl + overlayText,
   // computed on demand for Download/Schedule — see flattenOverlayImage.
   const [overlayText, setOverlayText] = useState("")
+  // Headline typeface: the caption call's suggested_font_id (resolved
+  // server-side from the brand vibe / color theme / mood), changeable from
+  // the chips under the preview. Used by both the live preview and the
+  // flattened Download/Schedule image.
+  const [overlayFontId, setOverlayFontId] = useState<FontId>(DEFAULT_FONT_ID)
   const [flattenedImageUrl, setFlattenedImageUrl] = useState<string | null>(null)
   // Canvas vs. in-feed preview toggle (Commit 4) — purely a display mode,
   // doesn't touch postImageUrl/overlayText/flattenedImageUrl at all.
@@ -168,6 +175,7 @@ export function FullPostGenerator({ brandId, products }: Props) {
     // handler below and flattenOverlayImage for how it gets composited
     // back in only when actually needed (Download/Schedule).
     const initialOverlayText = headlineOverlay.trim() || caption.suggested_overlay_text?.trim() || ""
+    const initialOverlayFont = resolveSuggestedFont(caption.suggested_font_id)
 
     setImageError(null)
     setFlattenedImageUrl(null)
@@ -207,6 +215,7 @@ export function FullPostGenerator({ brandId, products }: Props) {
           setPostImageUrl(imgData.public_url)
           setImageSource("ai")
           setOverlayText(initialOverlayText)
+          setOverlayFontId(initialOverlayFont)
           // The image is the last piece of "the post" to finish -- this is
           // the real "done" point (and the first point creditsUsedForResult
           // is actually knowable), not right after the caption's own text
@@ -379,13 +388,13 @@ export function FullPostGenerator({ brandId, products }: Props) {
     let cancelled = false
     setFlattening(true)
     const timer = setTimeout(() => {
-      flattenOverlayImage(postImageUrl, overlayText)
+      flattenOverlayImage(postImageUrl, overlayText, undefined, overlayFontId)
         .then((dataUrl) => { if (!cancelled) setFlattenedImageUrl(dataUrl) })
         .catch(() => { if (!cancelled) setFlattenedImageUrl(null) })
         .finally(() => { if (!cancelled) setFlattening(false) })
     }, 400)
     return () => { cancelled = true; clearTimeout(timer) }
-  }, [imageSource, postImageUrl, overlayText])
+  }, [imageSource, postImageUrl, overlayText, overlayFontId])
 
   const copy = useCallback((text: string, key: string) => {
     navigator.clipboard.writeText(text)
@@ -668,6 +677,8 @@ export function FullPostGenerator({ brandId, products }: Props) {
             onRegenerateImage={handleRegenerateImage}
             overlayText={overlayText}
             onOverlayTextChange={setOverlayText}
+            overlayFontId={overlayFontId}
+            onOverlayFontChange={setOverlayFontId}
             flattenedImageUrl={flattenedImageUrl}
             flattening={flattening}
             previewMode={previewMode}
@@ -952,6 +963,8 @@ function PostImagePreview({
   showOverlayEditor,
   overlayText,
   onOverlayTextChange,
+  overlayFontId,
+  onOverlayFontChange,
   downloadUrl,
   flattening,
   previewMode,
@@ -972,6 +985,8 @@ function PostImagePreview({
   showOverlayEditor: boolean
   overlayText: string
   onOverlayTextChange: (text: string) => void
+  overlayFontId: FontId
+  onOverlayFontChange: (fontId: FontId) => void
   /** What Download/Schedule should actually use — the flattened (headline
    * baked in) PNG when there's overlay text, otherwise the clean
    * background itself. Never re-generates anything; this is client-canvas
@@ -1060,7 +1075,7 @@ function PostImagePreview({
             placeholder="Click to add a headline over this image…"
             rows={2}
             autoFocus={addingHeadline}
-            className="absolute inset-x-0 bottom-0 w-full resize-none border-0 bg-transparent px-[7%] pb-[6%] pt-2 text-lg font-bold leading-tight text-white placeholder:text-white/60 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-white/40"
+            className={`absolute inset-x-0 bottom-0 w-full resize-none border-0 bg-transparent px-[7%] pb-[6%] pt-2 text-lg leading-tight text-white placeholder:text-white/60 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-white/40 ${PREVIEW_FONT_CLASS[overlayFontId]}`}
           />
         </>
       ) : (
@@ -1156,6 +1171,27 @@ function PostImagePreview({
           className="w-full rounded-lg object-contain"
         />
       )}
+
+      {/* Headline typeface -- starts at the model's pick for this post
+          (suggested_font_id); changing it only redraws the canvas, no
+          credits. Only shown while there's a headline to apply it to. */}
+      {showOverlayEditor && showHeadlineEditor && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="text-[11px] text-muted-foreground">Font</span>
+          {resolveFonts().map((font) => (
+            <button
+              key={font.id}
+              type="button"
+              onClick={() => onOverlayFontChange(font.id)}
+              className={`rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors ${
+                overlayFontId === font.id ? "border-violet-500 bg-violet-50 text-violet-700" : "border-border text-muted-foreground hover:border-violet-300"
+              }`}
+            >
+              {font.label}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
@@ -1174,6 +1210,8 @@ function FullPostResults({
   onRegenerateImage,
   overlayText,
   onOverlayTextChange,
+  overlayFontId,
+  onOverlayFontChange,
   flattenedImageUrl,
   flattening,
   previewMode,
@@ -1193,6 +1231,8 @@ function FullPostResults({
   onRegenerateImage: () => void
   overlayText: string
   onOverlayTextChange: (text: string) => void
+  overlayFontId: FontId
+  onOverlayFontChange: (fontId: FontId) => void
   flattenedImageUrl: string | null
   flattening: boolean
   previewMode: "canvas" | "feed"
@@ -1238,6 +1278,8 @@ function FullPostResults({
         showOverlayEditor={imageSource === "ai"}
         overlayText={overlayText}
         onOverlayTextChange={onOverlayTextChange}
+        overlayFontId={overlayFontId}
+        onOverlayFontChange={onOverlayFontChange}
         downloadUrl={shareableImageUrl ?? postImageUrl ?? ""}
         flattening={flattening}
         previewMode={previewMode}
@@ -1258,6 +1300,7 @@ function FullPostResults({
           // on-image text stays editable from the calendar later.
           baseImageUrl={imageSource === "ai" ? postImageUrl : null}
           overlayText={overlayText}
+          overlayFontId={overlayFontId}
           caption={scheduleCaption.text}
           hashtags={scheduleCaption.hashtags}
         />

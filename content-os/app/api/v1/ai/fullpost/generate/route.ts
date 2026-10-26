@@ -5,6 +5,7 @@ import { generateHooks } from "@/lib/ai/hooks-generator"
 import { generateContent } from "@/lib/ai/content-generator"
 import { generatePostCardHtml } from "@/lib/design/post-card-generator"
 import { resolveColorThemes } from "@/lib/design/color-themes"
+import { resolveSuggestedFont } from "@/lib/design/fonts"
 import { mergeCaptionWithHookAndCta } from "@/lib/utils/caption-merge"
 import { buildError, ErrorCodes } from "@/types/api"
 import { checkAndIncrementUsage, refundGenerationUsage, logGenerationOutcome } from "@/lib/usage/check-and-increment-usage"
@@ -180,6 +181,9 @@ async function handlePost(request: Request, timer: GenerationTimer) {
       const caption = contentResult.data as GeneratedCaption
       caption.caption_text = mergeCaptionWithHookAndCta(caption.caption_text, hook.hook_text, caption.cta)
       caption.character_count = caption.caption_text.length
+      // Overlay typeface: the model's pick if valid, else the brand-vibe
+      // fallback -- so the client never has to guess.
+      caption.suggested_font_id = resolveSuggestedFont(caption.suggested_font_id, brand.vibe)
     } else if (format === "reel_script") {
       const script = contentResult.data as ReelScript
       if (script.caption) {

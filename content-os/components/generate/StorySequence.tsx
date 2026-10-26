@@ -23,6 +23,7 @@ import { useBrand } from "@/hooks/useBrand"
 import type { BrandRow } from "@/types/database"
 import Link from "next/link"
 import { readJsonResponse } from "@/lib/utils/read-json-response"
+import { runSlideBackgroundJobs, slideBackgroundErrorForStatus, type SlideBackgroundOutcome } from "@/lib/utils/slide-backgrounds"
 
 // ─── Story background gradients ────────────────────────────────────────────────
 
@@ -135,24 +136,26 @@ const QUICK_TOPICS = [
 // model to render the text as real on-image text, which then visually
 // duplicated the actual overlaid text in PhoneStory).
 //
-// "body" slides (reveal/buildup -- the opt-in "AI background for every
-// slide" mode) spend real credits per call, unlike hook/cta -- so unlike
-// the old swallow-everything version, a caller needs to tell "ran out of
-// credits, stop asking for more" apart from "this one attempt failed, try
-// the next slide anyway." fetchSlideBackgroundResult keeps that
-// distinction; fetchSlideBackground wraps it back down to the simpler
-// null-on-any-failure shape hook/cta (which are never credit-gated) have
-// always used. Mirrors CarouselBuilder.tsx's identical pair exactly.
+// Every slide's background (hook, cta and the reveal/buildup "body"
+// slides) goes through fetchSlideBackgroundResult below and is run by
+// lib/utils/slide-backgrounds.ts's runSlideBackgroundJobs (3 at a time,
+// one automatic retry, stops once credits run out). Mirrors
+// CarouselBuilder.tsx exactly.
 // A selected product's photo is only ever actually shown on reveal/cta
 // slides (and a hook slide when it's the *only* slide in the sequence) —
 // see PhoneStory's identical gating for the raw-photo overlay below. Reused
 // here so a story-background request only asks for a photorealistic
 // reference-image scene on the same slides the product itself appears on.
+// hook / cta slides are always given an AI background; reveal/buildup
+// ("body") only with "AI background for every slide" on.
+function storyBgRole(slide: StorySlide): "hook" | "cta" | "body" {
+  return slide.type === "hook" || slide.type === "cta" ? slide.type : "body"
+}
+
 function slideShowsProduct(type: StorySlide["type"], total: number): boolean {
   return type === "reveal" || type === "cta" || (total === 1 && type === "hook")
 }
 
-type SlideBackgroundResult = { url: string; provider: "openai" } | { error: "insufficient_credits" | "failed" }
 
 async function fetchSlideBackgroundResult(
   brandId: string,
@@ -166,7 +169,7 @@ async function fetchSlideBackgroundResult(
   productImageUrl?: string | null,
   textPosition?: StorySlide["text_position"],
   customPrompt?: string
-): Promise<SlideBackgroundResult> {
+): Promise<SlideBackgroundOutcome> {
   try {
     const res = await fetch("/api/v1/ai/stories/slide-image/generate", {
       method: "POST",
@@ -177,34 +180,16 @@ async function fetchSlideBackgroundResult(
       // optional, not nullable.
       body: JSON.stringify({ brandId, vibe, role, productImageUrl: productImageUrl ?? undefined, textPosition, customPrompt: customPrompt || undefined }),
     })
-    if (res.status === 429) return { error: "insufficient_credits" }
-    if (!res.ok) return { error: "failed" }
+    if (!res.ok) return { error: slideBackgroundErrorForStatus(res.status) }
     const json = await readJsonResponse(res) as { data?: { public_url?: string; provider?: "openai" } }
     // A public_url with no provider would be an incomplete/malformed
     // response -- treated the same as any other failure rather than
     // storing a background with an unknown provider (which PhoneStory's
     // "!== openai" overlay gating needs to be trustworthy either way).
-    return res.ok && json.data?.public_url && json.data.provider ? { url: json.data.public_url, provider: json.data.provider } : { error: "failed" }
+    return json.data?.public_url && json.data.provider ? { url: json.data.public_url, provider: json.data.provider } : { error: "failed" }
   } catch {
     return { error: "failed" }
   }
-}
-
-// Best-effort AI background fetch for the hook/cta slides — never throws,
-// resolves to null (falls back to the existing flat gradient) on any HTTP
-// error or network failure. Available to every plan, no tiering. Neither
-// role is credit-gated, so the insufficient_credits/failed distinction
-// never matters here.
-async function fetchSlideBackground(
-  brandId: string,
-  vibe: Vibe | "hard_truth_checklist" | undefined,
-  role: "hook" | "cta",
-  productImageUrl?: string | null,
-  textPosition?: StorySlide["text_position"],
-  customPrompt?: string
-): Promise<{ url: string; provider: "openai" } | null> {
-  const result = await fetchSlideBackgroundResult(brandId, vibe, role, productImageUrl, textPosition, customPrompt)
-  return "url" in result ? { url: result.url, provider: result.provider } : null
 }
 
 // ─── Draggable text positioning ────────────────────────────────────────────────
@@ -763,15 +748,18 @@ export function StorySequence({ brandId }: { brandId: string }) {
   // by then holds the PREVIOUS AI-authored output). Mirrors
   // CarouselBuilder.tsx's identical fix exactly.
   const visualPromptSeedRef = useRef<string | null>(null)
-  // Extends the hook/cta-only AI background to every reveal/buildup slide
-  // too -- opt-in since, unlike hook/cta, each one spends real credits
-  // (see STORY_SLIDE_AI_BACKGROUND). Only meaningful alongside a real
-  // vibe (custom_color already means "flat color everywhere, no AI,
-  // ever" -- mutually exclusive with this, not layered on top of it).
-  // Mirrors CarouselBuilder.tsx's identical allSlidesAiBg exactly.
-  const [allSlidesAiBg, setAllSlidesAiBg] = useState(false)
-  const [bodyBgProgress, setBodyBgProgress] = useState<{ current: number; total: number } | null>(null)
+  // Extends the hook/cta AI background to every reveal/buildup slide too.
+  // On by default, but each one spends STORY_SLIDE_AI_BACKGROUND credits,
+  // so the toggle stays visible and the extra cost is shown next to
+  // Generate. Not used with Custom color or Hard Truth Checklist (no AI
+  // photo at all). Mirrors CarouselBuilder.tsx's allSlidesAiBg exactly.
+  const [allSlidesAiBg, setAllSlidesAiBg] = useState(true)
+  const [bgProgress, setBgProgress] = useState<{ settled: number; total: number } | null>(null)
   const [bodyBgWarning, setBodyBgWarning] = useState<string | null>(null)
+  // Slides whose background failed twice (first try + automatic retry) --
+  // shown as "N of M backgrounds failed -- Retry". bgAttempted is M.
+  const [failedBgSlides, setFailedBgSlides] = useState<number[]>([])
+  const [bgAttempted, setBgAttempted] = useState(0)
   // Covers the WHOLE background-image step -- the always-on hook/cta
   // Promise.all AND (when allSlidesAiBg is on) the body-slide loop that
   // follows it -- so there's one continuous, hard-to-miss "still working"
@@ -784,6 +772,10 @@ export function StorySequence({ brandId }: { brandId: string }) {
   // generate() call so a stale true from an abandoned prior run can never
   // leak into a fresh one.
   const [imagesGenerating, setImagesGenerating] = useState(false)
+  // reveal/buildup slides = storyCount minus hook and cta (only exist from
+  // 3 slides up); hook + cta are charged too when a product is attached.
+  const extraBgCredits =
+    ((allSlidesAiBg && storyCount >= 3 ? storyCount - 2 : 0) + (selectedProduct ? Math.min(storyCount, 2) : 0)) * STORY_SLIDE_AI_BACKGROUND
 
   // The saved stories row id -- needed by the debounced autosave effect
   // below, so lifted into state instead of staying a local `const` inside
@@ -900,6 +892,63 @@ export function StorySequence({ brandId }: { brandId: string }) {
     })
   }
 
+  // Runs AI backgrounds for the given slide indices of generation `genId`
+  // (3 at a time, one automatic retry each, stops on running out of
+  // credits) and writes each success onto its slide. Saved by the
+  // debounced autosave effect above, like any other slide change. Returns
+  // false if a newer generate() superseded this run.
+  async function runStoryBackgrounds(genId: number, slides: StorySlide[], indices: number[]): Promise<boolean> {
+    const isCurrent = () => generationIdRef.current === genId
+    setImagesGenerating(true)
+    setBgProgress({ settled: 0, total: indices.length })
+    setBgAttempted(indices.length)
+    setFailedBgSlides([])
+    const { succeeded, failed, outOfCredits } = await runSlideBackgroundJobs(
+      indices.map((i) => {
+        const slide = slides[i]!
+        const role = storyBgRole(slide)
+        // hook/cta send the product photo whenever one is selected (as
+        // before); body slides only on "reveal" -- PhoneStory never shows
+        // the product on "buildup" slides.
+        const usesProduct = role !== "body" || (slide.type === "reveal" && !!selectedProduct)
+        return {
+          key: i,
+          run: () => fetchSlideBackgroundResult(
+            brandId,
+            vibe,
+            role,
+            usesProduct ? (selectedProduct?.imageUrl ?? null) : undefined,
+            role !== "body" || usesProduct ? slide.text_position : undefined,
+            visualPrompt
+          ),
+        }
+      }),
+      { onProgress: (settled, total) => { if (isCurrent()) setBgProgress({ settled, total }) }, isCancelled: () => !isCurrent() }
+    )
+    if (!isCurrent()) return false
+    setBgProgress(null)
+    setImagesGenerating(false)
+    setFailedBgSlides([...failed].sort((x, y) => x - y))
+    if (outOfCredits.length > 0) {
+      setBodyBgWarning(`Ran out of credits — ${outOfCredits.length} slide background${outOfCredits.length === 1 ? "" : "s"} weren't generated and kept their flat color.`)
+    }
+    if (succeeded.size > 0) {
+      setStories((prev) => prev.map((s, i) => {
+        const bg = succeeded.get(i)
+        return bg ? { ...s, background_image_url: bg.url, background_image_provider: bg.provider } : s
+      }))
+    }
+    return true
+  }
+
+  // "Retry" on the "N of M backgrounds failed" note -- regenerates only
+  // those slides. Each failed attempt was refunded server-side.
+  function retryFailedBackgrounds() {
+    if (stories.length === 0 || failedBgSlides.length === 0 || imagesGenerating) return
+    setBodyBgWarning(null)
+    void runStoryBackgrounds(generationIdRef.current, stories, failedBgSlides)
+  }
+
   async function generate() {
     if (!topic.trim()) { setError("Please enter a topic for your story sequence."); return }
     // "custom_color" is a client-only rendering mode that skips AI image
@@ -935,6 +984,9 @@ export function StorySequence({ brandId }: { brandId: string }) {
     setShowCaptionEditor(false)
     setStoryRowId(null)
     setImagesGenerating(false)
+    setBgProgress(null)
+    setBodyBgWarning(null)
+    setFailedBgSlides([])
     try {
       const res = await fetch("/api/v1/ai/stories/generate", {
         method: "POST",
@@ -993,107 +1045,19 @@ export function StorySequence({ brandId }: { brandId: string }) {
         setShowSuccess(true)
         setTimeout(() => setShowSuccess(false), 4000)
       } else {
-        // "✓ generated and saved" doesn't fire until the whole image step
-        // below (hook/cta, then the body-slide loop) actually finishes --
-        // showing it right after text saves used to signal "fully done"
-        // while images were still loading invisibly afterward.
-        setImagesGenerating(true)
-        ;(async () => {
-          // Best-effort AI backgrounds for hook/cta slides only (available
-          // to every plan, no tiering) — fired after text succeeds so a
-          // slow/failed image call never blocks or breaks story generation
-          // itself. fetchSlideBackground never throws, so Promise.all here
-          // always resolves.
-          const bgTargets = savedStories
-            .map((slide, i) => ({ slide, i }))
-            .filter((t): t is { slide: StorySlide & { type: "hook" | "cta" }; i: number } => t.slide.type === "hook" || t.slide.type === "cta")
-
-          const results = await Promise.all(bgTargets.map(({ slide }) =>
-            fetchSlideBackground(
-              brandId,
-              vibe,
-              slide.type,
-              selectedProduct?.imageUrl ?? undefined,
-              slide.text_position,
-              visualPrompt
-            )
-          ))
-          if (generationIdRef.current !== genId) { setImagesGenerating(false); return }
-
-          const updated = [...savedStories]
-          bgTargets.forEach(({ i }, idx) => {
-            const result = results[idx]
-            if (result) updated[i] = { ...updated[i]!, background_image_url: result.url, background_image_provider: result.provider }
-          })
-
-          // Reveal/buildup slides are credit-metered (unlike hook/cta
-          // above), so they're requested one at a time rather than all at
-          // once, to fail fast and stop asking once credits run out
-          // instead of firing a batch of doomed requests. Mirrors
-          // CarouselBuilder.tsx's identical body-slide loop exactly.
-          const bodyIndices = allSlidesAiBg
-            ? savedStories.map((_, i) => i).filter((i) => savedStories[i]!.type === "reveal" || savedStories[i]!.type === "buildup")
-            : []
-
-          for (let n = 0; n < bodyIndices.length; n++) {
-            setBodyBgProgress({ current: n + 1, total: bodyIndices.length })
-            const bodySlide = savedStories[bodyIndices[n]!]!
-            // Matches PhoneStory's existing product-overlay condition
-            // exactly -- it never shows the product on "buildup" slides
-            // today, and this shouldn't change that.
-            const usesProduct = bodySlide.type === "reveal" && !!selectedProduct
-            const result = await fetchSlideBackgroundResult(
-              brandId,
-              vibe,
-              "body",
-              usesProduct ? (selectedProduct?.imageUrl ?? null) : undefined,
-              usesProduct ? bodySlide.text_position : undefined,
-              visualPrompt
-            )
-            if (generationIdRef.current !== genId) { setBodyBgProgress(null); setImagesGenerating(false); return }
-            if ("url" in result) {
-              updated[bodyIndices[n]!] = { ...updated[bodyIndices[n]!]!, background_image_url: result.url, background_image_provider: result.provider }
-            } else if (result.error === "insufficient_credits") {
-              setBodyBgWarning(
-                `Ran out of credits after ${n} of ${bodyIndices.length} extra slide backgrounds — the rest kept their flat color.`
-              )
-              break
-            }
-            // A plain "failed" (transient generation error) doesn't stop
-            // the loop -- that one slide just keeps its flat color, same
-            // best-effort fallback hook/cta already have.
-          }
-          setBodyBgProgress(null)
-          setImagesGenerating(false)
-          // The whole image step (hook/cta, plus the body-slide loop above
-          // when applicable) is done -- text was already saved earlier, so
-          // this is the true "fully generated and saved" point, regardless
-          // of whether any individual background fetch actually succeeded.
-          if (generationIdRef.current === genId) {
-            setShowSuccess(true)
-            setTimeout(() => setShowSuccess(false), 4000)
-          }
-
-          if (!results.some((r) => r) && bodyIndices.length === 0) return
-
-          setStories(updated)
-          // Same reasoning as the generation-time assignment above -- this
-          // PUT is about to persist exactly this stories array, so the
-          // autosave effect shouldn't treat it as an unsaved edit too.
-          lastPersistedStoriesRef.current = JSON.stringify(updated)
-
-          if (rowId) {
-            fetch(`/api/v1/brands/${brandId}/stories/${rowId}`, {
-              method: "PUT",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ stories: updated }),
-            }).catch(() => {
-              // Best-effort — the story sequence itself already generated
-              // fine; a failed persist here just means the Library won't
-              // show its images, not a user-facing generation failure.
-            })
-          }
-        })()
+        // Best-effort AI backgrounds, fired after text succeeds so a slow or
+        // failed image call never blocks story generation itself. Hook and
+        // cta go first (always on), then reveal/buildup when "AI background
+        // for every slide" is on. "✓ generated and saved" waits for the
+        // whole image step.
+        const indices = savedStories.map((_, i) => i)
+        const hookAndCta = indices.filter((i) => storyBgRole(savedStories[i]!) !== "body")
+        const middle = allSlidesAiBg ? indices.filter((i) => storyBgRole(savedStories[i]!) === "body") : []
+        void runStoryBackgrounds(genId, savedStories, [...hookAndCta, ...middle]).then((finished) => {
+          if (!finished) return
+          setShowSuccess(true)
+          setTimeout(() => setShowSuccess(false), 4000)
+        })
       }
     } catch (e) {
       setApiError(e)
@@ -1308,11 +1272,12 @@ export function StorySequence({ brandId }: { brandId: string }) {
 
             {/* Optional per-sequence upgrade: AI photo backgrounds for every
                 reveal/buildup slide, not just the hook/cta that already get
-                one free. Only offered alongside a real vibe -- Custom color
-                already means "flat color everywhere, no AI", so the two are
-                mutually exclusive rather than combinable. Mirrors
-                CarouselBuilder.tsx's identical toggle exactly. */}
-            {vibe && vibe !== "custom_color" && vibe !== "hard_truth_checklist" && (
+                one. On by default and shown whenever AI backgrounds run at
+                all -- including when no vibe is picked (the model picks one)
+                -- so the user can always see and switch off what they're
+                paying for. Hidden for Custom color / Hard Truth Checklist
+                (no AI photo). Mirrors CarouselBuilder.tsx's toggle. */}
+            {vibe !== "custom_color" && vibe !== "hard_truth_checklist" && (
               <label className="flex cursor-pointer items-start gap-2.5 rounded-lg border p-3 text-sm transition-colors hover:bg-secondary/40">
                 <input
                   type="checkbox"
@@ -1331,6 +1296,15 @@ export function StorySequence({ brandId }: { brandId: string }) {
             )}
 
             <GenerationWarning isPending={loading} />
+            {/* Total cost before clicking -- same rule as Carousel: one
+                background per reveal/buildup slide when the toggle is on,
+                plus hook/cta when a product photo is attached. "Up to"
+                because failed backgrounds are refunded. */}
+            {vibe !== "custom_color" && vibe !== "hard_truth_checklist" && extraBgCredits > 0 && (
+              <p className="text-center text-xs text-muted-foreground">
+                {STORY_CREDIT_COST} credits + up to {extraBgCredits} for AI slide backgrounds
+              </p>
+            )}
             <button onClick={generate} disabled={loading || promptWriter.stage === "writing"}
               className="flex w-full items-center justify-center gap-2 rounded-full bg-gradient-to-r from-violet-600 to-indigo-600 py-3 text-sm font-semibold text-white shadow-md transition hover:from-violet-700 hover:to-indigo-700 disabled:opacity-60">
               {loading ? <><Loader2 className="h-4 w-4 animate-spin" /> Generating stories…</> : promptWriter.stage === "writing" ? <><Loader2 className="h-4 w-4 animate-spin" /> Writing your visual prompt…</> : "✨ Generate stories"}
@@ -1387,9 +1361,27 @@ export function StorySequence({ brandId }: { brandId: string }) {
           {imagesGenerating && (
             <div className="flex items-center gap-2 rounded-lg border border-violet-200 bg-violet-50 px-4 py-3 text-sm text-violet-700">
               <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
-              {bodyBgProgress
-                ? `Generating slide background ${bodyBgProgress.current} of ${bodyBgProgress.total}…`
+              {bgProgress && bgProgress.total > 0
+                ? `Generating slide backgrounds… ${bgProgress.settled} of ${bgProgress.total} done`
                 : "Generating story backgrounds…"}
+            </div>
+          )}
+
+          {failedBgSlides.length > 0 && !imagesGenerating && (
+            <div className="flex items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+              <div className="flex items-start gap-2">
+                <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+                <span>
+                  {failedBgSlides.length} of {bgAttempted} background{bgAttempted === 1 ? "" : "s"} failed (slide{failedBgSlides.length === 1 ? "" : "s"} {failedBgSlides.map((i) => i + 1).join(", ")}) — kept the flat color. No credits were used for them.
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={retryFailedBackgrounds}
+                className="flex shrink-0 items-center gap-1 rounded-full border border-amber-300 bg-white px-3 py-1 text-xs font-semibold text-amber-800 hover:bg-amber-100"
+              >
+                <RefreshCw className="h-3.5 w-3.5" /> Retry
+              </button>
             </div>
           )}
 

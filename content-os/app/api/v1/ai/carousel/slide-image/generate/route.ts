@@ -148,7 +148,13 @@ async function handlePost(request: Request, timer: GenerationTimer) {
   const latencyMs = Date.now() - startTime
 
   if (!result.success) {
-    console.error(`[ai/carousel/slide-image/generate] generation failed after ${latencyMs}ms (role=${role}):`, result.error)
+    // Every attempt's own provider/quality error in one line (same as
+    // post-image/generate), so the real cause is in the Vercel logs, not
+    // just the generic message the user sees. The slide is refunded below.
+    console.error(
+      `[ai/carousel/slide-image/generate] generation failed after ${latencyMs}ms (role=${role} charged=${isChargeable}): ${result.error}`,
+      JSON.stringify(result.attempts.map((a) => ({ attempt: a.attemptNumber, variant: a.promptVariant, reason: a.failureReason, message: a.errorMessage ?? null })))
+    )
     if (isChargeable) await refundGenerationUsage(supabase, user.id, CAROUSEL_SLIDE_AI_BACKGROUND, usageLogId)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await (supabase.from("ai_generation_logs") as any).insert({

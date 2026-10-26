@@ -21,6 +21,8 @@ import { cssBackgroundFromColors, ColorWheelPicker } from "@/components/shared/C
 import { useDraggableText, type TextPosition } from "@/components/shared/useDraggableText"
 import { resolveFonts, DEFAULT_FONT_ID, TEXT_SIZE_OPTIONS, DEFAULT_TEXT_SIZE_SCALE } from "@/lib/design/fonts"
 import type { FontId } from "@/lib/design/fonts"
+import { PREVIEW_FONT_CLASS } from "@/lib/design/preview-fonts"
+import { runSlideBackgroundJobs, slideBackgroundErrorForStatus, type SlideBackgroundOutcome } from "@/lib/utils/slide-backgrounds"
 import type { ProductRow } from "@/types/database"
 import Link from "next/link"
 import { readJsonResponse } from "@/lib/utils/read-json-response"
@@ -194,24 +196,20 @@ function withCtaSlideMerged(data: GeneratedCarousel): GeneratedCarousel {
 // headline as real on-image text, which then visually duplicated the
 // actual overlaid <h2> in SlidePreview).
 //
-// "body" slides (the opt-in "AI background for every slide" mode) spend
-// real credits per call, unlike hook/cta -- so unlike the old
-// swallow-everything version, a caller needs to tell "ran out of
-// credits, stop asking for more" apart from "this one attempt failed,
-// try the next slide anyway." fetchSlideBackgroundResult keeps that
-// distinction; fetchSlideBackground wraps it back down to the simpler
-// null-on-any-failure shape hook/cta (which are never credit-gated) have
-// always used.
-type SlideBackgroundResult = { url: string; provider?: "openai" } | { error: "insufficient_credits" | "failed" }
-
+// Every slide's background (hook, CTA and the middle "body" slides) goes
+// through this one call and is run by lib/utils/slide-backgrounds.ts's
+// runSlideBackgroundJobs (3 at a time, one automatic retry, stops once
+// credits run out). Never throws: a 429 is "insufficient_credits", a 403
+// (a plan without carouselCtaAiBackground asking for the CTA slide) is
+// "restricted", anything else is "failed".
 async function fetchSlideBackgroundResult(
   brandId: string,
   vibe: Vibe | undefined,
-  role: "hook" | "cta" | "body",
+  role: CarouselBgRole,
   productImageUrl?: string | null,
   slideType?: SlideType,
   customPrompt?: string
-): Promise<SlideBackgroundResult> {
+): Promise<SlideBackgroundOutcome> {
   try {
     const res = await fetch("/api/v1/ai/carousel/slide-image/generate", {
       method: "POST",
@@ -220,33 +218,24 @@ async function fetchSlideBackgroundResult(
       // undefined so JSON.stringify omits the key entirely.
       body: JSON.stringify({ brandId, vibe, role, productImageUrl: productImageUrl ?? undefined, slideType, customPrompt: customPrompt || undefined }),
     })
-    if (res.status === 429) return { error: "insufficient_credits" }
-    if (!res.ok) return { error: "failed" }
+    if (!res.ok) return { error: slideBackgroundErrorForStatus(res.status) }
     const json = await readJsonResponse(res) as { data?: { public_url?: string; provider?: "openai" } }
-    return res.ok && json.data?.public_url ? { url: json.data.public_url, provider: json.data.provider } : { error: "failed" }
+    return json.data?.public_url ? { url: json.data.public_url, provider: json.data.provider } : { error: "failed" }
   } catch {
     return { error: "failed" }
   }
 }
 
-// Best-effort AI background fetch for the hook/CTA slides — never throws,
-// and resolves to null (falls back to the existing flat vibe-color
-// background) on any HTTP error, network failure, or plan restriction
-// (e.g. a plan without carouselCtaAiBackground requesting the CTA slide's
-// background gets a 403, handled the same as any other failure here
-// rather than as a special case). Neither role is credit-gated, so the
-// insufficient_credits/failed distinction never matters here.
-async function fetchSlideBackground(
-  brandId: string,
-  vibe: Vibe | undefined,
-  role: "hook" | "cta",
-  productImageUrl?: string | null,
-  slideType?: SlideType,
-  customPrompt?: string
-): Promise<{ url: string; provider?: "openai" } | null> {
-  const result = await fetchSlideBackgroundResult(brandId, vibe, role, productImageUrl, slideType, customPrompt)
-  return "url" in result ? { url: result.url, provider: result.provider } : null
+type CarouselBgRole = "hook" | "cta" | "body"
+
+// First slide = hook, last slide (of 2+) = CTA, everything between = body.
+function carouselBgRole(index: number, count: number): CarouselBgRole {
+  if (index === 0) return "hook"
+  if (count > 1 && index === count - 1) return "cta"
+  return "body"
 }
+
+const SLIDE_TYPE_FOR_BG_ROLE: Record<CarouselBgRole, SlideType> = { hook: "cover", cta: "cta", body: "content" }
 
 // ─── Draggable text positioning ────────────────────────────────────────────────
 
@@ -330,7 +319,7 @@ function SlidePreview({
     <div
       id={elementId}
       ref={frameRef}
-      className={`relative flex flex-col overflow-hidden rounded-xl bg-cover bg-center ${hasBg || customBg ? "" : s.bg} ${
+      className={`relative flex flex-col overflow-hidden rounded-xl bg-cover bg-center ${PREVIEW_FONT_CLASS[slide.font_id ?? DEFAULT_FONT_ID]} ${hasBg || customBg ? "" : s.bg} ${
         // 4:5 (1080x1350) — matches PORTRAIT_DIMENSIONS in
         // lib/ai/carousel-slide-background.ts, so the full generated
         // background is actually shown, not cropped to a square. One
@@ -669,14 +658,22 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
   // same base, since the writer is instructed to refine-and-complete a
   // provided description rather than discard it.
   const visualPromptSeedRef = useRef<string | null>(null)
-  // Extends the hook/CTA-only AI background to every content slide too --
-  // opt-in since, unlike hook/cta, each one spends real credits (see
-  // CAROUSEL_SLIDE_AI_BACKGROUND). Only meaningful alongside a real vibe
-  // (custom_color already means "flat color everywhere, no AI, ever" --
-  // mutually exclusive with this, not layered on top of it).
-  const [allSlidesAiBg, setAllSlidesAiBg] = useState(false)
-  const [bodyBgProgress, setBodyBgProgress] = useState<{ current: number; total: number } | null>(null)
+  // Extends the hook/CTA AI background to every content slide too. On by
+  // default (a set of flat middle slides looked unfinished), but each
+  // middle slide spends CAROUSEL_SLIDE_AI_BACKGROUND credits, so the
+  // toggle stays visible and the extra cost is shown next to Generate.
+  // Not used with custom_color ("flat color everywhere, no AI, ever").
+  const [allSlidesAiBg, setAllSlidesAiBg] = useState(true)
+  const [bgProgress, setBgProgress] = useState<{ settled: number; total: number } | null>(null)
   const [bodyBgWarning, setBodyBgWarning] = useState<string | null>(null)
+  // Slides whose background failed twice (first try + automatic retry) --
+  // shown as "N of M backgrounds failed -- Retry" so no slide is left flat
+  // without an explanation. bgAttempted is M.
+  const [failedBgSlides, setFailedBgSlides] = useState<number[]>([])
+  const [bgAttempted, setBgAttempted] = useState(0)
+  // Bumped by every generate(); a background run from an older generation
+  // sees the mismatch and stops (and never writes into the new carousel).
+  const bgRunRef = useRef(0)
   // Covers the WHOLE background-image step -- the always-on hook/cta
   // Promise.all AND (when allSlidesAiBg is on) the body-slide loop that
   // follows it -- so there's one continuous, hard-to-miss "still working"
@@ -710,13 +707,6 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
   // Copy state
   const [copied, setCopied] = useState(false)
 
-  // AI-generated backgrounds for the hook (all plans) and CTA (Starter+)
-  // slides — filled in by generate() as a best-effort follow-up after text
-  // generation succeeds. null (still loading, failed, or plan-restricted)
-  // means SlidePreview falls back to the flat vibe-color background.
-  const [hookBackgroundUrl, setHookBackgroundUrl] = useState<string | null>(null)
-  const [ctaBackgroundUrl, setCtaBackgroundUrl] = useState<string | null>(null)
-
   // Autosave for slide edits made after the initial generation -- headline/
   // subtext/points/background_style (everything wired through updateSlide)
   // previously only ever updated local React state; the ONLY PUT this
@@ -732,6 +722,9 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
   const [autosaveStatus, setAutosaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle")
 
   const allSlides = carousel?.slides ?? []
+  // Middle slides = slideCount minus the cover and CTA slides.
+  const extraBgCredits =
+    ((allSlidesAiBg ? Math.max(0, slideCount - 2) : 0) + (productImage ? 2 : 0)) * CAROUSEL_SLIDE_AI_BACKGROUND
   const currentSlide = allSlides[activeSlide]
   const isLastSlide = activeSlide === allSlides.length - 1
 
@@ -862,6 +855,50 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
     })
   }
 
+  // Runs AI backgrounds for the given slide indices of carousel `carouselId`
+  // (3 at a time, one automatic retry each, stops on running out of
+  // credits) and writes each success onto its slide. Saved by the
+  // debounced autosave effect above, like any other slide change. Returns
+  // false if a newer generate() superseded this run.
+  async function runCarouselBackgrounds(carouselId: string | null, count: number, indices: number[]): Promise<boolean> {
+    const runId = bgRunRef.current
+    const isCurrent = () => bgRunRef.current === runId
+    setImagesGenerating(true)
+    setBgProgress({ settled: 0, total: indices.length })
+    setBgAttempted(indices.length)
+    setFailedBgSlides([])
+    const { succeeded, failed, outOfCredits } = await runSlideBackgroundJobs(
+      indices.map((i) => {
+        const role = carouselBgRole(i, count)
+        // productImageUrl/slideType only actually sent when a product is
+        // selected -- fetchSlideBackgroundResult drops a null productImageUrl.
+        return { key: i, run: () => fetchSlideBackgroundResult(brandId, vibe, role, productImage ?? undefined, productImage ? SLIDE_TYPE_FOR_BG_ROLE[role] : undefined, visualPrompt) }
+      }),
+      { onProgress: (settled, total) => { if (isCurrent()) setBgProgress({ settled, total }) }, isCancelled: () => !isCurrent() }
+    )
+    if (!isCurrent()) return false
+    setBgProgress(null)
+    setImagesGenerating(false)
+    setFailedBgSlides([...failed].sort((x, y) => x - y))
+    if (outOfCredits.length > 0) {
+      setBodyBgWarning(`Ran out of credits — ${outOfCredits.length} slide background${outOfCredits.length === 1 ? "" : "s"} weren't generated and kept their flat color.`)
+    }
+    if (succeeded.size > 0) {
+      setCarousel((prev) => (prev && prev.id === carouselId
+        ? { ...prev, slides: prev.slides.map((s, i) => { const bg = succeeded.get(i); return bg ? { ...s, image_url: bg.url, background_image_provider: bg.provider } : s }) }
+        : prev))
+    }
+    return true
+  }
+
+  // "Retry" on the "N of M backgrounds failed" note -- regenerates only
+  // those slides. Each failed attempt was refunded server-side.
+  function retryFailedBackgrounds() {
+    if (!carousel || failedBgSlides.length === 0 || imagesGenerating) return
+    setBodyBgWarning(null)
+    void runCarouselBackgrounds(carousel.id ?? null, carousel.slides.length, failedBgSlides)
+  }
+
   async function generate() {
     if (!topic.trim()) { setError("Please enter a topic for your carousel."); return }
     // "custom_color" is a client-only rendering mode that skips AI image
@@ -889,6 +926,8 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
     setCarousel(null)
     setActiveSlide(0)
     setImagesGenerating(false)
+    bgRunRef.current++
+    setBgProgress(null)
     try {
       const res = await fetch("/api/v1/ai/carousel/generate", {
         method: "POST",
@@ -908,22 +947,10 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
       lastPersistedSlidesRef.current = JSON.stringify(merged.slides)
       setActiveSlide(0)
 
-      // Best-effort AI backgrounds for the hook and CTA slides, fired after
-      // text succeeds so a slow/failed image call never blocks or breaks
-      // carousel generation itself — each independently falls back to the
-      // flat vibe-color slide (fetchSlideBackground resolves to null, never
-      // throws). Cleared first so a regenerate doesn't show the previous
-      // carousel's images while the new ones are still in flight.
-      setHookBackgroundUrl(null)
-      setCtaBackgroundUrl(null)
-      setBodyBgProgress(null)
+      // Cleared first so a regenerate doesn't show the previous carousel's
+      // warnings while the new backgrounds are still in flight.
       setBodyBgWarning(null)
-      const hookSlide = merged.slides[0]
-      const ctaSlideEntry = merged.slides[merged.slides.length - 1]
-      const hasCtaSlide = !!ctaSlideEntry && merged.slides.length > 1
-      const bodyIndices = allSlidesAiBg
-        ? merged.slides.map((_, i) => i).filter((i) => i !== 0 && !(hasCtaSlide && i === merged.slides.length - 1))
-        : []
+      setFailedBgSlides([])
 
       if (isCustomColorMode) {
         // Custom color has no image step at all -- text+color is the whole
@@ -943,91 +970,20 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
         const coloredSlides = merged.slides.map((s) => ({ ...s, custom_background_colors: customColors }))
         setCarousel((prev) => (prev && prev.id === merged.id ? { ...prev, slides: coloredSlides } : prev))
       } else {
-        // "✓ generated and saved" doesn't fire until the whole image step
-        // below (hook/cta, then the body-slide loop) actually finishes --
-        // showing it right after text saves used to signal "fully done"
-        // while images were still loading invisibly afterward.
-        setImagesGenerating(true)
-        ;(async () => {
-          // productImageUrl/slideType only actually sent when a product is
-          // selected -- see fetchSlideBackgroundResult, which drops a null
-          // productImageUrl before it reaches the request body.
-          const [hookResult, ctaResult] = await Promise.all([
-            hookSlide
-              ? fetchSlideBackground(brandId, vibe, "hook", productImage ?? undefined, productImage ? "cover" : undefined, visualPrompt)
-              : Promise.resolve(null),
-            hasCtaSlide
-              ? fetchSlideBackground(brandId, vibe, "cta", productImage ?? undefined, productImage ? "cta" : undefined, visualPrompt)
-              : Promise.resolve(null),
-          ])
-          const hookBg = hookResult?.url ?? null
-          const ctaBg = ctaResult?.url ?? null
-          setHookBackgroundUrl(hookBg)
-          setCtaBackgroundUrl(ctaBg)
-
-          // Body slides are credit-metered (unlike hook/cta above), so
-          // they're requested one at a time rather than all at once, to
-          // fail fast and stop asking once credits run out instead of
-          // firing a batch of doomed requests.
-          const bodyUpdates: Record<number, { url: string; provider?: "openai" }> = {}
-          for (let n = 0; n < bodyIndices.length; n++) {
-            setBodyBgProgress({ current: n + 1, total: bodyIndices.length })
-            // Every body-loop slide is already type "content" -- unlike
-            // Stories' reveal/buildup split, no per-slide filtering needed
-            // beyond "is a product actually selected".
-            const result = await fetchSlideBackgroundResult(
-              brandId,
-              vibe,
-              "body",
-              productImage ?? undefined,
-              productImage ? "content" : undefined,
-              visualPrompt
-            )
-            if ("url" in result) {
-              bodyUpdates[bodyIndices[n]!] = { url: result.url, provider: result.provider }
-            } else if (result.error === "insufficient_credits") {
-              setBodyBgWarning(
-                `Ran out of credits after ${n} of ${bodyIndices.length} extra slide backgrounds — the rest kept their flat color.`
-              )
-              break
-            }
-            // A plain "failed" (transient generation error) doesn't stop
-            // the loop -- that one slide just keeps its flat color, same
-            // best-effort fallback hook/cta already have.
-          }
-          setBodyBgProgress(null)
-          setImagesGenerating(false)
-          // The whole image step (hook/cta, plus the body-slide loop above
-          // when applicable) is done -- text was already saved earlier, so
-          // this is the true "fully generated and saved" point, regardless
-          // of whether any individual background fetch actually succeeded.
+        // Best-effort AI backgrounds, fired after text succeeds so a slow or
+        // failed image call never blocks carousel generation itself. Hook
+        // and CTA go first (always on), then the middle slides when "AI
+        // background for every slide" is on. "✓ generated and saved"
+        // waits for the whole image step.
+        const count = merged.slides.length
+        const indices = merged.slides.map((_, i) => i)
+        const hookAndCta = indices.filter((i) => carouselBgRole(i, count) !== "body")
+        const middle = allSlidesAiBg ? indices.filter((i) => carouselBgRole(i, count) === "body") : []
+        void runCarouselBackgrounds(merged.id ?? null, count, [...hookAndCta, ...middle]).then((finished) => {
+          if (!finished) return
           setShowSuccess(true)
           setTimeout(() => setShowSuccess(false), 4000)
-
-          if (!merged.id || (!hookBg && !ctaBg && Object.keys(bodyUpdates).length === 0)) return
-
-          const slidesWithImages = merged.slides.map((s, i) => {
-            if (i === 0 && hookBg) return { ...s, image_url: hookBg, background_image_provider: hookResult?.provider }
-            if (i === merged.slides.length - 1 && hasCtaSlide && ctaBg) return { ...s, image_url: ctaBg, background_image_provider: ctaResult?.provider }
-            if (bodyUpdates[i]) return { ...s, image_url: bodyUpdates[i]!.url, background_image_provider: bodyUpdates[i]!.provider }
-            return s
-          })
-          setCarousel((prev) => (prev && prev.id === merged.id ? { ...prev, slides: slidesWithImages } : prev))
-          // Same reasoning as the generation-time assignment above -- this
-          // PUT is about to persist exactly this slides array, so the
-          // autosave effect shouldn't treat it as an unsaved edit too.
-          lastPersistedSlidesRef.current = JSON.stringify(slidesWithImages)
-
-          fetch(`/api/v1/brands/${brandId}/carousels/${merged.id}`, {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ slides: slidesWithImages }),
-          }).catch(() => {
-            // Best-effort — the carousel itself already generated fine; a
-            // failed persist here just means the Library won't show its
-            // image, not a user-facing generation failure.
-          })
-        })()
+        })
       }
     } catch (e) {
       setApiError(e)
@@ -1059,22 +1015,11 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
     setTimeout(() => setCopied(false), 1800)
   }
 
-  // Only the first (hook) and last (CTA) slides ever get an AI background —
-  // everything in between keeps the flat vibe-color treatment. The slide's
-  // own persisted image_url is the real source of truth (set once the
-  // generate-time fetch resolves, and restored from sessionStorage/a saved
-  // Library carousel on reload) -- hookBackgroundUrl/ctaBackgroundUrl are
-  // only a transient in-flight cache for the brief window between
-  // generation finishing and that fetch resolving. Reading state alone
-  // here (the previous behavior) meant a restored carousel's real AI photo
-  // silently vanished on every page reload, back to the flat color, even
-  // though the photo was correctly saved.
+  // The slide's own image_url is the only source: runCarouselBackgrounds
+  // writes each AI background straight onto its slide (and it's restored
+  // from sessionStorage / a saved Library carousel on reload).
   function backgroundUrlForSlide(index: number): string | null {
-    const slide = allSlides[index]
-    if (slide?.image_url) return slide.image_url
-    if (index === 0) return hookBackgroundUrl
-    if (index === allSlides.length - 1 && allSlides.length > 1) return ctaBackgroundUrl
-    return null
+    return allSlides[index]?.image_url ?? null
   }
 
   function downloadAllText() {
@@ -1183,12 +1128,13 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
               )}
             </div>
 
-            {/* Optional per-carousel upgrade: AI photo backgrounds for
-                every content slide, not just the hook/CTA that already get
-                one free. Only offered alongside a real vibe -- Custom
-                color already means "flat color everywhere, no AI", so the
-                two are mutually exclusive rather than combinable. */}
-            {vibe && vibe !== "custom_color" && (
+            {/* AI photo backgrounds for every content slide, not just the
+                hook/CTA. On by default and shown whenever AI backgrounds
+                run at all -- including when no vibe is picked (the model
+                picks one) -- so the user can always see and switch off what
+                they're paying for. Hidden only for Custom color ("flat
+                color everywhere, no AI"). */}
+            {vibe !== "custom_color" && (
               <label className="flex cursor-pointer items-start gap-2.5 rounded-lg border p-3 text-sm transition-colors hover:bg-secondary/40">
                 <input
                   type="checkbox"
@@ -1217,6 +1163,16 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
             </div>
 
             <GenerationWarning isPending={loading} />
+            {/* Total cost before clicking: the carousel itself plus, at
+                most, one background per middle slide (when the toggle is
+                on) and the hook/CTA backgrounds when a product photo is
+                attached (those are charged too). "Up to" because failed
+                backgrounds are refunded. */}
+            {vibe !== "custom_color" && extraBgCredits > 0 && (
+              <p className="text-center text-xs text-muted-foreground">
+                {CAROUSEL_CREDIT_COST} credits + up to {extraBgCredits} for AI slide backgrounds
+              </p>
+            )}
             <button
               onClick={generate}
               disabled={loading || promptWriter.stage === "writing"}
@@ -1275,9 +1231,27 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
           {imagesGenerating && (
             <div className="flex items-center gap-2 rounded-lg border border-violet-200 bg-violet-50 px-4 py-3 text-sm text-violet-700">
               <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
-              {bodyBgProgress
-                ? `Generating slide background ${bodyBgProgress.current} of ${bodyBgProgress.total}…`
+              {bgProgress && bgProgress.total > 0
+                ? `Generating slide backgrounds… ${bgProgress.settled} of ${bgProgress.total} done`
                 : "Generating carousel backgrounds…"}
+            </div>
+          )}
+
+          {failedBgSlides.length > 0 && !imagesGenerating && (
+            <div className="flex items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+              <div className="flex items-start gap-2">
+                <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+                <span>
+                  {failedBgSlides.length} of {bgAttempted} background{bgAttempted === 1 ? "" : "s"} failed (slide{failedBgSlides.length === 1 ? "" : "s"} {failedBgSlides.map((i) => i + 1).join(", ")}) — kept the flat color. No credits were used for them.
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={retryFailedBackgrounds}
+                className="flex shrink-0 items-center gap-1 rounded-full border border-amber-300 bg-white px-3 py-1 text-xs font-semibold text-amber-800 hover:bg-amber-100"
+              >
+                <RefreshCw className="h-3.5 w-3.5" /> Retry
+              </button>
             </div>
           )}
 

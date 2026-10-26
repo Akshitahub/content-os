@@ -1,4 +1,6 @@
 // Browser-only (DOM canvas) -- import from client components only.
+import type { FontId } from "@/lib/design/fonts"
+import { PREVIEW_FONT_FAMILY } from "@/lib/design/preview-fonts"
 //
 // The Post tool's client-side text overlay: flattens the clean, text-free
 // AI background + the user's editable headline into one PNG. Moved here
@@ -54,7 +56,11 @@ export async function flattenOverlayImage(
   /** PNG by default (Create -> Full Post, unchanged). The calendar's
    * re-edit sends JPEG instead: a PNG of a photo this size can approach
    * the platform's request-body limit once base64-encoded. */
-  output: { type: "image/png" } | { type: "image/jpeg"; quality: number } = { type: "image/png" }
+  output: { type: "image/png" } | { type: "image/jpeg"; quality: number } = { type: "image/png" },
+  /** The headline's typeface (the Post's suggested_font_id, or the user's
+   * pick). Omitted = the system bold sans this always used, so entries
+   * scheduled before fonts existed re-render unchanged. */
+  fontId?: FontId
 ): Promise<string> {
   const encode = (c: HTMLCanvasElement) => (output.type === "image/jpeg" ? c.toDataURL("image/jpeg", output.quality) : c.toDataURL("image/png"))
   const img = await loadImage(imageUrl)
@@ -86,7 +92,15 @@ export async function flattenOverlayImage(
   ctx.textAlign = "left"
   ctx.textBaseline = "alphabetic"
   const fontSize = Math.round(w * 0.062)
-  ctx.font = `700 ${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`
+  let fontSpec = `700 ${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`
+  if (fontId) {
+    const { family, weight } = PREVIEW_FONT_FAMILY[fontId]
+    fontSpec = `${weight} ${fontSize}px ${family}, sans-serif`
+    // A canvas draws with whatever is loaded right now -- wait for the face
+    // so the first export isn't silently in the fallback font.
+    try { await document.fonts.load(fontSpec, trimmed) } catch { /* draw with the fallback */ }
+  }
+  ctx.font = fontSpec
   const padX = w * 0.07
   const lines = wrapTextLines(ctx, trimmed, w - padX * 2, 3)
   const lineH = fontSize * 1.18

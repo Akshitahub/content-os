@@ -7,6 +7,7 @@ import { PlatformPreviewFrame } from "@/components/shared/PlatformPreviewFrame"
 import type { CalendarEntryRow } from "@/types/database"
 import { isApiError } from "@/types/api"
 import { flattenOverlayImage } from "@/lib/utils/post-overlay-export"
+import { isFontId } from "@/lib/design/fonts"
 import { readJsonResponse } from "@/lib/utils/read-json-response"
 
 // Matches what app/api/v1/brands/[brandId]/calendar/[entryId]/regenerate/route.ts
@@ -231,7 +232,10 @@ export function CalendarEntryPanel({ entry, onClose, onUpdate, brandId }: Calend
     setIsSavingImageText(true)
     setImageTextError(null)
     try {
-      const imageDataUrl = await flattenOverlayImage(baseImageUrl, imageTextDraft, { type: "image/jpeg", quality: 0.92 })
+      // Same typeface the post was scheduled with; entries from before fonts
+      // were saved have none and keep the original system font.
+      const fontId = isFontId(data?.overlay_font_id) ? data.overlay_font_id : undefined
+      const imageDataUrl = await flattenOverlayImage(baseImageUrl, imageTextDraft, { type: "image/jpeg", quality: 0.92 }, fontId)
       const res = await fetch(`/api/v1/brands/${brandId}/calendar/${entry.id}/image-text`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },

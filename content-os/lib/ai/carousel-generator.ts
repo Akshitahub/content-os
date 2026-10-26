@@ -1,5 +1,5 @@
 import type { BrandRow } from "@/types/database"
-import { buildPastExamplesBlock, QUALITY_BAR } from "./prompts"
+import { buildPastExamplesBlock, buildSuggestedFontField, QUALITY_BAR } from "./prompts"
 import { createCreativeCompletion } from "./creative-completion"
 import { buildFactSource, guardCopy } from "./fact-guard"
 import { UsageCarryingError, addTextUsage, sumCostUsd, type TextUsage } from "./pricing"
@@ -104,6 +104,7 @@ Respond with ONLY this JSON (no markdown, no explanation):
   "title": "short carousel title",
   "cover_hook": "the scroll-stopping cover text — see COVER HOOK GUIDANCE above",
   "suggested_vibe": "one of: fun_playful | clean_minimal | bold_dramatic | warm_cozy | professional | trendy_genz — whichever best fits this topic and the brand's own tone_of_voice/vibe above",
+  ${buildSuggestedFontField("the suggested_vibe you picked (it sets the slide colors)")},
   "slides": [
     {
       "slide_number": 1,

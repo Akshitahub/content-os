@@ -1,5 +1,6 @@
 import type { BrandRow, ProductRow, CalendarEntryRow } from "./database"
 import type { PostTemplateId } from "@/lib/design/post-templates"
+import type { FontId } from "@/lib/design/fonts"
 
 /**
  * App-level types — these are what components and hooks work with.
@@ -66,6 +67,10 @@ export type GeneratedCaption = {
    * replacing what used to be three separate manual pickers. */
   suggested_template?: PostTemplateId | null
   suggested_color_theme_id?: string | null
+  /** Typeface for the on-image overlay text -- always a valid id once the
+   * fullpost route has resolved it (model pick, else the brand-vibe
+   * fallback in lib/design/fonts.ts). */
+  suggested_font_id?: FontId | null
   /** Short on-image overlay text, or empty string if a clean text-free
    * image fits this post better — the model decides, not a toggle. */
   suggested_overlay_text?: string | null

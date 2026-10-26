@@ -38,11 +38,44 @@ export const CURATED_FONTS: FontOption[] = [
 // that predates the font picker gets byte-identical output to before.
 export const DEFAULT_FONT_ID: FontId = "anton"
 
-/**
- * v1 is user-selectable only — no AI auto-pick-by-brand-vibe logic yet.
- * That's a reasonable, explicitly-flagged follow-up once the picker itself
- * is live and used, not a blocker for shipping font selection at all.
- */
+export function isFontId(value: unknown): value is FontId {
+  return typeof value === "string" && CURATED_FONTS.some((f) => f.id === value)
+}
+
+// Deterministic fallback for when the copy model's suggested_font_id is
+// missing or not one of the five ids. Brand vibe is free text (onboarding
+// lets users type their own), so this matches keywords in order -- the
+// first rule that hits wins. Caveat is only for an explicitly personal /
+// handmade brand; it's hard to read in long body text.
+const VIBE_FONT_RULES: { pattern: RegExp; font: FontId }[] = [
+  { pattern: /hand ?made|handcraft|artisan|personal|diary|journal|scrapbook/i, font: "caveat" },
+  { pattern: /luxur|elegan|premium|festive|editorial|classic|sophisticat|romantic|wedding|jewel/i, font: "playfair" },
+  { pattern: /bold|dramatic|hype|sale|energetic|edgy|loud|street|sport|trendy|gen ?z/i, font: "anton" },
+  { pattern: /play|fun|friendly|cute|whimsical|kid|cheer|cozy|warm|soft/i, font: "quicksand" },
+  { pattern: /clean|minimal|professional|corporate|saas|tech|modern|simple|b2b|finance/i, font: "inter" },
+]
+
+/** Fallback font for a brand vibe and/or a content vibe (e.g. the carousel's
+ * own "warm_cozy" -- underscores are treated as spaces). Checks each vibe
+ * in the order given; DEFAULT_FONT_ID if none matches. */
+export function fallbackFontForVibe(...vibes: (string | null | undefined)[]): FontId {
+  for (const vibe of vibes) {
+    if (!vibe) continue
+    const text = vibe.replace(/_/g, " ")
+    const rule = VIBE_FONT_RULES.find((r) => r.pattern.test(text))
+    if (rule) return rule.font
+  }
+  return DEFAULT_FONT_ID
+}
+
+/** The model's suggested_font_id when it's a real id, otherwise the
+ * vibe-based fallback above. */
+export function resolveSuggestedFont(suggested: unknown, ...vibes: (string | null | undefined)[]): FontId {
+  return isFontId(suggested) ? suggested : fallbackFontForVibe(...vibes)
+}
+
+/** The curated list; the starting font for a new Post / Carousel / Story
+ * comes from resolveSuggestedFont above, and the user can change it after. */
 export function resolveFonts(): FontOption[] {
   return CURATED_FONTS
 }

@@ -8,7 +8,7 @@ import { requestStorySequence } from "@/lib/ai/story-sequence-generator"
 import { findContentQualityIssues, sanitizeLeakedArtifacts } from "@/lib/ai/content-quality-check"
 import { z } from "zod"
 import type { BrandRow } from "@/types/database"
-import type { FontId } from "@/lib/design/fonts"
+import { resolveSuggestedFont, type FontId } from "@/lib/design/fonts"
 import { timedGenerationRoute, type GenerationTimer } from "@/lib/utils/generation-timing"
 import { withDeadline, DeadlineExceededError, GENERATION_TIMED_OUT_MESSAGE } from "@/lib/utils/with-deadline"
 
@@ -320,6 +320,13 @@ async function handlePost(request: Request, timer: GenerationTimer) {
     if (vibeBackground) {
       d.stories = (d.stories as Record<string, unknown>[]).map((s) => ({ ...s, background: vibeBackground }))
     }
+
+    // One font for the whole sequence -- same rule as the carousel route:
+    // the model's pick if valid, else the brand / story vibe fallback.
+    // Stamped on every slide; still changeable per slide in the editor.
+    const fontId = resolveSuggestedFont(d.suggested_font_id, brand.vibe, effectiveVibe)
+    d.suggested_font_id = fontId
+    d.stories = (d.stories as Record<string, unknown>[]).map((s) => ({ ...s, font_id: fontId }))
 
     d.stories = sanitizeStorySlides(d.stories as Record<string, unknown>[])
     const caption = d.caption as { caption_text?: unknown; hashtags?: unknown } | undefined

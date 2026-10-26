@@ -10,6 +10,7 @@ import { findContentQualityIssues, sanitizeLeakedArtifacts } from "@/lib/ai/cont
 import { z } from "zod"
 import type { BrandRow } from "@/types/database"
 import type { CarouselBackgroundStyle } from "@/lib/design/carousel-slide-styles"
+import { resolveSuggestedFont } from "@/lib/design/fonts"
 import { timedGenerationRoute, type GenerationTimer } from "@/lib/utils/generation-timing"
 import { withDeadline, DeadlineExceededError, GENERATION_TIMED_OUT_MESSAGE } from "@/lib/utils/with-deadline"
 
@@ -265,6 +266,14 @@ async function handlePost(request: Request, timer: GenerationTimer) {
         s && typeof s === "object" ? { ...s, background_style: vibeBackground } : s
       )
     }
+
+    // One font for the whole set, so every slide matches: the model's
+    // suggested_font_id if it's a real id, else a deterministic pick from
+    // the brand's vibe / the carousel vibe. Stamped on every slide before
+    // saving; the user can still change it per slide in the editor.
+    const fontId = resolveSuggestedFont(d.suggested_font_id, brand.vibe, effectiveVibe)
+    d.suggested_font_id = fontId
+    mergedSlides = mergedSlides.map((s) => (s && typeof s === "object" ? { ...s, font_id: fontId } : s))
 
     mergedSlides = sanitizeCarouselSlides(mergedSlides)
     const cleanTitle = typeof d.title === "string" ? sanitizeCarouselText(d.title) : d.title

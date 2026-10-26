@@ -18,3 +18,14 @@ export const PREVIEW_FONT_CLASS: Record<FontId, string> = {
   quicksand: quicksand.className,
   caveat: caveat.className,
 }
+
+// The same faces as CSS font-family values plus the weight each one is
+// loaded at -- for drawing on a <canvas> (lib/utils/post-overlay-export.ts),
+// which can't use a className.
+export const PREVIEW_FONT_FAMILY: Record<FontId, { family: string; weight: number }> = {
+  anton: { family: anton.style.fontFamily, weight: 400 },
+  inter: { family: inter.style.fontFamily, weight: 700 },
+  playfair: { family: playfair.style.fontFamily, weight: 700 },
+  quicksand: { family: quicksand.style.fontFamily, weight: 700 },
+  caveat: { family: caveat.style.fontFamily, weight: 700 },
+}

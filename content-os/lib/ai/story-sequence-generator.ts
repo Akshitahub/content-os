@@ -1,6 +1,6 @@
 import type { BrandRow } from "@/types/database"
 import type { StorySlide } from "@/app/api/v1/ai/stories/generate/route"
-import { buildPastExamplesBlock, QUALITY_BAR } from "./prompts"
+import { buildPastExamplesBlock, buildSuggestedFontField, QUALITY_BAR } from "./prompts"
 import { createCreativeCompletion } from "./creative-completion"
 import { buildFactSource, guardCopy } from "./fact-guard"
 import { addTextUsage, sumCostUsd, type TextUsage } from "./pricing"
@@ -189,7 +189,8 @@ Respond with ONLY this JSON:
   "caption": {
     "caption_text": "hook line, 1-2 lines of value, then ${ctaPhrase} and ${handle} on its own line — see CAPTION above",
     "hashtags": ["niche1", "niche2", "niche3", "niche4", "niche5", "brand1", "brand2", "brand3", "brand4", "brand5", "broad1", "broad2", "broad3", "broad4", "broad5"]
-  }
+  },
+  ${buildSuggestedFontField("the flat cream checklist card")}
 }
 
 Make the text punchy and specific. Each story should make the viewer want to tap to the next one.`
@@ -277,7 +278,8 @@ Respond with ONLY this JSON:
     "caption_text": "hook line, 1-2 lines of value, then ${ctaPhrase} and ${handle} on its own line — see CAPTION above",
     "hashtags": ["niche1", "niche2", "niche3", "niche4", "niche5", "brand1", "brand2", "brand3", "brand4", "brand5", "broad1", "broad2", "broad3", "broad4", "broad5"]
   },
-  "suggested_vibe": "one of: fun_playful | clean_minimal | bold_dramatic | warm_cozy | professional | trendy_genz — whichever best fits this topic and the brand's own tone_of_voice/vibe above"
+  "suggested_vibe": "one of: fun_playful | clean_minimal | bold_dramatic | warm_cozy | professional | trendy_genz — whichever best fits this topic and the brand's own tone_of_voice/vibe above",
+  ${buildSuggestedFontField("the suggested_vibe you picked (it sets the slide colors)")}
 }
 
 Make the text punchy and emotion-led. Each story should make the viewer want to tap to the next one.`
