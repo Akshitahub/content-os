@@ -49,9 +49,9 @@ export function isFontId(value: unknown): value is FontId {
 // handmade brand; it's hard to read in long body text.
 const VIBE_FONT_RULES: { pattern: RegExp; font: FontId }[] = [
   { pattern: /hand ?made|handcraft|artisan|personal|diary|journal|scrapbook/i, font: "caveat" },
-  { pattern: /luxur|elegan|premium|festive|editorial|classic|sophisticat|romantic|wedding|jewel/i, font: "playfair" },
+  { pattern: /luxur|elegan|premium|festive|editorial|classic|sophisticat|romantic|wedding|jewel|warm|cozy|cosy|soft/i, font: "playfair" },
   { pattern: /bold|dramatic|hype|sale|energetic|edgy|loud|street|sport|trendy|gen ?z/i, font: "anton" },
-  { pattern: /play|fun|friendly|cute|whimsical|kid|cheer|cozy|warm|soft/i, font: "quicksand" },
+  { pattern: /play|fun|friendly|cute|whimsical|kid|cheer/i, font: "quicksand" },
   { pattern: /clean|minimal|professional|corporate|saas|tech|modern|simple|b2b|finance/i, font: "inter" },
 ]
 
