@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import { buildError, ErrorCodes } from "@/types/api"
-import { generateCarouselSlideBackground, type CarouselVibe } from "@/lib/ai/carousel-slide-background"
+import { generateCarouselSlideBackground, briefUsesProductReference, type CarouselVibe } from "@/lib/ai/carousel-slide-background"
 import { sanitizeVisualBrief } from "@/lib/ai/carousel-generator"
 import { attemptsCostUsd } from "@/lib/ai/post-image-pipeline"
 import { uploadMediaToStorage } from "@/lib/storage/upload-media"
@@ -100,6 +100,13 @@ async function handlePost(request: Request, timer: GenerationTimer) {
 
   const { brandId, vibe, role, productImageUrl, slideType, customPrompt } = parsed.data
   const visualBrief = sanitizeVisualBrief(parsed.data.visualBrief)
+  // The product photo this slide will actually use -- mirrors
+  // generateCarouselSlideBackground (a non-hook slide whose brief kind skips
+  // the reference never sends it), so a skipped reference isn't charged.
+  const effectiveProductImageUrl =
+    role !== "hook" && visualBrief && !briefUsesProductReference(visualBrief)
+      ? undefined
+      : productImageUrl
 
   const { data: brand } = await supabase.from("brands").select("*").eq("id", brandId).eq("user_id", user.id).single<BrandRow>()
   if (!brand) return NextResponse.json(buildError(ErrorCodes.BRAND_NOT_FOUND, "Brand not found."), { status: 404 })
@@ -127,7 +134,7 @@ async function handlePost(request: Request, timer: GenerationTimer) {
   // it's attached to — so it charges here too. Checked and charged up
   // front, same pattern as every other paid generation route, refunded
   // below if generation or upload ends up failing.
-  const isChargeable = role === "body" || !!productImageUrl
+  const isChargeable = role === "body" || !!effectiveProductImageUrl
   let usageLogId: string | null = null
   if (isChargeable) {
     const usageCheck = await checkAndIncrementUsage(user.id, CAROUSEL_SLIDE_AI_BACKGROUND, "carousel_slide_bg_body")
@@ -145,7 +152,7 @@ async function handlePost(request: Request, timer: GenerationTimer) {
     plan,
     isInternalUnlimitedUser: isUnlimited,
     role,
-    productImageUrl,
+    productImageUrl: effectiveProductImageUrl,
     slideType,
     customPrompt,
     visualBrief,
