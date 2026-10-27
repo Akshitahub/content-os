@@ -495,22 +495,19 @@ async function revertCommittedSlot(admin: Admin, job: SlotJobRow, ctx: RunContex
 }
 
 // Adds this slot's tokens/cost onto the run's single ai_generation_logs row.
-// Best-effort read-modify-write: two slots finishing at the same instant can
-// lose one's token/cost addition (credits_charged is NOT affected -- that's
-// updated atomically inside complete_autopilot_slot).
+// Atomic increment in Postgres (supabase/migrations/058_add_generation_log_usage.sql)
+// -- concurrent slots finishing at once no longer lose each other's additions.
 async function recordSlotUsage(admin: Admin, ctx: RunContext, tracker: AutopilotUsageTracker): Promise<void> {
   if (!ctx.logId) return
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const db = (table: string) => admin.from(table as any) as any
-  const { data: log } = await db("ai_generation_logs").select("prompt_tokens, completion_tokens, total_tokens, cost_usd").eq("id", ctx.logId)
-    .single() as { data: { prompt_tokens: number | null; completion_tokens: number | null; total_tokens: number | null; cost_usd: number | null } | null }
-  if (!log) return
-  await db("ai_generation_logs").update({
-    prompt_tokens: (log.prompt_tokens ?? 0) + (tracker.usage?.prompt_tokens ?? 0),
-    completion_tokens: (log.completion_tokens ?? 0) + (tracker.usage?.completion_tokens ?? 0),
-    total_tokens: (log.total_tokens ?? 0) + (tracker.usage?.total_tokens ?? 0),
-    cost_usd: Number(log.cost_usd ?? 0) + (tracker.costUsd ?? 0),
-  }).eq("id", ctx.logId)
+  const { error } = await (admin.rpc as any)("add_generation_log_usage", {
+    p_log_id: ctx.logId,
+    p_prompt: tracker.usage?.prompt_tokens ?? 0,
+    p_completion: tracker.usage?.completion_tokens ?? 0,
+    p_total: tracker.usage?.total_tokens ?? 0,
+    p_cost: tracker.costUsd ?? 0,
+  }) as { error: { message: string } | null }
+  if (error) console.error(`[autopilot-worker] failed to record slot usage on log ${ctx.logId}:`, error.message)
 }
 
 /**
