@@ -48,10 +48,25 @@ CRITICAL RULES:
 - Keep headline under ~50 characters and each bullet point under ~12 words — slides are meant to be scanned in a swipe, not read like an essay
 - RESPOND WITH ONLY VALID JSON — no markdown fences, no explanation text, no trailing commas
 
+STEP 1 — NARRATIVE PLAN (do this first, emit it as "narrative_plan" before any slide copy):
+- "audience_question": the real question this carousel answers for this brand's audience.
+- "takeaway": the one thing the reader should know or do after the last slide.
+- "arc": one entry per slide (all ${slideCount}, CTA included) — its "slide_number", its "role", and the "new_information" that slide adds.
+Roles to choose from (adapt to the topic, don't force all of them): hook, problem, context, step, comparison, evidence, example, mistake, decision_criteria, takeaway, cta.
+Default progression: hook → context/problem → explanation/steps → evidence/example → takeaway → CTA.
+Then write every slide from its arc entry, and give each slide object (and cta_slide) a "role" matching it.
+
 SLIDE STRUCTURE:
-- Slide 1: Cover slide (type: "cover") — bold hook headline + teaser subtext
-- Slides 2 to ${slideCount - 1}: Content slides (type: "content") — see CONTENT SLIDE FORMATS below
-- Slide ${slideCount}: CTA slide (type: "cta") — strong call to action
+- Slide 1: Cover slide (type: "cover", role: "hook") — bold hook headline + teaser subtext
+- Slides 2 to ${slideCount - 1}: Content slides (type: "content") — the role decides WHAT the slide says, the format below decides HOW it's laid out
+- Slide ${slideCount}: CTA slide (the separate "cta_slide" object, role "cta" or "takeaway") — states the takeaway, then the call to action
+
+INFORMATION DEPTH — the most common failure is slides that only name a topic ("Final finish delivers refined comfort") and never say anything:
+- Every content slide must add one concrete, NEW piece of information the reader didn't have from earlier slides — a how, a why, a trade-off, a criterion, a mistake or an example. A slide that only names a topic is a failure.
+- If a headline promises something (a comparison, a sketch, materials, steps, reasons), that slide's points must actually deliver it.
+- No empty adjectives ("premium", "refined", "elevated", "seamless", "luxurious") unless the same slide states the specific detail that justifies them.
+- Only use facts from the brand context or topic above. When a specific isn't known, teach the general principle instead of inventing one (the number and placeholder rules above still apply).
+- The CTA slide's headline summarises the takeaway — never just "follow us" or "save this".
 
 CONTENT SLIDE FORMATS — confirmed live (2026-08-29): every content slide
 defaulting to the same "title + 3 bullet points" shape reads as
@@ -99,8 +114,20 @@ HASHTAG STRATEGY — 5+5+5 RULE for the "hashtags" field:
 - 5 broad/trending (high volume, 5M+ posts): e.g. #Skincare, #Beauty, #SelfCare
 ${QUALITY_BAR}
 
-Respond with ONLY this JSON (no markdown, no explanation):
+Respond with ONLY this JSON (no markdown, no explanation). The values below are an example for a different topic ("why shoppers abandon checkout") showing the depth expected — write your own for THIS topic and brand:
 {
+  "narrative_plan": {
+    "audience_question": "Why do shoppers leave at checkout, and what should I fix first?",
+    "takeaway": "Show the full cost before checkout and cut every step that isn't address or payment.",
+    "arc": [
+      { "slide_number": 1, "role": "hook", "new_information": "Most lost sales happen at checkout, not on product pages" },
+      { "slide_number": 2, "role": "problem", "new_information": "The top reason is a cost that only appears at the last step" },
+      { "slide_number": 3, "role": "comparison", "new_information": "How shoppers react to shipping shown upfront vs. at payment" },
+      { "slide_number": 4, "role": "step", "new_information": "Three fixes, in order of effort" },
+      { "slide_number": 5, "role": "mistake", "new_information": "Forced sign-up before payment loses buyers who were ready" },
+      { "slide_number": 6, "role": "takeaway", "new_information": "Full cost upfront, fewest steps to pay" }
+    ]
+  },
   "title": "short carousel title",
   "cover_hook": "the scroll-stopping cover text — see COVER HOOK GUIDANCE above",
   "suggested_vibe": "one of: fun_playful | clean_minimal | bold_dramatic | warm_cozy | professional | trendy_genz — whichever best fits this topic and the brand's own tone_of_voice/vibe above",
@@ -109,48 +136,54 @@ Respond with ONLY this JSON (no markdown, no explanation):
     {
       "slide_number": 1,
       "type": "cover",
-      "headline": "Big bold cover headline",
-      "subtext": "Swipe to discover →",
+      "role": "hook",
+      "headline": "Your checkout is losing the sale",
+      "subtext": "Where shoppers drop off, and what to fix first",
       "background_style": "gradient_dark"
     },
     {
       "slide_number": 2,
       "type": "content",
-      "headline": "Most first-time buyers never come back",
-      "points": [],
+      "role": "problem",
+      "headline": "Why do shoppers leave at checkout?",
+      "points": ["A shipping cost they only see at the final step"],
       "background_style": "gradient_light"
     },
     {
       "slide_number": 3,
       "type": "content",
-      "headline": "Generic emails vs. personalized ones",
-      "points": ["Generic: skimmed and deleted", "Personalized: opened and answered"],
+      "role": "comparison",
+      "headline": "Shipping shown upfront vs. at payment",
+      "points": ["Upfront: they decide before investing any effort", "At payment: the surprise feels like a trick"],
       "background_style": "white_violet"
     },
     {
       "slide_number": 4,
       "type": "content",
-      "headline": "Why do most carts get abandoned?",
-      "points": ["Shipping cost shows up too late in checkout"],
+      "role": "step",
+      "headline": "Fix these three, in this order",
+      "points": ["Show shipping on the product page", "Cut checkout to address and payment", "Offer guest checkout"],
       "background_style": "gradient_light"
     },
     {
       "slide_number": 5,
       "type": "content",
-      "headline": "Fix your checkout flow in 3 steps",
-      "points": ["Show shipping cost upfront", "Cut form fields to the essentials", "Add a guest checkout option"],
+      "role": "mistake",
+      "headline": "Forced sign-up turns away ready buyers",
+      "points": [],
       "background_style": "white_violet"
     }
   ],
   "cta_slide": {
-    "headline": "Strong CTA headline",
-    "cta": "Follow for more tips like this",
+    "role": "takeaway",
+    "headline": "Show the full cost before checkout",
+    "cta": "Save this for your next store update",
     "handle": "@yourhandle"
   },
   "hashtags": ["niche1", "niche2", "niche3", "niche4", "niche5", "brand1", "brand2", "brand3", "brand4", "brand5", "broad1", "broad2", "broad3", "broad4", "broad5"]
 }
 
-Make every slide punchy, valuable, and shareable. The cover must stop the scroll immediately.`
+Make every slide punchy AND substantive: each one teaches something specific. The cover must stop the scroll immediately.`
 }
 
 /**
@@ -219,7 +252,9 @@ function carouselCallParams(prompt: string, slideCount: number) {
     // spent 828 of 1499 completion tokens on hidden reasoning). Budget
     // unchanged; reasoning tokens count against it on gpt-5.5 too.
     reasoningEffort: "medium" as const,
-    maxCompletionTokens: Math.max(4000, slideCount * 500),
+    // Raised from max(4000, slideCount * 500) for the narrative_plan the
+    // model now writes before the slides -- an ESTIMATE, not measured.
+    maxCompletionTokens: Math.max(5000, slideCount * 650),
     // ESTIMATE, not measured (no OPENAI_API_KEY where this was written) --
     // see scripts/test-creative-stages.ts. Sized for a 10-slide carousel
     // at medium effort; revisit against real latency.

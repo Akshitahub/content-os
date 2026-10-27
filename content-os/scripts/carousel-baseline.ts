@@ -171,7 +171,7 @@ const VIBE_TO_CAROUSEL_BACKGROUND: Record<string, string> = {
 // Copied from mergeCtaSlideIntoSlides (carousel/generate/route.ts ~line 70).
 function mergeCtaSlideIntoSlides(slides: unknown[], ctaSlide: unknown, realHandle?: string): unknown[] {
   if (!ctaSlide || typeof ctaSlide !== "object") return slides
-  const cta = ctaSlide as { headline?: unknown; cta?: unknown; handle?: unknown }
+  const cta = ctaSlide as { headline?: unknown; cta?: unknown; handle?: unknown; role?: unknown }
   const handle = realHandle ?? (typeof cta.handle === "string" ? cta.handle : undefined)
   const existingIndex = slides.findIndex((s) => s && typeof s === "object" && (s as { type?: unknown }).type === "cta")
   if (existingIndex !== -1) {
@@ -182,6 +182,7 @@ function mergeCtaSlideIntoSlides(slides: unknown[], ctaSlide: unknown, realHandl
       ...existing,
       cta: typeof existing.cta === "string" ? existing.cta : (typeof cta.cta === "string" ? cta.cta : undefined),
       handle: handle ?? (typeof existing.handle === "string" ? existing.handle : undefined),
+      role: typeof existing.role === "string" ? existing.role : (typeof cta.role === "string" ? cta.role : "cta"),
     }
     return merged
   }
@@ -190,6 +191,7 @@ function mergeCtaSlideIntoSlides(slides: unknown[], ctaSlide: unknown, realHandl
     {
       slide_number: slides.length + 1,
       type: "cta",
+      role: typeof cta.role === "string" ? cta.role : "cta",
       background_style: "gradient_dark",
       headline: typeof cta.headline === "string" ? cta.headline : "",
       cta: typeof cta.cta === "string" ? cta.cta : undefined,
@@ -205,11 +207,28 @@ function carouselBgRole(index: number, count: number): "hook" | "cta" | "body" {
   return "body"
 }
 
+// narrative_plan as markdown for slides.md -- [] when the model didn't return one.
+function narrativePlanLines(plan: unknown): string[] {
+  if (!plan || typeof plan !== "object") return ["**Narrative plan:** (none returned)", ""]
+  const p = plan as { audience_question?: unknown; takeaway?: unknown; arc?: unknown }
+  const arc = Array.isArray(p.arc) ? (p.arc as { slide_number?: unknown; role?: unknown; new_information?: unknown }[]) : []
+  return [
+    "## Narrative plan",
+    `- **Audience question:** ${String(p.audience_question ?? "")}`,
+    `- **Takeaway:** ${String(p.takeaway ?? "")}`,
+    ...arc.map((a) => `  ${String(a.slide_number ?? "?")}. *${String(a.role ?? "")}* — ${String(a.new_information ?? "")}`),
+    "",
+  ]
+}
+
 // ─── Run ────────────────────────────────────────────────────────────────────
 
 type SlideRecord = {
   index: number
+  /** Background role (carouselBgRole) -- what the image prompt was told. */
   role: "hook" | "cta" | "body"
+  /** The slide's narrative role from the model's narrative_plan arc. */
+  narrativeRole: string | null
   headline: string
   points: string[]
   imageFile: string | null
@@ -363,6 +382,7 @@ async function main(): Promise<void> {
     const record: SlideRecord = {
       index: i + 1,
       role,
+      narrativeRole: typeof s.role === "string" ? s.role : null,
       headline: typeof s.headline === "string" ? s.headline : "",
       points: Array.isArray(s.points) ? s.points.filter((p): p is string => typeof p === "string") : [],
       imageFile: null,
@@ -399,6 +419,7 @@ async function main(): Promise<void> {
     carouselPrompt: copyCalls[0]?.request ?? null,
     carouselCalls: copyCalls,
     rawCarouselOutputs: copyCalls.map((c) => c.responseContent ?? null),
+    narrativePlan: d.narrative_plan ?? null,
     carouselData: gen.data,
     finalSlides: slides,
     effectiveVibe: effectiveVibe ?? null,
@@ -425,9 +446,10 @@ async function main(): Promise<void> {
     "",
     `**Visual prompt:** ${cell(visualPrompt || "(none)")}`,
     "",
-    "| # | Role | Headline | Points | Image |",
-    "|---|------|----------|--------|-------|",
-    ...slideRecords.map((r) => `| ${r.index} | ${r.role} | ${cell(r.headline)} | ${cell(r.points.join(" · "))} | ${r.imageFile ? `![](${r.imageFile})` : `failed: ${cell(r.error ?? "")}`} |`),
+    ...narrativePlanLines(d.narrative_plan),
+    "| # | Narrative role | Bg role | Headline | Points | Image |",
+    "|---|----------------|---------|----------|--------|-------|",
+    ...slideRecords.map((r) => `| ${r.index} | ${r.narrativeRole ?? "—"} | ${r.role} | ${cell(r.headline)} | ${cell(r.points.join(" · "))} | ${r.imageFile ? `![](${r.imageFile})` : `failed: ${cell(r.error ?? "")}`} |`),
     ...(errors.length ? ["", "## Errors", ...errors.map((e) => `- ${e}`)] : []),
     "",
   ].join("\n")

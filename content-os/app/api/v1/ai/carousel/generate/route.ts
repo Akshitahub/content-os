@@ -68,7 +68,7 @@ const VIBE_TO_CAROUSEL_BACKGROUND: Record<string, CarouselBackgroundStyle> = {
 // withCtaSlideMerged() fix.
 function mergeCtaSlideIntoSlides(slides: unknown[], ctaSlide: unknown, realHandle?: string): unknown[] {
   if (!ctaSlide || typeof ctaSlide !== "object") return slides
-  const cta = ctaSlide as { headline?: unknown; cta?: unknown; handle?: unknown }
+  const cta = ctaSlide as { headline?: unknown; cta?: unknown; handle?: unknown; role?: unknown }
   // The model's own `handle` is never trusted over the brand's real,
   // code-known handle when one exists -- same "don't ask the LLM to echo
   // back a value the caller already has" reasoning as background_style's
@@ -101,6 +101,7 @@ function mergeCtaSlideIntoSlides(slides: unknown[], ctaSlide: unknown, realHandl
       ...existing,
       cta: typeof existing.cta === "string" ? existing.cta : (typeof cta.cta === "string" ? cta.cta : undefined),
       handle: handle ?? (typeof existing.handle === "string" ? existing.handle : undefined),
+      role: typeof existing.role === "string" ? existing.role : (typeof cta.role === "string" ? cta.role : "cta"),
     }
     return merged
   }
@@ -110,6 +111,8 @@ function mergeCtaSlideIntoSlides(slides: unknown[], ctaSlide: unknown, realHandl
     {
       slide_number: slides.length + 1,
       type: "cta",
+      // The cta_slide's narrative role (narrative_plan's last arc entry).
+      role: typeof cta.role === "string" ? cta.role : "cta",
       background_style: "gradient_dark",
       headline: typeof cta.headline === "string" ? cta.headline : "",
       cta: typeof cta.cta === "string" ? cta.cta : undefined,
