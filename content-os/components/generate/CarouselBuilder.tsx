@@ -24,7 +24,7 @@ import type { FontId } from "@/lib/design/fonts"
 import { PREVIEW_FONT_CLASS } from "@/lib/design/preview-fonts"
 import { runSlideBackgroundJobs, slideBackgroundErrorForStatus, type SlideBackgroundOutcome } from "@/lib/utils/slide-backgrounds"
 import type { ProductRow } from "@/types/database"
-import type { CarouselNarrativePlan } from "@/types/app"
+import type { CarouselNarrativePlan, CarouselVisualBrief } from "@/types/app"
 import Link from "next/link"
 import { readJsonResponse } from "@/lib/utils/read-json-response"
 
@@ -42,6 +42,8 @@ interface CarouselSlideRich {
   points?: string[]
   /** Narrative role from the model's narrative_plan arc (hook, problem, step, ...) -- data only, not rendered. */
   role?: string
+  /** What this slide's image must show (kind/must_show/composition) -- data only, not used by image generation yet. */
+  visual?: CarouselVisualBrief
   background_style: BackgroundStyle
   /** AI-generated background, persisted here (hook/CTA slides only) once
    * fetchSlideBackground resolves — previously only ever held in the
@@ -112,6 +114,7 @@ interface CtaSlide {
   cta: string
   handle: string
   role?: string
+  visual?: CarouselVisualBrief
 }
 
 interface GeneratedCarousel {

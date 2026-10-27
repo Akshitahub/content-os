@@ -171,7 +171,7 @@ const VIBE_TO_CAROUSEL_BACKGROUND: Record<string, string> = {
 // Copied from mergeCtaSlideIntoSlides (carousel/generate/route.ts ~line 70).
 function mergeCtaSlideIntoSlides(slides: unknown[], ctaSlide: unknown, realHandle?: string): unknown[] {
   if (!ctaSlide || typeof ctaSlide !== "object") return slides
-  const cta = ctaSlide as { headline?: unknown; cta?: unknown; handle?: unknown; role?: unknown }
+  const cta = ctaSlide as { headline?: unknown; cta?: unknown; handle?: unknown; role?: unknown; visual?: unknown }
   const handle = realHandle ?? (typeof cta.handle === "string" ? cta.handle : undefined)
   const existingIndex = slides.findIndex((s) => s && typeof s === "object" && (s as { type?: unknown }).type === "cta")
   if (existingIndex !== -1) {
@@ -183,6 +183,7 @@ function mergeCtaSlideIntoSlides(slides: unknown[], ctaSlide: unknown, realHandl
       cta: typeof existing.cta === "string" ? existing.cta : (typeof cta.cta === "string" ? cta.cta : undefined),
       handle: handle ?? (typeof existing.handle === "string" ? existing.handle : undefined),
       role: typeof existing.role === "string" ? existing.role : (typeof cta.role === "string" ? cta.role : "cta"),
+      visual: existing.visual ?? cta.visual,
     }
     return merged
   }
@@ -196,6 +197,7 @@ function mergeCtaSlideIntoSlides(slides: unknown[], ctaSlide: unknown, realHandl
       headline: typeof cta.headline === "string" ? cta.headline : "",
       cta: typeof cta.cta === "string" ? cta.cta : undefined,
       handle,
+      visual: cta.visual,
     },
   ]
 }
@@ -221,6 +223,13 @@ function narrativePlanLines(plan: unknown): string[] {
   ]
 }
 
+// A slide's visual brief as one table cell: "kind: must_show (composition)".
+function visualCell(visual: unknown): string {
+  if (!visual || typeof visual !== "object") return "—"
+  const v = visual as { kind?: unknown; must_show?: unknown; composition?: unknown }
+  return `${String(v.kind ?? "?")}: ${String(v.must_show ?? "")}${v.composition ? ` (${String(v.composition)})` : ""}`
+}
+
 // ─── Run ────────────────────────────────────────────────────────────────────
 
 type SlideRecord = {
@@ -229,6 +238,8 @@ type SlideRecord = {
   role: "hook" | "cta" | "body"
   /** The slide's narrative role from the model's narrative_plan arc. */
   narrativeRole: string | null
+  /** The slide's visual brief (kind/must_show/composition), if the model gave one. */
+  visual: unknown
   headline: string
   points: string[]
   imageFile: string | null
@@ -383,6 +394,7 @@ async function main(): Promise<void> {
       index: i + 1,
       role,
       narrativeRole: typeof s.role === "string" ? s.role : null,
+      visual: s.visual ?? null,
       headline: typeof s.headline === "string" ? s.headline : "",
       points: Array.isArray(s.points) ? s.points.filter((p): p is string => typeof p === "string") : [],
       imageFile: null,
@@ -447,9 +459,9 @@ async function main(): Promise<void> {
     `**Visual prompt:** ${cell(visualPrompt || "(none)")}`,
     "",
     ...narrativePlanLines(d.narrative_plan),
-    "| # | Narrative role | Bg role | Headline | Points | Image |",
-    "|---|----------------|---------|----------|--------|-------|",
-    ...slideRecords.map((r) => `| ${r.index} | ${r.narrativeRole ?? "—"} | ${r.role} | ${cell(r.headline)} | ${cell(r.points.join(" · "))} | ${r.imageFile ? `![](${r.imageFile})` : `failed: ${cell(r.error ?? "")}`} |`),
+    "| # | Narrative role | Bg role | Headline | Points | Visual brief | Image |",
+    "|---|----------------|---------|----------|--------|--------------|-------|",
+    ...slideRecords.map((r) => `| ${r.index} | ${r.narrativeRole ?? "—"} | ${r.role} | ${cell(r.headline)} | ${cell(r.points.join(" · "))} | ${cell(visualCell(r.visual))} | ${r.imageFile ? `![](${r.imageFile})` : `failed: ${cell(r.error ?? "")}`} |`),
     ...(errors.length ? ["", "## Errors", ...errors.map((e) => `- ${e}`)] : []),
     "",
   ].join("\n")

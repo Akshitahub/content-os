@@ -1,4 +1,5 @@
 import type { BrandRow } from "@/types/database"
+import { CAROUSEL_VISUAL_KINDS, type CarouselVisualBrief, type CarouselVisualKind } from "@/types/app"
 import { buildPastExamplesBlock, buildSuggestedFontField, QUALITY_BAR } from "./prompts"
 import { createCreativeCompletion } from "./creative-completion"
 import { buildFactSource, guardCopy } from "./fact-guard"
@@ -67,6 +68,17 @@ INFORMATION DEPTH — the most common failure is slides that only name a topic (
 - No empty adjectives ("premium", "refined", "elevated", "seamless", "luxurious") unless the same slide states the specific detail that justifies them.
 - Only use facts from the brand context or topic above. When a specific isn't known, teach the general principle instead of inventing one (the number and placeholder rules above still apply).
 - The CTA slide's headline summarises the takeaway — never just "follow us" or "save this".
+
+VISUAL DIRECTION — every slide object (and cta_slide) gets a "visual" brief for its image:
+- "kind": one of ${CAROUSEL_VISUAL_KINDS.join(" | ")}.
+- "must_show": 1-2 sentences, concrete and photographable — which objects, in what arrangement, from what angle.
+- "composition": where the subject sits and where the overlaid text goes (e.g. "subject in right two-thirds, left third calm for text").
+Rules:
+- The visual must DEMONSTRATE the slide's claim, not decorate it: a sketch step shows a sketch, a comparison shows both things side by side, a materials slide shows the actual material samples or finishes, a process shows its stages.
+- Brand consistency comes from palette and style, NOT from reusing the same scene. No two consecutive slides may share the same kind AND the same subject; across the carousel vary the subject, the framing (wide / mid / close-up) and the composition.
+- Use "abstract_mood" only for the cover or CTA, and only when no concrete visual fits the brand.
+- must_show describes ONLY visible things. Never put words, labels, headlines, quotes, numbers, logos or captions in it — the image model renders those as garbled text. Comparison labels like "before/after" are overlaid by the app, not drawn.
+- Only depict what's plausible for this brand's actual products or services in the brand context above — don't invent products, rooms or features that aren't there.
 
 CONTENT SLIDE FORMATS — confirmed live (2026-08-29): every content slide
 defaulting to the same "title + 3 bullet points" shape reads as
@@ -139,7 +151,8 @@ Respond with ONLY this JSON (no markdown, no explanation). The values below are 
       "role": "hook",
       "headline": "Your checkout is losing the sale",
       "subtext": "Where shoppers drop off, and what to fix first",
-      "background_style": "gradient_dark"
+      "background_style": "gradient_dark",
+      "visual": { "kind": "detail_closeup", "must_show": "A hand holding a phone over a cafe table, the screen glowing but out of focus, thumb paused mid-scroll, shot over the shoulder", "composition": "phone and hand in the right two-thirds, left third soft and empty for text" }
     },
     {
       "slide_number": 2,
@@ -147,7 +160,8 @@ Respond with ONLY this JSON (no markdown, no explanation). The values below are 
       "role": "problem",
       "headline": "Why do shoppers leave at checkout?",
       "points": ["A shipping cost they only see at the final step"],
-      "background_style": "gradient_light"
+      "background_style": "gradient_light",
+      "visual": { "kind": "product_scene", "must_show": "An open cardboard parcel on a kitchen counter with tissue paper half pulled out, the product inside still wrapped, mid shot at counter height", "composition": "parcel in the lower half, upper half calm for text" }
     },
     {
       "slide_number": 3,
@@ -155,7 +169,8 @@ Respond with ONLY this JSON (no markdown, no explanation). The values below are 
       "role": "comparison",
       "headline": "Shipping shown upfront vs. at payment",
       "points": ["Upfront: they decide before investing any effort", "At payment: the surprise feels like a trick"],
-      "background_style": "white_violet"
+      "background_style": "white_violet",
+      "visual": { "kind": "side_by_side", "must_show": "Two identical parcels side by side on a plain table: the left one neatly sealed on its own, the right one with an unexpected extra box stacked on top, eye-level mid shot", "composition": "two subjects split left and right across the lower two-thirds, top band clear for text" }
     },
     {
       "slide_number": 4,
@@ -163,7 +178,8 @@ Respond with ONLY this JSON (no markdown, no explanation). The values below are 
       "role": "step",
       "headline": "Fix these three, in this order",
       "points": ["Show shipping on the product page", "Cut checkout to address and payment", "Offer guest checkout"],
-      "background_style": "gradient_light"
+      "background_style": "gradient_light",
+      "visual": { "kind": "process_sequence", "must_show": "Three stages of an order laid out left to right on a wooden counter: the product in tissue paper, the same product in an open box, the box sealed with a ribbon, top-down wide shot", "composition": "stages across the lower two-thirds, top third clear for text" }
     },
     {
       "slide_number": 5,
@@ -171,14 +187,16 @@ Respond with ONLY this JSON (no markdown, no explanation). The values below are 
       "role": "mistake",
       "headline": "Forced sign-up turns away ready buyers",
       "points": [],
-      "background_style": "white_violet"
+      "background_style": "white_violet",
+      "visual": { "kind": "product_scene", "must_show": "A shopper on a sofa pulling a hand back from an open laptop, a cup of tea beside it, soft evening light, mid shot from the side", "composition": "subject in the right half, left half calm for text" }
     }
   ],
   "cta_slide": {
     "role": "takeaway",
     "headline": "Show the full cost before checkout",
     "cta": "Save this for your next store update",
-    "handle": "@yourhandle"
+    "handle": "@yourhandle",
+    "visual": { "kind": "detail_closeup", "must_show": "Two hands passing a sealed parcel across a front doorway, close-up, warm daylight", "composition": "hands and parcel centred low, upper half clear for text" }
   },
   "hashtags": ["niche1", "niche2", "niche3", "niche4", "niche5", "brand1", "brand2", "brand3", "brand4", "brand5", "broad1", "broad2", "broad3", "broad4", "broad5"]
 }
@@ -236,9 +254,66 @@ export async function generateCarouselWithRetry(
         return JSON.parse(extractJSON(retry.content ?? "")) as unknown
       },
     })
-    return { data, model: result.model, usage, costUsd }
+    return { data: sanitizeVisualBriefs(data), model: result.model, usage, costUsd }
   }
   throw new UsageCarryingError("AI generation failed", usage, costUsd)
+}
+
+const VISUAL_TEXT_MAX = 300
+
+// Quoted text in an image brief is exactly what the image model renders as
+// garbled on-image lettering (see lib/ai/carousel-slide-background.ts), so
+// any quoted span is removed. Single quotes only count at word boundaries
+// so apostrophes ("brand's") survive.
+function stripQuoted(text: string): string {
+  return text
+    .replace(/"[^"]*"|“[^”]*”|‘[^’]*’/g, "")
+    .replace(/(^|[\s([])'[^']+'(?=$|[\s.,;:!?)\]])/g, "$1")
+    .replace(/\s{2,}/g, " ")
+    .replace(/\s+([.,;:!?])/g, "$1")
+    .trim()
+}
+
+function clampText(text: string): string {
+  if (text.length <= VISUAL_TEXT_MAX) return text
+  const cut = text.slice(0, VISUAL_TEXT_MAX)
+  const lastSpace = cut.lastIndexOf(" ")
+  return (lastSpace > VISUAL_TEXT_MAX / 2 ? cut.slice(0, lastSpace) : cut).trim()
+}
+
+/**
+ * Code-side safety for a slide's "visual" brief (the prompt alone isn't
+ * trusted): unknown kind -> "product_scene", quoted text stripped, length
+ * capped. Returns undefined for a missing/invalid brief so callers fall
+ * back to today's background-only behaviour.
+ */
+export function sanitizeVisualBrief(raw: unknown): CarouselVisualBrief | undefined {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined
+  const v = raw as Record<string, unknown>
+  const mustShow = typeof v.must_show === "string" ? clampText(stripQuoted(v.must_show)) : ""
+  if (!mustShow) return undefined
+  const kind: CarouselVisualKind = (CAROUSEL_VISUAL_KINDS as readonly string[]).includes(v.kind as string)
+    ? (v.kind as CarouselVisualKind)
+    : "product_scene"
+  const composition = typeof v.composition === "string" ? clampText(stripQuoted(v.composition)) : ""
+  return { kind, must_show: mustShow, composition }
+}
+
+function withSanitizedVisual(slide: unknown): unknown {
+  if (!slide || typeof slide !== "object" || Array.isArray(slide)) return slide
+  const { visual, ...rest } = slide as Record<string, unknown>
+  const clean = sanitizeVisualBrief(visual)
+  return clean ? { ...rest, visual: clean } : rest
+}
+
+function sanitizeVisualBriefs(data: unknown): unknown {
+  if (!data || typeof data !== "object" || Array.isArray(data)) return data
+  const d = data as Record<string, unknown>
+  return {
+    ...d,
+    ...(Array.isArray(d.slides) ? { slides: d.slides.map(withSanitizedVisual) } : {}),
+    ...(d.cta_slide !== undefined ? { cta_slide: withSanitizedVisual(d.cta_slide) } : {}),
+  }
 }
 
 function carouselCallParams(prompt: string, slideCount: number) {
@@ -252,9 +327,10 @@ function carouselCallParams(prompt: string, slideCount: number) {
     // spent 828 of 1499 completion tokens on hidden reasoning). Budget
     // unchanged; reasoning tokens count against it on gpt-5.5 too.
     reasoningEffort: "medium" as const,
-    // Raised from max(4000, slideCount * 500) for the narrative_plan the
-    // model now writes before the slides -- an ESTIMATE, not measured.
-    maxCompletionTokens: Math.max(5000, slideCount * 650),
+    // Raised from max(4000, slideCount * 500) for the narrative_plan and
+    // the per-slide visual briefs the model now writes -- an ESTIMATE, not
+    // measured.
+    maxCompletionTokens: Math.max(6000, slideCount * 800),
     // ESTIMATE, not measured (no OPENAI_API_KEY where this was written) --
     // see scripts/test-creative-stages.ts. Sized for a 10-slide carousel
     // at medium effort; revisit against real latency.
