@@ -1,8 +1,9 @@
-import { NextResponse } from "next/server"
+import { NextResponse, after } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import { buildError, ErrorCodes } from "@/types/api"
 import type { HookRow } from "@/types/database"
 import { z } from "zod"
+import { distillLesson } from "@/lib/ai/brand-brain"
 
 type RouteParams = { params: Promise<{ brandId: string; hookId: string }> }
 
@@ -90,6 +91,15 @@ export async function PUT(request: Request, { params }: RouteParams) {
       })
       if (noteError) {
         console.error(`[hooks/${brandId}/${hookId}] content_feedback_notes insert failed (non-fatal):`, noteError.message)
+      } else {
+        // Distill the note into the brand's lessons (lib/ai/brand-brain.ts)
+        // after the response is sent -- an extra model call shouldn't delay
+        // the rating. Fail-soft.
+        const lessonInput = {
+          brandId, scope: "hook" as const, rating: hookUpdate.user_rating,
+          note: note.trim(), contentText: updated?.hook_text ?? "",
+        }
+        after(() => distillLesson(supabase, lessonInput))
       }
     }
 
