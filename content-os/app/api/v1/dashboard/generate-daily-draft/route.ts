@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server"
 import { createClient, createAdminClient } from "@/lib/supabase/server"
 import { getISTDateString } from "@/lib/utils/ist"
-import { checkAndIncrementUsage, refundGenerationUsage } from "@/lib/usage/check-and-increment-usage"
+import { checkAndIncrementUsage, refundGenerationUsage, logGenerationOutcome } from "@/lib/usage/check-and-increment-usage"
 import { POST as POST_CREDIT_COST } from "@/lib/usage/credit-costs"
 import { generateHooks } from "@/lib/ai/hooks-generator"
 import { generateContent } from "@/lib/ai/content-generator"
-import { generatePostImage } from "@/lib/ai/post-image-pipeline"
+import { generatePostImage, attemptsCostUsd } from "@/lib/ai/post-image-pipeline"
+import { UsageCarryingError, addTextUsage, sumCostUsd, type TextUsage } from "@/lib/ai/pricing"
 import { resolveColorThemes, findColorTheme } from "@/lib/design/color-themes"
 import { DEFAULT_POST_TEMPLATE_ID, type PostTemplateId } from "@/lib/design/post-templates"
 import { mergeCaptionWithHookAndCta } from "@/lib/utils/caption-merge"
@@ -120,6 +121,28 @@ async function handlePost(request: Request, timer: GenerationTimer) {
     return NextResponse.json(buildError(code, usageCheck.message), { status: usageCheck.status })
   }
 
+  // Spend so far, written onto the charge's ai_generation_logs row on both
+  // success and failure (failed attempts are still billed) -- same as
+  // app/api/v1/ai/post-image/generate/route.ts.
+  const startTime = Date.now()
+  let textUsage: TextUsage | undefined
+  let textModel: string | null = null
+  let imageProvider: string | null = null
+  let costUsd: number | null = null
+  let contentProjectId: string | null = null
+  const recordOutcome = (success: boolean, errorMessage?: string) =>
+    logGenerationOutcome(supabase, usageCheck.logId, {
+      user_id: user.id, brand_id: brand.id, feature: FEATURE,
+      model: [textModel, imageProvider].filter(Boolean).join("+") || "unknown",
+      prompt_tokens: textUsage?.prompt_tokens ?? null,
+      completion_tokens: textUsage?.completion_tokens ?? null,
+      total_tokens: textUsage?.total_tokens ?? null,
+      cost_usd: costUsd,
+      latency_ms: Date.now() - startTime, success,
+      ...(errorMessage ? { error_message: errorMessage } : {}),
+      ...(contentProjectId ? { content_project_id: contentProjectId } : {}),
+    })
+
   try {
     // Same functions the real fullpost/generate route uses -- no
     // productId, no additionalContext (a generic on-brand post, not tied
@@ -132,6 +155,9 @@ async function handlePost(request: Request, timer: GenerationTimer) {
       product: null,
       factGuardDeadline: requestStartedAt + TEXT_DEADLINE_MS,
     }), requestStartedAt + ROUTE_DEADLINE_MS - Date.now(), "daily draft hook"))
+    textModel = hookResult.model
+    textUsage = addTextUsage(textUsage, hookResult.usage)
+    costUsd = sumCostUsd(costUsd, hookResult.costUsd)
     const hook = hookResult.hooks[0]
     if (!hook) throw new Error("Hook generation returned no results")
 
@@ -144,6 +170,8 @@ async function handlePost(request: Request, timer: GenerationTimer) {
       availableColorThemes: colorThemes.map((t) => ({ id: t.id, label: t.label })),
       factGuardDeadline: requestStartedAt + TEXT_DEADLINE_MS,
     }), requestStartedAt + ROUTE_DEADLINE_MS - Date.now(), "daily draft caption"))
+    textUsage = addTextUsage(textUsage, contentResult.usage)
+    costUsd = sumCostUsd(costUsd, contentResult.costUsd)
     const caption = contentResult.data as GeneratedCaption
     // Same post-generation merge fullpost/generate/route.ts applies, so
     // this cached draft's caption carries the hook and CTA the same way
@@ -153,7 +181,6 @@ async function handlePost(request: Request, timer: GenerationTimer) {
 
     // Best-effort content_projects row, mirroring fullpost/generate/route.ts --
     // non-fatal if it fails, the draft still generates fine without it.
-    let contentProjectId: string | null = null
     try {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const { data: project } = await (supabase.from("content_projects") as any)
@@ -192,6 +219,8 @@ async function handlePost(request: Request, timer: GenerationTimer) {
       productImageUrl: null,
       aspectRatio: "4:5",
     }), requestStartedAt + ROUTE_DEADLINE_MS - Date.now(), "daily draft image"))
+    imageProvider = imageResult.attempts[imageResult.attempts.length - 1]?.provider ?? null
+    costUsd = sumCostUsd(costUsd, attemptsCostUsd(imageResult.attempts))
     if (!imageResult.success) throw new Error(imageResult.error)
 
     // Same storage upload as app/api/v1/ai/post-image/generate/route.ts --
@@ -220,6 +249,8 @@ async function handlePost(request: Request, timer: GenerationTimer) {
     }).select("id").single() as { data: { id: string } | null; error: { message: string } | null }
     if (insertError || !insertedRow) throw new Error(insertError?.message ?? "Failed to save the daily draft.")
 
+    await recordOutcome(true)
+
     const draft: DailyDraft = {
       id: insertedRow.id,
       hookText: hook.hook_text,
@@ -231,6 +262,11 @@ async function handlePost(request: Request, timer: GenerationTimer) {
     return NextResponse.json({ data: draft }, { status: 200 })
   } catch (err) {
     console.error("[dashboard/generate-daily-draft] generation failed, refunding charge:", err instanceof Error ? err.message : err)
+    if (err instanceof UsageCarryingError) {
+      textUsage = addTextUsage(textUsage, err.usage)
+      costUsd = sumCostUsd(costUsd, err.costUsd)
+    }
+    await recordOutcome(false, err instanceof Error ? err.message : "Unknown error")
     await refundGenerationUsage(supabase, user.id, POST_CREDIT_COST, usageCheck.logId)
     await insertFailedRow(supabase, brand.id, today)
     const timedOut = err instanceof DeadlineExceededError
