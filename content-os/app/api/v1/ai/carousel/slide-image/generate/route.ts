@@ -2,12 +2,13 @@ import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import { buildError, ErrorCodes } from "@/types/api"
 import { generateCarouselSlideBackground, type CarouselVibe } from "@/lib/ai/carousel-slide-background"
+import { sanitizeVisualBrief } from "@/lib/ai/carousel-generator"
 import { attemptsCostUsd } from "@/lib/ai/post-image-pipeline"
 import { uploadMediaToStorage } from "@/lib/storage/upload-media"
 import { isInternalUnlimited } from "@/lib/usage/is-internal-unlimited"
 import { checkAndIncrementUsage, refundGenerationUsage } from "@/lib/usage/check-and-increment-usage"
 import { CAROUSEL_SLIDE_AI_BACKGROUND } from "@/lib/usage/credit-costs"
-import { PLAN_LIMITS, type UserPlan } from "@/types/app"
+import { CAROUSEL_VISUAL_KINDS, PLAN_LIMITS, type UserPlan } from "@/types/app"
 import { z } from "zod"
 import type { BrandRow } from "@/types/database"
 import { timedGenerationRoute, type GenerationTimer } from "@/lib/utils/generation-timing"
@@ -32,6 +33,14 @@ const schema = z.object({
     .max(1500, "Visual scene must be under 1500 characters")
     .optional()
     .transform((val) => val?.replace(/<[^>]*>/g, "").trim()),
+  // The slide's own visual brief from the carousel generation (lib/ai/
+  // carousel-generator.ts). Re-sanitized below -- the client copy is never
+  // trusted as-is.
+  visualBrief: z.object({
+    kind: z.enum(CAROUSEL_VISUAL_KINDS),
+    must_show: z.string().max(300),
+    composition: z.string().max(300).default(""),
+  }).optional(),
 })
 
 // Chains up to 2 sequential image-provider calls (first attempt + retry) inside
@@ -90,6 +99,7 @@ async function handlePost(request: Request, timer: GenerationTimer) {
   if (!parsed.success) return NextResponse.json(buildError(ErrorCodes.VALIDATION_ERROR, "Validation failed.", parsed.error.issues[0]?.message), { status: 400 })
 
   const { brandId, vibe, role, productImageUrl, slideType, customPrompt } = parsed.data
+  const visualBrief = sanitizeVisualBrief(parsed.data.visualBrief)
 
   const { data: brand } = await supabase.from("brands").select("*").eq("id", brandId).eq("user_id", user.id).single<BrandRow>()
   if (!brand) return NextResponse.json(buildError(ErrorCodes.BRAND_NOT_FOUND, "Brand not found."), { status: 404 })
@@ -138,6 +148,7 @@ async function handlePost(request: Request, timer: GenerationTimer) {
     productImageUrl,
     slideType,
     customPrompt,
+    visualBrief,
     // Text is composited over slide backgrounds, so "low" is enough --
     // raised to "medium" automatically when a product photo is attached.
     quality: "low",

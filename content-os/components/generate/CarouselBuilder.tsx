@@ -216,7 +216,8 @@ async function fetchSlideBackgroundResult(
   role: CarouselBgRole,
   productImageUrl?: string | null,
   slideType?: SlideType,
-  customPrompt?: string
+  customPrompt?: string,
+  visualBrief?: CarouselVisualBrief
 ): Promise<SlideBackgroundOutcome> {
   try {
     const res = await fetch("/api/v1/ai/carousel/slide-image/generate", {
@@ -224,7 +225,9 @@ async function fetchSlideBackgroundResult(
       headers: { "Content-Type": "application/json" },
       // Converts a null productImageUrl (no product selected) to
       // undefined so JSON.stringify omits the key entirely.
-      body: JSON.stringify({ brandId, vibe, role, productImageUrl: productImageUrl ?? undefined, slideType, customPrompt: customPrompt || undefined }),
+      // visualBrief: this slide's own scene (non-hook slides) -- see
+      // lib/ai/carousel-slide-background.ts. Omitted when the slide has none.
+      body: JSON.stringify({ brandId, vibe, role, productImageUrl: productImageUrl ?? undefined, slideType, customPrompt: customPrompt || undefined, visualBrief }),
     })
     if (!res.ok) return { error: slideBackgroundErrorForStatus(res.status) }
     const json = await readJsonResponse(res) as { data?: { public_url?: string; provider?: "openai" } }
@@ -868,7 +871,8 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
   // credits) and writes each success onto its slide. Saved by the
   // debounced autosave effect above, like any other slide change. Returns
   // false if a newer generate() superseded this run.
-  async function runCarouselBackgrounds(carouselId: string | null, count: number, indices: number[]): Promise<boolean> {
+  async function runCarouselBackgrounds(carouselId: string | null, slides: CarouselSlideRich[], indices: number[]): Promise<boolean> {
+    const count = slides.length
     const runId = bgRunRef.current
     const isCurrent = () => bgRunRef.current === runId
     setImagesGenerating(true)
@@ -880,7 +884,7 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
         const role = carouselBgRole(i, count)
         // productImageUrl/slideType only actually sent when a product is
         // selected -- fetchSlideBackgroundResult drops a null productImageUrl.
-        return { key: i, run: () => fetchSlideBackgroundResult(brandId, vibe, role, productImage ?? undefined, productImage ? SLIDE_TYPE_FOR_BG_ROLE[role] : undefined, visualPrompt) }
+        return { key: i, run: () => fetchSlideBackgroundResult(brandId, vibe, role, productImage ?? undefined, productImage ? SLIDE_TYPE_FOR_BG_ROLE[role] : undefined, visualPrompt, slides[i]?.visual) }
       }),
       { onProgress: (settled, total) => { if (isCurrent()) setBgProgress({ settled, total }) }, isCancelled: () => !isCurrent() }
     )
@@ -904,7 +908,7 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
   function retryFailedBackgrounds() {
     if (!carousel || failedBgSlides.length === 0 || imagesGenerating) return
     setBodyBgWarning(null)
-    void runCarouselBackgrounds(carousel.id ?? null, carousel.slides.length, failedBgSlides)
+    void runCarouselBackgrounds(carousel.id ?? null, carousel.slides, failedBgSlides)
   }
 
   async function generate() {
@@ -987,7 +991,7 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
         const indices = merged.slides.map((_, i) => i)
         const hookAndCta = indices.filter((i) => carouselBgRole(i, count) !== "body")
         const middle = allSlidesAiBg ? indices.filter((i) => carouselBgRole(i, count) === "body") : []
-        void runCarouselBackgrounds(merged.id ?? null, count, [...hookAndCta, ...middle]).then((finished) => {
+        void runCarouselBackgrounds(merged.id ?? null, merged.slides, [...hookAndCta, ...middle]).then((finished) => {
           if (!finished) return
           setShowSuccess(true)
           setTimeout(() => setShowSuccess(false), 4000)
@@ -1129,7 +1133,7 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
                       stage={promptWriter.stage}
                       error={promptWriter.error}
                       onRewrite={writeVisualPrompt}
-                      placeholder="Describe the hook/CTA background scene, or leave blank and let SocioPosts write one from your topic and vibe"
+                      placeholder="Describe the cover slide's background scene (the other slides follow each slide's own visual brief), or leave blank and let SocioPosts write one from your topic and vibe"
                     />
                   )}
                 </div>

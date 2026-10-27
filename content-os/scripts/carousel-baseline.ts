@@ -240,6 +240,12 @@ type SlideRecord = {
   narrativeRole: string | null
   /** The slide's visual brief (kind/must_show/composition), if the model gave one. */
   visual: unknown
+  /** The brief actually sent (re-sanitized, as the slide-image route does) -- null on the hook, which keeps the shared scene. */
+  briefUsed: unknown
+  /** Whether a product reference photo went with this slide (always false here -- the harness runs without a product). */
+  productReferenceUsed: boolean
+  /** The prompt string actually sent to the image provider on the first attempt. */
+  finalImagePrompt: string | null
   headline: string
   points: string[]
   imageFile: string | null
@@ -255,7 +261,8 @@ type SlideRecord = {
 async function main(): Promise<void> {
   const { generateCarouselWithRetry } = await import("@/lib/ai/carousel-generator")
   const { requestImagePromptStream } = await import("@/lib/ai/image-prompt-writer")
-  const { generateCarouselSlideBackground } = await import("@/lib/ai/carousel-slide-background")
+  const { generateCarouselSlideBackground, briefUsesProductReference } = await import("@/lib/ai/carousel-slide-background")
+  const { sanitizeVisualBrief } = await import("@/lib/ai/carousel-generator")
   const { attemptsCostUsd } = await import("@/lib/ai/post-image-pipeline")
   const { IMAGE_PROVIDER_CONFIG } = await import("@/lib/ai/image-provider")
   const { MODELS } = await import("@/lib/ai/models")
@@ -378,6 +385,10 @@ async function main(): Promise<void> {
     currentStage = `slide_${i + 1}`
     const firstCall = captured.length
     console.log(`Slide ${i + 1}/${slides.length} (${role})…`)
+    // As CarouselBuilder sends it (slides[i].visual) and the slide-image
+    // route re-sanitizes it; generateCarouselSlideBackground ignores it on the hook.
+    const visualBrief = sanitizeVisualBrief(s.visual)
+    const productImageUrl: string | undefined = undefined
     const started = Date.now()
     const result = await generateCarouselSlideBackground({
       vibe,
@@ -385,9 +396,10 @@ async function main(): Promise<void> {
       plan,
       isInternalUnlimitedUser: isUnlimited,
       role,
-      productImageUrl: undefined,
+      productImageUrl,
       slideType: undefined,
       customPrompt,
+      visualBrief,
       quality: "low",
     })
     const record: SlideRecord = {
@@ -395,6 +407,9 @@ async function main(): Promise<void> {
       role,
       narrativeRole: typeof s.role === "string" ? s.role : null,
       visual: s.visual ?? null,
+      briefUsed: role === "hook" ? null : (visualBrief ?? null),
+      productReferenceUsed: !!productImageUrl && (role === "hook" || briefUsesProductReference(visualBrief)),
+      finalImagePrompt: null,
       headline: typeof s.headline === "string" ? s.headline : "",
       points: Array.isArray(s.points) ? s.points.filter((p): p is string => typeof p === "string") : [],
       imageFile: null,
@@ -404,6 +419,8 @@ async function main(): Promise<void> {
       attempts: result.attempts,
       imageRequests: captured.slice(firstCall),
     }
+    const firstImageRequest = record.imageRequests[0]?.request as { prompt?: unknown } | undefined
+    record.finalImagePrompt = typeof firstImageRequest?.prompt === "string" ? firstImageRequest.prompt : null
     if (role === "cta" && !PLAN_LIMITS[plan].carouselCtaAiBackground && !isUnlimited) {
       record.note = `The real app would refuse this slide (plan "${plan}" has no carouselCtaAiBackground).`
     }

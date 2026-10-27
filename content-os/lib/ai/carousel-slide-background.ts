@@ -8,7 +8,7 @@ import {
 } from "./post-image-pipeline"
 import type { ImageQuality } from "./image-provider"
 import { type Vibe, DEFAULT_VIBE, VIBE_BACKGROUND_STYLES, VIBE_FALLBACK_COLORS, ABSTRACT_SAFETY_BOILERPLATE, describeColor } from "./vibe-background-styles"
-import type { UserPlan } from "@/types/app"
+import type { CarouselVisualBrief, CarouselVisualKind, UserPlan } from "@/types/app"
 import type { BrandRow } from "@/types/database"
 
 // Preserves the pre-existing export name for callers (e.g.
@@ -122,6 +122,100 @@ function buildSlidePrompt(niche: string | null, vibe: Vibe, colors: string[], ro
   ].filter(Boolean).join(", ")
 }
 
+// ─── Per-slide visual briefs ────────────────────────────────────────────────
+// Every non-hook slide with a visual brief (lib/ai/carousel-generator.ts's
+// sanitizeVisualBrief -- quoted text already stripped, never combined with
+// the slide's headline/subtext/points) gets its OWN scene from that brief,
+// instead of the one shared customPrompt scene every slide used to reuse.
+// The no-text/no-typography, centering and negative-space guards below are
+// identical to buildSlidePrompt's -- only the "purely abstract" line is
+// dropped for concrete kinds, since it contradicts the brief outright.
+
+const BRIEF_ABSTRACT_OPENER = "abstract atmospheric background image for a social media carousel slide"
+
+// Photographic, not illustrative, unless the kind itself says otherwise.
+// No quoted words anywhere (e.g. before/after) -- a quoted word is exactly
+// what the image model renders as literal on-image text.
+const BRIEF_FRAMING: Record<CarouselVisualKind, string> = {
+  product_scene: "a photorealistic scene featuring",
+  side_by_side: "a split composition with two clearly separated halves side by side, comparing",
+  before_after: "a split composition, left half the before state and right half the after state, showing",
+  material_swatches: "a top-down flat-lay of physical material samples and finishes arranged in a neat grid:",
+  process_sequence: "three to four stages of a process arranged left to right in one frame:",
+  sketch_or_drawing: "a hand-drawn pencil or ink sketch on paper, photographed on a desk:",
+  detail_closeup: "a macro close-up photograph of",
+  abstract_mood: `${BRIEF_ABSTRACT_OPENER}, evoking`,
+}
+
+// Kinds whose scene is not "the product in a setting" -- a product reference
+// photo would fight the brief (a sketch, swatches, a sequence, a two-way
+// comparison), so those slides use the non-reference path.
+const BRIEF_KINDS_WITHOUT_PRODUCT_REFERENCE = new Set<CarouselVisualKind>(["sketch_or_drawing", "material_swatches", "process_sequence", "side_by_side"])
+
+const SPLIT_LABEL_GUARD = "no dividing labels, captions or arrows — the two halves are separated only by composition"
+
+function briefScene(brief: CarouselVisualBrief): string {
+  return `${BRIEF_FRAMING[brief.kind]} ${brief.must_show}`
+}
+
+function buildBriefSlidePrompt(brief: CarouselVisualBrief, niche: string | null, vibe: Vibe, colors: string[], role: "hook" | "cta" | "body", productImageUrl?: string | null, slideType?: "cover" | "content" | "cta"): string {
+  const colorNames = colors.map(describeColor).filter((c): c is string => !!c).slice(0, 3)
+  const composition = brief.composition ? `composition: ${brief.composition}` : ""
+  const isSplit = brief.kind === "side_by_side" || brief.kind === "before_after"
+
+  // product_scene / detail_closeup / before_after with a real product photo
+  // attached -- same reference-image path as buildSlidePrompt, with the
+  // brief as the scene and the hard no-text lines added on top.
+  if (productImageUrl) {
+    return wrapForReferenceImage([
+      briefScene(brief),
+      composition || resolveProductSafeZoneGuard(slideType),
+      PHOTOGRAPHY_STYLE,
+      REFERENCE_IMAGE_PEOPLE_GUARD,
+      niche ? `${niche} brand` : "",
+      VIBE_BACKGROUND_STYLES[vibe],
+      colorNames.length > 0 ? `color palette inspired by ${colorNames.join(" and ")}` : "",
+      "no text, no words, no letters, no numbers, no logos anywhere in the image",
+      "no rendered slogans, taglines, or typography of any kind, however short",
+      isSplit ? SPLIT_LABEL_GUARD : "",
+      POST_IMAGE_QUALITY_AND_NEGATIVE_GUARD,
+    ].filter(Boolean).join(", "))
+  }
+
+  return [
+    briefScene(brief),
+    composition,
+    VIBE_BACKGROUND_STYLES[vibe],
+    colorNames.length > 0 ? `color palette inspired by ${colorNames.join(" and ")}` : "",
+    niche ? `evokes the mood of a ${niche} brand` : "",
+    role === "cta" ? "evokes a warm, inviting, confident closing/call-to-action mood" : "",
+    "no text, no words, no letters, no numbers, no logos anywhere in the image",
+    "no rendered slogans, taglines, or typography of any kind, however short",
+    brief.kind === "abstract_mood" ? "no literal photos of people, products, or objects — purely abstract shapes, gradients, and textures" : "",
+    isSplit ? SPLIT_LABEL_GUARD : "",
+    "leave calm, uncluttered negative space so text stays readable when overlaid on top",
+    "keep the composition's key visual interest centered in the frame — avoid placing it in the outer ~10% margin on any side",
+    ABSTRACT_SAFETY_BOILERPLATE,
+  ].filter(Boolean).join(", ")
+}
+
+function simplifyBriefSlidePrompt(brief: CarouselVisualBrief, vibe: Vibe, productImageUrl?: string | null): string {
+  if (productImageUrl) {
+    return wrapForReferenceImage([briefScene(brief), PHOTOGRAPHY_STYLE, REFERENCE_IMAGE_PEOPLE_GUARD, VIBE_BACKGROUND_STYLES[vibe], "no text, no words, no letters"].join(", "))
+  }
+  return [
+    briefScene(brief),
+    VIBE_BACKGROUND_STYLES[vibe],
+    "no text, no words, no letters",
+    "keep the composition centered, avoid the outer ~10% margin",
+  ].join(", ")
+}
+
+/** Whether a slide with this brief keeps the product reference photo (see BRIEF_KINDS_WITHOUT_PRODUCT_REFERENCE). */
+export function briefUsesProductReference(brief: CarouselVisualBrief | undefined): boolean {
+  return !brief || !BRIEF_KINDS_WITHOUT_PRODUCT_REFERENCE.has(brief.kind)
+}
+
 function simplifySlidePrompt(vibe: Vibe, productImageUrl?: string | null, customPrompt?: string): string {
   const trimmedCustom = customPrompt?.trim()
   // Same shorter/simplified spirit as the abstract-only fallback below,
@@ -172,6 +266,11 @@ export interface GenerateCarouselSlideBackgroundOptions {
    * buildSlidePrompt/simplifySlidePrompt below still applies exactly as
    * before regardless of what this contains. */
   customPrompt?: string
+  /** This slide's own visual brief (already run through
+   * sanitizeVisualBrief). On any non-hook slide it replaces customPrompt as
+   * the scene -- the hook keeps the user-reviewed shared scene. Omitted =
+   * today's behaviour. */
+  visualBrief?: CarouselVisualBrief
   /** gpt-image-2 quality; omitted = "medium". The slide-image route
    * passes "low" (text is composited on top); raised to "medium" when
    * productImageUrl is set. */
@@ -195,6 +294,16 @@ export async function generateCarouselSlideBackground(
   const vibe = options.vibe ?? DEFAULT_VIBE
   const brandColors = resolveBrandColors(options.brand)
   const colors = brandColors.length > 0 ? brandColors : VIBE_FALLBACK_COLORS[vibe]
+
+  // Hook keeps the shared customPrompt scene; every other slide with a brief
+  // gets its own scene from it.
+  const brief = options.role === "hook" ? undefined : options.visualBrief
+  if (brief) {
+    const productImageUrl = briefUsesProductReference(brief) ? options.productImageUrl : undefined
+    const prompt = buildBriefSlidePrompt(brief, options.brand.niche, vibe, colors, options.role, productImageUrl, options.slideType)
+    const fallbackPrompt = simplifyBriefSlidePrompt(brief, vibe, productImageUrl)
+    return fetchBackgroundImage(prompt, fallbackPrompt, options.plan, options.isInternalUnlimitedUser, undefined, productImageUrl, options.quality)
+  }
 
   const prompt = buildSlidePrompt(options.brand.niche, vibe, colors, options.role, options.productImageUrl, options.slideType, options.customPrompt)
   const fallbackPrompt = simplifySlidePrompt(vibe, options.productImageUrl, options.customPrompt)
