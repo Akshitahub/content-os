@@ -215,6 +215,12 @@ async function main(): Promise<void> {
   const { data: owner } = await supabase.from("users").select("plan").eq("id", brand.user_id).single<{ plan: UserPlan }>()
   const plan: UserPlan = owner?.plan ?? "starter"
   const isUnlimited = isInternalUnlimited(brand.user_id)
+
+  // Learned brand lessons, fetched the way the routes fetch them (fail-soft --
+  // [] if brand_lessons isn't there yet). "image" lessons go to the prompt writer.
+  const { getActiveLessons, imageLessonRules } = await import("@/lib/ai/brand-brain")
+  const adLessons = await getActiveLessons(supabase, brand.id, "ad_copy")
+  const imageLessons = imageLessonRules(await getActiveLessons(supabase, brand.id, "image"))
   console.log(`Brand: ${brand.name} · product ${product.name} · owner plan ${plan}${isUnlimited ? " (internal unlimited)" : ""}`)
 
   // 1. Scene prompt, as AdMaker.tsx's writeAdPrompt() sends it for a preset
@@ -230,7 +236,7 @@ async function main(): Promise<void> {
       isRewrite: false,
       brand: { name: brand.name, niche: brand.niche, target_audience: brand.target_audience, tone_of_voice: brand.tone_of_voice, vibe: brand.vibe },
       product: null,
-      constraints: { styleLabel: SCENE_NAMES[scene], aspectRatioLabel: format, hasProductReference: true },
+      constraints: { styleLabel: SCENE_NAMES[scene], aspectRatioLabel: format, hasProductReference: true, lessons: imageLessons },
     })
     for await (const chunk of stream) adPrompt += chunk.choices[0]?.delta?.content ?? ""
   } catch (err) {
@@ -251,7 +257,7 @@ async function main(): Promise<void> {
   started = Date.now()
   let strategy: Awaited<ReturnType<typeof generateAdStrategy>> | null = null
   try {
-    strategy = await generateAdStrategy({ brand, product, userDirection: hookText || undefined, format, timeoutMs: 45_000 })
+    strategy = await generateAdStrategy({ brand, product, userDirection: hookText || undefined, format, timeoutMs: 45_000, lessons: adLessons })
   } catch (err) {
     errors.push(`ad_strategy (fell back to brief-less variations): ${err instanceof Error ? err.message : String(err)}`)
   }
@@ -309,7 +315,7 @@ async function main(): Promise<void> {
   let adCopyUsage: unknown = null
   try {
     const pastExamples = await fetchPastExamples(supabase, brand.id, "ad_copy")
-    const res = await generateContent(brand, "ad_copy", { product, platform: undefined, hookText: undefined, additionalContext: undefined, pastExamples })
+    const res = await generateContent(brand, "ad_copy", { product, platform: undefined, hookText: undefined, additionalContext: undefined, pastExamples, lessons: adLessons })
     adCopy = res.data
     adCopyCost = res.costUsd
     adCopyUsage = res.usage ?? null
@@ -327,6 +333,7 @@ async function main(): Promise<void> {
     plan,
     isInternalUnlimitedUser: isUnlimited,
     models: { scenePromptWriter: MODELS.creative, image: IMAGE_PROVIDER_CONFIG.model, adCopy: MODELS.creative },
+    lessons: { ad_copy: adLessons, image: imageLessons },
     scenePrompt: adPrompt,
     adBrief: strategy?.brief ?? null,
     variants: strategy?.variants ?? null,

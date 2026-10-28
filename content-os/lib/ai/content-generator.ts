@@ -21,6 +21,7 @@ import {
 import { generateValidatedCaption, type CaptionChatMessage } from "./caption-validation"
 import { findContentQualityIssues, sanitizeLeakedArtifacts } from "./content-quality-check"
 import { sanitizeVisualBrief } from "./visual-brief"
+import type { BrandLesson } from "./brand-brain"
 
 export type GenerateContentOptions = {
   product?: ProductRow | null
@@ -37,6 +38,9 @@ export type GenerateContentOptions = {
    * hard maxDuration. The fact guard's corrective retry is skipped (claim
    * stripped instead) when it can't fit before this. Omitted = no limit. */
   factGuardDeadline?: number
+  /** Brand lessons (lib/ai/brand-brain.ts) for this format's scope, fetched
+   * by the route -- used by the caption, story, carousel and ad_copy prompts. */
+  lessons?: BrandLesson[]
 }
 
 type ReasoningEffort = "none" | "low" | "medium" | "high"
@@ -68,6 +72,7 @@ function buildPrompts(
           pastExamples: options.pastExamples,
           includeImagePrompt: options.includeImagePrompt,
           availableColorThemes: options.availableColorThemes,
+          lessons: options.lessons,
         }),
         reasoningEffort: "low",
         // A bit more headroom when image_prompt is also being generated in

@@ -173,6 +173,13 @@ async function main(): Promise<void> {
   const { data: owner } = await supabase.from("users").select("plan").eq("id", brand.user_id).single<{ plan: UserPlan }>()
   const plan: UserPlan = owner?.plan ?? "starter"
   const isUnlimited = isInternalUnlimited(brand.user_id)
+
+  // Learned brand lessons, fetched the way the routes fetch them (fail-soft --
+  // [] if brand_lessons isn't there yet). "image" lessons go to the prompt writer.
+  const { getActiveLessons, imageLessonRules } = await import("@/lib/ai/brand-brain")
+  const hookLessons = await getActiveLessons(supabase, brand.id, "hook")
+  const captionLessons = await getActiveLessons(supabase, brand.id, "caption")
+  const imageLessons = imageLessonRules(await getActiveLessons(supabase, brand.id, "image"))
   console.log(`Brand: ${brand.name} (${brand.niche ?? "no niche"}) · owner plan ${plan}${isUnlimited ? " (internal unlimited)" : ""}`)
 
   // fullpost/generate route: angle "auto" adds no hint, so the context is just the topic.
@@ -190,6 +197,7 @@ async function main(): Promise<void> {
     platform: PLATFORM,
     additionalContext: combinedContext,
     product: null,
+    lessons: hookLessons,
   })
   const hookLatencyMs = Date.now() - started
   const hook = hookResult.hooks[0]
@@ -206,6 +214,7 @@ async function main(): Promise<void> {
     pastExamples,
     includeImagePrompt: true,
     availableColorThemes: colorThemes.map((t) => ({ id: t.id, label: t.label })),
+    lessons: captionLessons,
   })
   const captionLatencyMs = Date.now() - started
   const caption = contentResult.data as GeneratedCaption
@@ -246,7 +255,7 @@ async function main(): Promise<void> {
         isRewrite: false,
         brand: { name: brand.name, niche: brand.niche, target_audience: brand.target_audience, tone_of_voice: brand.tone_of_voice, vibe: brand.vibe },
         product: null,
-        constraints: { aspectRatioLabel: ASPECT_RATIO, styleLabel: VISUAL_STYLE, hasProductReference: false, visualBrief },
+        constraints: { aspectRatioLabel: ASPECT_RATIO, styleLabel: VISUAL_STYLE, hasProductReference: false, visualBrief, lessons: imageLessons },
       })
       for await (const chunk of stream) imagePrompt += chunk.choices[0]?.delta?.content ?? ""
     } catch (err) {
@@ -314,6 +323,7 @@ async function main(): Promise<void> {
     plan,
     isInternalUnlimitedUser: isUnlimited,
     models: { hook: hookResult.model, caption: contentResult.model, imagePromptWriter: MODELS.creative, image: IMAGE_PROVIDER_CONFIG.model },
+    lessons: { hook: hookLessons, caption: captionLessons, image: imageLessons },
     pastExamples,
     hook,
     rawCaption,

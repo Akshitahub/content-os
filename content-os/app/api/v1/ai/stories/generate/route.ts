@@ -12,6 +12,7 @@ import { resolveSuggestedFont, type FontId } from "@/lib/design/fonts"
 import type { VisualBrief } from "@/lib/ai/visual-brief"
 import { timedGenerationRoute, type GenerationTimer } from "@/lib/utils/generation-timing"
 import { withDeadline, DeadlineExceededError, GENERATION_TIMED_OUT_MESSAGE } from "@/lib/utils/with-deadline"
+import { getActiveLessons } from "@/lib/ai/brand-brain"
 
 const schema = z.object({
   brandId: z.string().uuid(),
@@ -285,7 +286,8 @@ async function handlePost(request: Request, timer: GenerationTimer) {
   try {
     // Moved from Groq to OpenAI (MODELS.creative) in the Phase 1b
     // migration -- prompt + call now live in lib/ai/story-sequence-generator.ts.
-    gen = await timer.step("caption", withDeadline(requestStorySequence(brand, topic, storyCount, vibe, pastExamples), deadlineAt - Date.now(), "story copy"))
+    const lessons = await getActiveLessons(supabase, brandId, "story")
+    gen = await timer.step("caption", withDeadline(requestStorySequence(brand, topic, storyCount, vibe, pastExamples, lessons), deadlineAt - Date.now(), "story copy"))
     const raw = gen.raw
     const cleaned = raw.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim()
 

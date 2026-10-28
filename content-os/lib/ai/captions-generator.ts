@@ -5,6 +5,7 @@ import { MODELS, getTextClientFor } from "./models"
 import { generateValidatedCaption, type CaptionChatMessage } from "./caption-validation"
 import { buildFactSource } from "./fact-guard"
 import { textCostUsd, toTextUsage, type TextUsage } from "./pricing"
+import type { BrandLesson } from "./brand-brain"
 
 // Captions moved from Groq to OpenAI (MODELS.caption) -- every other
 // caption-producing call site (lib/ai/content-generator.ts's social_post
@@ -20,6 +21,8 @@ export async function generateCaption(
     additionalContext?: string
     product?: ProductRow | null
     pastExamples?: string[]
+    /** "caption"-scope brand lessons (lib/ai/brand-brain.ts), fetched by the route. */
+    lessons?: BrandLesson[]
   }
 ): Promise<{ caption: import("@/types/app").GeneratedCaption; model: string; usage: TextUsage | undefined; costUsd: number | null }> {
   const model = MODELS.caption

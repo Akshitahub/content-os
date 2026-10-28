@@ -1,6 +1,7 @@
 import type { BrandRow, ProductRow } from "@/types/database"
 import type { HookType, Platform } from "@/types/app"
 import { VISUAL_KINDS } from "./visual-brief"
+import { withLessons, type BrandLesson } from "./brand-brain"
 
 export const QUALITY_BAR = `
 
@@ -133,7 +134,7 @@ ${QUALITY_BAR}
 Always respond with valid JSON only. No markdown, no explanation.`
 }
 
-export function buildHookUserPrompt(
+function buildHookUserPromptBase(
   brand: BrandRow,
   options: {
     hookTypes: HookType[]
@@ -196,6 +197,14 @@ Respond with this exact JSON:
     }
   ]
 }`
+}
+
+/** buildHookUserPromptBase plus this brand's learned lessons (lib/ai/brand-brain.ts) -- unchanged when there are none. */
+export function buildHookUserPrompt(
+  brand: BrandRow,
+  options: Parameters<typeof buildHookUserPromptBase>[1] & { lessons?: BrandLesson[] }
+): string {
+  return withLessons(buildHookUserPromptBase(brand, options), options.lessons)
 }
 
 // Opt-in extra output field for the Create → Full Post flow only — grounds
@@ -328,7 +337,7 @@ export function buildSuggestedFontField(colorBasis: string): string {
   return `"suggested_font_id": "one of: anton | inter | playfair | quicksand | caveat -- the typeface for the on-image text, picked from the brand vibe, ${colorBasis} and this post's mood: festive / elegant / luxury -> playfair, playful / friendly -> quicksand, bold / sale / hype -> anton, clean / professional / SaaS -> inter, personal / handmade -> caveat (never caveat when the text has long body copy or lists)"`
 }
 
-export function buildCaptionUserPrompt(
+function buildCaptionUserPromptBase(
   brand: BrandRow,
   options: {
     hookText?: string
@@ -408,6 +417,14 @@ Respond with this exact JSON:
 }`
 }
 
+/** buildCaptionUserPromptBase plus this brand's learned lessons (lib/ai/brand-brain.ts) -- unchanged when there are none. */
+export function buildCaptionUserPrompt(
+  brand: BrandRow,
+  options: Parameters<typeof buildCaptionUserPromptBase>[1] & { lessons?: BrandLesson[] }
+): string {
+  return withLessons(buildCaptionUserPromptBase(brand, options), options.lessons)
+}
+
 // ─── Reel script ──────────────────────────────────────────────────────────
 
 export function buildReelScriptSystemPrompt(): string {
@@ -471,7 +488,7 @@ ${QUALITY_BAR}
 Always respond with valid JSON only. No markdown, no explanation.`
 }
 
-export function buildStoryUserPrompt(
+function buildStoryUserPromptBase(
   brand: BrandRow,
   options: {
     additionalContext?: string
@@ -497,6 +514,14 @@ Respond with this exact JSON:
   "text": "short text overlay",
   "sticker_suggestion": "sticker type and prompt"
 }`
+}
+
+/** buildStoryUserPromptBase plus this brand's learned lessons (lib/ai/brand-brain.ts) -- unchanged when there are none. */
+export function buildStoryUserPrompt(
+  brand: BrandRow,
+  options: Parameters<typeof buildStoryUserPromptBase>[1] & { lessons?: BrandLesson[] }
+): string {
+  return withLessons(buildStoryUserPromptBase(brand, options), options.lessons)
 }
 
 // ─── Carousel ─────────────────────────────────────────────────────────────
@@ -543,7 +568,7 @@ ${QUALITY_BAR}
 Always respond with valid JSON only. No markdown, no explanation.`
 }
 
-export function buildCarouselUserPrompt(
+function buildCarouselUserPromptBase(
   brand: BrandRow,
   options: {
     additionalContext?: string
@@ -582,6 +607,14 @@ Respond with this exact JSON:
   "caption": "instagram caption without hashtags",
   "hashtags": ["hashtag1", "hashtag2"]
 }`
+}
+
+/** buildCarouselUserPromptBase plus this brand's learned lessons (lib/ai/brand-brain.ts) -- unchanged when there are none. */
+export function buildCarouselUserPrompt(
+  brand: BrandRow,
+  options: Parameters<typeof buildCarouselUserPromptBase>[1] & { lessons?: BrandLesson[] }
+): string {
+  return withLessons(buildCarouselUserPromptBase(brand, options), options.lessons)
 }
 
 // ─── Blog post ────────────────────────────────────────────────────────────
@@ -713,7 +746,7 @@ ${QUALITY_BAR}
 Always respond with valid JSON only. No markdown, no explanation.`
 }
 
-export function buildAdCopyUserPrompt(
+function buildAdCopyUserPromptBase(
   brand: BrandRow,
   options: {
     additionalContext?: string
@@ -754,6 +787,14 @@ Respond with this exact JSON:
   "description": "one supporting sentence",
   "cta_button": "Shop Now"
 }`
+}
+
+/** buildAdCopyUserPromptBase plus this brand's learned lessons (lib/ai/brand-brain.ts) -- unchanged when there are none. */
+export function buildAdCopyUserPrompt(
+  brand: BrandRow,
+  options: Parameters<typeof buildAdCopyUserPromptBase>[1] & { lessons?: BrandLesson[] }
+): string {
+  return withLessons(buildAdCopyUserPromptBase(brand, options), options.lessons)
 }
 
 // ─── Image (unchanged) ────────────────────────────────────────────────────

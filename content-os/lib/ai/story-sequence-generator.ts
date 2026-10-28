@@ -5,6 +5,7 @@ import { createCreativeCompletion } from "./creative-completion"
 import { buildFactSource, guardCopy } from "./fact-guard"
 import { addTextUsage, sumCostUsd, type TextUsage } from "./pricing"
 import { VISUAL_KINDS, sanitizeVisualBrief, type VisualBrief } from "./visual-brief"
+import { withLessons, type BrandLesson } from "./brand-brain"
 
 // Story-sequence prompt building + the model call, moved verbatim out of
 // app/api/v1/ai/stories/generate/route.ts during the Phase 1b Groq ->
@@ -341,14 +342,16 @@ export async function requestStorySequence(
   topic: string,
   storyCount: number,
   vibe: string | undefined,
-  pastExamples: string[]
+  pastExamples: string[],
+  /** "story"-scope brand lessons (lib/ai/brand-brain.ts), fetched by the route. */
+  lessons?: BrandLesson[]
 ): Promise<{ raw: string; model: string; usage: TextUsage | undefined; costUsd: number | null }> {
   const base = {
     stage: "story",
     logPrefix: "ai/stories/generate",
     system: `You are an expert Instagram story creator for Indian D2C brands. Always return valid JSON only.
 ${QUALITY_BAR}`,
-    user: buildStoriesPrompt(brand, topic, storyCount, vibe, pastExamples),
+    user: withLessons(buildStoriesPrompt(brand, topic, storyCount, vibe, pastExamples), lessons),
     // Structured multi-slide JSON needs real reasoning to keep the
     // narrative arc coherent across slides -- same "medium" as on Groq.
     // Budget scales with storyCount (up to 10), unchanged from Groq: hidden

@@ -304,6 +304,12 @@ async function main(): Promise<void> {
   const { data: owner } = await supabase.from("users").select("plan").eq("id", brand.user_id).single<{ plan: UserPlan }>()
   const plan: UserPlan = owner?.plan ?? "starter"
   const isUnlimited = isInternalUnlimited(brand.user_id)
+
+  // Learned brand lessons, fetched the way the routes fetch them (fail-soft --
+  // [] if brand_lessons isn't there yet). "image" lessons go to the prompt writer.
+  const { getActiveLessons, imageLessonRules } = await import("@/lib/ai/brand-brain")
+  const carouselLessons = await getActiveLessons(supabase, brand.id, "carousel")
+  const imageLessons = imageLessonRules(await getActiveLessons(supabase, brand.id, "image"))
   console.log(`Brand: ${brand.name} (${brand.niche ?? "no niche"}) · owner plan ${plan}${isUnlimited ? " (internal unlimited)" : ""}`)
 
   // Copied from the pastExamples block in carousel/generate/route.ts (~line 190).
@@ -331,7 +337,7 @@ async function main(): Promise<void> {
   currentStage = "carousel_copy"
   console.log(`Generating ${slideCount}-slide carousel copy…`)
   const copyStarted = Date.now()
-  const gen = await generateCarouselWithRetry(brand, topic!, slideCount, "instagram", vibe, pastExamples)
+  const gen = await generateCarouselWithRetry(brand, topic!, slideCount, "instagram", vibe, pastExamples, carouselLessons)
   const copyLatencyMs = Date.now() - copyStarted
   const d = gen.data as Record<string, unknown>
   if (!Array.isArray(d.slides) || d.slides.length === 0) throw new Error("AI returned no carousel slides")
@@ -363,7 +369,7 @@ async function main(): Promise<void> {
       isRewrite: false,
       brand: { name: brand.name, niche: brand.niche, target_audience: brand.target_audience, tone_of_voice: brand.tone_of_voice, vibe: brand.vibe },
       product: null,
-      constraints: { styleLabel: vibe, hasProductReference: false },
+      constraints: { styleLabel: vibe, hasProductReference: false, lessons: imageLessons },
     })
     for await (const chunk of stream) visualPrompt += chunk.choices[0]?.delta?.content ?? ""
   } catch (err) {
@@ -444,6 +450,7 @@ async function main(): Promise<void> {
     plan,
     isInternalUnlimitedUser: isUnlimited,
     models: { carouselCopy: gen.model, imagePromptWriter: MODELS.creative, image: IMAGE_PROVIDER_CONFIG.model, imageQuality: "low" },
+    lessons: { carousel: carouselLessons, image: imageLessons },
     pastExamples,
     carouselPrompt: copyCalls[0]?.request ?? null,
     carouselCalls: copyCalls,

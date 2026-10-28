@@ -6,6 +6,7 @@ import { findContentQualityIssues, sanitizeLeakedArtifacts } from "./content-qua
 import { buildFactSource, guardCopy } from "./fact-guard"
 import { addTextUsage, textCostUsd, toTextUsage, type TextUsage } from "./pricing"
 import type { ChatCompletionMessageParam } from "openai/resources/chat/completions"
+import type { BrandLesson } from "./brand-brain"
 
 // Hooks moved from Groq to OpenAI (MODELS.creative) as part of the Phase 1
 // creative-stages migration -- same API style as lib/ai/captions-generator.ts's
@@ -22,6 +23,8 @@ export async function generateHooks(
      * -- the fact guard's retry is skipped and the claim stripped when it
      * can't fit. Omitted = no limit. */
     factGuardDeadline?: number
+    /** "hook"-scope brand lessons (lib/ai/brand-brain.ts), fetched by the route. */
+    lessons?: BrandLesson[]
   }
 ): Promise<{ hooks: GeneratedHook[]; model: string; usage: TextUsage | undefined; costUsd: number | null }> {
   const openai = getTextClientFor(MODELS.creative)
@@ -35,7 +38,7 @@ export async function generateHooks(
 
   const messages: ChatCompletionMessageParam[] = [
     { role: "system", content: buildHookSystemPrompt() },
-    { role: "user", content: buildHookUserPrompt(brand, { hookTypes, count, platform: options.platform, additionalContext: options.additionalContext, product: options.product }) },
+    { role: "user", content: buildHookUserPrompt(brand, { hookTypes, count, platform: options.platform, additionalContext: options.additionalContext, product: options.product, lessons: options.lessons }) },
   ]
   const callModel = async (msgs: ChatCompletionMessageParam[], timeoutMs = 20_000): Promise<{ raw: string; usage: TextUsage | undefined }> => {
     const startTime = Date.now()

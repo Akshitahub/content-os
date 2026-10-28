@@ -21,6 +21,7 @@ import { PLAN_LIMITS } from "@/types/app"
 import type { BrandRow, ProductRow, CalendarEntryRow, Json, Database } from "@/types/database"
 import type { ContentSlot, FastlaneResult, Platform, ReelScene, UserPlan } from "@/types/app"
 import { prepareGeneratedImage } from "@/lib/storage/generated-image"
+import { getActiveLessons } from "@/lib/ai/brand-brain"
 
 // Background Autopilot worker (supabase/migrations/057_autopilot_slot_jobs.sql).
 // A Supabase Cron job calls app/api/v1/cron/autopilot-drain every 20s while
@@ -262,7 +263,10 @@ async function prepareSlot(admin: Admin, job: SlotJobRow, ctx: RunContext, track
 
   const captionStartedAt = Date.now()
   // Fact-guard retry only if it can still finish well inside the lease.
-  const generated = await generateSlotContent(brand, slot, product, params.totalSlots, tracker, workDeadline - 60_000)
+  // Learned brand lessons for this slot's content: carousels read
+  // "carousel", posts/reel captions read "caption". Fail-soft.
+  const lessons = await getActiveLessons(admin, brand.id, isCarousel ? "carousel" : "caption")
+  const generated = await generateSlotContent(brand, slot, product, params.totalSlots, tracker, workDeadline - 60_000, lessons)
   tracker.captionMs += Date.now() - captionStartedAt
 
   // The per-slot prompt has no structural guarantee that `caption` opens

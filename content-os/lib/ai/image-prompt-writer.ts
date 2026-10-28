@@ -62,6 +62,10 @@ export interface ImagePromptConstraints {
    * direction, but can't replace this subject. Never carries headline,
    * caption or overlay text. */
   visualBrief?: VisualBrief
+  /** This brand's "image"-scope lessons as plain rules ("Avoid: ..." /
+   * "Do: ..."), fetched server-side by the write route -- never sent by the
+   * client. Soft direction only; every code-side guard still applies. */
+  lessons?: string[]
 }
 
 export interface WriteImagePromptInput {
@@ -132,6 +136,9 @@ function buildConstraintsLine(constraints: ImagePromptConstraints): string {
   if (constraints.role === "cta") lines.push("This is the closing slide -- give it a warm, confident, closing mood.")
   if (constraints.hasProductReference) lines.push("A real product reference photo is attached separately -- describe only the scene/setting/lighting around it, not the product's own appearance.")
   if (constraints.allowTextInImage) lines.push("The user has explicitly allowed on-image text this time, but still only describe the scene -- do not write out literal words to render.")
+  if (constraints.lessons?.length) {
+    lines.push(`Avoid/Do for this brand's images (learned from its own feedback): ${constraints.lessons.join("; ")}`)
+  }
   if (constraints.visualBrief) {
     const brief = constraints.visualBrief
     lines.push(`The image MUST show: ${briefScene(brief, "an abstract atmospheric background image")}.${brief.composition ? ` Composition: ${brief.composition}.` : ""} The user's own input sets style and direction but must not replace this subject.`)

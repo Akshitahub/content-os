@@ -6,6 +6,7 @@ import { createCreativeCompletion } from "./creative-completion"
 import { buildFactSource, guardCopy } from "./fact-guard"
 import { addTextUsage, sumCostUsd, type TextUsage } from "./pricing"
 import { sanitizeVisualBrief, type VisualBrief, type VisualKind } from "./visual-brief"
+import { withLessons, type BrandLesson } from "./brand-brain"
 
 // Ad Maker's strategy step: before any image is generated, decide WHO the ad
 // is for, WHAT they should do and the ONE value proposition, then write three
@@ -115,6 +116,8 @@ export async function generateAdStrategy(params: {
   userDirection?: string
   format: string
   timeoutMs: number
+  /** "ad_copy"-scope brand lessons (lib/ai/brand-brain.ts), fetched by the route. */
+  lessons?: BrandLesson[]
 }): Promise<AdStrategyResult> {
   const { brand, product, format, timeoutMs } = params
   const userDirection = params.userDirection?.trim() || undefined
@@ -122,7 +125,7 @@ export async function generateAdStrategy(params: {
     stage: "ad_strategy",
     logPrefix: "ai/ad-strategy",
     system: SYSTEM_PROMPT,
-    user: buildUserPrompt(brand, product, userDirection, format),
+    user: withLessons(buildUserPrompt(brand, product, userDirection, format), params.lessons),
     reasoningEffort: "medium" as const,
     // ESTIMATE, not measured: a brief + 3 short variants plus medium-effort
     // reasoning tokens.

@@ -11,6 +11,7 @@ import { resolveCaptionEngagementRatings } from "@/lib/ai/engagement-ratings"
 import { fetchPastExamples } from "@/lib/ai/past-examples"
 import type { BrandRow, ProductRow } from "@/types/database"
 import type { GeneratedCaption, ReelScript, CarouselContent, AdCopy, ContentFormat } from "@/types/app"
+import { getActiveLessons, LESSON_SCOPE_FOR_FORMAT } from "@/lib/ai/brand-brain"
 
 /**
  * "How this compares to what's worked before" — a rough, honest keyword
@@ -94,7 +95,9 @@ export async function POST(request: Request) {
   let result: Awaited<ReturnType<typeof generateContent>>
 
   try {
-    result = await generateContent(brand, format, { product, platform, hookText, additionalContext, pastExamples })
+    const lessonScope = LESSON_SCOPE_FOR_FORMAT[format]
+    const lessons = lessonScope ? await getActiveLessons(supabase, brandId, lessonScope) : []
+    result = await generateContent(brand, format, { product, platform, hookText, additionalContext, pastExamples, lessons })
   } catch (err) {
     console.error("[ai/content/generate] generation failed:", err)
     await logGenerationOutcome(supabase, logId, {

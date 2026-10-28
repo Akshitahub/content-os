@@ -265,6 +265,12 @@ async function main(): Promise<void> {
   const { data: owner } = await supabase.from("users").select("plan").eq("id", brand.user_id).single<{ plan: UserPlan }>()
   const plan: UserPlan = owner?.plan ?? "starter"
   const isUnlimited = isInternalUnlimited(brand.user_id)
+
+  // Learned brand lessons, fetched the way the routes fetch them (fail-soft --
+  // [] if brand_lessons isn't there yet). "image" lessons go to the prompt writer.
+  const { getActiveLessons, imageLessonRules } = await import("@/lib/ai/brand-brain")
+  const storyLessons = await getActiveLessons(supabase, brand.id, "story")
+  const imageLessons = imageLessonRules(await getActiveLessons(supabase, brand.id, "image"))
   console.log(`Brand: ${brand.name} (${brand.niche ?? "no niche"}) · owner plan ${plan}${isUnlimited ? " (internal unlimited)" : ""}`)
 
   // Copied from the pastExamples block in stories/generate/route.ts.
@@ -292,7 +298,7 @@ async function main(): Promise<void> {
   currentStage = "story_copy"
   console.log(`Generating ${storyCount}-frame story copy…`)
   const copyStarted = Date.now()
-  const gen = await requestStorySequence(brand, topic!, storyCount, vibe, pastExamples)
+  const gen = await requestStorySequence(brand, topic!, storyCount, vibe, pastExamples, storyLessons)
   const copyLatencyMs = Date.now() - copyStarted
   const d = JSON.parse(gen.raw.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim()) as Record<string, unknown>
   if (!Array.isArray(d.stories) || d.stories.length < storyCount) throw new Error(`AI returned ${Array.isArray(d.stories) ? d.stories.length : 0} story frames, expected ${storyCount}`)
@@ -321,7 +327,7 @@ async function main(): Promise<void> {
       isRewrite: false,
       brand: { name: brand.name, niche: brand.niche, target_audience: brand.target_audience, tone_of_voice: brand.tone_of_voice, vibe: brand.vibe },
       product: null,
-      constraints: { styleLabel: vibe, hasProductReference: false },
+      constraints: { styleLabel: vibe, hasProductReference: false, lessons: imageLessons },
     })
     for await (const chunk of stream) visualPrompt += chunk.choices[0]?.delta?.content ?? ""
   } catch (err) {
@@ -405,6 +411,7 @@ async function main(): Promise<void> {
     plan,
     isInternalUnlimitedUser: isUnlimited,
     models: { storyCopy: gen.model, imagePromptWriter: MODELS.creative, image: IMAGE_PROVIDER_CONFIG.model, imageQuality: "low" },
+    lessons: { story: storyLessons, image: imageLessons },
     pastExamples,
     storyPrompt: copyCalls[0]?.request ?? null,
     storyCalls: copyCalls,

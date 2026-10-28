@@ -6,6 +6,7 @@ import { z } from "zod"
 import { sanitizeVisualBrief } from "@/lib/ai/visual-brief"
 import { visualBriefInputSchema } from "@/lib/validations/ai"
 import type { BrandRow, ProductRow } from "@/types/database"
+import { getActiveLessons, imageLessonRules } from "@/lib/ai/brand-brain"
 
 const flowEnum = z.enum(["post", "story", "carousel", "ad_maker", "image_tool"])
 
@@ -99,6 +100,9 @@ export async function POST(request: Request) {
     product = { name: inlineProduct.name, description: inlineProduct.description ?? null, key_benefits: [] }
   }
 
+  // This brand's "image" lessons -- fetched here, never trusted from the client.
+  const imageLessons = imageLessonRules(await getActiveLessons(supabase, brandId, "image"))
+
   let modelStream: Awaited<ReturnType<typeof requestImagePromptStream>>
   try {
     modelStream = await requestImagePromptStream({
@@ -108,7 +112,7 @@ export async function POST(request: Request) {
       brand,
       product,
       // The client's brief is re-sanitized, never trusted as sent.
-      constraints: { ...constraints, visualBrief: sanitizeVisualBrief(constraints.visualBrief) } as ImagePromptConstraints,
+      constraints: { ...constraints, visualBrief: sanitizeVisualBrief(constraints.visualBrief), lessons: imageLessons } as ImagePromptConstraints,
     })
   } catch (err) {
     // Logged as explicit fields (not just a bare `console.error(err)`) so

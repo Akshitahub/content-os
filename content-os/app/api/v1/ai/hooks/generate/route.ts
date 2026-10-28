@@ -9,6 +9,7 @@ import { HOOK_OR_CAPTION } from "@/lib/usage/credit-costs"
 
 const FEATURE = "hooks"
 import type { BrandRow, ProductRow } from "@/types/database"
+import { getActiveLessons } from "@/lib/ai/brand-brain"
 
 export async function POST(request: Request) {
   console.log("[ai/hooks/generate] POST called")
@@ -56,7 +57,8 @@ export async function POST(request: Request) {
   let result: Awaited<ReturnType<typeof generateHooks>>
 
   try {
-    result = await generateHooks(brand, { hookTypes, count, platform, additionalContext, product })
+    const lessons = await getActiveLessons(supabase, brandId, "hook")
+    result = await generateHooks(brand, { hookTypes, count, platform, additionalContext, product, lessons })
   } catch (err) {
     console.error("HOOKS GEN ERROR:", err)
     // Log failure

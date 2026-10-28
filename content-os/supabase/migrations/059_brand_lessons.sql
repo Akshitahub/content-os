@@ -6,8 +6,10 @@
 -- distillLesson (after a 1-2 star rating with a note on a caption/hook, see
 -- app/api/v1/brands/[brandId]/captions/[captionId]/route.ts and
 -- .../hooks/[hookId]/route.ts) and scripts/backfill-brand-lessons.ts.
--- Not read by generation yet -- that's wired in a later pass, same phased
--- approach 053 took.
+-- Generation now reads these: every caption/hook/carousel/story/ad_copy
+-- prompt (and Autopilot slots) gets the active lessons for its scope via
+-- lib/ai/brand-brain.ts's getActiveLessons + withLessons, and "image" lessons
+-- reach the image-prompt writer (app/api/v1/ai/image-prompt/write).
 --
 -- scope:  'all' | 'caption' | 'hook' | 'carousel' | 'story' | 'ad_copy' | 'image'
 -- source: 'feedback_note' | 'low_rating' | 'edit' | 'image_reject' | 'engagement' | 'manual'

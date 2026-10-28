@@ -9,6 +9,7 @@ import { CONTENT_MIX, buildContentMix } from "@/lib/ai/autopilot-content-mix"
 import { findContentQualityIssues, sanitizeLeakedArtifacts } from "@/lib/ai/content-quality-check"
 import type { BrandRow, ProductRow } from "@/types/database"
 import type { ContentStrategy, ContentSlot, Platform, ReelScene, UserPlan } from "@/types/app"
+import { withLessons, type BrandLesson } from "./brand-brain"
 
 // Strategy planning + per-slot generation helpers for Autopilot. The run
 // itself is no longer executed here in one request: app/api/v1/brands/
@@ -518,6 +519,8 @@ export async function generateSlotContent(
   totalSlots: number,
   tracker?: AutopilotUsageTracker,
   factGuardDeadline?: number,
+  /** Brand lessons for this slot's scope (lib/ai/brand-brain.ts), fetched by the worker. */
+  lessons?: BrandLesson[],
 ): Promise<SlotContent> {
   const isCarousel = slot.content_type === "carousel"
   const isReel = slot.content_type === "reel_script"
@@ -533,11 +536,11 @@ export async function generateSlotContent(
     stage,
     logPrefix: "fastlane",
     system: SLOT_CONTENT_SYSTEM_PROMPT,
-    user: isCarousel
+    user: withLessons(isCarousel
       ? buildCarouselSlotContentPrompt(brand, slot, product)
       : isReel
         ? buildReelScriptSlotContentPrompt(brand, slot, product, totalSlots)
-        : buildSlotContentPrompt(brand, slot, product, totalSlots),
+        : buildSlotContentPrompt(brand, slot, product, totalSlots), lessons),
     reasoningEffort: "low" as const,
     maxCompletionTokens: isCarousel || isReel ? 1800 : 1200,
     // ESTIMATE, not measured (no OPENAI_API_KEY where this was written) --

@@ -17,6 +17,7 @@ import { addTextUsage, sumCostUsd } from "@/lib/ai/pricing"
 import type { BrandRow, ProductRow } from "@/types/database"
 import type { GeneratedCaption, ReelScript, CarouselContent, AdCopy } from "@/types/app"
 import { timedGenerationRoute, type GenerationTimer } from "@/lib/utils/generation-timing"
+import { getActiveLessons, LESSON_SCOPE_FOR_FORMAT } from "@/lib/ai/brand-brain"
 
 // Mirrors components/generate/FullPostGenerator.tsx's former client-side
 // ANGLE_HINT map verbatim -- moved server-side so the angle is a real,
@@ -102,6 +103,13 @@ async function handlePost(request: Request, timer: GenerationTimer) {
   // its caption/copy generation with no brand-voice grounding from past
   // examples at all despite the prompt already supporting it.
   const pastExamples = await fetchPastExamples(supabase, brandId, format)
+  // Learned brand lessons (lib/ai/brand-brain.ts): hooks read "hook", the
+  // content reads its format's scope. Fail-soft -- [] on any error.
+  const contentLessonScope = LESSON_SCOPE_FOR_FORMAT[format]
+  const [hookLessons, contentLessons] = await Promise.all([
+    getActiveLessons(supabase, brandId, "hook"),
+    contentLessonScope ? getActiveLessons(supabase, brandId, contentLessonScope) : Promise.resolve([]),
+  ])
 
   try {
     let hookResult: Awaited<ReturnType<typeof generateHooks>>
@@ -119,6 +127,7 @@ async function handlePost(request: Request, timer: GenerationTimer) {
         additionalContext: combinedContext,
         product,
         factGuardDeadline: deadlineAt - 30_000,
+        lessons: hookLessons,
       }), remainingMs(), "fullpost hooks"))
       const firstHook = hookResult.hooks[0]
       if (!firstHook) throw new Error("Hook generation returned no results")
@@ -136,6 +145,7 @@ async function handlePost(request: Request, timer: GenerationTimer) {
           includeImagePrompt: true,
           availableColorThemes: resolveColorThemes(brand).map(t => ({ id: t.id, label: t.label })),
           factGuardDeadline: deadlineAt - 30_000,
+          lessons: contentLessons,
         }),
         createPostImageSession(user.id),
       ]), remainingMs(), "fullpost caption"))
@@ -153,6 +163,7 @@ async function handlePost(request: Request, timer: GenerationTimer) {
           additionalContext: combinedContext,
           product,
           factGuardDeadline: deadlineAt - 30_000,
+          lessons: hookLessons,
         }),
         generateContent(brand, format, {
           product,
@@ -162,6 +173,7 @@ async function handlePost(request: Request, timer: GenerationTimer) {
           pastExamples,
           includeImagePrompt: false,
           factGuardDeadline: deadlineAt - 30_000,
+          lessons: contentLessons,
         }),
       ]), remainingMs(), "fullpost content"))
     }

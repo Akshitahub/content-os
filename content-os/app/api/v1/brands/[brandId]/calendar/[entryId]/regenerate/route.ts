@@ -19,6 +19,7 @@ import type { UserPlan, Platform, GeneratedCaption, CarouselContent } from "@/ty
 import { timedGenerationRoute, type GenerationTimer } from "@/lib/utils/generation-timing"
 import { withDeadline, DeadlineExceededError, GENERATION_TIMED_OUT_MESSAGE } from "@/lib/utils/with-deadline"
 import { prepareGeneratedImage } from "@/lib/storage/generated-image"
+import { getActiveLessons } from "@/lib/ai/brand-brain"
 
 const IMAGE_BUCKET = "brand-images"
 const FEATURE = "calendar_regenerate"
@@ -128,7 +129,8 @@ async function handlePost(request: Request, { params }: RouteParams, timer: Gene
   try {
     if (entry.content_type === "carousel") {
       const pastExamples = await fetchPastExamples(supabase, brandId, "carousel")
-      const contentResult = await timer.step("caption", withDeadline(generateContent(brand, "carousel", { platform, additionalContext, pastExamples, factGuardDeadline: requestStartedAt + CAROUSEL_TEXT_DEADLINE_MS }), requestStartedAt + ROUTE_DEADLINE_MS - Date.now(), "regenerate carousel copy"))
+      const lessons = await getActiveLessons(supabase, brandId, "carousel")
+      const contentResult = await timer.step("caption", withDeadline(generateContent(brand, "carousel", { platform, additionalContext, pastExamples, factGuardDeadline: requestStartedAt + CAROUSEL_TEXT_DEADLINE_MS, lessons }), requestStartedAt + ROUTE_DEADLINE_MS - Date.now(), "regenerate carousel copy"))
       const carousel = contentResult.data as CarouselContent
       const coverHook = carousel.slides[0]?.headline || entry.title
 
@@ -185,9 +187,13 @@ async function handlePost(request: Request, { params }: RouteParams, timer: Gene
 
     // content_type === "post"
     const pastExamples = await fetchPastExamples(supabase, brandId, "social_post")
+    const [hookLessons, captionLessons] = await Promise.all([
+      getActiveLessons(supabase, brandId, "hook"),
+      getActiveLessons(supabase, brandId, "caption"),
+    ])
     const [hookResult, contentResult] = await timer.step("caption", withDeadline(Promise.all([
-      generateHooks(brand, { hookTypes: ["bold_statement", "question", "story"], count: 1, platform, additionalContext, factGuardDeadline: requestStartedAt + POST_TEXT_DEADLINE_MS }),
-      generateContent(brand, "social_post", { platform, additionalContext, pastExamples, includeImagePrompt: true, factGuardDeadline: requestStartedAt + POST_TEXT_DEADLINE_MS }),
+      generateHooks(brand, { hookTypes: ["bold_statement", "question", "story"], count: 1, platform, additionalContext, factGuardDeadline: requestStartedAt + POST_TEXT_DEADLINE_MS, lessons: hookLessons }),
+      generateContent(brand, "social_post", { platform, additionalContext, pastExamples, includeImagePrompt: true, factGuardDeadline: requestStartedAt + POST_TEXT_DEADLINE_MS, lessons: captionLessons }),
     ]), requestStartedAt + ROUTE_DEADLINE_MS - Date.now(), "regenerate post copy"))
 
     const hook = hookResult.hooks[0]

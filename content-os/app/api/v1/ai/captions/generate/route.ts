@@ -12,6 +12,7 @@ import { buildSemanticPatternNote } from "@/lib/ai/semantic-pattern-match"
 import { resolveCaptionEngagementRatings } from "@/lib/ai/engagement-ratings"
 import { getRecurringFeedbackNotes } from "@/lib/ai/feedback-notes"
 import type { BrandRow, ProductRow } from "@/types/database"
+import { getActiveLessons } from "@/lib/ai/brand-brain"
 
 export async function POST(request: Request) {
   console.log("[ai/captions/generate] POST called")
@@ -90,7 +91,8 @@ export async function POST(request: Request) {
   let result: Awaited<ReturnType<typeof generateCaption>>
 
   try {
-    result = await generateCaption(brand, { hookText: resolvedHookText, platform, contentType, additionalContext, product, pastExamples })
+    const lessons = await getActiveLessons(supabase, brandId, "caption")
+    result = await generateCaption(brand, { hookText: resolvedHookText, platform, contentType, additionalContext, product, pastExamples, lessons })
   } catch (err) {
     await logGenerationOutcome(supabase, logId, {
       user_id: user.id, brand_id: brandId, feature: FEATURE, model: MODELS.caption,

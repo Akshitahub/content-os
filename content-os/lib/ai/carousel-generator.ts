@@ -4,6 +4,7 @@ import { buildPastExamplesBlock, buildSuggestedFontField, QUALITY_BAR } from "./
 import { createCreativeCompletion } from "./creative-completion"
 import { buildFactSource, guardCopy } from "./fact-guard"
 import { UsageCarryingError, addTextUsage, sumCostUsd, type TextUsage } from "./pricing"
+import { withLessons, type BrandLesson } from "./brand-brain"
 
 // Carousel prompt building + the model call, moved verbatim out of
 // app/api/v1/ai/carousel/generate/route.ts during the Phase 1b Groq ->
@@ -223,9 +224,11 @@ export async function generateCarouselWithRetry(
   slideCount: number,
   platform: string,
   vibe: string | undefined,
-  pastExamples: string[]
+  pastExamples: string[],
+  /** "carousel"-scope brand lessons (lib/ai/brand-brain.ts), fetched by the route. */
+  lessons?: BrandLesson[]
 ): Promise<{ data: unknown; model: string; usage: TextUsage | undefined; costUsd: number | null }> {
-  const prompt = buildCarouselPrompt(brand, topic, slideCount, platform, vibe, pastExamples)
+  const prompt = withLessons(buildCarouselPrompt(brand, topic, slideCount, platform, vibe, pastExamples), lessons)
   let usage: TextUsage | undefined
   let costUsd: number | null = null
   for (let attempt = 0; attempt < 2; attempt++) {

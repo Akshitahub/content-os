@@ -8,6 +8,14 @@ import { MODELS, getGroqClient } from "./models"
 
 export const LESSON_SCOPES = ["all", "caption", "hook", "carousel", "story", "ad_copy", "image"] as const
 export type LessonScope = (typeof LESSON_SCOPES)[number]
+
+/** Which lessons scope each generateContent format reads (reel_script/blog_post have none). */
+export const LESSON_SCOPE_FOR_FORMAT: Record<string, LessonScope | undefined> = {
+  social_post: "caption",
+  carousel: "carousel",
+  story: "story",
+  ad_copy: "ad_copy",
+}
 export type LessonKind = "avoid" | "do"
 
 export type BrandLesson = {
@@ -59,6 +67,30 @@ export function formatLessonsBlock(lessons: BrandLesson[]): string {
     ...avoid,
     ...doRules,
   ].join("\n")
+}
+
+// The last "here is the JSON to return" instruction in a user prompt -- the
+// lessons block goes right before it (after the brand context and the
+// task, before the output schema).
+const JSON_SCHEMA_ANCHOR = /\n(?:Respond with|Return this exact JSON|Return ONLY)/g
+
+/**
+ * Inserts formatLessonsBlock(lessons) just before the prompt's JSON-schema
+ * instruction (appended at the end if there is none). No lessons = the
+ * prompt is returned unchanged, byte for byte.
+ */
+export function withLessons(prompt: string, lessons: BrandLesson[] | undefined): string {
+  const block = formatLessonsBlock(lessons ?? [])
+  if (!block) return prompt
+  let idx = -1
+  for (const m of prompt.matchAll(JSON_SCHEMA_ANCHOR)) idx = m.index ?? idx
+  if (idx === -1) return `${prompt}\n\n${block}`
+  return `${prompt.slice(0, idx)}\n\n${block}\n${prompt.slice(idx)}`
+}
+
+/** "image"-scope lessons as plain rules for the image-prompt writer's constraints.lessons. */
+export function imageLessonRules(lessons: BrandLesson[]): string[] {
+  return lessons.map((l) => `${l.kind === "avoid" ? "Avoid" : "Do"}: ${l.rule}`)
 }
 
 const decisionSchema = z.discriminatedUnion("action", [

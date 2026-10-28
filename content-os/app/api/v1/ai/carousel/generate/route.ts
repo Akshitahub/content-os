@@ -13,6 +13,7 @@ import type { CarouselBackgroundStyle } from "@/lib/design/carousel-slide-styles
 import { resolveSuggestedFont } from "@/lib/design/fonts"
 import { timedGenerationRoute, type GenerationTimer } from "@/lib/utils/generation-timing"
 import { withDeadline, DeadlineExceededError, GENERATION_TIMED_OUT_MESSAGE } from "@/lib/utils/with-deadline"
+import { getActiveLessons } from "@/lib/ai/brand-brain"
 
 const schema = z.object({
   brandId: z.string().uuid(),
@@ -240,7 +241,8 @@ async function handlePost(request: Request, timer: GenerationTimer) {
   try {
     // Moved from Groq to OpenAI (MODELS.creative) in the Phase 1b
     // migration -- prompt + call now live in lib/ai/carousel-generator.ts.
-    gen = await timer.step("caption", withDeadline(generateCarouselWithRetry(brand, topic, slideCount, platform, vibe, pastExamples), deadlineAt - Date.now(), "carousel copy"))
+    const lessons = await getActiveLessons(supabase, brandId, "carousel")
+    gen = await timer.step("caption", withDeadline(generateCarouselWithRetry(brand, topic, slideCount, platform, vibe, pastExamples, lessons), deadlineAt - Date.now(), "carousel copy"))
     const data = gen.data
 
     const d = data as Record<string, unknown>

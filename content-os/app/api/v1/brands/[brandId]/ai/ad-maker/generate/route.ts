@@ -16,6 +16,7 @@ import type { UserPlan } from "@/types/app"
 import { timedGenerationRoute, type GenerationTimer } from "@/lib/utils/generation-timing"
 import { withDeadline, DeadlineExceededError, GENERATION_TIMED_OUT_MESSAGE } from "@/lib/utils/with-deadline"
 import { prepareGeneratedImage } from "@/lib/storage/generated-image"
+import { getActiveLessons } from "@/lib/ai/brand-brain"
 
 const BUCKET = "brand-images"
 
@@ -168,7 +169,7 @@ async function handlePost(request: Request, { params }: RouteParams, timer: Gene
       product = prod
     }
     strategy = await timer.step("caption", withDeadline(
-      generateAdStrategy({ brand, product, userDirection: hookText || (scene === "custom" ? customScene : undefined), format, timeoutMs: 45_000 }),
+      generateAdStrategy({ brand, product, userDirection: hookText || (scene === "custom" ? customScene : undefined), format, timeoutMs: 45_000, lessons: await getActiveLessons(supabase, brandId, "ad_copy") }),
       Math.min(STRATEGY_DEADLINE_MS, deadlineAt - Date.now()),
       "ad strategy"
     ))

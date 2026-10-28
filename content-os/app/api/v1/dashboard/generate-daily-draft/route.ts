@@ -18,6 +18,7 @@ import type { DailyDraft, DailyDraftCacheRow } from "@/lib/dashboard/get-or-crea
 import { timedGenerationRoute, type GenerationTimer } from "@/lib/utils/generation-timing"
 import { withDeadline, DeadlineExceededError, GENERATION_TIMED_OUT_MESSAGE } from "@/lib/utils/with-deadline"
 import { prepareGeneratedImage } from "@/lib/storage/generated-image"
+import { getActiveLessons } from "@/lib/ai/brand-brain"
 
 const BUCKET = "brand-images"
 
@@ -143,6 +144,12 @@ async function handlePost(request: Request, timer: GenerationTimer) {
       ...(contentProjectId ? { content_project_id: contentProjectId } : {}),
     })
 
+  // Learned brand lessons (lib/ai/brand-brain.ts) -- fail-soft, [] on error.
+  const [hookLessons, captionLessons] = await Promise.all([
+    getActiveLessons(supabase, brand.id, "hook"),
+    getActiveLessons(supabase, brand.id, "caption"),
+  ])
+
   try {
     // Same functions the real fullpost/generate route uses -- no
     // productId, no additionalContext (a generic on-brand post, not tied
@@ -154,6 +161,7 @@ async function handlePost(request: Request, timer: GenerationTimer) {
       platform: "instagram",
       product: null,
       factGuardDeadline: requestStartedAt + TEXT_DEADLINE_MS,
+      lessons: hookLessons,
     }), requestStartedAt + ROUTE_DEADLINE_MS - Date.now(), "daily draft hook"))
     textModel = hookResult.model
     textUsage = addTextUsage(textUsage, hookResult.usage)
@@ -169,6 +177,7 @@ async function handlePost(request: Request, timer: GenerationTimer) {
       includeImagePrompt: true,
       availableColorThemes: colorThemes.map((t) => ({ id: t.id, label: t.label })),
       factGuardDeadline: requestStartedAt + TEXT_DEADLINE_MS,
+      lessons: captionLessons,
     }), requestStartedAt + ROUTE_DEADLINE_MS - Date.now(), "daily draft caption"))
     textUsage = addTextUsage(textUsage, contentResult.usage)
     costUsd = sumCostUsd(costUsd, contentResult.costUsd)
