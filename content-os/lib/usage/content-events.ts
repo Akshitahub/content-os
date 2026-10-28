@@ -8,7 +8,7 @@ import { after } from "next/server"
 // model/cost, a rating, or field NAMES -- never content itself.
 
 export type ContentEventType = "caption" | "hook" | "carousel" | "story" | "ad_copy" | "post_image" | "ad_maker"
-export type ContentEventName = "generated" | "regenerated" | "edited" | "saved" | "scheduled" | "rated" | "downloaded"
+export type ContentEventName = "generated" | "regenerated" | "edited" | "saved" | "scheduled" | "rated" | "downloaded" | "quality_checked"
 
 export type ContentEventInput = {
   userId: string | null
@@ -19,12 +19,13 @@ export type ContentEventInput = {
   meta?: Record<string, unknown>
 }
 
-export function recordContentEvent(
+/** The insert itself, awaitable -- for code already running after the response (inside after()). Never throws. */
+export async function insertContentEvents(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   supabase: any,
-  events: ContentEventInput | ContentEventInput[],
-): void {
-  const rows = (Array.isArray(events) ? events : [events]).map((e) => ({
+  events: ContentEventInput[],
+): Promise<void> {
+  const rows = events.map((e) => ({
     user_id: e.userId,
     brand_id: e.brandId,
     content_type: e.contentType,
@@ -33,14 +34,22 @@ export function recordContentEvent(
     meta: e.meta ?? {},
   }))
   if (rows.length === 0) return
-  const write = async () => {
-    try {
-      const { error } = await supabase.from("content_events").insert(rows)
-      if (error) console.error("[content-events] insert failed (non-fatal):", error.message)
-    } catch (err) {
-      console.error("[content-events] insert threw (non-fatal):", err instanceof Error ? err.message : err)
-    }
+  try {
+    const { error } = await supabase.from("content_events").insert(rows)
+    if (error) console.error("[content-events] insert failed (non-fatal):", error.message)
+  } catch (err) {
+    console.error("[content-events] insert threw (non-fatal):", err instanceof Error ? err.message : err)
   }
+}
+
+export function recordContentEvent(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: any,
+  events: ContentEventInput | ContentEventInput[],
+): void {
+  const list = Array.isArray(events) ? events : [events]
+  if (list.length === 0) return
+  const write = () => insertContentEvents(supabase, list)
   try {
     after(write)
   } catch {

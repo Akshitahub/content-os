@@ -83,6 +83,9 @@ const format = (arg("format") ?? "square") as AdFormat
 const hookText = arg("hook")?.trim() ?? ""
 const label = (arg("label") ?? "baseline").replace(/[^\w.-]+/g, "_")
 
+// --vision: score EVERY image against its brief (the app only samples).
+const VISION = process.argv.includes("--vision")
+
 if (!brandId || !productId) {
   console.error('Usage: npx tsx scripts/ad-baseline.ts --brand <brandId> --product <productId> [--scene white_studio] [--format square] [--hook "<text>"] [--label baseline]')
   process.exit(1)
@@ -325,6 +328,17 @@ async function main(): Promise<void> {
   }
   const adCopyLatencyMs = Date.now() - started
 
+  // --vision: score every variation against its own brief.
+  if (VISION) {
+    const { checkImageAlignment } = await import("@/lib/ai/image-alignment")
+    for (const v of variations) {
+      const brief = (v.variant as { visual?: import("@/lib/ai/visual-brief").VisualBrief } | null)?.visual
+      if (!v.imageFile || !brief) continue
+      const res = await checkImageAlignment({ imageUrl: `data:image/png;base64,${readFileSync(join(outDir, v.imageFile)).toString("base64")}`, brief })
+      ;(v as { alignment?: unknown }).alignment = res ? { score: res.score, reason: res.reason, costUsd: res.costUsd } : null
+    }
+  }
+
   // 4. Outputs.
   const imageCost = sumCostUsd(...variations.map((v) => v.costUsd))
   const totalLatencyMs = promptLatencyMs + strategyLatencyMs + variations.reduce((a, v) => a + v.latencyMs, 0) + adCopyLatencyMs
@@ -337,6 +351,9 @@ async function main(): Promise<void> {
     lessons: { ad_copy: adLessons, image: imageLessons },
     scenePrompt: adPrompt,
     adBrief: strategy?.brief ?? null,
+    // Quality gate (lib/ai/quality-gate.ts) on the variants; input is in the
+    // ad_strategy-stage calls; issues are pre-repair.
+    gate: strategy?.gate ?? null,
     variants: strategy?.variants ?? null,
     variations,
     // Ad Maker composites the on-image text client-side only (AdMaker.tsx's

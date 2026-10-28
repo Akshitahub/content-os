@@ -18,6 +18,8 @@ import { withDeadline, DeadlineExceededError, GENERATION_TIMED_OUT_MESSAGE } fro
 import { prepareGeneratedImage } from "@/lib/storage/generated-image"
 import { getActiveLessons } from "@/lib/ai/brand-brain"
 import { recordContentEvent } from "@/lib/usage/content-events"
+import { gateEventMeta } from "@/lib/ai/quality-gate"
+import { sampleImageAlignment } from "@/lib/ai/image-alignment"
 
 const BUCKET = "brand-images"
 
@@ -170,7 +172,7 @@ async function handlePost(request: Request, { params }: RouteParams, timer: Gene
       product = prod
     }
     strategy = await timer.step("caption", withDeadline(
-      generateAdStrategy({ brand, product, userDirection: hookText || (scene === "custom" ? customScene : undefined), format, timeoutMs: 45_000, lessons: await getActiveLessons(supabase, brandId, "ad_copy") }),
+      generateAdStrategy({ brand, product, userDirection: hookText || (scene === "custom" ? customScene : undefined), format, timeoutMs: 45_000, lessons: await getActiveLessons(supabase, brandId, "ad_copy"), deadline: Date.now() + Math.min(STRATEGY_DEADLINE_MS, deadlineAt - Date.now()) }),
       Math.min(STRATEGY_DEADLINE_MS, deadlineAt - Date.now()),
       "ad strategy"
     ))
@@ -276,8 +278,12 @@ async function handlePost(request: Request, { params }: RouteParams, timer: Gene
   // hits this same route, so it can't be told apart from a first run.
   recordContentEvent(supabase, {
     userId: user.id, brandId, contentType: "ad_maker", contentId: null, event: "generated",
-    meta: { model: strategy ? `${provider}+${strategy.model}` : provider, cost_usd: sumCostUsd(strategy?.costUsd, ...results.map((r) => attemptsCostUsd(r.attempts))), variations: variations.length, strategy: !!strategy },
+    meta: { model: strategy ? `${provider}+${strategy.model}` : provider, cost_usd: sumCostUsd(strategy?.costUsd, ...results.map((r) => attemptsCostUsd(r.attempts))), variations: variations.length, strategy: !!strategy, ...gateEventMeta(strategy?.gate) },
   })
+  // Sampled image-alignment check per variation (after the response, never blocking).
+  for (const v of variations) {
+    sampleImageAlignment({ supabase, userId: user.id, brandId, contentType: "ad_maker", format: "ad", imageUrl: v.url, brief: v.variant?.visual })
+  }
 
   return NextResponse.json({ data: { variations, ad_brief: strategy?.brief ?? null } }, { status: 200 })
 }

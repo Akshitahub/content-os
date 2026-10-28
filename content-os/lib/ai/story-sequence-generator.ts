@@ -2,7 +2,8 @@ import type { BrandRow } from "@/types/database"
 import type { StorySlide } from "@/app/api/v1/ai/stories/generate/route"
 import { buildPastExamplesBlock, buildSuggestedFontField, QUALITY_BAR } from "./prompts"
 import { createCreativeCompletion } from "./creative-completion"
-import { buildFactSource, guardCopy } from "./fact-guard"
+import { buildFactSource, guardCopy, stripGuard } from "./fact-guard"
+import { runQualityGate, type GateReport } from "./quality-gate"
 import { addTextUsage, sumCostUsd, type TextUsage } from "./pricing"
 import { VISUAL_KINDS, sanitizeVisualBrief, type VisualBrief } from "./visual-brief"
 import { withLessons, type BrandLesson } from "./brand-brain"
@@ -352,8 +353,10 @@ export async function requestStorySequence(
   vibe: string | undefined,
   pastExamples: string[],
   /** "story"-scope brand lessons (lib/ai/brand-brain.ts), fetched by the route. */
-  lessons?: BrandLesson[]
-): Promise<{ raw: string; model: string; usage: TextUsage | undefined; costUsd: number | null }> {
+  lessons?: BrandLesson[],
+  /** Epoch ms the route must finish by -- the quality gate skips its repair past it. */
+  deadline?: number
+): Promise<{ raw: string; model: string; usage: TextUsage | undefined; costUsd: number | null; gate?: GateReport }> {
   const base = {
     stage: "story",
     logPrefix: "ai/stories/generate",
@@ -377,8 +380,10 @@ ${QUALITY_BAR}`,
   }
   const first = await createCreativeCompletion(base)
   let raw = first.content ?? "{}"
+  const firstRaw = raw
   let usage = first.usage
   let costUsd = first.costUsd
+  let gate: GateReport | undefined
 
   const parsed = parseStoryJson(raw)
   if (parsed) {
@@ -398,8 +403,34 @@ ${QUALITY_BAR}`,
     })
     const withVisuals = sanitizeStoryVisuals(guarded)
     if (withVisuals !== parsed) raw = JSON.stringify(withVisuals)
+
+    // Quality gate (lib/ai/quality-gate.ts) -- normal prompt only; Hard
+    // Truth Checklist has no image and stays exactly as is.
+    if (vibe !== "hard_truth_checklist") {
+      const facts = buildFactSource({ brand, brief: [topic] })
+      const gated = await runQualityGate({
+        format: "story",
+        data: withVisuals,
+        brand,
+        brief: [topic],
+        deadline,
+        normalTimeoutMs: base.timeoutMs,
+        repair: async (correction, timeoutMs) => {
+          const fix = await createCreativeCompletion({ ...base, timeoutMs, followUp: { previous: firstRaw, correction } })
+          usage = addTextUsage(usage, fix.usage)
+          costUsd = sumCostUsd(costUsd, fix.costUsd)
+          const fixParsed = parseStoryJson(fix.content ?? "")
+          if (!fixParsed) throw new Error("unparseable repair")
+          return sanitizeStoryVisuals(stripGuard("story", fixParsed, facts))
+        },
+      })
+      gate = gated.gate
+      usage = addTextUsage(usage, gate.usage)
+      costUsd = sumCostUsd(costUsd, gate.costUsd)
+      if (gated.data !== withVisuals) raw = JSON.stringify(gated.data)
+    }
   }
-  return { raw, model: first.model, usage, costUsd }
+  return { raw, model: first.model, usage, costUsd, gate }
 }
 
 // Runs sanitizeVisualBrief (lib/ai/visual-brief.ts) on every story's

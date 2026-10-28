@@ -15,6 +15,7 @@ import { timedGenerationRoute, type GenerationTimer } from "@/lib/utils/generati
 import { withDeadline, DeadlineExceededError, GENERATION_TIMED_OUT_MESSAGE } from "@/lib/utils/with-deadline"
 import { getActiveLessons } from "@/lib/ai/brand-brain"
 import { recordContentEvent } from "@/lib/usage/content-events"
+import { gateEventMeta } from "@/lib/ai/quality-gate"
 
 const schema = z.object({
   brandId: z.string().uuid(),
@@ -243,7 +244,7 @@ async function handlePost(request: Request, timer: GenerationTimer) {
     // Moved from Groq to OpenAI (MODELS.creative) in the Phase 1b
     // migration -- prompt + call now live in lib/ai/carousel-generator.ts.
     const lessons = await getActiveLessons(supabase, brandId, "carousel")
-    gen = await timer.step("caption", withDeadline(generateCarouselWithRetry(brand, topic, slideCount, platform, vibe, pastExamples, lessons), deadlineAt - Date.now(), "carousel copy"))
+    gen = await timer.step("caption", withDeadline(generateCarouselWithRetry(brand, topic, slideCount, platform, vibe, pastExamples, lessons, deadlineAt), deadlineAt - Date.now(), "carousel copy"))
     const data = gen.data
 
     const d = data as Record<string, unknown>
@@ -311,7 +312,7 @@ async function handlePost(request: Request, timer: GenerationTimer) {
     } catch (persistErr) {
       console.error("[ai/carousel/generate] persist failed (non-fatal):", persistErr)
     }
-    recordContentEvent(supabase, { userId: user.id, brandId, contentType: "carousel", contentId: carouselId, event: "generated", meta: { model: gen.model, cost_usd: gen.costUsd } })
+    recordContentEvent(supabase, { userId: user.id, brandId, contentType: "carousel", contentId: carouselId, event: "generated", meta: { model: gen.model, cost_usd: gen.costUsd, ...gateEventMeta(gen.gate) } })
 
     // slides returned to the client is the same merged array now saved to
     // the row -- CarouselBuilder.tsx's own withCtaSlideMerged() sees the

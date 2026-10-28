@@ -15,6 +15,7 @@ import { timedGenerationRoute, type GenerationTimer } from "@/lib/utils/generati
 import { prepareGeneratedImage } from "@/lib/storage/generated-image"
 import { sanitizeVisualBrief } from "@/lib/ai/visual-brief"
 import { recordContentEvent } from "@/lib/usage/content-events"
+import { sampleImageAlignment } from "@/lib/ai/image-alignment"
 
 const BUCKET = "brand-images"
 const FEATURE = "post_image"
@@ -318,6 +319,8 @@ async function handlePost(request: Request, timer: GenerationTimer) {
     event: attempt > 1 ? "regenerated" : "generated",
     meta: { model: modelLabel, cost_usd: attemptsCostUsd(result.attempts), part: "post image" },
   })
+  // Sampled image-alignment check against the caption's visual brief.
+  sampleImageAlignment({ supabase, userId: user.id, brandId, contentType: "post_image", contentId: contentProjectId ?? savedImage?.id ?? null, format: "post", imageUrl: publicUrlData.publicUrl, brief: visualBrief })
 
   return NextResponse.json({
     data: {

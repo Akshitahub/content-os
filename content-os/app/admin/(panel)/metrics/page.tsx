@@ -80,9 +80,8 @@ export default async function AdminMetricsPage({ searchParams }: PageProps) {
                 <td className="px-4 py-3 text-right tabular-nums">{num(r.editBurden)}</td>
                 <td className="px-4 py-3 text-right tabular-nums">{r.rated > 0 ? `${pct(r.lowRatingRate)} of ${r.rated}` : "—"}</td>
                 <td className="px-4 py-3 text-right tabular-nums">{usd(r.costPerUsableItem)}</td>
-                {/* TODO(quality-gate): filled by the quality gate later. */}
-                <td className="px-4 py-3 text-right text-muted-foreground">—</td>
-                <td className="px-4 py-3 text-right text-muted-foreground">—</td>
+                <td className="px-4 py-3 text-right tabular-nums">{pct(r.specificity)}</td>
+                <td className="px-4 py-3 text-right tabular-nums">{r.alignment == null ? "—" : `${r.alignment.toFixed(1)} / 5`}</td>
               </tr>
             ))}
           </tbody>
@@ -92,6 +91,7 @@ export default async function AdminMetricsPage({ searchParams }: PageProps) {
       <div className="space-y-1 text-xs text-muted-foreground">
         <p>Acceptance = items saved or scheduled ÷ generated. First-pass publishable = accepted with no regenerate or edit before acceptance ÷ generated. Edit burden = edits per accepted item.</p>
         <p>Cost per usable item is approximate: ai_generation_logs cost for the matching features ÷ accepted items (logs aren&apos;t linked per item except posts).</p>
+        <p>Specificity = gated generations with no unsupported claim and no generic line before repair. Message–visual alignment = average 1–5 vision score on a sample of images (QUALITY_VISION_SAMPLE_RATE).</p>
         <p>Generated rows are already saved by default, so &quot;saved&quot; only counts explicit saves; scheduling is recorded for Autopilot entries only (manual scheduling has no source id yet).</p>
       </div>
     </div>

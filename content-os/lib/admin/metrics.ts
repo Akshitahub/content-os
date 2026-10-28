@@ -28,10 +28,10 @@ export interface ContentTypeMetrics {
   /** Approximate: summed by feature from ai_generation_logs (not linked per item except posts). */
   costUsd: number | null
   costPerUsableItem: number | null
-  // TODO(quality-gate): specificity and message-to-visual alignment are
-  // filled in by the upcoming quality gate; shown as "—" until then.
-  specificity: null
-  alignment: null
+  /** Share of gated generations with no unsupported_claim/generic issue before repair (lib/ai/quality-gate.ts). */
+  specificity: number | null
+  /** Average "quality_checked" image-alignment score, 1-5 (lib/ai/image-alignment.ts, sampled). */
+  alignment: number | null
 }
 
 export interface ContentMetricsResult {
@@ -127,6 +127,14 @@ export async function getContentMetrics(days: MetricWindow): Promise<ContentMetr
       edits += list.filter((e) => e.event === "edited").length
     }
 
+    // Specificity: gated generations whose copy had no unsupported claim and
+    // no generic line BEFORE repair. Skipped gates don't count either way.
+    const gated = generatedEvents
+      .map((e) => (e.meta?.gate ?? null) as { skipped?: boolean; issues?: Record<string, number> } | null)
+      .filter((g): g is { skipped?: boolean; issues?: Record<string, number> } => !!g && !g.skipped)
+    const specific = gated.filter((g) => !(g.issues?.unsupported_claim ?? 0) && !(g.issues?.generic ?? 0)).length
+    const scores = typeEvents.filter((e) => e.event === "quality_checked").map((e) => Number(e.meta?.score)).filter((n) => Number.isFinite(n))
+
     const ratedEvents = typeEvents.filter((e) => e.event === "rated")
     const lowRated = ratedEvents.filter((e) => Number(e.meta?.rating) <= 2).length
     const costUsd = costByType.get(contentType) ?? null
@@ -142,8 +150,8 @@ export async function getContentMetrics(days: MetricWindow): Promise<ContentMetr
       lowRatingRate: ratio(lowRated, ratedEvents.length),
       costUsd,
       costPerUsableItem: costUsd != null && accepted > 0 ? costUsd / accepted : null,
-      specificity: null,
-      alignment: null,
+      specificity: ratio(specific, gated.length),
+      alignment: scores.length ? scores.reduce((a, b) => a + b, 0) / scores.length : null,
     }
   })
 

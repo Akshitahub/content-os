@@ -13,6 +13,7 @@ import { z } from "zod"
 import type { BrandRow } from "@/types/database"
 import { timedGenerationRoute, type GenerationTimer } from "@/lib/utils/generation-timing"
 import { withDeadline, DeadlineExceededError, GENERATION_TIMED_OUT_MESSAGE } from "@/lib/utils/with-deadline"
+import { sampleImageAlignment } from "@/lib/ai/image-alignment"
 
 const CAROUSEL_VIBES = ["fun_playful", "clean_minimal", "bold_dramatic", "warm_cozy", "professional", "trendy_genz"] as const
 
@@ -235,6 +236,10 @@ async function handlePost(request: Request, timer: GenerationTimer) {
     cost_usd: attemptsCostUsd(result.attempts),
     latency_ms: latencyMs, success: true,
   })
+
+  // Sampled image-alignment check (after the response, never blocking). The
+  // request carries no carousel id, so the event has none.
+  sampleImageAlignment({ supabase, userId: user.id, brandId, contentType: "carousel", format: "carousel", imageUrl: uploadResult.publicUrl, brief: visualBrief })
 
   return NextResponse.json({ data: { public_url: uploadResult.publicUrl, role, provider } }, { status: 200 })
 }

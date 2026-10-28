@@ -2,7 +2,8 @@ import type { BrandRow } from "@/types/database"
 import { VISUAL_KINDS, sanitizeVisualBrief } from "./visual-brief"
 import { buildPastExamplesBlock, buildSuggestedFontField, QUALITY_BAR } from "./prompts"
 import { createCreativeCompletion } from "./creative-completion"
-import { buildFactSource, guardCopy } from "./fact-guard"
+import { buildFactSource, guardCopy, stripGuard } from "./fact-guard"
+import { runQualityGate, type GateReport } from "./quality-gate"
 import { UsageCarryingError, addTextUsage, sumCostUsd, type TextUsage } from "./pricing"
 import { withLessons, type BrandLesson } from "./brand-brain"
 import { buildBrandBrainLines, parseBrandBrain } from "@/lib/brand-brain-profile"
@@ -228,8 +229,10 @@ export async function generateCarouselWithRetry(
   vibe: string | undefined,
   pastExamples: string[],
   /** "carousel"-scope brand lessons (lib/ai/brand-brain.ts), fetched by the route. */
-  lessons?: BrandLesson[]
-): Promise<{ data: unknown; model: string; usage: TextUsage | undefined; costUsd: number | null }> {
+  lessons?: BrandLesson[],
+  /** Epoch ms the route must finish by -- the quality gate skips its repair past it. */
+  deadline?: number
+): Promise<{ data: unknown; model: string; usage: TextUsage | undefined; costUsd: number | null; gate?: GateReport }> {
   const prompt = withLessons(buildCarouselPrompt(brand, topic, slideCount, platform, vibe, pastExamples), lessons)
   let usage: TextUsage | undefined
   let costUsd: number | null = null
@@ -259,7 +262,27 @@ export async function generateCarouselWithRetry(
         return JSON.parse(extractJSON(retry.content ?? "")) as unknown
       },
     })
-    return { data: sanitizeVisualBriefs(data), model: result.model, usage, costUsd }
+    // Quality gate (lib/ai/quality-gate.ts): copy + visual briefs checked
+    // against the facts before any image is made; critical issues get one
+    // targeted repair through this same call.
+    const facts = buildFactSource({ brand, brief: [topic] })
+    const gated = await runQualityGate({
+      format: "carousel",
+      data: sanitizeVisualBriefs(data),
+      brand,
+      brief: [topic],
+      deadline,
+      normalTimeoutMs: carouselCallParams(prompt, slideCount).timeoutMs,
+      repair: async (correction, timeoutMs) => {
+        const fix = await createCreativeCompletion({ ...carouselCallParams(prompt, slideCount), timeoutMs, followUp: { previous: raw, correction } })
+        usage = addTextUsage(usage, fix.usage)
+        costUsd = sumCostUsd(costUsd, fix.costUsd)
+        return sanitizeVisualBriefs(stripGuard("carousel", JSON.parse(extractJSON(fix.content ?? "")) as unknown, facts))
+      },
+    })
+    usage = addTextUsage(usage, gated.gate.usage)
+    costUsd = sumCostUsd(costUsd, gated.gate.costUsd)
+    return { data: gated.data, model: result.model, usage, costUsd, gate: gated.gate }
   }
   throw new UsageCarryingError("AI generation failed", usage, costUsd)
 }

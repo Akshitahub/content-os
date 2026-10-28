@@ -2,7 +2,8 @@ import type { BrandRow, ProductRow } from "@/types/database"
 import type { ContentFormat, ContentFormatOutputMap, GeneratedCaption, Platform } from "@/types/app"
 import { MODELS, getTextClientFor, textProviderFor } from "./models"
 import { buildFactSource, guardCopy } from "./fact-guard"
-import { addTextUsage, textCostUsd, toTextUsage, type TextUsage } from "./pricing"
+import { addTextUsage, sumCostUsd, textCostUsd, toTextUsage, type TextUsage } from "./pricing"
+import { runQualityGate, type GateReport } from "./quality-gate"
 import type { ChatCompletionMessageParam } from "openai/resources/chat/completions"
 import {
   buildCaptionSystemPrompt,
@@ -204,6 +205,8 @@ export async function generateContent(
   model: string
   usage: TextUsage | undefined
   costUsd: number | null
+  /** Full Post caption only (includeImagePrompt): the pre-image quality gate's report. */
+  gate?: GateReport
 }> {
   const { system, user, maxTokens, reasoningEffort } = buildPrompts(format, brand, options)
   const facts = buildFactSource({ brand, product: options.product, brief: [options.hookText, options.additionalContext] })
@@ -238,9 +241,7 @@ export async function generateContent(
       { role: "user", content: user },
     ]
 
-    const { caption, usage } = await generateValidatedCaption({
-      messages,
-      callModel: async (msgs) => {
+    const callModel = async (msgs: CaptionChatMessage[]) => {
         // Explicit timeout + one retry, like every other model call here --
         // this used to pass none, so the SDK default (10 minutes, 2
         // retries) applied: a slow caption could outlive the route's
@@ -249,7 +250,10 @@ export async function generateContent(
         // medium-length text calls use (not measured live).
         const res = await openai.chat.completions.create({ ...requestParams, messages: msgs }, { timeout: 40_000, maxRetries: 1 })
         return { content: res.choices[0]?.message?.content ?? "{}", usage: toTextUsage(res.usage) }
-      },
+    }
+    const validated = await generateValidatedCaption({
+      messages,
+      callModel,
       brand,
       ctaPhrase,
       handle,
@@ -257,14 +261,57 @@ export async function generateContent(
       facts,
       deadline: options.factGuardDeadline,
     })
+    let captionUsage = validated.usage
 
     // Full Post's visual brief is model output like any other field -- run it
     // through the same sanitizer carousels/stories use, dropping it if invalid.
-    const { visual, ...rest } = caption
-    const cleanVisual = sanitizeVisualBrief(visual)
-    const finalCaption: GeneratedCaption = cleanVisual ? { ...rest, visual: cleanVisual } : rest
+    const withCleanVisual = (c: GeneratedCaption): GeneratedCaption => {
+      const { visual, ...rest } = c
+      const cleanVisual = sanitizeVisualBrief(visual)
+      return cleanVisual ? { ...rest, visual: cleanVisual } : rest
+    }
+    let finalCaption = withCleanVisual(validated.caption)
 
-    return { data: finalCaption, model: captionModel, usage, costUsd: textCostUsd(captionModel, usage) }
+    // Quality gate (lib/ai/quality-gate.ts) -- Full Post only (it makes an
+    // image from this caption's visual brief). The repair re-runs this same
+    // validated caption call with the correction as a follow-up.
+    let gate: GateReport | undefined
+    if (options.includeImagePrompt) {
+      const firstCaption = finalCaption
+      const gated = await runQualityGate({
+        format: "post",
+        data: firstCaption,
+        brand,
+        product: options.product,
+        brief: [options.hookText, options.additionalContext],
+        deadline: options.factGuardDeadline,
+        normalTimeoutMs: 40_000,
+        repair: async (correction) => {
+          const repaired = await generateValidatedCaption({
+            messages: [...messages, { role: "assistant", content: JSON.stringify(firstCaption) }, { role: "user", content: correction }],
+            callModel,
+            brand,
+            ctaPhrase,
+            handle,
+            platform,
+            facts,
+            deadline: options.factGuardDeadline,
+          })
+          captionUsage = addTextUsage(captionUsage, repaired.usage)
+          return withCleanVisual(repaired.caption)
+        },
+      })
+      finalCaption = gated.data
+      gate = gated.gate
+    }
+
+    return {
+      data: finalCaption,
+      model: captionModel,
+      usage: addTextUsage(captionUsage, gate?.usage),
+      costUsd: sumCostUsd(textCostUsd(captionModel, captionUsage), gate?.costUsd),
+      gate,
+    }
   }
 
   // Every non-social_post format is on OpenAI (MODELS.creative) now:

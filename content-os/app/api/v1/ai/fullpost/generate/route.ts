@@ -19,6 +19,7 @@ import type { GeneratedCaption, ReelScript, CarouselContent, AdCopy } from "@/ty
 import { timedGenerationRoute, type GenerationTimer } from "@/lib/utils/generation-timing"
 import { getActiveLessons, LESSON_SCOPE_FOR_FORMAT } from "@/lib/ai/brand-brain"
 import { recordContentEvent, type ContentEventType } from "@/lib/usage/content-events"
+import { gateEventMeta } from "@/lib/ai/quality-gate"
 
 // Mirrors components/generate/FullPostGenerator.tsx's former client-side
 // ANGLE_HINT map verbatim -- moved server-side so the angle is a real,
@@ -354,7 +355,7 @@ async function handlePost(request: Request, timer: GenerationTimer) {
     const contentEventType = ({ social_post: "caption", carousel: "carousel", ad_copy: "ad_copy" } as Record<string, ContentEventType | undefined>)[format]
     recordContentEvent(supabase, [
       { userId: user.id, brandId, contentType: "hook", contentId: hookRow?.id ?? null, event: "generated", meta: { model: hookResult.model, cost_usd: hookResult.costUsd } },
-      ...(contentEventType ? [{ userId: user.id, brandId, contentType: contentEventType, contentId: contentRowId, event: "generated" as const, meta: { model: contentResult.model, cost_usd: contentResult.costUsd } }] : []),
+      ...(contentEventType ? [{ userId: user.id, brandId, contentType: contentEventType, contentId: contentRowId, event: "generated" as const, meta: { model: contentResult.model, cost_usd: contentResult.costUsd, ...gateEventMeta(contentResult.gate) } }] : []),
     ])
 
     // Pure logging — deferred via after() so it runs once the response has

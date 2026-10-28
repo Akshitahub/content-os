@@ -14,6 +14,7 @@ import { timedGenerationRoute, type GenerationTimer } from "@/lib/utils/generati
 import { withDeadline, DeadlineExceededError, GENERATION_TIMED_OUT_MESSAGE } from "@/lib/utils/with-deadline"
 import { getActiveLessons } from "@/lib/ai/brand-brain"
 import { recordContentEvent } from "@/lib/usage/content-events"
+import { gateEventMeta } from "@/lib/ai/quality-gate"
 
 const schema = z.object({
   brandId: z.string().uuid(),
@@ -288,7 +289,7 @@ async function handlePost(request: Request, timer: GenerationTimer) {
     // Moved from Groq to OpenAI (MODELS.creative) in the Phase 1b
     // migration -- prompt + call now live in lib/ai/story-sequence-generator.ts.
     const lessons = await getActiveLessons(supabase, brandId, "story")
-    gen = await timer.step("caption", withDeadline(requestStorySequence(brand, topic, storyCount, vibe, pastExamples, lessons), deadlineAt - Date.now(), "story copy"))
+    gen = await timer.step("caption", withDeadline(requestStorySequence(brand, topic, storyCount, vibe, pastExamples, lessons, deadlineAt), deadlineAt - Date.now(), "story copy"))
     const raw = gen.raw
     const cleaned = raw.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim()
 
@@ -372,7 +373,7 @@ async function handlePost(request: Request, timer: GenerationTimer) {
     } catch (persistErr) {
       console.error("[ai/stories/generate] persist failed (non-fatal):", persistErr)
     }
-    recordContentEvent(supabase, { userId: user.id, brandId, contentType: "story", contentId: storyRowId, event: "generated", meta: { model: gen.model, cost_usd: gen.costUsd } })
+    recordContentEvent(supabase, { userId: user.id, brandId, contentType: "story", contentId: storyRowId, event: "generated", meta: { model: gen.model, cost_usd: gen.costUsd, ...gateEventMeta(gen.gate) } })
 
     await recordOutcome(true)
     return NextResponse.json({ data: { ...d, id: storyRowId } }, { status: 200 })

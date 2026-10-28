@@ -3,7 +3,8 @@ import type { BrandRow, ProductRow } from "@/types/database"
 import type { AdBrief, AdVariant } from "@/types/app"
 import { buildBrandContext, QUALITY_BAR } from "./prompts"
 import { createCreativeCompletion } from "./creative-completion"
-import { buildFactSource, guardCopy } from "./fact-guard"
+import { buildFactSource, guardCopy, stripGuard } from "./fact-guard"
+import { runQualityGate, type GateReport } from "./quality-gate"
 import { addTextUsage, sumCostUsd, type TextUsage } from "./pricing"
 import { sanitizeVisualBrief, type VisualBrief, type VisualKind } from "./visual-brief"
 import { withLessons, type BrandLesson } from "./brand-brain"
@@ -103,6 +104,7 @@ export type AdStrategyResult = {
   model: string
   usage: TextUsage | undefined
   costUsd: number | null
+  gate?: GateReport
 }
 
 /**
@@ -118,6 +120,8 @@ export async function generateAdStrategy(params: {
   timeoutMs: number
   /** "ad_copy"-scope brand lessons (lib/ai/brand-brain.ts), fetched by the route. */
   lessons?: BrandLesson[]
+  /** Epoch ms the strategy step must finish by -- the quality gate skips its repair past it. */
+  deadline?: number
 }): Promise<AdStrategyResult> {
   const { brand, product, format, timeoutMs } = params
   const userDirection = params.userDirection?.trim() || undefined
@@ -155,7 +159,7 @@ export async function generateAdStrategy(params: {
   const { ad_brief, variants } = parsed.data
 
   const brief: AdBrief = { ...ad_brief, offer: ad_brief.offer ?? null, proof: ad_brief.proof ?? null }
-  const cleanVariants: AdVariant[] = variants.slice(0, AD_VARIANT_COUNT).map((v) => ({
+  const toVariants = (list: typeof variants): AdVariant[] => list.slice(0, AD_VARIANT_COUNT).map((v) => ({
     angle: v.angle,
     hypothesis: v.hypothesis,
     headline: v.headline,
@@ -164,6 +168,30 @@ export async function generateAdStrategy(params: {
     visual: adVisual(v.visual),
   }))
 
+  // Quality gate (lib/ai/quality-gate.ts): the variants' copy + visual
+  // briefs, checked against the facts before any image is made.
+  const facts = buildFactSource({ brand, product, brief: [userDirection] })
+  const gated = await runQualityGate({
+    format: "ad",
+    data: { variants: toVariants(variants) },
+    brand,
+    product,
+    brief: [userDirection],
+    deadline: params.deadline,
+    normalTimeoutMs: timeoutMs,
+    repair: async (correction, repairTimeoutMs) => {
+      const fix = await createCreativeCompletion({ ...callParams, timeoutMs: repairTimeoutMs, followUp: { previous: raw, correction } })
+      usage = addTextUsage(usage, fix.usage)
+      costUsd = sumCostUsd(costUsd, fix.costUsd)
+      const reparsed = strategySchema.safeParse(stripGuard("ad_strategy", extractJson(fix.content ?? ""), facts))
+      if (!reparsed.success) throw new Error("repair response invalid")
+      return { variants: toVariants(reparsed.data.variants) }
+    },
+  })
+  usage = addTextUsage(usage, gated.gate.usage)
+  costUsd = sumCostUsd(costUsd, gated.gate.costUsd)
+  const cleanVariants = gated.data.variants
+
   const angles = cleanVariants.map((v) => v.angle)
   if (new Set(angles).size !== angles.length) console.warn(`[ad-strategy] variants share an angle: ${angles.join(", ")}`)
   if (!brief.proof && angles.includes("proof")) console.warn("[ad-strategy] a variant uses the proof angle but ad_brief.proof is null")
@@ -171,5 +199,5 @@ export async function generateAdStrategy(params: {
     if (v.headline.length > 40) console.warn(`[ad-strategy] headline over 40 chars (${v.headline.length}): ${v.headline}`)
   }
 
-  return { brief, variants: cleanVariants, model: first.model, usage, costUsd }
+  return { brief, variants: cleanVariants, model: first.model, usage, costUsd, gate: gated.gate }
 }

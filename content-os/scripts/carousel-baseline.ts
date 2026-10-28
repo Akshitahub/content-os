@@ -73,6 +73,9 @@ const slideCount = Number(arg("slides") ?? 7)
 const vibeArg = arg("vibe")
 const label = (arg("label") ?? "baseline").replace(/[^\w.-]+/g, "_")
 
+// --vision: score EVERY image against its brief (the app only samples).
+const VISION = process.argv.includes("--vision")
+
 if (!brandId || !topic) {
   console.error('Usage: npx tsx scripts/carousel-baseline.ts --brand <brandId> --topic "<topic>" [--slides 7] [--vibe <vibe>] [--label baseline]')
   process.exit(1)
@@ -258,6 +261,8 @@ type SlideRecord = {
   imageFile: string | null
   /** The final slide with its real text overlay (see finalOutput in run.json). */
   finalImageFile?: string | null
+  /** --vision only: 1-5 score of the background against its brief, with the reason. */
+  alignment?: { score: number; reason: string; costUsd: number | null } | null
   latencyMs: number
   costUsd: number | null
   provider: string | null
@@ -458,6 +463,16 @@ async function main(): Promise<void> {
   // renderer the app's carousel export uses (carousel/render route ->
   // renderRichCarouselSlidesToPng), each background written onto its slide
   // as image_url the way CarouselBuilder does.
+  if (VISION) {
+    const { checkImageAlignment } = await import("@/lib/ai/image-alignment")
+    for (const rec of slideRecords) {
+      const brief = rec.briefUsed as import("@/lib/ai/visual-brief").VisualBrief | null
+      if (!rec.imageFile || !brief) continue
+      const res = await checkImageAlignment({ imageUrl: fileAsDataUrl(outDir, rec.imageFile), brief })
+      rec.alignment = res ? { score: res.score, reason: res.reason, costUsd: res.costUsd } : null
+    }
+  }
+
   let finalOutput: { rendered: boolean; renderer?: string; reason?: string } = { rendered: false }
   try {
     const { renderRichCarouselSlidesToPng } = await import("@/lib/image/carousel-compositor")
@@ -517,6 +532,9 @@ async function main(): Promise<void> {
     imagePromptCall: captured.filter((c) => c.stage === "image_prompt_write"),
     slides: slideRecords,
     finalOutput,
+    // Quality gate (lib/ai/quality-gate.ts): its input is in the copy-stage
+    // calls above (the MODELS.scoring request); issues are pre-repair.
+    gate: gen.gate ?? null,
     cost: {
       carouselCopy: { usage: gen.usage ?? null, costUsd: gen.costUsd, latencyMs: copyLatencyMs },
       imagePrompt: { usage: null, costUsd: null, latencyMs: promptLatencyMs, note: "streamed without usage reporting -- not priced" },

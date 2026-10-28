@@ -63,6 +63,9 @@ const brandId = arg("brand")
 const topic = arg("topic")?.trim()
 const label = (arg("label") ?? "baseline").replace(/[^\w.-]+/g, "_")
 
+// --vision: score EVERY image against its brief (the app only samples).
+const VISION = process.argv.includes("--vision")
+
 if (!brandId || !topic) {
   console.error('Usage: npx tsx scripts/post-baseline.ts --brand <brandId> --topic "<topic>" [--label baseline]')
   process.exit(1)
@@ -315,6 +318,14 @@ async function main(): Promise<void> {
     }
   }
 
+  // --vision: score the image against the caption's visual brief.
+  let alignment: { score: number; reason: string; costUsd: number | null } | null = null
+  if (VISION && imageRecord.file && visualBrief) {
+    const { checkImageAlignment } = await import("@/lib/ai/image-alignment")
+    const res = await checkImageAlignment({ imageUrl: `data:image/png;base64,${readFileSync(join(outDir, imageRecord.file)).toString("base64")}`, brief: visualBrief })
+    alignment = res ? { score: res.score, reason: res.reason, costUsd: res.costUsd } : null
+  }
+
   // 4. Final image with the overlay text. Full Post itself flattens the
   // overlay client-side (FullPostGenerator's flattenOverlayImage, canvas);
   // the closest server equivalent is compositePostImage (what
@@ -369,6 +380,10 @@ async function main(): Promise<void> {
     imagePrompt,
     image: imageRecord,
     finalOutput,
+    alignment,
+    // Quality gate (lib/ai/quality-gate.ts) on the caption + its visual brief;
+    // its input is in the caption-stage calls; issues are pre-repair.
+    gate: contentResult.gate ?? null,
     calls: captured,
     cost: {
       hook: { usage: hookResult.usage ?? null, costUsd: hookResult.costUsd, latencyMs: hookLatencyMs },
