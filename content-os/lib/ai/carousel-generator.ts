@@ -1,5 +1,5 @@
 import type { BrandRow } from "@/types/database"
-import { CAROUSEL_VISUAL_KINDS, type CarouselVisualBrief, type CarouselVisualKind } from "@/types/app"
+import { VISUAL_KINDS, sanitizeVisualBrief } from "./visual-brief"
 import { buildPastExamplesBlock, buildSuggestedFontField, QUALITY_BAR } from "./prompts"
 import { createCreativeCompletion } from "./creative-completion"
 import { buildFactSource, guardCopy } from "./fact-guard"
@@ -70,7 +70,7 @@ INFORMATION DEPTH — the most common failure is slides that only name a topic (
 - The CTA slide's headline summarises the takeaway — never just "follow us" or "save this".
 
 VISUAL DIRECTION — every slide object (and cta_slide) gets a "visual" brief for its image:
-- "kind": one of ${CAROUSEL_VISUAL_KINDS.join(" | ")}.
+- "kind": one of ${VISUAL_KINDS.join(" | ")}.
 - "must_show": 1-2 sentences, concrete and photographable — which objects, in what arrangement, from what angle.
 - "composition": where the subject sits and where the overlaid text goes (e.g. "subject in right two-thirds, left third calm for text").
 Rules:
@@ -257,46 +257,6 @@ export async function generateCarouselWithRetry(
     return { data: sanitizeVisualBriefs(data), model: result.model, usage, costUsd }
   }
   throw new UsageCarryingError("AI generation failed", usage, costUsd)
-}
-
-const VISUAL_TEXT_MAX = 300
-
-// Quoted text in an image brief is exactly what the image model renders as
-// garbled on-image lettering (see lib/ai/carousel-slide-background.ts), so
-// any quoted span is removed. Single quotes only count at word boundaries
-// so apostrophes ("brand's") survive.
-function stripQuoted(text: string): string {
-  return text
-    .replace(/"[^"]*"|“[^”]*”|‘[^’]*’/g, "")
-    .replace(/(^|[\s([])'[^']+'(?=$|[\s.,;:!?)\]])/g, "$1")
-    .replace(/\s{2,}/g, " ")
-    .replace(/\s+([.,;:!?])/g, "$1")
-    .trim()
-}
-
-function clampText(text: string): string {
-  if (text.length <= VISUAL_TEXT_MAX) return text
-  const cut = text.slice(0, VISUAL_TEXT_MAX)
-  const lastSpace = cut.lastIndexOf(" ")
-  return (lastSpace > VISUAL_TEXT_MAX / 2 ? cut.slice(0, lastSpace) : cut).trim()
-}
-
-/**
- * Code-side safety for a slide's "visual" brief (the prompt alone isn't
- * trusted): unknown kind -> "product_scene", quoted text stripped, length
- * capped. Returns undefined for a missing/invalid brief so callers fall
- * back to today's background-only behaviour.
- */
-export function sanitizeVisualBrief(raw: unknown): CarouselVisualBrief | undefined {
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined
-  const v = raw as Record<string, unknown>
-  const mustShow = typeof v.must_show === "string" ? clampText(stripQuoted(v.must_show)) : ""
-  if (!mustShow) return undefined
-  const kind: CarouselVisualKind = (CAROUSEL_VISUAL_KINDS as readonly string[]).includes(v.kind as string)
-    ? (v.kind as CarouselVisualKind)
-    : "product_scene"
-  const composition = typeof v.composition === "string" ? clampText(stripQuoted(v.composition)) : ""
-  return { kind, must_show: mustShow, composition }
 }
 
 function withSanitizedVisual(slide: unknown): unknown {

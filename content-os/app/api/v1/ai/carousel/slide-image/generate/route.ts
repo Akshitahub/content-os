@@ -1,14 +1,14 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import { buildError, ErrorCodes } from "@/types/api"
-import { generateCarouselSlideBackground, briefUsesProductReference, type CarouselVibe } from "@/lib/ai/carousel-slide-background"
-import { sanitizeVisualBrief } from "@/lib/ai/carousel-generator"
+import { generateCarouselSlideBackground, type CarouselVibe } from "@/lib/ai/carousel-slide-background"
+import { VISUAL_KINDS, briefUsesProductReference, sanitizeVisualBrief } from "@/lib/ai/visual-brief"
 import { attemptsCostUsd } from "@/lib/ai/post-image-pipeline"
 import { uploadMediaToStorage } from "@/lib/storage/upload-media"
 import { isInternalUnlimited } from "@/lib/usage/is-internal-unlimited"
 import { checkAndIncrementUsage, refundGenerationUsage } from "@/lib/usage/check-and-increment-usage"
 import { CAROUSEL_SLIDE_AI_BACKGROUND } from "@/lib/usage/credit-costs"
-import { CAROUSEL_VISUAL_KINDS, PLAN_LIMITS, type UserPlan } from "@/types/app"
+import { PLAN_LIMITS, type UserPlan } from "@/types/app"
 import { z } from "zod"
 import type { BrandRow } from "@/types/database"
 import { timedGenerationRoute, type GenerationTimer } from "@/lib/utils/generation-timing"
@@ -37,7 +37,7 @@ const schema = z.object({
   // carousel-generator.ts). Re-sanitized below -- the client copy is never
   // trusted as-is.
   visualBrief: z.object({
-    kind: z.enum(CAROUSEL_VISUAL_KINDS),
+    kind: z.enum(VISUAL_KINDS),
     must_show: z.string().max(300),
     composition: z.string().max(300).default(""),
   }).optional(),

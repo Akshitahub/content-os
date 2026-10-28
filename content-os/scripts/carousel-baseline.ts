@@ -261,8 +261,8 @@ type SlideRecord = {
 async function main(): Promise<void> {
   const { generateCarouselWithRetry } = await import("@/lib/ai/carousel-generator")
   const { requestImagePromptStream } = await import("@/lib/ai/image-prompt-writer")
-  const { generateCarouselSlideBackground, briefUsesProductReference } = await import("@/lib/ai/carousel-slide-background")
-  const { sanitizeVisualBrief } = await import("@/lib/ai/carousel-generator")
+  const { generateCarouselSlideBackground } = await import("@/lib/ai/carousel-slide-background")
+  const { sanitizeVisualBrief, briefUsesProductReference } = await import("@/lib/ai/visual-brief")
   const { attemptsCostUsd } = await import("@/lib/ai/post-image-pipeline")
   const { IMAGE_PROVIDER_CONFIG } = await import("@/lib/ai/image-provider")
   const { MODELS } = await import("@/lib/ai/models")

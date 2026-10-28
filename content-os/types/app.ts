@@ -176,19 +176,10 @@ export type CarouselNarrativePlan = {
   arc?: { slide_number: number; role: string; new_information: string }[]
 }
 
-/** What a carousel slide's image must show (lib/ai/carousel-generator.ts). */
-export const CAROUSEL_VISUAL_KINDS = [
-  "product_scene", "side_by_side", "material_swatches", "process_sequence",
-  "sketch_or_drawing", "detail_closeup", "before_after", "abstract_mood",
-] as const
-export type CarouselVisualKind = (typeof CAROUSEL_VISUAL_KINDS)[number]
-export type CarouselVisualBrief = {
-  kind: CarouselVisualKind
-  /** Only visible things -- objects, arrangement, angle. Never text. */
-  must_show: string
-  /** Where the subject sits and where the overlaid text goes. */
-  composition: string
-}
+// Moved to lib/ai/visual-brief.ts (shared with stories) -- kept here as
+// aliases so existing imports don't break.
+export { VISUAL_KINDS as CAROUSEL_VISUAL_KINDS } from "@/lib/ai/visual-brief"
+export type { VisualKind as CarouselVisualKind, VisualBrief as CarouselVisualBrief } from "@/lib/ai/visual-brief"
 
 export type CarouselContent = {
   slides: CarouselSlide[]

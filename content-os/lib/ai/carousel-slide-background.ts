@@ -8,7 +8,8 @@ import {
 } from "./post-image-pipeline"
 import type { ImageQuality } from "./image-provider"
 import { type Vibe, DEFAULT_VIBE, VIBE_BACKGROUND_STYLES, VIBE_FALLBACK_COLORS, ABSTRACT_SAFETY_BOILERPLATE, describeColor } from "./vibe-background-styles"
-import type { CarouselVisualBrief, CarouselVisualKind, UserPlan } from "@/types/app"
+import type { UserPlan } from "@/types/app"
+import { SPLIT_LABEL_GUARD, briefScene as sharedBriefScene, briefUsesProductReference, type VisualBrief } from "./visual-brief"
 import type { BrandRow } from "@/types/database"
 
 // Preserves the pre-existing export name for callers (e.g.
@@ -123,7 +124,7 @@ function buildSlidePrompt(niche: string | null, vibe: Vibe, colors: string[], ro
 }
 
 // ─── Per-slide visual briefs ────────────────────────────────────────────────
-// Every non-hook slide with a visual brief (lib/ai/carousel-generator.ts's
+// Every non-hook slide with a visual brief (lib/ai/visual-brief.ts's
 // sanitizeVisualBrief -- quoted text already stripped, never combined with
 // the slide's headline/subtext/points) gets its OWN scene from that brief,
 // instead of the one shared customPrompt scene every slide used to reuse.
@@ -133,32 +134,13 @@ function buildSlidePrompt(niche: string | null, vibe: Vibe, colors: string[], ro
 
 const BRIEF_ABSTRACT_OPENER = "abstract atmospheric background image for a social media carousel slide"
 
-// Photographic, not illustrative, unless the kind itself says otherwise.
-// No quoted words anywhere (e.g. before/after) -- a quoted word is exactly
-// what the image model renders as literal on-image text.
-const BRIEF_FRAMING: Record<CarouselVisualKind, string> = {
-  product_scene: "a photorealistic scene featuring",
-  side_by_side: "a split composition with two clearly separated halves side by side, comparing",
-  before_after: "a split composition, left half the before state and right half the after state, showing",
-  material_swatches: "a top-down flat-lay of physical material samples and finishes arranged in a neat grid:",
-  process_sequence: "three to four stages of a process arranged left to right in one frame:",
-  sketch_or_drawing: "a hand-drawn pencil or ink sketch on paper, photographed on a desk:",
-  detail_closeup: "a macro close-up photograph of",
-  abstract_mood: `${BRIEF_ABSTRACT_OPENER}, evoking`,
+// Framing, product-reference kinds and the split-label guard live in
+// lib/ai/visual-brief.ts (shared with stories).
+function briefScene(brief: VisualBrief): string {
+  return sharedBriefScene(brief, BRIEF_ABSTRACT_OPENER)
 }
 
-// Kinds whose scene is not "the product in a setting" -- a product reference
-// photo would fight the brief (a sketch, swatches, a sequence, a two-way
-// comparison), so those slides use the non-reference path.
-const BRIEF_KINDS_WITHOUT_PRODUCT_REFERENCE = new Set<CarouselVisualKind>(["sketch_or_drawing", "material_swatches", "process_sequence", "side_by_side"])
-
-const SPLIT_LABEL_GUARD = "no dividing labels, captions or arrows — the two halves are separated only by composition"
-
-function briefScene(brief: CarouselVisualBrief): string {
-  return `${BRIEF_FRAMING[brief.kind]} ${brief.must_show}`
-}
-
-function buildBriefSlidePrompt(brief: CarouselVisualBrief, niche: string | null, vibe: Vibe, colors: string[], role: "hook" | "cta" | "body", productImageUrl?: string | null, slideType?: "cover" | "content" | "cta"): string {
+function buildBriefSlidePrompt(brief: VisualBrief, niche: string | null, vibe: Vibe, colors: string[], role: "hook" | "cta" | "body", productImageUrl?: string | null, slideType?: "cover" | "content" | "cta"): string {
   const colorNames = colors.map(describeColor).filter((c): c is string => !!c).slice(0, 3)
   const composition = brief.composition ? `composition: ${brief.composition}` : ""
   const isSplit = brief.kind === "side_by_side" || brief.kind === "before_after"
@@ -199,7 +181,7 @@ function buildBriefSlidePrompt(brief: CarouselVisualBrief, niche: string | null,
   ].filter(Boolean).join(", ")
 }
 
-function simplifyBriefSlidePrompt(brief: CarouselVisualBrief, vibe: Vibe, productImageUrl?: string | null): string {
+function simplifyBriefSlidePrompt(brief: VisualBrief, vibe: Vibe, productImageUrl?: string | null): string {
   if (productImageUrl) {
     return wrapForReferenceImage([briefScene(brief), PHOTOGRAPHY_STYLE, REFERENCE_IMAGE_PEOPLE_GUARD, VIBE_BACKGROUND_STYLES[vibe], "no text, no words, no letters"].join(", "))
   }
@@ -209,11 +191,6 @@ function simplifyBriefSlidePrompt(brief: CarouselVisualBrief, vibe: Vibe, produc
     "no text, no words, no letters",
     "keep the composition centered, avoid the outer ~10% margin",
   ].join(", ")
-}
-
-/** Whether a slide with this brief keeps the product reference photo (see BRIEF_KINDS_WITHOUT_PRODUCT_REFERENCE). */
-export function briefUsesProductReference(brief: CarouselVisualBrief | undefined): boolean {
-  return !brief || !BRIEF_KINDS_WITHOUT_PRODUCT_REFERENCE.has(brief.kind)
 }
 
 function simplifySlidePrompt(vibe: Vibe, productImageUrl?: string | null, customPrompt?: string): string {
@@ -270,7 +247,7 @@ export interface GenerateCarouselSlideBackgroundOptions {
    * sanitizeVisualBrief). On any non-hook slide it replaces customPrompt as
    * the scene -- the hook keeps the user-reviewed shared scene. Omitted =
    * today's behaviour. */
-  visualBrief?: CarouselVisualBrief
+  visualBrief?: VisualBrief
   /** gpt-image-2 quality; omitted = "medium". The slide-image route
    * passes "low" (text is composited on top); raised to "medium" when
    * productImageUrl is set. */
