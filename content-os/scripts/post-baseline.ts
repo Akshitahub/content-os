@@ -156,6 +156,7 @@ async function main(): Promise<void> {
   const { mergeCaptionWithHookAndCta } = await import("@/lib/utils/caption-merge")
   const { fetchPastExamples } = await import("@/lib/ai/past-examples")
   const { isInternalUnlimited } = await import("@/lib/usage/is-internal-unlimited")
+  const { sanitizeVisualBrief, briefUsesProductReference } = await import("@/lib/ai/visual-brief")
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY
@@ -219,6 +220,9 @@ async function main(): Promise<void> {
   const colorThemeId = caption.suggested_color_theme_id || colorThemes[0]?.id || ""
   const overlayText = caption.suggested_overlay_text?.trim() || ""
   const isChecklist = template === "hard_truth_checklist"
+  // As FullPostGenerator sends it (caption.visual) and the write / post-image
+  // routes re-sanitize it.
+  const visualBrief = sanitizeVisualBrief(caption.visual)
 
   // 2. Image prompt, as beginImagePromptWriting seeds it: the typed brief
   // (here: the topic) wins over caption.image_prompt.
@@ -242,7 +246,7 @@ async function main(): Promise<void> {
         isRewrite: false,
         brand: { name: brand.name, niche: brand.niche, target_audience: brand.target_audience, tone_of_voice: brand.tone_of_voice, vibe: brand.vibe },
         product: null,
-        constraints: { aspectRatioLabel: ASPECT_RATIO, styleLabel: VISUAL_STYLE, hasProductReference: false },
+        constraints: { aspectRatioLabel: ASPECT_RATIO, styleLabel: VISUAL_STYLE, hasProductReference: false, visualBrief },
       })
       for await (const chunk of stream) imagePrompt += chunk.choices[0]?.delta?.content ?? ""
     } catch (err) {
@@ -277,6 +281,7 @@ async function main(): Promise<void> {
         checklistWrongItems: caption.checklist_wrong_items ?? undefined,
         checklistRightItems: caption.checklist_right_items ?? undefined,
         checklistClosingLine: caption.checklist_closing_line ?? undefined,
+        visualBrief,
       })
       const imageRequests = captured.slice(firstCall)
       const first = imageRequests[0]?.request as { prompt?: unknown } | undefined
@@ -287,7 +292,8 @@ async function main(): Promise<void> {
         provider: result.success ? result.provider : null,
         attempts: result.attempts,
         finalImagePrompt: typeof first?.prompt === "string" ? first.prompt : null,
-        productReferenceUsed: false,
+        // No product is selected here, so never; with one it would follow briefUsesProductReference.
+        productReferenceUsed: false && briefUsesProductReference(visualBrief),
       }
       if (result.success) {
         imageRecord.file = `image.${result.mimeType.includes("jpeg") ? "jpg" : "png"}`
@@ -312,6 +318,8 @@ async function main(): Promise<void> {
     hook,
     rawCaption,
     caption,
+    postPlan: caption.post_plan ?? null,
+    visual: caption.visual ?? null,
     overlayText,
     template,
     colorThemeId,
@@ -337,6 +345,10 @@ async function main(): Promise<void> {
     "",
     `Brand **${brand.name}** · template ${template} · ${runStartedAt.toISOString()}`,
     `Total cost: $${run.cost.totalUsd ?? "unknown"} (hook $${hookResult.costUsd ?? "?"}, caption $${contentResult.costUsd ?? "?"}, image $${imageRecord.costUsd ?? "?"}; prompt writer not priced) · ${(totalLatencyMs / 1000).toFixed(1)} s`,
+    "",
+    `**Post plan:** ${caption.post_plan ? `${caption.post_plan.message ?? ""} — *why it matters:* ${caption.post_plan.audience_reason ?? ""}` : "(none returned)"}`,
+    "",
+    `**Visual brief:** ${caption.visual ? `${caption.visual.kind}: ${caption.visual.must_show}${caption.visual.composition ? ` (${caption.visual.composition})` : ""}` : "(none)"}`,
     "",
     `**Hook:** ${hook.hook_text}`,
     "",

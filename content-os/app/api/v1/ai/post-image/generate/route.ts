@@ -13,6 +13,7 @@ import type { BrandRow, ProductRow } from "@/types/database"
 import type { UserPlan } from "@/types/app"
 import { timedGenerationRoute, type GenerationTimer } from "@/lib/utils/generation-timing"
 import { prepareGeneratedImage } from "@/lib/storage/generated-image"
+import { sanitizeVisualBrief } from "@/lib/ai/visual-brief"
 
 const BUCKET = "brand-images"
 const FEATURE = "post_image"
@@ -93,6 +94,10 @@ async function handlePost(request: Request, timer: GenerationTimer) {
     postSessionId, contentProjectId, aspectRatio, visualStyle,
     checklistHeadline, checklistHighlightedPhrase, checklistWrongItems, checklistRightItems, checklistClosingLine,
   } = parsed.data
+  // Re-sanitized server-side. Only affects whether the product reference is
+  // sent (see generatePostImage); billing is unchanged -- the POST charge is
+  // decided by the regenerate session above, not by the product photo.
+  const visualBrief = sanitizeVisualBrief(parsed.data.visualBrief)
 
   // Looked up before the session check and the charge: a missing brand used
   // to return 404 after the credits were already taken, with no refund.
@@ -166,6 +171,7 @@ async function handlePost(request: Request, timer: GenerationTimer) {
     checklistWrongItems,
     checklistRightItems,
     checklistClosingLine,
+    visualBrief,
   }), deadlineAt - Date.now(), "post image")).catch((err): Awaited<ReturnType<typeof generatePostImage>> => {
     // Deadline hit (or an unexpected throw): treated exactly like a failed
     // generation below -- logged and refunded.

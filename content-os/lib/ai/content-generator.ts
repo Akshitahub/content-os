@@ -1,5 +1,5 @@
 import type { BrandRow, ProductRow } from "@/types/database"
-import type { ContentFormat, ContentFormatOutputMap, Platform } from "@/types/app"
+import type { ContentFormat, ContentFormatOutputMap, GeneratedCaption, Platform } from "@/types/app"
 import { MODELS, getTextClientFor, textProviderFor } from "./models"
 import { buildFactSource, guardCopy } from "./fact-guard"
 import { addTextUsage, textCostUsd, toTextUsage, type TextUsage } from "./pricing"
@@ -20,6 +20,7 @@ import {
 } from "./prompts"
 import { generateValidatedCaption, type CaptionChatMessage } from "./caption-validation"
 import { findContentQualityIssues, sanitizeLeakedArtifacts } from "./content-quality-check"
+import { sanitizeVisualBrief } from "./visual-brief"
 
 export type GenerateContentOptions = {
   product?: ProductRow | null
@@ -71,7 +72,9 @@ function buildPrompts(
         reasoningEffort: "low",
         // A bit more headroom when image_prompt is also being generated in
         // the same JSON response, so it doesn't get truncated mid-field.
-        maxTokens: options.includeImagePrompt ? 1600 : 1200,
+        // includeImagePrompt raised from 1600 for the post_plan + visual
+        // brief Full Post now asks for -- an ESTIMATE, not measured.
+        maxTokens: options.includeImagePrompt ? 2000 : 1200,
       }
     case "reel_script":
       return {
@@ -250,7 +253,13 @@ export async function generateContent(
       deadline: options.factGuardDeadline,
     })
 
-    return { data: caption, model: captionModel, usage, costUsd: textCostUsd(captionModel, usage) }
+    // Full Post's visual brief is model output like any other field -- run it
+    // through the same sanitizer carousels/stories use, dropping it if invalid.
+    const { visual, ...rest } = caption
+    const cleanVisual = sanitizeVisualBrief(visual)
+    const finalCaption: GeneratedCaption = cleanVisual ? { ...rest, visual: cleanVisual } : rest
+
+    return { data: finalCaption, model: captionModel, usage, costUsd: textCostUsd(captionModel, usage) }
   }
 
   // Every non-social_post format is on OpenAI (MODELS.creative) now:

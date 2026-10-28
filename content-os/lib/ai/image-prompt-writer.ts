@@ -1,5 +1,6 @@
 import { getTextClientFor, MODELS } from "./models"
 import type { BrandRow, ProductRow } from "@/types/database"
+import { briefScene, type VisualBrief } from "./visual-brief"
 
 // Shared "prompt-authoring" stage inserted in front of every image
 // generation call in this app (Full Post, Story, Carousel, Ad Maker, and
@@ -55,6 +56,12 @@ export interface ImagePromptConstraints {
    * other flow hard-forbids on-image text in code regardless of this
    * flag. */
   allowTextInImage?: boolean
+  /** The post's own visual brief (lib/ai/visual-brief.ts, already
+   * sanitized) -- the subject the image MUST show, decided by the same call
+   * that wrote the caption. The user's raw input still sets style and
+   * direction, but can't replace this subject. Never carries headline,
+   * caption or overlay text. */
+  visualBrief?: VisualBrief
 }
 
 export interface WriteImagePromptInput {
@@ -125,6 +132,10 @@ function buildConstraintsLine(constraints: ImagePromptConstraints): string {
   if (constraints.role === "cta") lines.push("This is the closing slide -- give it a warm, confident, closing mood.")
   if (constraints.hasProductReference) lines.push("A real product reference photo is attached separately -- describe only the scene/setting/lighting around it, not the product's own appearance.")
   if (constraints.allowTextInImage) lines.push("The user has explicitly allowed on-image text this time, but still only describe the scene -- do not write out literal words to render.")
+  if (constraints.visualBrief) {
+    const brief = constraints.visualBrief
+    lines.push(`The image MUST show: ${briefScene(brief, "an abstract atmospheric background image")}.${brief.composition ? ` Composition: ${brief.composition}.` : ""} The user's own input sets style and direction but must not replace this subject.`)
+  }
   return lines.join("\n")
 }
 

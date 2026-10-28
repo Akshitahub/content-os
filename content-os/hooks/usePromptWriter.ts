@@ -2,6 +2,7 @@
 
 import { useCallback, useRef, useState } from "react"
 import { readJsonResponse } from "@/lib/utils/read-json-response"
+import type { VisualBrief } from "@/lib/ai/visual-brief"
 
 export type PromptWriterStage = "idle" | "writing" | "ready" | "error"
 
@@ -11,6 +12,8 @@ export interface PromptWriterConstraints {
   hasProductReference?: boolean
   role?: "hook" | "cta" | "body"
   allowTextInImage?: boolean
+  /** The post's visual brief -- the subject the image must show (see lib/ai/image-prompt-writer.ts). */
+  visualBrief?: VisualBrief
 }
 
 export interface PromptWriterArgs {

@@ -1,4 +1,5 @@
 import { z } from "zod"
+import { VISUAL_KINDS } from "@/lib/ai/visual-brief"
 
 const platformEnum = z.enum([
   "instagram",
@@ -150,6 +151,15 @@ const postTemplateEnum = z.enum(["bold_statement", "product_focus", "quote_card"
 // convention postTemplateEnum above already follows for lib/design/post-templates.ts.
 const postFontEnum = z.enum(["anton", "inter", "playfair", "quicksand", "caveat"])
 
+// A visual brief sent back by the client (lib/ai/visual-brief.ts) --
+// shape-checked here, then always re-run through sanitizeVisualBrief
+// server-side; the client copy is never trusted as-is.
+export const visualBriefInputSchema = z.object({
+  kind: z.enum(VISUAL_KINDS),
+  must_show: z.string().max(300),
+  composition: z.string().max(300).default(""),
+})
+
 export const generatePostImageSchema = z.object({
   brandId: z.string().uuid("Invalid brand ID"),
   productId: z.string().uuid("Invalid product ID").optional(),
@@ -219,6 +229,9 @@ export const generatePostImageSchema = z.object({
   checklistWrongItems: z.array(z.string().max(200)).max(5, "Too many wrong-way items").optional(),
   checklistRightItems: z.array(z.string().max(200)).max(5, "Too many right-way items").optional(),
   checklistClosingLine: z.string().max(300, "Closing line is too long").optional().nullable(),
+  // The caption's visual brief -- only used to decide whether this image
+  // keeps the product reference photo (see generatePostImage).
+  visualBrief: visualBriefInputSchema.optional(),
 })
 
 export type GeneratePostImageInput = z.infer<typeof generatePostImageSchema>

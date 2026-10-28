@@ -3,6 +3,8 @@ import { buildError, ErrorCodes } from "@/types/api"
 import { classifyOpenAIError } from "@/lib/ai/models"
 import { requestImagePromptStream, type ImagePromptFlow, type ImagePromptConstraints } from "@/lib/ai/image-prompt-writer"
 import { z } from "zod"
+import { sanitizeVisualBrief } from "@/lib/ai/visual-brief"
+import { visualBriefInputSchema } from "@/lib/validations/ai"
 import type { BrandRow, ProductRow } from "@/types/database"
 
 const flowEnum = z.enum(["post", "story", "carousel", "ad_maker", "image_tool"])
@@ -13,6 +15,7 @@ const constraintsSchema = z.object({
   hasProductReference: z.boolean().optional(),
   role: z.enum(["hook", "cta", "body"]).optional(),
   allowTextInImage: z.boolean().optional(),
+  visualBrief: visualBriefInputSchema.optional(),
 })
 
 const schema = z.object({
@@ -104,7 +107,8 @@ export async function POST(request: Request) {
       isRewrite,
       brand,
       product,
-      constraints: constraints as ImagePromptConstraints,
+      // The client's brief is re-sanitized, never trusted as sent.
+      constraints: { ...constraints, visualBrief: sanitizeVisualBrief(constraints.visualBrief) } as ImagePromptConstraints,
     })
   } catch (err) {
     // Logged as explicit fields (not just a bare `console.error(err)`) so

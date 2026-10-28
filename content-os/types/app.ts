@@ -1,6 +1,7 @@
 import type { BrandRow, ProductRow, CalendarEntryRow } from "./database"
 import type { PostTemplateId } from "@/lib/design/post-templates"
 import type { FontId } from "@/lib/design/fonts"
+import type { VisualBrief } from "@/lib/ai/visual-brief"
 
 /**
  * App-level types — these are what components and hooks work with.
@@ -85,6 +86,19 @@ export type GeneratedCaption = {
   checklist_wrong_items?: string[] | null
   checklist_right_items?: string[] | null
   checklist_closing_line?: string | null
+  /** Full Post only (includeImagePrompt): the ONE message the post commits
+   * to before any copy. Returned with the caption; not persisted (the
+   * captions row has no column for it). */
+  post_plan?: PostPlan | null
+  /** Full Post only: what the image must show, already sanitized
+   * (lib/ai/visual-brief.ts). Sent to the image-prompt writer and the
+   * post-image route as visualBrief. */
+  visual?: VisualBrief | null
+}
+
+export type PostPlan = {
+  message?: string
+  audience_reason?: string
 }
 
 export type AspectRatio = "1:1" | "4:5" | "9:16" | "16:9"

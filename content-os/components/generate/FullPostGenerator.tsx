@@ -209,6 +209,7 @@ export function FullPostGenerator({ brandId, products }: Props) {
         checklistWrongItems: caption.checklist_wrong_items ?? undefined,
         checklistRightItems: caption.checklist_right_items ?? undefined,
         checklistClosingLine: caption.checklist_closing_line ?? undefined,
+        visualBrief: caption.visual ?? undefined,
       },
       {
         onSuccess: (imgData) => {
@@ -285,6 +286,9 @@ export function FullPostGenerator({ brandId, products }: Props) {
         aspectRatioLabel: aspectRatio,
         styleLabel: visualStyle,
         hasProductReference: !!selectedProductId,
+        // The caption's own visual brief: the subject the image must show,
+        // whatever the seed above says about style.
+        visualBrief: caption.visual ?? undefined,
       },
     })
   }, [brandId, selectedProductId, aspectRatio, visualStyle, promptWriter, additionalContext, runImageGeneration])

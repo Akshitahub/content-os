@@ -1,5 +1,6 @@
 import type { BrandRow, ProductRow } from "@/types/database"
 import type { HookType, Platform } from "@/types/app"
+import { VISUAL_KINDS } from "./visual-brief"
 
 export const QUALITY_BAR = `
 
@@ -210,6 +211,30 @@ IMAGE PROMPT: Also produce an "image_prompt" — a vivid, CONCRETE visual scene 
 - Avoid generic corporate stock-photo compositions (laptops on a desk, empty office interiors, generic handshake or boardroom meeting scenes) UNLESS this brand's niche is genuinely tech/software/SaaS.
 - It must NOT describe any text, caption, or words appearing in the image itself (text is added separately) — as a soft compositional hint, leave the lower third of the frame visually simpler/less busy, since text will be overlaid there, but do not rely on this for actual text placement.`
 
+// Full Post only (same opt-in as IMAGE_PROMPT_INSTRUCTION above): the post
+// first commits to ONE message, then the image gets a brief that
+// demonstrates it (lib/ai/visual-brief.ts) -- the image-prompt writer is
+// told to show that brief's subject, so the picture follows what the
+// caption actually decided to say, not just the raw topic.
+const POST_PLAN_INSTRUCTION = `
+POST PLAN: Before writing anything else, emit "post_plan" (the first field in the JSON):
+- "message": the ONE idea this post communicates.
+- "audience_reason": why this specific audience should care.
+Then write everything from that plan:
+- One message. No unrelated second point.
+- The hook is specific to this audience — never generic.
+- suggested_overlay_text, if any, states the message in 6 words or fewer.
+- caption_text adds context, detail and the CTA — it must NOT repeat the overlay text verbatim.
+- No empty adjectives ("premium", "refined", "elevated", "seamless", "luxurious") unless the caption states the specific detail that justifies them.
+
+VISUAL BRIEF: Also emit "visual" — what the post's image must show:
+- "kind": one of ${VISUAL_KINDS.join(" | ")}. Pick the kind that serves the message: detail_closeup for a texture, material or ingredient claim; before_after for a result; product_scene for an offer; side_by_side for a comparison; process_sequence for a how-to; sketch_or_drawing for a design or planning idea.
+- "must_show": 1-2 sentences, concrete and photographable — ONE clear focal point that demonstrates the message, plus its setting and camera angle.
+- "composition": where the subject sits and which area stays calm. Compose for a portrait 4:5 feed image, subject kept near the centre so a square or 9:16 crop still works.
+- must_show describes ONLY visible things. Never put words, labels, headlines, quotes, numbers, logos or captions in it — the image model renders those as garbled text.
+- Only depict what's plausible for this brand's actual products or services in the brand context.
+- If suggested_template is hard_truth_checklist (no photo), "visual" may be omitted.`
+
 // Readable labels for BrandRow.vibe (a free-text column, same values as
 // app/onboarding/brand-profile/page.tsx's VIBE_LABELS) — used to surface
 // the brand's own stated vibe directly in the caption system prompt
@@ -286,7 +311,8 @@ VIBE MATCHING:${vibeLabel ? `\nThis brand's stated vibe is "${vibeLabel}" — us
 - Community: "Tag someone who...", "Drop a 🤍 if...", inclusive CTAs
 
 MANDATORY: The last 1-2 lines of caption_text MUST be the brand's CTA phrase followed by @handle on a new line.
-${includeImagePrompt ? IMAGE_PROMPT_INSTRUCTION : ""}
+${includeImagePrompt ? `${IMAGE_PROMPT_INSTRUCTION}
+${POST_PLAN_INSTRUCTION}` : ""}
 ${QUALITY_BAR}
 
 Always respond with valid JSON only. No markdown, no explanation.`
@@ -353,8 +379,12 @@ export function buildCaptionUserPrompt(
   // conditional (see suggested_template's own instruction above) so it
   // doesn't feel obligated to fill them for an unrelated template.
   const checklistFieldsBlock = `,\n  "checklist_headline": "ONLY if suggested_template is hard_truth_checklist -- a genuine contrarian/myth-busting hook headline, under 10 words, otherwise omit this field entirely",\n  "checklist_highlighted_phrase": "ONLY if suggested_template is hard_truth_checklist -- a short 2-4 word phrase taken VERBATIM from checklist_headline to visually highlight, otherwise omit this field entirely",\n  "checklist_wrong_items": "ONLY if suggested_template is hard_truth_checklist -- an array of 2-3 short 'wrong way' lines (under 8 words each), otherwise omit this field entirely",\n  "checklist_right_items": "ONLY if suggested_template is hard_truth_checklist -- an array of 2-3 short 'right way' lines, each one the direct fix for the wrong item at the same position, otherwise omit this field entirely",\n  "checklist_closing_line": "ONLY if suggested_template is hard_truth_checklist -- one closing line that reframes the point (not a summary, a sharper final statement), otherwise omit this field entirely"`
+  // Emitted first so the plan is decided before any copy (Full Post only).
+  const postPlanField = options.includeImagePrompt
+    ? `\n  "post_plan": { "message": "the ONE idea this post communicates", "audience_reason": "why this specific audience should care" },`
+    : ""
   const imagePromptField = options.includeImagePrompt
-    ? `,\n  "image_prompt": "vivid scene description grounded in this post's specific message/topic above, no text or words in the image, lower third kept visually simpler for text overlay — irrelevant and can be a short placeholder if suggested_template is hard_truth_checklist, since that template has no photo at all",\n  "suggested_template": "one of: bold_statement | product_focus | quote_card | minimal | blank | hard_truth_checklist — pick whichever best fits this post's specific message and mood, e.g. blank for a clean lifestyle photo that speaks for itself, bold_statement for a punchy claim, quote_card for something reflective. Pick hard_truth_checklist specifically when this post is genuinely a myth-busting/contrarian post (challenging a common misconception) or a problem-and-solution post (a clear wrong way vs. right way) — it renders as a flat card with NO photo: a headline, a short 'wrong way' list, a short 'right way' list, and a closing line, so only pick it when the post's actual content naturally splits into that shape. Don't force it onto a post that isn't genuinely a comparison.",\n  "suggested_color_theme_id": "one of: ${themeList} — pick whichever best fits this brand's aesthetic and this post's mood",\n  ${buildSuggestedFontField("the suggested_color_theme_id you picked")},\n  "suggested_overlay_text": "a short punchy phrase (under 8 words) to overlay on the image IF this post genuinely benefits from on-image text, otherwise an empty string for a clean text-free image — most posts should get an empty string here, only use real overlay text when the post is making one sharp, standalone claim. Leave this an empty string whenever suggested_template is hard_truth_checklist -- that template has no photo to overlay text onto."${checklistFieldsBlock}`
+    ? `,\n  "visual": { "kind": "one of the VISUAL BRIEF kinds", "must_show": "the one focal point that demonstrates post_plan.message, its setting and angle -- visible things only", "composition": "where the subject sits, which area stays calm" },\n  "image_prompt": "vivid scene description grounded in this post's specific message/topic above, no text or words in the image, lower third kept visually simpler for text overlay — irrelevant and can be a short placeholder if suggested_template is hard_truth_checklist, since that template has no photo at all",\n  "suggested_template": "one of: bold_statement | product_focus | quote_card | minimal | blank | hard_truth_checklist — pick whichever best fits this post's specific message and mood, e.g. blank for a clean lifestyle photo that speaks for itself, bold_statement for a punchy claim, quote_card for something reflective. Pick hard_truth_checklist specifically when this post is genuinely a myth-busting/contrarian post (challenging a common misconception) or a problem-and-solution post (a clear wrong way vs. right way) — it renders as a flat card with NO photo: a headline, a short 'wrong way' list, a short 'right way' list, and a closing line, so only pick it when the post's actual content naturally splits into that shape. Don't force it onto a post that isn't genuinely a comparison.",\n  "suggested_color_theme_id": "one of: ${themeList} — pick whichever best fits this brand's aesthetic and this post's mood",\n  ${buildSuggestedFontField("the suggested_color_theme_id you picked")},\n  "suggested_overlay_text": "a short punchy phrase (under 8 words) to overlay on the image IF this post genuinely benefits from on-image text, otherwise an empty string for a clean text-free image — most posts should get an empty string here, only use real overlay text when the post is making one sharp, standalone claim. Leave this an empty string whenever suggested_template is hard_truth_checklist -- that template has no photo to overlay text onto."${checklistFieldsBlock}`
     : ""
 
   const vibeLine = brand.vibe ? `Brand Vibe: ${CAPTION_VIBE_LABELS[brand.vibe] ?? brand.vibe}` : ""
@@ -371,7 +401,7 @@ ${endingExample}
 This is non-negotiable. Do not forget the @handle.
 
 Respond with this exact JSON:
-{
+{${postPlanField}
   "caption_text": "full caption ending with: ${ctaPhrase} 👇\\n${handle || "@handle"}",
   "hashtags": ["niche1", "niche2", "niche3", "niche4", "niche5", "brand1", "brand2", "brand3", "brand4", "brand5", "broad1", "broad2", "broad3", "broad4", "broad5"],
   "cta": "${ctaPhrase}"${imagePromptField}

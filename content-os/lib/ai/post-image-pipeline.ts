@@ -5,6 +5,7 @@ import { compositePostImage, compositeHardTruthChecklist } from "@/lib/image/pos
 import type { PostTemplateId } from "@/lib/design/post-templates"
 import type { ColorTheme } from "@/lib/design/color-themes"
 import type { UserPlan } from "@/types/app"
+import { briefUsesProductReference, type VisualBrief } from "./visual-brief"
 
 export type { ImageDimensions }
 
@@ -553,6 +554,10 @@ export interface GeneratePostImageOptions {
   checklistWrongItems?: string[]
   checklistRightItems?: string[]
   checklistClosingLine?: string | null
+  /** The caption's visual brief (already sanitized). A kind that isn't
+   * "the product in a setting" (sketch, swatches, a sequence, a side-by-side
+   * comparison) drops the product reference photo for this image. */
+  visualBrief?: VisualBrief
 }
 
 /**
@@ -564,7 +569,12 @@ export interface GeneratePostImageOptions {
  * failure mode returns { success: false } so the route can surface a clean
  * inline error instead of a silent blank preview.
  */
-export async function generatePostImage(options: GeneratePostImageOptions): Promise<PostImagePipelineResult> {
+export async function generatePostImage(rawOptions: GeneratePostImageOptions): Promise<PostImagePipelineResult> {
+  // Single place the brief decides the product reference -- everything below
+  // (prompt path, quality, the provider call) reads options.productImageUrl.
+  const options: GeneratePostImageOptions = rawOptions.visualBrief && !briefUsesProductReference(rawOptions.visualBrief)
+    ? { ...rawOptions, productImageUrl: null }
+    : rawOptions
   // hard_truth_checklist has no photo at all -- a flat card composited
   // entirely from its own checklist_* fields, never from imagePrompt/
   // captionText. Skips fetchBackgroundImage (and the AI-image credit
