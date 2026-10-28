@@ -6,7 +6,7 @@ import { Resvg } from "@resvg/resvg-js"
 import { decompress } from "wawoff2"
 import { getPrimaryColor, getSecondaryColor } from "@/lib/design/post-card-generator"
 import type { CarouselSlide } from "@/lib/design/post-card-generator"
-import { CURATED_FONTS, DEFAULT_FONT_ID, findFont } from "@/lib/design/fonts"
+import { CURATED_FONTS, DEFAULT_FONT_ID, FONT_FAMILY_NAME, findFont } from "@/lib/design/fonts"
 import type { FontId } from "@/lib/design/fonts"
 import type { BrandRow } from "@/types/database"
 import { sanitizeTextForCompositing } from "@/lib/image/sanitize-text-for-compositing"
@@ -59,9 +59,9 @@ function wrapText(text: string, maxCharsPerLine: number, maxLines: number): stri
   return lines.slice(0, maxLines)
 }
 
-function textLines(lines: string[], startY: number, lineHeight: number, fontSize: number, color: string, weight: number, xAttr: string = "50%"): string {
+function textLines(lines: string[], startY: number, lineHeight: number, fontSize: number, color: string, weight: number, xAttr: string = "50%", family: string = "CarouselFont, sans-serif"): string {
   return lines
-    .map((line, i) => `<text x="${xAttr}" y="${startY + i * lineHeight}" text-anchor="middle" font-family="CarouselFont, sans-serif" font-weight="${weight}" font-size="${fontSize}" fill="${color}">${escapeXml(line)}</text>`)
+    .map((line, i) => `<text x="${xAttr}" y="${startY + i * lineHeight}" text-anchor="middle" font-family="${family}" font-weight="${weight}" font-size="${fontSize}" fill="${color}">${escapeXml(line)}</text>`)
     .join("")
 }
 
@@ -136,6 +136,8 @@ export interface RenderCarouselSlidesOptions {
   brand: BrandRow
   coverHook: string
   slides: CarouselSlide[]
+  /** The brand's heading font (lib/design/fonts.ts resolveTypography); omitted = DEFAULT_FONT_ID. */
+  fontId?: FontId
 }
 
 /**
@@ -157,7 +159,7 @@ export async function renderCarouselSlidesToPng(options: RenderCarouselSlidesOpt
   // Plain Autopilot slides have no per-slide font_id field (font pickers
   // only exist on CarouselBuilder.tsx's rich manual flow below) -- always
   // DEFAULT_FONT_ID, unchanged from this renderer's pre-existing behavior.
-  const fontPath = await getFontPath(DEFAULT_FONT_ID)
+  const fontPath = await getFontPath(options.fontId ?? DEFAULT_FONT_ID)
 
   return Promise.all(
     slides.map((slide, i) => {
@@ -304,6 +306,9 @@ export interface CarouselCompositeSlide {
    * sole font) when absent, so behavior doesn't silently change for any
    * slide saved before this field existed. */
   font_id?: FontId | null
+  /** Body font (subtext/points/poll/CTA lines) -- the brand's body face
+   * (lib/design/fonts.ts resolveTypography). Absent = font_id for all text. */
+  body_font_id?: FontId | null
   /** Uniform multiplier applied to every font size this slide renders --
    * 1.0 (default) reproduces the pre-existing fixed sizes exactly. See
    * headlineStyleFor below for how this interacts with the per-length
@@ -405,10 +410,16 @@ async function buildRichProductLayer(slide: CarouselCompositeSlide): Promise<{ i
   }
 }
 
-async function svgToRichPngBuffer(svg: string, fontId: string): Promise<Buffer> {
-  const fontPath = await getFontPath(fontId)
+// The real family name for an SVG font-family attribute -- needed once a
+// heading AND a body font are loaded, so each element names its own.
+function familyAttr(fontId: string): string {
+  return `'${FONT_FAMILY_NAME[fontId as FontId] ?? FONT_FAMILY_NAME[DEFAULT_FONT_ID]}', sans-serif`
+}
+
+async function svgToRichPngBuffer(svg: string, fontId: string, bodyFontId?: string): Promise<Buffer> {
+  const fontFiles = [...new Set([await getFontPath(fontId), ...(bodyFontId ? [await getFontPath(bodyFontId)] : [])])]
   const resvg = new Resvg(svg, {
-    font: { fontFiles: [fontPath], loadSystemFonts: false, defaultFontFamily: "CarouselFont" },
+    font: { fontFiles, loadSystemFonts: false, defaultFontFamily: FONT_FAMILY_NAME[fontId as FontId] ?? "CarouselFont" },
   })
   return Buffer.from(resvg.render().asPng())
 }
@@ -424,6 +435,8 @@ function buildRichTextOverlaySvg(slide: CarouselCompositeSlide, brandName: strin
   const ctaText = slide.ctaText ? sanitizeTextForCompositing(slide.ctaText) : slide.ctaText
   const ctaHandle = slide.ctaHandle ? sanitizeTextForCompositing(slide.ctaHandle) : slide.ctaHandle
   const brandNameText = sanitizeTextForCompositing(brandName)
+  const headFamily = familyAttr(slide.font_id ?? DEFAULT_FONT_ID)
+  const bodyFamily = familyAttr(slide.body_font_id ?? slide.font_id ?? DEFAULT_FONT_ID)
 
   const maxWidthChars = headlineStyleFor(slide.type, headline, scale).maxChars
   const { fontSize: headlineFontSize } = headlineStyleFor(slide.type, headline, scale)
@@ -470,11 +483,11 @@ function buildRichTextOverlaySvg(slide: CarouselCompositeSlide, brandName: strin
   const blockStartY = centerYPx - totalBlockHeight / 2
 
   let cursorY = blockStartY
-  const headlineSvg = textLines(headlineLines, cursorY + headlineFontSize * 0.85, headlineLineHeight, headlineFontSize, textColor, 800, centerXAttr)
+  const headlineSvg = textLines(headlineLines, cursorY + headlineFontSize * 0.85, headlineLineHeight, headlineFontSize, textColor, 800, centerXAttr, headFamily)
   cursorY += headlineBlockHeight + gapToSubtext
 
   const subtextSvg = subtextLines.length > 0
-    ? textLines(subtextLines, cursorY + subtextFontSize * 0.85, subtextLineHeight, subtextFontSize, subtextColor, 500, centerXAttr)
+    ? textLines(subtextLines, cursorY + subtextFontSize * 0.85, subtextLineHeight, subtextFontSize, subtextColor, 500, centerXAttr, bodyFamily)
     : ""
   cursorY += subtextBlockHeight + gapToPoints
 
@@ -488,22 +501,22 @@ function buildRichTextOverlaySvg(slide: CarouselCompositeSlide, brandName: strin
         const y = cursorY + i * pointLineHeight + pointFontSize * 0.85
         const dotX = centerX - 21
         const textX = centerX - 14
-        return `<circle cx="${dotX}%" cy="${y - pointFontSize * 0.35}" r="5" fill="#a78bfa"/><text x="${textX}%" y="${y}" text-anchor="start" font-family="CarouselFont, sans-serif" font-weight="400" font-size="${pointFontSize}" fill="${subtextColor}">${escapeXml(line)}</text>`
+        return `<circle cx="${dotX}%" cy="${y - pointFontSize * 0.35}" r="5" fill="#a78bfa"/><text x="${textX}%" y="${y}" text-anchor="start" font-family="${bodyFamily}" font-weight="400" font-size="${pointFontSize}" fill="${subtextColor}">${escapeXml(line)}</text>`
       }).join("")
     : ""
   cursorY += pointsBlockHeight + gapToCtaText
 
   const ctaTextSvg = ctaTextLines.length > 0
-    ? textLines(ctaTextLines, cursorY + ctaTextFontSize * 0.85, ctaTextLineHeight, ctaTextFontSize, subtextColor, 500, centerXAttr)
+    ? textLines(ctaTextLines, cursorY + ctaTextFontSize * 0.85, ctaTextLineHeight, ctaTextFontSize, subtextColor, 500, centerXAttr, bodyFamily)
     : ""
   cursorY += ctaTextBlockHeight + gapToCtaHandle
 
   const ctaHandleSvg = ctaHandleLines.length > 0
-    ? textLines(ctaHandleLines, cursorY + ctaHandleFontSize * 0.85, ctaHandleLineHeight, ctaHandleFontSize, textColor, 700, centerXAttr)
+    ? textLines(ctaHandleLines, cursorY + ctaHandleFontSize * 0.85, ctaHandleLineHeight, ctaHandleFontSize, textColor, 700, centerXAttr, bodyFamily)
     : ""
 
   const brandSvg = brandNameText
-    ? `<text x="${RICH_CANVAS_WIDTH - RICH_MARGIN / 2}" y="${RICH_CANVAS_HEIGHT - 44}" text-anchor="end" font-family="CarouselFont, sans-serif" font-weight="500" font-size="26" fill="${subtextColor}">${escapeXml(brandNameText)}</text>`
+    ? `<text x="${RICH_CANVAS_WIDTH - RICH_MARGIN / 2}" y="${RICH_CANVAS_HEIGHT - 44}" text-anchor="end" font-family="${bodyFamily}" font-weight="500" font-size="26" fill="${subtextColor}">${escapeXml(brandNameText)}</text>`
     : ""
 
   return `<svg width="${RICH_CANVAS_WIDTH}" height="${RICH_CANVAS_HEIGHT}" xmlns="http://www.w3.org/2000/svg">${headlineSvg}${subtextSvg}${pointsSvg}${ctaTextSvg}${ctaHandleSvg}${brandSvg}</svg>`
@@ -532,7 +545,7 @@ export async function renderRichCarouselSlidesToPng(brandName: string, slides: C
       const productLayer = await buildRichProductLayer(slide)
       if (productLayer) layers.push(productLayer)
 
-      const textOverlayPng = await svgToRichPngBuffer(buildRichTextOverlaySvg(slide, brandName, textColor, subtextColor), slide.font_id ?? DEFAULT_FONT_ID)
+      const textOverlayPng = await svgToRichPngBuffer(buildRichTextOverlaySvg(slide, brandName, textColor, subtextColor), slide.font_id ?? DEFAULT_FONT_ID, slide.body_font_id ?? undefined)
       layers.push({ input: textOverlayPng, top: 0, left: 0 })
 
       return sharp(backgroundLayer).composite(layers).png().toBuffer()

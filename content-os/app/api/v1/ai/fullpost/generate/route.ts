@@ -5,7 +5,8 @@ import { generateHooks } from "@/lib/ai/hooks-generator"
 import { generateContent } from "@/lib/ai/content-generator"
 import { generatePostCardHtml } from "@/lib/design/post-card-generator"
 import { resolveColorThemes } from "@/lib/design/color-themes"
-import { resolveSuggestedFont } from "@/lib/design/fonts"
+import { resolveTypography } from "@/lib/design/fonts"
+import { rememberBrandTypography } from "@/lib/design/brand-typography"
 import { mergeCaptionWithHookAndCta } from "@/lib/utils/caption-merge"
 import { buildError, ErrorCodes } from "@/types/api"
 import { checkAndIncrementUsage, refundGenerationUsage, logGenerationOutcome } from "@/lib/usage/check-and-increment-usage"
@@ -197,7 +198,10 @@ async function handlePost(request: Request, timer: GenerationTimer) {
       caption.character_count = caption.caption_text.length
       // Overlay typeface: the model's pick if valid, else the brand-vibe
       // fallback -- so the client never has to guess.
-      caption.suggested_font_id = resolveSuggestedFont(caption.suggested_font_id, brand.vibe)
+      // Brand-level typography (lib/design/fonts.ts resolveTypography).
+      const typography = resolveTypography(brand, { suggested: caption.suggested_font_id })
+      caption.suggested_font_id = typography.heading
+      await rememberBrandTypography(supabase, brand, typography)
     } else if (format === "reel_script") {
       const script = contentResult.data as ReelScript
       if (script.caption) {

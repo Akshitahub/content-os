@@ -10,7 +10,8 @@ import { findContentQualityIssues, sanitizeLeakedArtifacts } from "@/lib/ai/cont
 import { z } from "zod"
 import type { BrandRow } from "@/types/database"
 import type { CarouselBackgroundStyle } from "@/lib/design/carousel-slide-styles"
-import { resolveSuggestedFont } from "@/lib/design/fonts"
+import { resolveTypography } from "@/lib/design/fonts"
+import { rememberBrandTypography } from "@/lib/design/brand-typography"
 import { timedGenerationRoute, type GenerationTimer } from "@/lib/utils/generation-timing"
 import { withDeadline, DeadlineExceededError, GENERATION_TIMED_OUT_MESSAGE } from "@/lib/utils/with-deadline"
 import { getActiveLessons } from "@/lib/ai/brand-brain"
@@ -280,9 +281,18 @@ async function handlePost(request: Request, timer: GenerationTimer) {
     // suggested_font_id if it's a real id, else a deterministic pick from
     // the brand's vibe / the carousel vibe. Stamped on every slide before
     // saving; the user can still change it per slide in the editor.
-    const fontId = resolveSuggestedFont(d.suggested_font_id, brand.vibe, effectiveVibe)
+    // Brand-level typography (lib/design/fonts.ts resolveTypography): the
+    // same heading/body pair for every carousel, story and post of this
+    // brand -- lists make the body "dense". Saved to the brand on its first
+    // generation; the user can still change a slide's font in the editor.
+    const typography = resolveTypography(brand, {
+      density: mergedSlides.some((s) => s && typeof s === "object" && Array.isArray((s as { points?: unknown }).points) && ((s as { points: unknown[] }).points.length > 0)) ? "dense" : "normal",
+      suggested: d.suggested_font_id,
+    })
+    const fontId = typography.heading
     d.suggested_font_id = fontId
-    mergedSlides = mergedSlides.map((s) => (s && typeof s === "object" ? { ...s, font_id: fontId } : s))
+    mergedSlides = mergedSlides.map((s) => (s && typeof s === "object" ? { ...s, font_id: fontId, body_font_id: typography.body } : s))
+    await rememberBrandTypography(supabase, brand, typography)
 
     mergedSlides = sanitizeCarouselSlides(mergedSlides)
     const cleanTitle = typeof d.title === "string" ? sanitizeCarouselText(d.title) : d.title

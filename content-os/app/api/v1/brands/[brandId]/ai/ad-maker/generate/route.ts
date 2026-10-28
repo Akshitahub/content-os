@@ -20,6 +20,8 @@ import { getActiveLessons } from "@/lib/ai/brand-brain"
 import { recordContentEvent } from "@/lib/usage/content-events"
 import { gateEventMeta } from "@/lib/ai/quality-gate"
 import { sampleImageAlignment } from "@/lib/ai/image-alignment"
+import { resolveTypography } from "@/lib/design/fonts"
+import { rememberBrandTypography } from "@/lib/design/brand-typography"
 
 const BUCKET = "brand-images"
 
@@ -285,5 +287,10 @@ async function handlePost(request: Request, { params }: RouteParams, timer: Gene
     sampleImageAlignment({ supabase, userId: user.id, brandId, contentType: "ad_maker", format: "ad", imageUrl: v.url, brief: v.variant?.visual })
   }
 
-  return NextResponse.json({ data: { variations, ad_brief: strategy?.brief ?? null } }, { status: 200 })
+  // Brand-level typography (lib/design/fonts.ts) for the on-image text the
+  // client draws (AdMaker.tsx compositeAd).
+  const typography = resolveTypography(brand)
+  await rememberBrandTypography(supabase, brand, typography)
+
+  return NextResponse.json({ data: { variations, ad_brief: strategy?.brief ?? null, typography: { heading: typography.heading, body: typography.body } } }, { status: 200 })
 }

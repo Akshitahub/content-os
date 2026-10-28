@@ -56,6 +56,7 @@ const slideSchema = z.object({
   // Which curated font renders this slide's text -- see
   // CarouselCompositeSlide.font_id's own comment (lib/image/carousel-compositor.ts).
   font_id: fontIdEnum.nullish(),
+  body_font_id: fontIdEnum.nullish(),
   // Uniform font-size multiplier for this slide -- see
   // CarouselCompositeSlide.text_size_scale's own comment.
   text_size_scale: z.number().min(0.7).max(1.5).nullish(),

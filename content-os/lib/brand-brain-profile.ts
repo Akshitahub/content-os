@@ -1,5 +1,6 @@
 import { z } from "zod"
 import type { BrandBrain } from "@/types/app"
+import { isFontId } from "@/lib/design/fonts"
 
 // brands.brand_brain (supabase/migrations/060_brand_brain_profile.sql): the
 // structured Brand Brain profile. Pure (no server imports) so the brand page
@@ -74,6 +75,8 @@ export function parseBrandBrain(raw: unknown): BrandBrain {
     visual: visual ? compact({
       photography_style: cleanText(visual.photography_style),
       avoid_visuals: cleanList(visual.avoid_visuals),
+      heading_font: isFontId(visual.heading_font) ? visual.heading_font : undefined,
+      body_font: isFontId(visual.body_font) ? visual.body_font : undefined,
     }) : undefined,
     strategy: strategy ? compact({
       audience_segments: cleanList(strategy.audience_segments),
@@ -99,6 +102,8 @@ export const brandBrainSchema = z.object({
   visual: z.object({
     photography_style: z.string().optional(),
     avoid_visuals: z.array(z.string()).optional(),
+    heading_font: z.string().optional(),
+    body_font: z.string().optional(),
   }).optional(),
   strategy: z.object({
     audience_segments: z.array(z.string()).optional(),

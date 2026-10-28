@@ -103,6 +103,9 @@ interface CarouselSlideRich {
    * same as custom_background_colors above -- picking a font on one slide
    * never touches its siblings. */
   font_id?: FontId | null
+  /** Body font (subtext/points/poll/CTA lines) -- the brand's body face
+   * (lib/design/fonts.ts resolveTypography). Absent = font_id for all text. */
+  body_font_id?: FontId | null
   /** Uniform font-size multiplier for this slide -- absent means 1.0 (the
    * compositor's pre-existing fixed sizes). Per-slide, same convention as
    * font_id above. */
@@ -155,6 +158,7 @@ function toExportSlide(slide: CarouselSlideRich, ctaSlide: CtaSlide | undefined,
     text_position_y: slide.text_position_y,
     productImageSource: productImage,
     font_id: slide.font_id,
+    body_font_id: slide.body_font_id,
     text_size_scale: slide.text_size_scale,
   }
 }
@@ -324,6 +328,8 @@ function SlidePreview({
   // the way the flat BG_STYLES swatches can, so text always goes
   // white-on-scrim instead of following the slide's normal light/dark
   // text pairing.
+  // Body lines use the brand's body face; a manual font pick clears it (see the picker).
+  const bodyFontClass = PREVIEW_FONT_CLASS[slide.body_font_id ?? slide.font_id ?? DEFAULT_FONT_ID]
   const textColor = hasBg || customBg ? "text-white" : s.text
   const subtextColor = hasBg || customBg ? "text-white/70" : s.subtext
 
@@ -437,7 +443,7 @@ function SlidePreview({
               {slide.headline}
             </h2>
             {!isThumb && slide.subtext && (
-              <p className={`mt-3 text-base font-medium line-clamp-2 ${subtextColor} ${productImage ? "max-w-[55%]" : ""}`}>{slide.subtext}</p>
+              <p className={`mt-3 text-base font-medium line-clamp-2 ${subtextColor} ${bodyFontClass} ${productImage ? "max-w-[55%]" : ""}`}>{slide.subtext}</p>
             )}
           </>
         )}
@@ -450,7 +456,7 @@ function SlidePreview({
             {!isThumb && slide.points?.map((point, i) => (
               <div key={i} className="mb-2 flex items-start gap-2">
                 <span className="mt-0.5 h-1.5 w-1.5 shrink-0 rounded-full bg-violet-400" />
-                <p className={`text-sm leading-relaxed line-clamp-2 ${subtextColor}`}>{point}</p>
+                <p className={`text-sm leading-relaxed line-clamp-2 ${subtextColor} ${bodyFontClass}`}>{point}</p>
               </div>
             ))}
           </>
@@ -463,7 +469,7 @@ function SlidePreview({
             </h2>
             {!isThumb && (
               <>
-                <p className={`text-base font-medium line-clamp-2 ${subtextColor} mb-2`}>{ctaSlide.cta}</p>
+                <p className={`text-base font-medium line-clamp-2 ${subtextColor} ${bodyFontClass} mb-2`}>{ctaSlide.cta}</p>
                 <p className={`text-sm font-bold ${textColor}`}>{ctaSlide.handle}</p>
               </>
             )}
@@ -603,7 +609,8 @@ function SlideEditor({
               <button
                 key={font.id}
                 type="button"
-                onClick={() => onChange({ ...slide, font_id: font.id })}
+                // A manual pick sets the whole slide's font (wins over the brand pair).
+                onClick={() => onChange({ ...slide, font_id: font.id, body_font_id: null })}
                 className={`rounded-full border-2 px-2.5 py-1 text-xs font-medium transition-all ${
                   (slide.font_id ?? DEFAULT_FONT_ID) === font.id ? "border-violet-500 bg-violet-50 text-violet-700 dark:bg-violet-950/30" : "border-border hover:border-violet-300"
                 }`}

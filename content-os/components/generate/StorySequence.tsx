@@ -95,6 +95,7 @@ function toExportSlide(story: StorySlide, productImageSource: string | null | un
     product_position_y: story.product_position_y,
     custom_text_color: story.custom_text_color,
     font_id: story.font_id,
+    body_font_id: story.body_font_id,
     text_size_scale: story.text_size_scale,
     checklist_highlighted_phrase: story.checklist_highlighted_phrase,
     checklist_wrong_item: story.checklist_wrong_item,
@@ -309,6 +310,8 @@ function PhoneStory({
   // was already correct before this, only the in-editor preview was stale.
   const scale = story.text_size_scale ?? DEFAULT_TEXT_SIZE_SCALE
   const previewFontClass = PREVIEW_FONT_CLASS[story.font_id ?? DEFAULT_FONT_ID]
+  // Body lines use the brand's body face; a manual font pick clears it.
+  const bodyFontClass = PREVIEW_FONT_CLASS[story.body_font_id ?? story.font_id ?? DEFAULT_FONT_ID]
   const headlineStyle = { ...(story.custom_text_color ? { color: story.custom_text_color } : {}), fontSize: `${1.125 * scale}rem` }
   const subtextStyle = { ...(story.custom_text_color ? { color: story.custom_text_color } : {}), fontSize: `${0.75 * scale}rem` }
 
@@ -488,7 +491,7 @@ function PhoneStory({
               suppressContentEditableWarning
               onBlur={(e) => commitEdit("subtext", e)}
               onKeyDown={commitOnEnter}
-              className={`mt-2 text-center text-xs font-medium outline-none rounded px-1 -mx-1 cursor-text hover:bg-white/10 focus:bg-white/10 focus:ring-1 focus:ring-white/40 min-h-[1em] ${subColor} ${previewFontClass}`}
+              className={`mt-2 text-center text-xs font-medium outline-none rounded px-1 -mx-1 cursor-text hover:bg-white/10 focus:bg-white/10 focus:ring-1 focus:ring-white/40 min-h-[1em] ${subColor} ${bodyFontClass}`}
               style={subtextStyle}
             >
               {story.subtext}
@@ -500,7 +503,7 @@ function PhoneStory({
                 addable natively through Instagram's own app/API afterward),
                 so it shouldn't be styled to look like one. */}
             {story.has_poll && story.poll_options && (
-              <p className={`mt-4 text-center text-xs font-semibold ${subColor} ${previewFontClass}`} style={subtextStyle}>
+              <p className={`mt-4 text-center text-xs font-semibold ${subColor} ${bodyFontClass}`} style={subtextStyle}>
                 {story.poll_options.join("  ·  ")}
               </p>
             )}
@@ -658,7 +661,8 @@ function PhoneStory({
                 <button
                   key={font.id}
                   type="button"
-                  onClick={() => onUpdateSlide({ font_id: font.id })}
+                  // A manual pick sets the whole frame's font (wins over the brand pair).
+                  onClick={() => onUpdateSlide({ font_id: font.id, body_font_id: null })}
                   className={`rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors hover:bg-secondary ${
                     (story.font_id ?? DEFAULT_FONT_ID) === font.id ? "border-violet-300 bg-violet-50 text-violet-700" : ""
                   }`}

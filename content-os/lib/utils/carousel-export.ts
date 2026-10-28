@@ -29,6 +29,8 @@ export interface CarouselExportSlide {
   /** Which curated font renders this slide's text -- see
    * CarouselSlideRich.font_id's own comment. */
   font_id?: string | null
+  /** The brand's body font -- see the compositor's body_font_id. */
+  body_font_id?: string | null
   /** Uniform font-size multiplier for this slide -- see
    * CarouselSlideRich.text_size_scale's own comment. */
   text_size_scale?: number | null

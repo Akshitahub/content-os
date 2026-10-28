@@ -17,6 +17,8 @@ import { PromptWriterField } from "@/components/generate/PromptWriterField"
 import type { ProductRow } from "@/types/database"
 import type { AdVariant } from "@/types/app"
 import { readJsonResponse } from "@/lib/utils/read-json-response"
+import { PREVIEW_FONT_FAMILY } from "@/lib/design/preview-fonts"
+import type { FontId } from "@/lib/design/fonts"
 
 // ─── Scene definitions ─────────────────────────────────────────────────────
 
@@ -73,7 +75,9 @@ async function compositeAd(
   textColor: TextColor,
   format: ImageFormat,
   brandName: string,
-  instagramHandle: string
+  instagramHandle: string,
+  /** The brand's heading face (route's typography) -- system sans when absent. */
+  fontFamily?: string
 ): Promise<string[]> {
   const sizes: Record<ImageFormat, { w: number; h: number }> = {
     square: { w: 1080, h: 1080 },
@@ -82,6 +86,10 @@ async function compositeAd(
   }
   const { w, h } = sizes[format]
   const results: string[] = []
+  const family = fontFamily ?? "-apple-system, BlinkMacSystemFont, sans-serif"
+  // next/font registers the face but only downloads it once something uses
+  // it -- load it before drawing so the canvas doesn't fall back.
+  if (fontFamily) await document.fonts.load(`800 48px ${fontFamily}`).catch(() => undefined)
 
   // Each entry is now a distinct server-generated (Storage-hosted)
   // background -- one real image-provider call per variation, run concurrently
@@ -116,7 +124,7 @@ async function compositeAd(
       ctx.shadowBlur = 15
 
       const fontSize = w * 0.052
-      ctx.font = `800 ${fontSize}px -apple-system, BlinkMacSystemFont, sans-serif`
+      ctx.font = `800 ${fontSize}px ${family}`
       ctx.textAlign = "center"
 
       const maxTextWidth = w * 0.82
@@ -569,12 +577,14 @@ export function AdMaker({ brandId, products }: AdMakerProps) {
 
       const brandName = brand?.name ?? "Brand"
       const handle = brand?.instagram_handle ?? ""
-      const variations = (chargeJson as { data: { variations: { url: string; provider: string; variant?: AdVariant | null }[] } }).data.variations
+      const chargeData = (chargeJson as { data: { variations: { url: string; provider: string; variant?: AdVariant | null }[]; typography?: { heading?: FontId } } }).data
+      const variations = chargeData.variations
+      const headingFont = chargeData.typography?.heading
       const variants = variations.map((v) => v.variant ?? null)
       // The user's typed headline wins; otherwise each variation carries its
       // own strategy headline. showText still turns text off entirely.
       const texts = variations.map((v) => hookText.trim() || v.variant?.headline || "")
-      const composited = await compositeAd(variations, texts, showText, textPosition, textColor, format, brandName, handle)
+      const composited = await compositeAd(variations, texts, showText, textPosition, textColor, format, brandName, handle, headingFont ? PREVIEW_FONT_FAMILY[headingFont]?.family : undefined)
       setResults(composited)
       setResultVariants(variants)
       setExpandedIdx(0)

@@ -23,6 +23,8 @@ import type { ContentSlot, FastlaneResult, Platform, ReelScene, UserPlan } from 
 import { prepareGeneratedImage } from "@/lib/storage/generated-image"
 import { getActiveLessons } from "@/lib/ai/brand-brain"
 import { recordContentEvent } from "@/lib/usage/content-events"
+import { resolveTypography } from "@/lib/design/fonts"
+import { rememberBrandTypography } from "@/lib/design/brand-typography"
 
 // Background Autopilot worker (supabase/migrations/057_autopilot_slot_jobs.sql).
 // A Supabase Cron job calls app/api/v1/cron/autopilot-drain every 20s while
@@ -328,7 +330,10 @@ async function prepareSlot(admin: Admin, job: SlotJobRow, ctx: RunContext, track
   }
   if (isCarousel && carouselSlides.length >= MIN_CAROUSEL_SLIDES) {
     try {
-      const slidePngs = await renderCarouselSlidesToPng({ brand, coverHook: generated.hook || slot.theme, slides: carouselSlides })
+      // Brand-level typography (lib/design/fonts.ts); carousels are list-heavy.
+      const typography = resolveTypography(brand, { density: "dense" })
+      await rememberBrandTypography(admin, brand, typography)
+      const slidePngs = await renderCarouselSlidesToPng({ brand, coverHook: generated.hook || slot.theme, slides: carouselSlides, fontId: typography.heading })
       const uploaded: string[] = []
       for (let idx = 0; idx < slidePngs.length; idx++) {
         const uploadResult = await uploadMediaToStorage(

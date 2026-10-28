@@ -4,7 +4,7 @@ import { tmpdir } from "os"
 import sharp from "sharp"
 import { Resvg } from "@resvg/resvg-js"
 import { decompress } from "wawoff2"
-import { CURATED_FONTS, DEFAULT_FONT_ID, findFont } from "@/lib/design/fonts"
+import { CURATED_FONTS, DEFAULT_FONT_ID, FONT_FAMILY_NAME, findFont } from "@/lib/design/fonts"
 import type { FontId } from "@/lib/design/fonts"
 import { sanitizeTextForCompositing } from "@/lib/image/sanitize-text-for-compositing"
 
@@ -45,10 +45,16 @@ async function getFontPath(fontId: string): Promise<string> {
   return ttfPath
 }
 
-async function svgToPngBuffer(svg: string, fontId: string): Promise<Buffer> {
-  const fontPath = await getFontPath(fontId)
+// The real family name for an SVG font-family attribute -- needed once a
+// heading AND a body font are loaded, so each element names its own.
+function familyAttr(fontId: string): string {
+  return `'${FONT_FAMILY_NAME[fontId as FontId] ?? FONT_FAMILY_NAME[DEFAULT_FONT_ID]}', sans-serif`
+}
+
+async function svgToPngBuffer(svg: string, fontId: string, bodyFontId?: string): Promise<Buffer> {
+  const fontFiles = [...new Set([await getFontPath(fontId), ...(bodyFontId ? [await getFontPath(bodyFontId)] : [])])]
   const resvg = new Resvg(svg, {
-    font: { fontFiles: [fontPath], loadSystemFonts: false, defaultFontFamily: "StoryFont" },
+    font: { fontFiles, loadSystemFonts: false, defaultFontFamily: FONT_FAMILY_NAME[fontId as FontId] ?? "StoryFont" },
   })
   return Buffer.from(resvg.render().asPng())
 }
@@ -74,9 +80,9 @@ function wrapText(text: string, maxCharsPerLine: number, maxLines: number): stri
   return lines.slice(0, maxLines)
 }
 
-function textLines(lines: string[], startY: number, lineHeight: number, fontSize: number, color: string, weight: number, xAttr: string): string {
+function textLines(lines: string[], startY: number, lineHeight: number, fontSize: number, color: string, weight: number, xAttr: string, family: string = "StoryFont, sans-serif"): string {
   return lines
-    .map((line, i) => `<text x="${xAttr}" y="${startY + i * lineHeight}" text-anchor="middle" font-family="StoryFont, sans-serif" font-weight="${weight}" font-size="${fontSize}" fill="${color}">${escapeXml(line)}</text>`)
+    .map((line, i) => `<text x="${xAttr}" y="${startY + i * lineHeight}" text-anchor="middle" font-family="${family}" font-weight="${weight}" font-size="${fontSize}" fill="${color}">${escapeXml(line)}</text>`)
     .join("")
 }
 
@@ -364,7 +370,7 @@ function buildChecklistHookOverlaySvg(slide: StoryCompositeSlide, textColor: str
         `<rect x="${lineStartX + beforeWidth - boxPad}" y="${y - fontSize * 0.82}" width="${matchWidth + boxPad * 2}" height="${fontSize * 1.08}" rx="8" fill="${CHECKLIST_HIGHLIGHT_COLOR}" fill-opacity="0.25"/>`
       )
     }
-    return `<text x="50%" y="${y}" text-anchor="middle" font-family="StoryFont, sans-serif" font-weight="900" font-size="${fontSize}" fill="${textColor}">${escapeXml(line)}</text>`
+    return `<text x="50%" y="${y}" text-anchor="middle" font-family="${familyAttr(slide.font_id ?? DEFAULT_FONT_ID)}" font-weight="900" font-size="${fontSize}" fill="${textColor}">${escapeXml(line)}</text>`
   }).join("")
 
   return `<svg width="${CANVAS_WIDTH}" height="${CANVAS_HEIGHT}" xmlns="http://www.w3.org/2000/svg">${highlightRects.join("")}${textSvg}</svg>`
@@ -398,14 +404,14 @@ function buildChecklistPairOverlaySvg(slide: StoryCompositeSlide, textColor: str
   const wrongSvg = wrongLines.map((line, i) => {
     const y = cursorY + i * lineHeight + fontSize * 0.8
     const mark = i === 0 ? xMarkSvg(padX + markSize / 2, y - fontSize * 0.32, markSize) : ""
-    return `${mark}<text x="${padX + markGap}" y="${y}" text-anchor="start" font-family="StoryFont, sans-serif" font-weight="700" font-size="${fontSize}" fill="${textColor}">${escapeXml(line)}</text>`
+    return `${mark}<text x="${padX + markGap}" y="${y}" text-anchor="start" font-family="${familyAttr(slide.body_font_id ?? slide.font_id ?? DEFAULT_FONT_ID)}" font-weight="700" font-size="${fontSize}" fill="${textColor}">${escapeXml(line)}</text>`
   }).join("")
   cursorY += wrongBlockHeight + rowGap
 
   const rightSvg = rightLines.map((line, i) => {
     const y = cursorY + i * lineHeight + fontSize * 0.8
     const mark = i === 0 ? checkMarkSvg(padX + markSize / 2, y - fontSize * 0.32, markSize) : ""
-    return `${mark}<text x="${padX + markGap}" y="${y}" text-anchor="start" font-family="StoryFont, sans-serif" font-weight="700" font-size="${fontSize}" fill="${textColor}">${escapeXml(line)}</text>`
+    return `${mark}<text x="${padX + markGap}" y="${y}" text-anchor="start" font-family="${familyAttr(slide.body_font_id ?? slide.font_id ?? DEFAULT_FONT_ID)}" font-weight="700" font-size="${fontSize}" fill="${textColor}">${escapeXml(line)}</text>`
   }).join("")
 
   return `<svg width="${CANVAS_WIDTH}" height="${CANVAS_HEIGHT}" xmlns="http://www.w3.org/2000/svg">${wrongSvg}${rightSvg}</svg>`
@@ -490,17 +496,19 @@ function buildTextOverlaySvg(slide: StoryCompositeSlide, textColor: string, subC
   const centerYPx = (center.y / 100) * CANVAS_HEIGHT
   const blockStartY = centerYPx - totalBlockHeight / 2
 
+  const headFamily = familyAttr(slide.font_id ?? DEFAULT_FONT_ID)
+  const bodyFamily = familyAttr(slide.body_font_id ?? slide.font_id ?? DEFAULT_FONT_ID)
   let cursorY = blockStartY
-  const headlineSvg = textLines(headlineLines, cursorY + headlineFontSize * 0.85, headlineLineHeight, headlineFontSize, textColor, 900, centerXAttr)
+  const headlineSvg = textLines(headlineLines, cursorY + headlineFontSize * 0.85, headlineLineHeight, headlineFontSize, textColor, 900, centerXAttr, headFamily)
   cursorY += headlineBlockHeight + gapToSubtext
 
   const subtextSvg = subtextLines.length > 0
-    ? textLines(subtextLines, cursorY + subtextFontSize * 0.85, subtextLineHeight, subtextFontSize, subColor, 600, centerXAttr)
+    ? textLines(subtextLines, cursorY + subtextFontSize * 0.85, subtextLineHeight, subtextFontSize, subColor, 600, centerXAttr, bodyFamily)
     : ""
   cursorY += subtextBlockHeight + gapToPoll
 
   const pollSvg = pollLines.length > 0
-    ? textLines(pollLines, cursorY + pollFontSize * 0.85, pollLineHeight, pollFontSize, subColor, 700, centerXAttr)
+    ? textLines(pollLines, cursorY + pollFontSize * 0.85, pollLineHeight, pollFontSize, subColor, 700, centerXAttr, bodyFamily)
     : ""
 
   return `<svg width="${CANVAS_WIDTH}" height="${CANVAS_HEIGHT}" xmlns="http://www.w3.org/2000/svg">${headlineSvg}${subtextSvg}${pollSvg}</svg>`
@@ -557,6 +565,9 @@ export interface StoryCompositeSlide {
    * pre-existing sole font) when absent, so behavior doesn't silently
    * change for any slide saved before this field existed. */
   font_id?: FontId | null
+  /** Body font (subtext/points/poll/CTA lines) -- the brand's body face
+   * (lib/design/fonts.ts resolveTypography). Absent = font_id for all text. */
+  body_font_id?: FontId | null
   /** Uniform multiplier applied to every font size this slide renders
    * (headline/subtext/poll) -- 1.0 (default) reproduces the pre-existing
    * fixed sizes exactly. See headlineStyle above for how this interacts
@@ -634,7 +645,7 @@ export async function renderStorySlidesToPng(slides: StoryCompositeSlide[]): Pro
         }
       }
 
-      const textOverlayPng = await svgToPngBuffer(buildTextOverlaySvg(slide, textColor, subColor), slide.font_id ?? DEFAULT_FONT_ID)
+      const textOverlayPng = await svgToPngBuffer(buildTextOverlaySvg(slide, textColor, subColor), slide.font_id ?? DEFAULT_FONT_ID, slide.body_font_id ?? undefined)
       layers.push({ input: textOverlayPng, top: 0, left: 0 })
 
       return sharp(backgroundLayer).composite(layers).png().toBuffer()

@@ -50,6 +50,8 @@ export interface StoryExportSlide {
    * StorySlide.font_id's own comment. Threaded through here so the real
    * server-side render reflects the picked font. */
   font_id?: string | null
+  /** The brand's body font -- see the compositor's body_font_id. */
+  body_font_id?: string | null
   /** Uniform font-size multiplier for this slide -- see
    * StorySlide.text_size_scale's own comment. */
   text_size_scale?: number | null

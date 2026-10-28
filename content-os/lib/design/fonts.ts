@@ -70,6 +70,68 @@ export function fallbackFontForVibe(...vibes: (string | null | undefined)[]): Fo
 
 /** The model's suggested_font_id when it's a real id, otherwise the
  * vibe-based fallback above. */
+/** The vibe rule's font, or null when no rule matches (unlike fallbackFontForVibe, no default). */
+export function vibeRuleFont(vibe: string | null | undefined): FontId | null {
+  if (!vibe) return null
+  const text = vibe.replace(/_/g, " ")
+  return VIBE_FONT_RULES.find((r) => r.pattern.test(text))?.font ?? null
+}
+
+/** The family name inside each @fontsource file -- lets a renderer load a
+ * heading AND a body font and address each one by name. */
+export const FONT_FAMILY_NAME: Record<FontId, string> = {
+  anton: "Anton",
+  inter: "Inter",
+  playfair: "Playfair Display",
+  quicksand: "Quicksand",
+  caveat: "Caveat",
+}
+
+export type TypographyDensity = "normal" | "dense"
+
+export interface BrandTypography {
+  heading: FontId
+  body: FontId
+  /** Where the heading came from: the brand's saved fonts, its vibe rule, the model's pick, or the default. */
+  source: "brand" | "vibe" | "model" | "default"
+}
+
+// Fonts that read fine as a headline but not as running text.
+const HEADLINE_ONLY_FONTS = new Set<FontId>(["anton", "caveat", "playfair"])
+const NEVER_DENSE_BODY = new Set<FontId>(["anton", "caveat"])
+
+/**
+ * The ONLY place a generation's fonts are decided (spec §7: brand-level
+ * typography, not a per-generation pick):
+ *   heading = brand_brain.visual.heading_font, else the brand vibe's rule
+ *   font, else -- only when neither exists -- the model's suggested_font_id,
+ *   else DEFAULT_FONT_ID;
+ *   body = brand_brain.visual.body_font, else Inter under a headline-only
+ *   face, else the heading font; "dense" text (lists, long body copy,
+ *   checklist cards) never gets Caveat/Anton as body.
+ * The user's manual per-slide pick in the editors still wins over all of this.
+ */
+export function resolveTypography(
+  brand: { vibe?: string | null; brand_brain?: unknown },
+  options: { density?: TypographyDensity; suggested?: unknown } = {},
+): BrandTypography {
+  const visual = (brand.brand_brain && typeof brand.brand_brain === "object" ? (brand.brand_brain as { visual?: unknown }).visual : null) as { heading_font?: unknown; body_font?: unknown } | null
+  const savedHeading = isFontId(visual?.heading_font) ? visual!.heading_font as FontId : null
+  const savedBody = isFontId(visual?.body_font) ? visual!.body_font as FontId : null
+  const vibeFont = vibeRuleFont(brand.vibe)
+
+  let heading: FontId
+  let source: BrandTypography["source"]
+  if (savedHeading) { heading = savedHeading; source = "brand" }
+  else if (vibeFont) { heading = vibeFont; source = "vibe" }
+  else if (isFontId(options.suggested)) { heading = options.suggested; source = "model" }
+  else { heading = DEFAULT_FONT_ID; source = "default" }
+
+  let body: FontId = savedBody ?? (HEADLINE_ONLY_FONTS.has(heading) ? "inter" : heading)
+  if (options.density === "dense" && NEVER_DENSE_BODY.has(body)) body = "inter"
+  return { heading, body, source }
+}
+
 export function resolveSuggestedFont(suggested: unknown, ...vibes: (string | null | undefined)[]): FontId {
   return isFontId(suggested) ? suggested : fallbackFontForVibe(...vibes)
 }

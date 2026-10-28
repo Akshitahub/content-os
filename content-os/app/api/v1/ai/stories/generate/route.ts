@@ -8,7 +8,8 @@ import { requestStorySequence } from "@/lib/ai/story-sequence-generator"
 import { findContentQualityIssues, sanitizeLeakedArtifacts } from "@/lib/ai/content-quality-check"
 import { z } from "zod"
 import type { BrandRow } from "@/types/database"
-import { resolveSuggestedFont, type FontId } from "@/lib/design/fonts"
+import { resolveTypography, type FontId } from "@/lib/design/fonts"
+import { rememberBrandTypography } from "@/lib/design/brand-typography"
 import type { VisualBrief } from "@/lib/ai/visual-brief"
 import { timedGenerationRoute, type GenerationTimer } from "@/lib/utils/generation-timing"
 import { withDeadline, DeadlineExceededError, GENERATION_TIMED_OUT_MESSAGE } from "@/lib/utils/with-deadline"
@@ -116,6 +117,9 @@ export type StorySlide = {
    * custom_text_color above. Absent means the compositor's own
    * DEFAULT_FONT_ID (Anton). */
   font_id?: FontId | null
+  /** Body font (subtext/points/poll/CTA lines) -- the brand's body face
+   * (lib/design/fonts.ts resolveTypography). Absent = font_id for all text. */
+  body_font_id?: FontId | null
   /** Client-only, never set by this route. Uniform font-size multiplier
    * for this slide -- set by StorySequence.tsx's size picker, same
    * per-slide pattern as custom_text_color above. Absent means 1.0 (the
@@ -341,9 +345,16 @@ async function handlePost(request: Request, timer: GenerationTimer) {
     // One font for the whole sequence -- same rule as the carousel route:
     // the model's pick if valid, else the brand / story vibe fallback.
     // Stamped on every slide; still changeable per slide in the editor.
-    const fontId = resolveSuggestedFont(d.suggested_font_id, brand.vibe, effectiveVibe)
+    // Brand-level typography (lib/design/fonts.ts resolveTypography) --
+    // checklist cards and long subtext make the body "dense".
+    const typography = resolveTypography(brand, {
+      density: effectiveVibe === "hard_truth_checklist" || (d.stories as Record<string, unknown>[]).some((s) => typeof s.subtext === "string" && s.subtext.length > 120) ? "dense" : "normal",
+      suggested: d.suggested_font_id,
+    })
+    const fontId = typography.heading
     d.suggested_font_id = fontId
-    d.stories = (d.stories as Record<string, unknown>[]).map((s) => ({ ...s, font_id: fontId }))
+    d.stories = (d.stories as Record<string, unknown>[]).map((s) => ({ ...s, font_id: fontId, body_font_id: typography.body }))
+    await rememberBrandTypography(supabase, brand, typography)
 
     d.stories = sanitizeStorySlides(d.stories as Record<string, unknown>[])
     const caption = d.caption as { caption_text?: unknown; hashtags?: unknown } | undefined

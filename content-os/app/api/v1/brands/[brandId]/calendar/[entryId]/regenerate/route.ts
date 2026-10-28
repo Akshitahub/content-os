@@ -20,6 +20,8 @@ import { timedGenerationRoute, type GenerationTimer } from "@/lib/utils/generati
 import { withDeadline, DeadlineExceededError, GENERATION_TIMED_OUT_MESSAGE } from "@/lib/utils/with-deadline"
 import { prepareGeneratedImage } from "@/lib/storage/generated-image"
 import { getActiveLessons } from "@/lib/ai/brand-brain"
+import { resolveTypography } from "@/lib/design/fonts"
+import { rememberBrandTypography } from "@/lib/design/brand-typography"
 
 const IMAGE_BUCKET = "brand-images"
 const FEATURE = "calendar_regenerate"
@@ -139,7 +141,9 @@ async function handlePost(request: Request, { params }: RouteParams, timer: Gene
 
       if (carousel.slides.length >= MIN_CAROUSEL_SLIDES) {
         try {
-          const slidePngs = await renderCarouselSlidesToPng({ brand, coverHook, slides: carousel.slides })
+          const typography = resolveTypography(brand, { density: "dense" })
+          await rememberBrandTypography(supabase, brand, typography)
+          const slidePngs = await renderCarouselSlidesToPng({ brand, coverHook, slides: carousel.slides, fontId: typography.heading })
           const uploaded: string[] = []
           for (let idx = 0; idx < slidePngs.length; idx++) {
             const uploadResult = await uploadMediaToStorage(
@@ -219,6 +223,8 @@ async function handlePost(request: Request, { params }: RouteParams, timer: Gene
       template: DEFAULT_POST_TEMPLATE_ID,
       colorTheme: resolveColorThemes(brand)[0]!,
       captionText: regenCaptionText,
+      // Brand-level typography for the composited caption (lib/design/fonts.ts).
+      fontId: resolveTypography(brand).heading,
       logoUrl: brand.logo_url,
       plan,
       isInternalUnlimitedUser,

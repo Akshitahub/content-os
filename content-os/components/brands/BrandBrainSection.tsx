@@ -8,6 +8,8 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { parseBrandBrain } from "@/lib/brand-brain-profile"
+import { CURATED_FONTS, isFontId, type FontId } from "@/lib/design/fonts"
+import { PREVIEW_FONT_CLASS } from "@/lib/design/preview-fonts"
 import type { BrandBrain } from "@/types/app"
 
 // The editable slice of the Brand Brain profile (lib/brand-brain-profile.ts).
@@ -37,6 +39,8 @@ export function BrandBrainSection({ brandId, brandBrain }: { brandId: string; br
     objections: toText(brandBrain.strategy?.objections),
     differentiators: toText(brandBrain.facts?.differentiators),
     photography_style: brandBrain.visual?.photography_style ?? "",
+    heading_font: brandBrain.visual?.heading_font ?? "",
+    body_font: brandBrain.visual?.body_font ?? "",
   })
   const set = (key: keyof typeof fields) => (e: { target: { value: string } }) => setFields((f) => ({ ...f, [key]: e.target.value }))
 
@@ -47,7 +51,13 @@ export function BrandBrainSection({ brandId, brandBrain }: { brandId: string; br
       ...brandBrain,
       facts: { ...brandBrain.facts, differentiators: toList(fields.differentiators) },
       voice: { ...brandBrain.voice, phrases_to_avoid: toList(fields.phrases_to_avoid), claims_never_to_make: toList(fields.claims_never_to_make) },
-      visual: { ...brandBrain.visual, photography_style: fields.photography_style, avoid_visuals: toList(fields.avoid_visuals) },
+      visual: {
+        ...brandBrain.visual,
+        photography_style: fields.photography_style,
+        avoid_visuals: toList(fields.avoid_visuals),
+        heading_font: isFontId(fields.heading_font) ? fields.heading_font : undefined,
+        body_font: isFontId(fields.body_font) ? fields.body_font : undefined,
+      },
       strategy: { ...brandBrain.strategy, objections: toList(fields.objections) },
     })
     try {
@@ -66,7 +76,20 @@ export function BrandBrainSection({ brandId, brandBrain }: { brandId: string; br
     }
   }
 
-  const area = (key: Exclude<keyof typeof fields, "photography_style">, label: string, placeholder: string) => (
+  const fontSelect = (key: "heading_font" | "body_font", label: string, sample: string) => (
+    <div className="space-y-1.5">
+      <Label htmlFor={`bb-${key}`}>{label}</Label>
+      <div className="flex items-center gap-3">
+        <select id={`bb-${key}`} value={fields[key]} onChange={set(key)} className="h-9 rounded-md border bg-background px-2 text-sm">
+          <option value="">Automatic (from your vibe)</option>
+          {CURATED_FONTS.map((f) => <option key={f.id} value={f.id}>{f.label}</option>)}
+        </select>
+        {isFontId(fields[key]) && <span className={`text-lg ${PREVIEW_FONT_CLASS[fields[key] as FontId]}`}>{sample}</span>}
+      </div>
+    </div>
+  )
+
+  const area = (key: Exclude<keyof typeof fields, "photography_style" | "heading_font" | "body_font">, label: string, placeholder: string) => (
     <div className="space-y-1.5">
       <Label htmlFor={`bb-${key}`}>{label}</Label>
       <textarea id={`bb-${key}`} rows={2} className={textareaClass} placeholder={placeholder} value={fields[key]} onChange={set(key)} />
@@ -94,6 +117,10 @@ export function BrandBrainSection({ brandId, brandBrain }: { brandId: string; br
           <div className="space-y-1.5">
             <Label htmlFor="bb-photography_style">Photography style</Label>
             <Input id="bb-photography_style" placeholder="e.g. Warm natural light, wide interiors, muted tones" value={fields.photography_style} onChange={set("photography_style")} />
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {fontSelect("heading_font", "Heading font", "Headline")}
+            {fontSelect("body_font", "Body font", "Body text")}
           </div>
           <div className="flex items-center justify-end gap-3">
             {message && <p className={`text-xs ${message.ok ? "text-muted-foreground" : "text-destructive"}`}>{message.text}</p>}

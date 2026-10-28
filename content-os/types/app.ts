@@ -235,6 +235,9 @@ export type BrandBrain = {
   visual?: {
     photography_style?: string
     avoid_visuals?: string[]
+    /** Brand-level typography (lib/design/fonts.ts resolveTypography) -- set on first generation or in the Brand Brain section. */
+    heading_font?: FontId
+    body_font?: FontId
   }
   strategy?: {
     audience_segments?: string[]
