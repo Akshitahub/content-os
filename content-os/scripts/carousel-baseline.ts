@@ -230,6 +230,13 @@ function visualCell(visual: unknown): string {
   return `${String(v.kind ?? "?")}: ${String(v.must_show ?? "")}${v.composition ? ` (${String(v.composition)})` : ""}`
 }
 
+
+// A file this run wrote, as the data: URL the server compositors accept.
+function fileAsDataUrl(dir: string, file: string): string {
+  const mime = file.endsWith(".jpg") ? "image/jpeg" : "image/png"
+  return `data:${mime};base64,${readFileSync(join(dir, file)).toString("base64")}`
+}
+
 // ─── Run ────────────────────────────────────────────────────────────────────
 
 type SlideRecord = {
@@ -249,6 +256,8 @@ type SlideRecord = {
   headline: string
   points: string[]
   imageFile: string | null
+  /** The final slide with its real text overlay (see finalOutput in run.json). */
+  finalImageFile?: string | null
   latencyMs: number
   costUsd: number | null
   provider: string | null
@@ -407,6 +416,9 @@ async function main(): Promise<void> {
       slideType: undefined,
       customPrompt,
       visualBrief,
+      // The builder sends the user's own typed scene text; this harness
+      // types none (rawInput null), so there's no direction.
+      userDirection: null,
       quality: "low",
     })
     const record: SlideRecord = {
@@ -414,8 +426,8 @@ async function main(): Promise<void> {
       role,
       narrativeRole: typeof s.role === "string" ? s.role : null,
       visual: s.visual ?? null,
-      briefUsed: role === "hook" ? null : (visualBrief ?? null),
-      productReferenceUsed: !!productImageUrl && (role === "hook" || briefUsesProductReference(visualBrief)),
+      briefUsed: visualBrief ?? null,
+      productReferenceUsed: !!productImageUrl && briefUsesProductReference(visualBrief),
       finalImagePrompt: null,
       headline: typeof s.headline === "string" ? s.headline : "",
       points: Array.isArray(s.points) ? s.points.filter((p): p is string => typeof p === "string") : [],
@@ -442,7 +454,47 @@ async function main(): Promise<void> {
     slideRecords.push(record)
   }
 
-  // 5. Outputs.
+  // 5. Final slides with the real text overlay, via the same server
+  // renderer the app's carousel export uses (carousel/render route ->
+  // renderRichCarouselSlidesToPng), each background written onto its slide
+  // as image_url the way CarouselBuilder does.
+  let finalOutput: { rendered: boolean; renderer?: string; reason?: string } = { rendered: false }
+  try {
+    const { renderRichCarouselSlidesToPng } = await import("@/lib/image/carousel-compositor")
+    // Copied from CarouselBuilder.tsx's toExportSlide (~line 143).
+    const exportSlides = slides.map((raw, i) => {
+      const s = raw as Record<string, never>
+      const file = slideRecords[i]?.imageFile
+      return {
+        type: s.type,
+        headline: s.headline,
+        subtext: s.type === "cover" ? s.subtext : undefined,
+        points: s.type === "content" ? s.points : undefined,
+        ctaText: s.type === "cta" ? s.cta : undefined,
+        ctaHandle: s.type === "cta" ? s.handle : undefined,
+        background_style: s.background_style,
+        image_url: file ? fileAsDataUrl(outDir, file) : null,
+        custom_background_colors: s.custom_background_colors,
+        text_position_x: s.text_position_x,
+        text_position_y: s.text_position_y,
+        productImageSource: null,
+        font_id: s.font_id,
+        text_size_scale: s.text_size_scale,
+      }
+    })
+    const finals = await renderRichCarouselSlidesToPng(brand.name, exportSlides)
+    finals.forEach((buf, i) => {
+      const file = `final-${String(i + 1).padStart(2, "0")}.png`
+      writeFileSync(join(outDir, file), buf)
+      if (slideRecords[i]) slideRecords[i]!.finalImageFile = file
+    })
+    finalOutput = { rendered: true, renderer: "renderRichCarouselSlidesToPng (lib/image/carousel-compositor.ts, the carousel/render export route)" }
+  } catch (err) {
+    errors.push(`final render: ${err instanceof Error ? err.message : String(err)}`)
+    finalOutput = { rendered: false, reason: "renderer threw -- see errors" }
+  }
+
+  // 6. Outputs.
   const copyCalls = captured.filter((c) => c.stage === "carousel_copy")
   const imageCost = sumCostUsd(...slideRecords.map((r) => r.costUsd))
   const run = {
@@ -464,6 +516,7 @@ async function main(): Promise<void> {
     visualPrompt,
     imagePromptCall: captured.filter((c) => c.stage === "image_prompt_write"),
     slides: slideRecords,
+    finalOutput,
     cost: {
       carouselCopy: { usage: gen.usage ?? null, costUsd: gen.costUsd, latencyMs: copyLatencyMs },
       imagePrompt: { usage: null, costUsd: null, latencyMs: promptLatencyMs, note: "streamed without usage reporting -- not priced" },

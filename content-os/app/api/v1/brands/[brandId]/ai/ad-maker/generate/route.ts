@@ -104,7 +104,7 @@ async function handlePost(request: Request, { params }: RouteParams, timer: Gene
   // identical fix for why (a friendly per-field message, e.g. customPrompt's
   // own .max() text, instead of a raw JSON issues dump).
   if (!parsed.success) return NextResponse.json(buildError(ErrorCodes.VALIDATION_ERROR, "Validation failed.", parsed.error.issues[0]?.message), { status: 400 })
-  const { scene, customScene, format, productImageBase64, customPrompt, productId, hookText } = parsed.data
+  const { scene, customScene, format, productImageBase64, customPrompt, productId, hookText, userDirection } = parsed.data
 
   const usageCheck = await checkAndIncrementUsage(user.id, AD_MAKER, FEATURE)
   if (!usageCheck.ok) {
@@ -187,6 +187,7 @@ async function handlePost(request: Request, { params }: RouteParams, timer: Gene
     isInternalUnlimitedUser: isInternalUnlimited(user.id),
     productImageUrl,
     customPrompt,
+    userDirection,
   }
   const results = await timer.step("image", Promise.all(
     Array.from({ length: VARIATION_COUNT }, async (_, i): Promise<Awaited<ReturnType<typeof generateAdMakerBackground>>> => {

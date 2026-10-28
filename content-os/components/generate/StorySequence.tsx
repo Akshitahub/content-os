@@ -170,7 +170,8 @@ async function fetchSlideBackgroundResult(
   productImageUrl?: string | null,
   textPosition?: StorySlide["text_position"],
   customPrompt?: string,
-  visualBrief?: VisualBrief
+  visualBrief?: VisualBrief,
+  userDirection?: string | null
 ): Promise<SlideBackgroundOutcome> {
   try {
     const res = await fetch("/api/v1/ai/stories/slide-image/generate", {
@@ -182,7 +183,7 @@ async function fetchSlideBackgroundResult(
       // optional, not nullable.
       // visualBrief: this frame's own scene (non-hook frames) -- see
       // lib/ai/story-slide-background.ts. Omitted when the frame has none.
-      body: JSON.stringify({ brandId, vibe, role, productImageUrl: productImageUrl ?? undefined, textPosition, customPrompt: customPrompt || undefined, visualBrief }),
+      body: JSON.stringify({ brandId, vibe, role, productImageUrl: productImageUrl ?? undefined, textPosition, customPrompt: customPrompt || undefined, visualBrief, userDirection: userDirection || undefined }),
     })
     if (!res.ok) return { error: slideBackgroundErrorForStatus(res.status) }
     const json = await readJsonResponse(res) as { data?: { public_url?: string; provider?: "openai" } }
@@ -926,7 +927,9 @@ export function StorySequence({ brandId }: { brandId: string }) {
             // its scene isn't the abstract centre-calm default.
             role !== "body" || usesProduct || slide.visual ? slide.text_position : undefined,
             visualPrompt,
-            slide.visual
+            slide.visual,
+            // The user's own typed scene text, never the AI-expanded prompt.
+            visualPromptSeedRef.current
           ),
         }
       }),
@@ -1270,7 +1273,7 @@ export function StorySequence({ brandId }: { brandId: string }) {
                       stage={promptWriter.stage}
                       error={promptWriter.error}
                       onRewrite={writeVisualPrompt}
-                      placeholder="Describe the first frame's background scene (the other frames follow each frame's own visual brief), or leave blank and let SocioPosts write one from your topic and vibe"
+                      placeholder="Describe a background scene -- used only for frames that have no visual brief of its own (what you type here still guides every frame's look). Leave blank to let SocioPosts write one"
                     />
                   )}
                 </div>

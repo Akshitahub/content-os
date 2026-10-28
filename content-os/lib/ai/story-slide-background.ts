@@ -142,9 +142,18 @@ function briefScene(brief: VisualBrief): string {
   return sharedBriefScene(brief, STORY_ABSTRACT_OPENER)
 }
 
-function buildBriefStorySlidePrompt(brief: VisualBrief, niche: string | null, vibe: Vibe, colors: string[], productImageUrl?: string | null, textPosition?: "top" | "center" | "bottom"): string {
+
+// The user's own typed scene text (never the AI-expanded customPrompt),
+// kept as soft direction on a brief-driven image -- capped at 300 chars.
+function userDirectionLine(userDirection?: string | null): string {
+  const text = userDirection?.trim().slice(0, 300)
+  return text ? `user direction: ${text}` : ""
+}
+
+function buildBriefStorySlidePrompt(brief: VisualBrief, niche: string | null, vibe: Vibe, colors: string[], productImageUrl?: string | null, textPosition?: "top" | "center" | "bottom", userDirection?: string | null): string {
   const colorNames = colors.map(describeColor).filter((c): c is string => !!c).slice(0, 3)
   const composition = brief.composition ? `composition: ${brief.composition}` : ""
+  const direction = userDirectionLine(userDirection)
   const isSplit = brief.kind === "side_by_side" || brief.kind === "before_after"
   const noText = [
     "no text, no words, no letters, no numbers, no logos anywhere in the image",
@@ -158,6 +167,7 @@ function buildBriefStorySlidePrompt(brief: VisualBrief, niche: string | null, vi
     return wrapForReferenceImage([
       briefScene(brief),
       composition,
+      direction,
       VERTICAL_COMPOSITION,
       PHOTOGRAPHY_STYLE,
       REFERENCE_IMAGE_PEOPLE_GUARD,
@@ -174,6 +184,7 @@ function buildBriefStorySlidePrompt(brief: VisualBrief, niche: string | null, vi
   return [
     briefScene(brief),
     composition,
+    direction,
     VERTICAL_COMPOSITION,
     VIBE_BACKGROUND_STYLES[vibe],
     colorNames.length > 0 ? `color palette inspired by ${colorNames.join(" and ")}` : "",
@@ -230,6 +241,10 @@ export interface GenerateStorySlideBackgroundOptions {
    * buildStorySlidePrompt/simplifyStorySlidePrompt below still applies
    * exactly as before regardless of what this contains. */
   customPrompt?: string
+  /** The user's own raw typed scene text (null/omitted if they typed
+   * nothing) -- appended as "user direction: ..." on a brief-driven image.
+   * The AI-expanded customPrompt is never used once a brief exists. */
+  userDirection?: string | null
   /** This frame's own visual brief (already run through
    * sanitizeVisualBrief). On any non-hook frame it replaces customPrompt as
    * the scene -- the hook keeps the user-reviewed shared scene. Omitted =
@@ -260,12 +275,13 @@ export async function generateStorySlideBackground(
   const brandColors = resolveBrandColors(options.brand)
   const colors = brandColors.length > 0 ? brandColors : VIBE_FALLBACK_COLORS[vibe]
 
-  // Hook keeps the shared customPrompt scene; every other frame with a brief
-  // gets its own scene from it.
-  const brief = options.role === "hook" ? undefined : options.visualBrief
+  // Any frame with a brief -- the first included -- gets its scene from it;
+  // the AI-expanded customPrompt is then not used at all, only the user's own
+  // typed text as direction. Frames without a brief keep the old behaviour.
+  const brief = options.visualBrief
   if (brief) {
     const productImageUrl = briefUsesProductReference(brief) ? options.productImageUrl : undefined
-    const prompt = buildBriefStorySlidePrompt(brief, options.brand.niche, vibe, colors, productImageUrl, options.textPosition)
+    const prompt = buildBriefStorySlidePrompt(brief, options.brand.niche, vibe, colors, productImageUrl, options.textPosition, options.userDirection)
     const fallbackPrompt = simplifyBriefStorySlidePrompt(brief, vibe, productImageUrl)
     return fetchBackgroundImage(prompt, fallbackPrompt, options.plan, options.isInternalUnlimitedUser, STORY_DIMENSIONS, productImageUrl, options.quality)
   }

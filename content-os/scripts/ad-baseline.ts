@@ -339,6 +339,9 @@ async function main(): Promise<void> {
     adBrief: strategy?.brief ?? null,
     variants: strategy?.variants ?? null,
     variations,
+    // Ad Maker composites the on-image text client-side only (AdMaker.tsx's
+    // compositeAd, a browser canvas) -- no server compositor to render it.
+    finalOutput: { rendered: false, reason: "client-only compositing (AdMaker.tsx compositeAd canvas); no server renderer" },
     adCopy,
     calls: captured,
     cost: {

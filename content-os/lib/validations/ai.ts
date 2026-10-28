@@ -267,6 +267,14 @@ export const generateAdMakerBackgroundSchema = z.object({
   // product the photo came from (for its facts) and the on-image text the
   // user typed, used as their direction. Older clients omit both.
   productId: z.string().uuid("Invalid product ID").optional(),
+  // The user's own typed scene text (not the AI-expanded customPrompt) --
+  // direction for a brief-driven image.
+  userDirection: z
+    .string()
+    .max(300, "Scene direction must be under 300 characters")
+    .optional()
+    .nullable()
+    .transform((val) => val?.replace(/<[^>]*>/g, "").trim() || undefined),
   hookText: z
     .string()
     .max(200, "Headline text is too long")

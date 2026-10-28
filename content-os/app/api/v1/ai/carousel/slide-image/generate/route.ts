@@ -36,6 +36,14 @@ const schema = z.object({
   // The slide's own visual brief from the carousel generation (lib/ai/
   // carousel-generator.ts). Re-sanitized below -- the client copy is never
   // trusted as-is.
+  // The user's own typed scene text (not the AI-expanded customPrompt) --
+  // direction for a brief-driven image.
+  userDirection: z
+    .string()
+    .max(300, "Scene direction must be under 300 characters")
+    .optional()
+    .nullable()
+    .transform((val) => val?.replace(/<[^>]*>/g, "").trim() || undefined),
   visualBrief: z.object({
     kind: z.enum(VISUAL_KINDS),
     must_show: z.string().max(300),
@@ -104,7 +112,7 @@ async function handlePost(request: Request, timer: GenerationTimer) {
   // generateCarouselSlideBackground (a non-hook slide whose brief kind skips
   // the reference never sends it), so a skipped reference isn't charged.
   const effectiveProductImageUrl =
-    role !== "hook" && visualBrief && !briefUsesProductReference(visualBrief)
+    visualBrief && !briefUsesProductReference(visualBrief)
       ? undefined
       : productImageUrl
 
@@ -156,6 +164,7 @@ async function handlePost(request: Request, timer: GenerationTimer) {
     slideType,
     customPrompt,
     visualBrief,
+    userDirection: parsed.data.userDirection,
     // Text is composited over slide backgrounds, so "low" is enough --
     // raised to "medium" automatically when a product photo is attached.
     quality: "low",

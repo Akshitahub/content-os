@@ -194,6 +194,13 @@ function visualCell(visual: unknown): string {
   return `${String(v.kind ?? "?")}: ${String(v.must_show ?? "")}${v.composition ? ` (${String(v.composition)})` : ""}`
 }
 
+
+// A file this run wrote, as the data: URL the server compositors accept.
+function fileAsDataUrl(dir: string, file: string): string {
+  const mime = file.endsWith(".jpg") ? "image/jpeg" : "image/png"
+  return `data:${mime};base64,${readFileSync(join(dir, file)).toString("base64")}`
+}
+
 // ─── Run ────────────────────────────────────────────────────────────────────
 
 type SlideRecord = {
@@ -207,6 +214,8 @@ type SlideRecord = {
   /** The text_position actually sent with the image request (StorySequence sends it only for some frames). */
   textPositionSent: string | null
   imageFile: string | null
+  /** The final frame with its real text overlay (see finalOutput in run.json). */
+  finalImageFile?: string | null
   latencyMs: number
   costUsd: number | null
   provider: string | null
@@ -368,6 +377,9 @@ async function main(): Promise<void> {
       textPosition: textPositionSent,
       customPrompt,
       visualBrief,
+      // StorySequence sends the user's own typed scene text; this harness
+      // types none (rawInput null), so there's no direction.
+      userDirection: null,
       quality: "low",
     })
     const imageRequests = captured.slice(firstCall)
@@ -385,8 +397,8 @@ async function main(): Promise<void> {
       costUsd: attemptsCostUsd(result.attempts),
       provider: result.success ? result.provider : null,
       visual: s.visual ?? null,
-      briefUsed: role === "hook" ? null : (visualBrief ?? null),
-      productReferenceUsed: !!productImageUrl && (role === "hook" || briefUsesProductReference(visualBrief)),
+      briefUsed: visualBrief ?? null,
+      productReferenceUsed: !!productImageUrl && briefUsesProductReference(visualBrief),
       finalImagePrompt: typeof firstImageRequest?.prompt === "string" ? firstImageRequest.prompt : null,
       attempts: result.attempts,
       imageRequests,
@@ -402,7 +414,54 @@ async function main(): Promise<void> {
     slideRecords.push(record)
   }
 
-  // 5. Outputs.
+  // 5. Final frames with the real text overlay, via the same server
+  // renderer the app's story export uses (stories/render route ->
+  // renderStorySlidesToPng).
+  let finalOutput: { rendered: boolean; renderer?: string; reason?: string } = { rendered: false }
+  try {
+    const { renderStorySlidesToPng } = await import("@/lib/image/story-compositor")
+    // Copied from StorySequence.tsx's toExportSlide (~line 75); the
+    // background provider is "openai", so the product overlay defaults off.
+    const exportSlides = stories.map((raw, i) => {
+      const s = raw as Record<string, never>
+      const file = slideRecords[i]?.imageFile
+      return {
+        type: s.type,
+        text: s.text,
+        subtext: s.subtext,
+        background: s.background,
+        text_position: s.text_position,
+        has_poll: s.has_poll,
+        poll_options: s.poll_options,
+        background_image_url: file ? fileAsDataUrl(outDir, file) : null,
+        custom_background_colors: s.custom_background_colors,
+        productImageSource: null,
+        text_position_x: s.text_position_x,
+        text_position_y: s.text_position_y,
+        show_product_overlay: false,
+        product_position_x: s.product_position_x,
+        product_position_y: s.product_position_y,
+        custom_text_color: s.custom_text_color,
+        font_id: s.font_id,
+        text_size_scale: s.text_size_scale,
+        checklist_highlighted_phrase: s.checklist_highlighted_phrase,
+        checklist_wrong_item: s.checklist_wrong_item,
+        checklist_right_item: s.checklist_right_item,
+      }
+    })
+    const finals = await renderStorySlidesToPng(exportSlides)
+    finals.forEach((buf, i) => {
+      const file = `final-${String(i + 1).padStart(2, "0")}.png`
+      writeFileSync(join(outDir, file), buf)
+      if (slideRecords[i]) slideRecords[i]!.finalImageFile = file
+    })
+    finalOutput = { rendered: true, renderer: "renderStorySlidesToPng (lib/image/story-compositor.ts, the stories/render export route)" }
+  } catch (err) {
+    errors.push(`final render: ${err instanceof Error ? err.message : String(err)}`)
+    finalOutput = { rendered: false, reason: "renderer threw -- see errors" }
+  }
+
+  // 6. Outputs.
   const copyCalls = captured.filter((c) => c.stage === "story_copy")
   const imageCost = sumCostUsd(...slideRecords.map((r) => r.costUsd))
   const totalLatencyMs = copyLatencyMs + promptLatencyMs + slideRecords.reduce((a, r) => a + r.latencyMs, 0)
@@ -425,6 +484,7 @@ async function main(): Promise<void> {
     visualPrompt,
     imagePromptCall: captured.filter((c) => c.stage === "image_prompt_write"),
     slides: slideRecords,
+    finalOutput,
     cost: {
       storyCopy: { usage: gen.usage ?? null, costUsd: gen.costUsd, latencyMs: copyLatencyMs },
       imagePrompt: { usage: null, costUsd: null, latencyMs: promptLatencyMs, note: "streamed without usage reporting -- not priced" },

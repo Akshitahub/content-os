@@ -315,7 +315,37 @@ async function main(): Promise<void> {
     }
   }
 
-  // 4. Outputs.
+  // 4. Final image with the overlay text. Full Post itself flattens the
+  // overlay client-side (FullPostGenerator's flattenOverlayImage, canvas);
+  // the closest server equivalent is compositePostImage (what
+  // generatePostImage uses when captionText is set), so that's rendered
+  // here -- layout can differ slightly from the client canvas.
+  let finalOutput: { rendered: boolean; renderer?: string; reason?: string; file?: string } = { rendered: false }
+  if (!imageRecord.file) {
+    finalOutput = { rendered: false, reason: imageRecord.skipped ?? "no background image" }
+  } else if (!overlayText) {
+    finalOutput = { rendered: false, reason: "no overlay text -- the final post is the background as-is" }
+  } else if (template === "blank") {
+    finalOutput = { rendered: false, reason: "blank template draws no overlay" }
+  } else {
+    try {
+      const { compositePostImage } = await import("@/lib/image/post-compositor")
+      const buf = await compositePostImage(readFileSync(join(outDir, imageRecord.file)), {
+        template,
+        colorTheme: findColorTheme(colorThemes, colorThemeId),
+        captionText: overlayText,
+        logoUrl: brand.logo_url,
+        fontId: caption.suggested_font_id ?? undefined,
+      })
+      writeFileSync(join(outDir, "final.png"), buf)
+      finalOutput = { rendered: true, file: "final.png", renderer: "compositePostImage (lib/image/post-compositor.ts) -- Full Post's own overlay is a client-side canvas, so this is an approximation of it" }
+    } catch (err) {
+      errors.push(`final render: ${err instanceof Error ? err.message : String(err)}`)
+      finalOutput = { rendered: false, reason: "compositor threw -- see errors" }
+    }
+  }
+
+  // 5. Outputs.
   const textCost = sumCostUsd(hookResult.costUsd, contentResult.costUsd)
   const totalLatencyMs = hookLatencyMs + captionLatencyMs + promptLatencyMs + imageRecord.latencyMs
   const run = {
@@ -338,6 +368,7 @@ async function main(): Promise<void> {
     imagePromptSeed: seed,
     imagePrompt,
     image: imageRecord,
+    finalOutput,
     calls: captured,
     cost: {
       hook: { usage: hookResult.usage ?? null, costUsd: hookResult.costUsd, latencyMs: hookLatencyMs },

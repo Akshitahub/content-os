@@ -70,6 +70,10 @@ export interface GenerateAdMakerBackgroundOptions {
    * the creative core and the scene preset / custom scene / customPrompt
    * becomes the setting ("set in: ..."). Omitted = today's behaviour. */
   visualBrief?: VisualBrief
+  /** The user's own raw typed scene text (null/omitted if they typed
+   * nothing) -- appended as "user direction: ..." on a brief-driven image.
+   * The AI-expanded customPrompt is never used once a brief exists. */
+  userDirection?: string | null
 }
 
 /**
@@ -82,12 +86,17 @@ export interface GenerateAdMakerBackgroundOptions {
 export async function generateAdMakerBackground(
   options: GenerateAdMakerBackgroundOptions
 ): Promise<BackgroundImageResult> {
-  const sceneDesc = options.customPrompt?.trim() || resolveSceneDescription(options.scene, options.customScene)
-  // With a brief, the variation's own subject leads and the chosen scene is
-  // just where it's set.
+  // With a brief, the variation's own subject leads and the setting is the
+  // scene preset / custom scene ONLY -- the AI-expanded customPrompt is not
+  // used (its invented props cluttered every variation); the user's own
+  // typed text rides along as direction. Without a brief: unchanged.
   const brief = options.visualBrief
+  const sceneDesc = brief
+    ? resolveSceneDescription(options.scene, options.customScene)
+    : options.customPrompt?.trim() || resolveSceneDescription(options.scene, options.customScene)
+  const userDirection = options.userDirection?.trim().slice(0, 300)
   const briefCore = brief
-    ? [briefScene(brief, "an abstract atmospheric background"), brief.composition ? `composition: ${brief.composition}` : ""].filter(Boolean).join(", ")
+    ? [briefScene(brief, "an abstract atmospheric background"), brief.composition ? `composition: ${brief.composition}` : "", userDirection ? `user direction: ${userDirection}` : ""].filter(Boolean).join(", ")
     : ""
   const niche = options.brandNiche || "lifestyle brand"
   const hasReferenceImage = !!options.productImageUrl

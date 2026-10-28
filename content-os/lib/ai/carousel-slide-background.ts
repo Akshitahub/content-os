@@ -140,9 +140,18 @@ function briefScene(brief: VisualBrief): string {
   return sharedBriefScene(brief, BRIEF_ABSTRACT_OPENER)
 }
 
-function buildBriefSlidePrompt(brief: VisualBrief, niche: string | null, vibe: Vibe, colors: string[], role: "hook" | "cta" | "body", productImageUrl?: string | null, slideType?: "cover" | "content" | "cta"): string {
+
+// The user's own typed scene text (never the AI-expanded customPrompt),
+// kept as soft direction on a brief-driven image -- capped at 300 chars.
+function userDirectionLine(userDirection?: string | null): string {
+  const text = userDirection?.trim().slice(0, 300)
+  return text ? `user direction: ${text}` : ""
+}
+
+function buildBriefSlidePrompt(brief: VisualBrief, niche: string | null, vibe: Vibe, colors: string[], role: "hook" | "cta" | "body", productImageUrl?: string | null, slideType?: "cover" | "content" | "cta", userDirection?: string | null): string {
   const colorNames = colors.map(describeColor).filter((c): c is string => !!c).slice(0, 3)
   const composition = brief.composition ? `composition: ${brief.composition}` : ""
+  const direction = userDirectionLine(userDirection)
   const isSplit = brief.kind === "side_by_side" || brief.kind === "before_after"
 
   // product_scene / detail_closeup / before_after with a real product photo
@@ -152,6 +161,7 @@ function buildBriefSlidePrompt(brief: VisualBrief, niche: string | null, vibe: V
     return wrapForReferenceImage([
       briefScene(brief),
       composition || resolveProductSafeZoneGuard(slideType),
+      direction,
       PHOTOGRAPHY_STYLE,
       REFERENCE_IMAGE_PEOPLE_GUARD,
       niche ? `${niche} brand` : "",
@@ -167,6 +177,7 @@ function buildBriefSlidePrompt(brief: VisualBrief, niche: string | null, vibe: V
   return [
     briefScene(brief),
     composition,
+    direction,
     VIBE_BACKGROUND_STYLES[vibe],
     colorNames.length > 0 ? `color palette inspired by ${colorNames.join(" and ")}` : "",
     niche ? `evokes the mood of a ${niche} brand` : "",
@@ -243,6 +254,10 @@ export interface GenerateCarouselSlideBackgroundOptions {
    * buildSlidePrompt/simplifySlidePrompt below still applies exactly as
    * before regardless of what this contains. */
   customPrompt?: string
+  /** The user's own raw typed scene text (null/omitted if they typed
+   * nothing) -- appended as "user direction: ..." on a brief-driven image.
+   * The AI-expanded customPrompt is never used once a brief exists. */
+  userDirection?: string | null
   /** This slide's own visual brief (already run through
    * sanitizeVisualBrief). On any non-hook slide it replaces customPrompt as
    * the scene -- the hook keeps the user-reviewed shared scene. Omitted =
@@ -272,12 +287,13 @@ export async function generateCarouselSlideBackground(
   const brandColors = resolveBrandColors(options.brand)
   const colors = brandColors.length > 0 ? brandColors : VIBE_FALLBACK_COLORS[vibe]
 
-  // Hook keeps the shared customPrompt scene; every other slide with a brief
-  // gets its own scene from it.
-  const brief = options.role === "hook" ? undefined : options.visualBrief
+  // Any slide with a brief -- the cover included -- gets its scene from it;
+  // the AI-expanded customPrompt is then not used at all, only the user's own
+  // typed text as direction. Slides without a brief keep the old behaviour.
+  const brief = options.visualBrief
   if (brief) {
     const productImageUrl = briefUsesProductReference(brief) ? options.productImageUrl : undefined
-    const prompt = buildBriefSlidePrompt(brief, options.brand.niche, vibe, colors, options.role, productImageUrl, options.slideType)
+    const prompt = buildBriefSlidePrompt(brief, options.brand.niche, vibe, colors, options.role, productImageUrl, options.slideType, options.userDirection)
     const fallbackPrompt = simplifyBriefSlidePrompt(brief, vibe, productImageUrl)
     return fetchBackgroundImage(prompt, fallbackPrompt, options.plan, options.isInternalUnlimitedUser, undefined, productImageUrl, options.quality)
   }

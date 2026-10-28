@@ -217,7 +217,8 @@ async function fetchSlideBackgroundResult(
   productImageUrl?: string | null,
   slideType?: SlideType,
   customPrompt?: string,
-  visualBrief?: CarouselVisualBrief
+  visualBrief?: CarouselVisualBrief,
+  userDirection?: string | null
 ): Promise<SlideBackgroundOutcome> {
   try {
     const res = await fetch("/api/v1/ai/carousel/slide-image/generate", {
@@ -227,7 +228,7 @@ async function fetchSlideBackgroundResult(
       // undefined so JSON.stringify omits the key entirely.
       // visualBrief: this slide's own scene (non-hook slides) -- see
       // lib/ai/carousel-slide-background.ts. Omitted when the slide has none.
-      body: JSON.stringify({ brandId, vibe, role, productImageUrl: productImageUrl ?? undefined, slideType, customPrompt: customPrompt || undefined, visualBrief }),
+      body: JSON.stringify({ brandId, vibe, role, productImageUrl: productImageUrl ?? undefined, slideType, customPrompt: customPrompt || undefined, visualBrief, userDirection: userDirection || undefined }),
     })
     if (!res.ok) return { error: slideBackgroundErrorForStatus(res.status) }
     const json = await readJsonResponse(res) as { data?: { public_url?: string; provider?: "openai" } }
@@ -884,7 +885,7 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
         const role = carouselBgRole(i, count)
         // productImageUrl/slideType only actually sent when a product is
         // selected -- fetchSlideBackgroundResult drops a null productImageUrl.
-        return { key: i, run: () => fetchSlideBackgroundResult(brandId, vibe, role, productImage ?? undefined, productImage ? SLIDE_TYPE_FOR_BG_ROLE[role] : undefined, visualPrompt, slides[i]?.visual) }
+        return { key: i, run: () => fetchSlideBackgroundResult(brandId, vibe, role, productImage ?? undefined, productImage ? SLIDE_TYPE_FOR_BG_ROLE[role] : undefined, visualPrompt, slides[i]?.visual, visualPromptSeedRef.current) }
       }),
       { onProgress: (settled, total) => { if (isCurrent()) setBgProgress({ settled, total }) }, isCancelled: () => !isCurrent() }
     )
@@ -1133,7 +1134,7 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
                       stage={promptWriter.stage}
                       error={promptWriter.error}
                       onRewrite={writeVisualPrompt}
-                      placeholder="Describe the cover slide's background scene (the other slides follow each slide's own visual brief), or leave blank and let SocioPosts write one from your topic and vibe"
+                      placeholder="Describe a background scene -- used only for slides that have no visual brief of its own (what you type here still guides every slide's look). Leave blank to let SocioPosts write one"
                     />
                   )}
                 </div>

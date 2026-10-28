@@ -253,6 +253,12 @@ STORY FRAME RULES:
 - No empty adjectives ("premium", "refined", "elevated", "seamless", "luxurious") unless the same frame states the specific detail that justifies them.
 - Only use facts from the brand context or topic above (the number and placeholder rules still apply).
 
+INFORMATION DEPTH — the most common failure is frames that only name a topic and never say anything:
+- Every frame's "subtext" carries one concrete detail — a how, a why, a material, a step or a result — never a slogan. A frame that only names a topic is a failure.
+- A question frame is allowed only if the very next frame answers it.
+- story_plan.arc[].message is the frame's claim in plain words — not a copy of its "text".
+- The frame's "visual" must show what that frame's text says: if the text is a comparison, its kind is side_by_side or before_after.
+
 TEXT RULES: No exclamation marks, no hashtags, no emojis in "text" or "subtext" — plain, punchy text only.
 
 VISUAL DIRECTION — every story object gets a "visual" brief for its full-screen 9:16 background image:

@@ -258,6 +258,10 @@ export function AdMaker({ brandId, products }: AdMakerProps) {
   // scene/customScene already were.
   const [adPrompt, setAdPrompt] = useState("")
   const promptWriter = usePromptWriter(setAdPrompt)
+  // Whatever the user had typed into the scene field before the writer
+  // first ran -- their own direction, sent separately from the AI-expanded
+  // adPrompt (which is only used for a variation with no brief of its own).
+  const adPromptSeedRef = useRef<string | null>(null)
 
   // Step 3
   const [hookText, setHookText] = useState("")
@@ -349,6 +353,7 @@ export function AdMaker({ brandId, products }: AdMakerProps) {
     // it's the write-then-confirm gate re-firing (see the useEffect below
     // and handleGenerate's own fallback) vs. an explicit Rewrite click.
     const isFirstWrite = promptWriter.stage === "idle"
+    if (isFirstWrite) adPromptSeedRef.current = adPrompt.trim() || null
     promptWriter.write({
       flow: "ad_maker",
       brandId,
@@ -543,6 +548,7 @@ export function AdMaker({ brandId, products }: AdMakerProps) {
         body: JSON.stringify({
           scene, customScene, format, productImageBase64: productDataUrl, customPrompt: adPrompt.trim() || undefined,
           productId: selectedProductId ?? undefined, hookText: hookText.trim() || undefined,
+          userDirection: (scene === "custom" ? customScene.trim() : "") || adPromptSeedRef.current || undefined,
         }),
       })
       const chargeJson: unknown = await readJsonResponse(chargeRes)
@@ -878,6 +884,7 @@ export function AdMaker({ brandId, products }: AdMakerProps) {
 
           <PromptWriterField
             label="AI scene prompt"
+            placeholder="Used only for a variation that has no visual brief of its own -- each variation normally follows its own brief, set in the scene you picked"
             prompt={adPrompt}
             onChange={setAdPrompt}
             stage={promptWriter.stage}
