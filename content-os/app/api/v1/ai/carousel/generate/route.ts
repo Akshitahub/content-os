@@ -17,6 +17,7 @@ import { withDeadline, DeadlineExceededError, GENERATION_TIMED_OUT_MESSAGE } fro
 import { getActiveLessons } from "@/lib/ai/brand-brain"
 import { recordContentEvent } from "@/lib/usage/content-events"
 import { gateEventMeta } from "@/lib/ai/quality-gate"
+import { layoutCarouselText, overflowingSlides } from "@/lib/design/slide-text-layout"
 
 const schema = z.object({
   brandId: z.string().uuid(),
@@ -322,7 +323,17 @@ async function handlePost(request: Request, timer: GenerationTimer) {
     } catch (persistErr) {
       console.error("[ai/carousel/generate] persist failed (non-fatal):", persistErr)
     }
-    recordContentEvent(supabase, { userId: user.id, brandId, contentType: "carousel", contentId: carouselId, event: "generated", meta: { model: gen.model, cost_usd: gen.costUsd, ...gateEventMeta(gen.gate) } })
+    // Slides whose text only fits past the compositor's smallest size
+    // (lib/design/slide-text-layout.ts) -- the builder shows the same notice.
+    const textOverflow = overflowingSlides(mergedSlides as Record<string, unknown>[], (s) => layoutCarouselText({
+      type: s.type as "cover" | "content" | "cta",
+      headline: String(s.headline ?? ""),
+      subtext: s.type === "cover" ? (s.subtext as string | undefined) : undefined,
+      points: s.type === "content" ? (s.points as string[] | undefined) : undefined,
+      ctaText: s.type === "cta" ? (s.cta as string | undefined) : undefined,
+      ctaHandle: s.type === "cta" ? (s.handle as string | undefined) : undefined,
+    }).overflow)
+    recordContentEvent(supabase, { userId: user.id, brandId, contentType: "carousel", contentId: carouselId, event: "generated", meta: { model: gen.model, cost_usd: gen.costUsd, ...gateEventMeta(gen.gate), ...(textOverflow.length ? { text_overflow: true, text_overflow_slides: textOverflow.map((i) => i + 1) } : {}) } })
 
     // slides returned to the client is the same merged array now saved to
     // the row -- CarouselBuilder.tsx's own withCtaSlideMerged() sees the

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef, useMemo } from "react"
 import { Loader2, Download, Copy, Check, RefreshCw, AlertCircle, Image, Upload, X, Plus, Minus, Palette, Move, Type, ListChecks } from "lucide-react"
 import { resolveFonts, DEFAULT_FONT_ID, TEXT_SIZE_OPTIONS, DEFAULT_TEXT_SIZE_SCALE } from "@/lib/design/fonts"
 import { PREVIEW_FONT_CLASS } from "@/lib/design/preview-fonts"
@@ -25,6 +25,8 @@ import type { BrandRow } from "@/types/database"
 import Link from "next/link"
 import { readJsonResponse } from "@/lib/utils/read-json-response"
 import { runSlideBackgroundJobs, slideBackgroundErrorForStatus, type SlideBackgroundOutcome } from "@/lib/utils/slide-backgrounds"
+import { backingRgba, scrimRgba, type TextStyle } from "@/lib/design/text-style"
+import { overflowingSlides, storySlideOverflows } from "@/lib/design/slide-text-layout"
 
 // ─── Story background gradients ────────────────────────────────────────────────
 
@@ -100,6 +102,7 @@ function toExportSlide(story: StorySlide, productImageSource: string | null | un
     checklist_highlighted_phrase: story.checklist_highlighted_phrase,
     checklist_wrong_item: story.checklist_wrong_item,
     checklist_right_item: story.checklist_right_item,
+    text_style: story.background_image_url ? story.text_style : null,
   }
 }
 
@@ -187,12 +190,12 @@ async function fetchSlideBackgroundResult(
       body: JSON.stringify({ brandId, vibe, role, productImageUrl: productImageUrl ?? undefined, textPosition, customPrompt: customPrompt || undefined, visualBrief, userDirection: userDirection || undefined }),
     })
     if (!res.ok) return { error: slideBackgroundErrorForStatus(res.status) }
-    const json = await readJsonResponse(res) as { data?: { public_url?: string; provider?: "openai" } }
+    const json = await readJsonResponse(res) as { data?: { public_url?: string; provider?: "openai"; text_style?: TextStyle | null } }
     // A public_url with no provider would be an incomplete/malformed
     // response -- treated the same as any other failure rather than
     // storing a background with an unknown provider (which PhoneStory's
     // "!== openai" overlay gating needs to be trustworthy either way).
-    return json.data?.public_url && json.data.provider ? { url: json.data.public_url, provider: json.data.provider } : { error: "failed" }
+    return json.data?.public_url && json.data.provider ? { url: json.data.public_url, provider: json.data.provider, text_style: json.data.text_style ?? null } : { error: "failed" }
   } catch {
     return { error: "failed" }
   }
@@ -294,8 +297,11 @@ function PhoneStory({
   // the way the flat STORY_BG swatches can, so text always goes
   // white-on-scrim instead of following the slide's normal light/dark
   // text pairing.
-  const textColor = hasBg || customBg ? "text-white" : s.text
-  const subColor = hasBg || customBg ? "text-white/70" : s.sub
+  // An AI photo with a text_style uses its measured treatment instead (the
+  // same values the compositor draws, so preview = export).
+  const textStyle = hasBg ? story.text_style ?? null : null
+  const textColor = textStyle ? (textStyle.text_color === "light" ? "text-white" : "text-gray-900") : hasBg || customBg ? "text-white" : s.text
+  const subColor = textStyle ? (textStyle.text_color === "light" ? "text-white/85" : "text-gray-900/85") : hasBg || customBg ? "text-white/70" : s.sub
   // Exact user-picked hex, applied as an inline style (not a Tailwind
   // class -- it's an arbitrary value) so it overrides textColor/subColor
   // above via normal CSS cascade rather than replacing them outright.
@@ -386,7 +392,9 @@ function PhoneStory({
         >
           {/* Dark scrim so text stays readable over an AI-generated or
            * custom color/gradient background. */}
-          {(hasBg || customBg) && (
+          {textStyle ? (
+            <div className="absolute inset-0 z-0" style={{ background: scrimRgba(textStyle) }} />
+          ) : (hasBg || customBg) && (
             <div className="absolute inset-0 z-0 bg-gradient-to-t from-black/75 via-black/25 to-black/45" />
           )}
 
@@ -458,8 +466,11 @@ function PhoneStory({
               // from x=50 (confirmed live). Capped by maxWidth so long
               // text still wraps instead of overflowing the frame.
               width: "max-content",
-              maxWidth: "calc(100% - 32px)",
+              // 6% safe edge on each side.
+              maxWidth: "88%",
               touchAction: "none",
+              // Soft panel behind the text over a busy photo (text_style.needs_backing).
+              ...(textStyle?.needs_backing ? { background: backingRgba(textStyle), borderRadius: 12, paddingBottom: 8 } : {}),
             }}
           >
             {/* Drag handle -- deliberately separate from the text itself
@@ -712,6 +723,7 @@ export function StorySequence({ brandId }: { brandId: string }) {
   const [error, setError] = useState("")
   const [apiError, setApiError] = useState<unknown>(null)
   const [stories, setStories] = useState<StorySlide[]>([])
+  const overflowStories = useMemo(() => overflowingSlides(stories, storySlideOverflows), [stories])
   const [storyCaption, setStoryCaption] = useState<StoryCaption | null>(null)
   const [showCaptionEditor, setShowCaptionEditor] = useState(false)
   const [allCopied, setAllCopied] = useState(false)
@@ -949,7 +961,7 @@ export function StorySequence({ brandId }: { brandId: string }) {
     if (succeeded.size > 0) {
       setStories((prev) => prev.map((s, i) => {
         const bg = succeeded.get(i)
-        return bg ? { ...s, background_image_url: bg.url, background_image_provider: bg.provider } : s
+        return bg ? { ...s, background_image_url: bg.url, background_image_provider: bg.provider, text_style: bg.text_style ?? null } : s
       }))
     }
     return true
@@ -1404,6 +1416,14 @@ export function StorySequence({ brandId }: { brandId: string }) {
               <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
               {bodyBgWarning}
             </div>
+          )}
+
+          {/* Non-blocking: the export keeps every word at a smaller size.
+              Same layout math as the compositor (lib/design/slide-text-layout.ts). */}
+          {overflowStories.length > 0 && !loading && (
+            <p className="text-xs text-amber-700">
+              {overflowStories.length === 1 ? `Slide ${overflowStories[0]! + 1} text is long` : `Slides ${overflowStories.map((i) => i + 1).join(", ")} have long text`} — consider shortening.
+            </p>
           )}
 
           {/* Story previews */}

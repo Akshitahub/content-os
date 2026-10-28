@@ -280,6 +280,9 @@ export const generateAdMakerBackgroundSchema = z.object({
     .max(200, "Headline text is too long")
     .optional()
     .transform((val) => val?.replace(/<[^>]*>/g, "").trim()),
+  // Where the on-image text sits -- the region each variation's text_style
+  // is measured over. Older clients omit it (top, AdMaker's default).
+  textPosition: z.enum(["top", "center", "bottom"]).optional(),
 })
 
 export type GenerateAdMakerBackgroundInput = z.infer<typeof generateAdMakerBackgroundSchema>

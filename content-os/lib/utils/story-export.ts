@@ -6,6 +6,7 @@
 // baked in. Used by both "Save as PNG" and the real Zernio schedule/
 // publish path (ScheduleAction.tsx) -- the one thing that actually reaches
 // real Instagram stories.
+import type { TextStyle } from "@/lib/design/text-style"
 
 export interface StoryExportSlide {
   type: "hook" | "reveal" | "buildup" | "cta"
@@ -52,6 +53,8 @@ export interface StoryExportSlide {
   font_id?: string | null
   /** The brand's body font -- see the compositor's body_font_id. */
   body_font_id?: string | null
+  /** How to draw text over background_image_url -- see the compositor's text_style. */
+  text_style?: TextStyle | null
   /** Uniform font-size multiplier for this slide -- see
    * StorySlide.text_size_scale's own comment. */
   text_size_scale?: number | null

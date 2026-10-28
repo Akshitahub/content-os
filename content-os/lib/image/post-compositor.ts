@@ -9,6 +9,8 @@ import type { PostTemplateId } from "@/lib/design/post-templates"
 import type { ColorTheme } from "@/lib/design/color-themes"
 import { CURATED_FONTS, DEFAULT_FONT_ID, findFont } from "@/lib/design/fonts"
 import { sanitizeTextForCompositing } from "@/lib/image/sanitize-text-for-compositing"
+import { BACKING_OPACITY, type TextStyle } from "@/lib/design/text-style"
+import { TEXT_OVERFLOW_WARNING, type SlideWarning } from "@/lib/design/slide-text-layout"
 
 // Matches lib/ai/post-image-pipeline.ts's PORTRAIT_DIMENSIONS (4:5, the
 // current Instagram feed default) — width unchanged from the old square
@@ -159,6 +161,8 @@ interface FitTextResult {
   fontSize: number
   lineHeight: number
   blockHeight: number
+  /** At the floor and still past the height budget -- every line is kept anyway. */
+  overflow: boolean
 }
 
 /**
@@ -173,7 +177,10 @@ interface FitTextResult {
  * getting cropped at the SVG edge. Only at the font-size floor, and only
  * if a line is still too wide even then, does this force a hard
  * character-level break on that line (breakLineToWidth) — better a break
- * than an off-canvas crop. No headline content is ever silently dropped.
+ * than an off-canvas crop. No headline content is ever silently dropped:
+ * text still too tall at the floor keeps all its lines and is flagged
+ * `overflow` (reported as a "text_overflow" warning) instead of the old
+ * slice to the line budget, which cut the end of the headline off.
  */
 function fitText(font: fontkit.Font, text: string, opts: FitTextOptions): FitTextResult {
   const shrinkFactor = opts.shrinkFactor ?? 0.9
@@ -194,10 +201,8 @@ function fitText(font: fontkit.Font, text: string, opts: FitTextOptions): FitTex
         finalLines = finalLines.flatMap((line) => breakLineToWidth(font, line, fontSize, opts.maxWidthPx))
       }
       const maxLinesAtFloor = Math.max(1, Math.floor(maxBlockHeightPx / lineHeight))
-      if (atFloor && finalLines.length > maxLinesAtFloor) {
-        finalLines = finalLines.slice(0, maxLinesAtFloor)
-      }
-      return { lines: finalLines, fontSize, lineHeight, blockHeight: finalLines.length * lineHeight }
+      const overflow = atFloor && finalLines.length > maxLinesAtFloor
+      return { lines: finalLines, fontSize, lineHeight, blockHeight: finalLines.length * lineHeight, overflow }
     }
 
     fontSize = Math.max(opts.minFontSize, Math.round(fontSize * shrinkFactor))
@@ -216,14 +221,33 @@ function textEl(x: string, y: number, anchor: string, fontSize: number, text: st
 interface OverlayResult {
   svg: string
   logoBox: { x: number; y: number; size: number } | null
+  overflow: boolean
 }
 
-function buildBoldStatement(captionText: string, theme: ColorTheme, font: fontkit.Font, hasLogo: boolean, scale: number): OverlayResult {
-  const { lines, fontSize, lineHeight, blockHeight } = fitText(font, captionText.toUpperCase(), {
+// text_style (lib/design/text-style.ts) for a template: the scrim strength
+// the photo actually needs at the text (never below `floor`, which keeps
+// each template's look), or the template's own fixed value without one.
+// Post text is always white, so the style is computed with preferLight.
+function scrimStrength(style: TextStyle | null, fixed: number, floor = 0.25): number {
+  return style ? Math.max(floor, style.scrim_opacity) : fixed
+}
+
+// Soft panel behind the text lines when the region is busy.
+function backingPanel(style: TextStyle | null, x: number, y: number, w: number, h: number): string {
+  if (!style?.needs_backing) return ""
+  return `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="24" fill="#000000" fill-opacity="${BACKING_OPACITY}"/>`
+}
+
+// 6% safe edge on the 1080-wide canvas: text and badges stay inside it.
+const SAFE_X = Math.round(CANVAS_WIDTH * 0.06)
+const SAFE_TEXT_WIDTH = CANVAS_WIDTH - SAFE_X * 2
+
+function buildBoldStatement(captionText: string, theme: ColorTheme, font: fontkit.Font, hasLogo: boolean, scale: number, style: TextStyle | null): OverlayResult {
+  const { lines, fontSize, lineHeight, blockHeight, overflow } = fitText(font, captionText.toUpperCase(), {
     startFontSize: 92 * scale,
     minFontSize: MIN_HEADLINE_FONT_SIZE,
     lineHeightMultiplier: 1.12,
-    maxWidthPx: 960,
+    maxWidthPx: SAFE_TEXT_WIDTH,
     maxLines: 4,
   })
   // 950 = 760 * (CANVAS_HEIGHT / 1080) — proportionally rescaled from the
@@ -235,26 +259,32 @@ function buildBoldStatement(captionText: string, theme: ColorTheme, font: fontki
 
   const textSvg = lines.map((line, i) => textEl("50%", startY + i * lineHeight, "middle", fontSize, line)).join("")
 
+  // With a text_style the gradient reaches the needed strength by the top
+  // of the text instead of only at the bottom edge.
+  const strength = scrimStrength(style, 0.78)
+  const midStop = style ? `<stop offset="45%" stop-color="#000000" stop-opacity="${strength}"/>` : ""
   const svg = `
     <defs>
       <linearGradient id="scrim" x1="0" y1="0" x2="0" y2="1">
         <stop offset="0%" stop-color="#000000" stop-opacity="0"/>
-        <stop offset="100%" stop-color="#000000" stop-opacity="0.78"/>
+        ${midStop}
+        <stop offset="100%" stop-color="#000000" stop-opacity="${strength}"/>
       </linearGradient>
     </defs>
     <rect x="0" y="575" width="${CANVAS_WIDTH}" height="${CANVAS_HEIGHT - 575}" fill="url(#scrim)"/>
+    ${backingPanel(style, SAFE_X - 20, startY - fontSize * 0.8 - 28, SAFE_TEXT_WIDTH + 40, blockHeight + 56)}
     ${textSvg}
     ${hasLogo ? `<circle cx="106" cy="106" r="50" fill="#ffffff" fill-opacity="0.92"/>` : ""}
   `
-  return { svg, logoBox: { x: 66, y: 66, size: 80 } }
+  return { svg, logoBox: { x: 66, y: 66, size: 80 }, overflow }
 }
 
-function buildProductFocus(captionText: string, theme: ColorTheme, font: fontkit.Font, hasLogo: boolean, scale: number): OverlayResult {
-  const { lines, fontSize, lineHeight } = fitText(font, captionText.toUpperCase(), {
+function buildProductFocus(captionText: string, theme: ColorTheme, font: fontkit.Font, hasLogo: boolean, scale: number, style: TextStyle | null): OverlayResult {
+  const { lines, fontSize, lineHeight, blockHeight, overflow } = fitText(font, captionText.toUpperCase(), {
     startFontSize: 62 * scale,
     minFontSize: MIN_HEADLINE_FONT_SIZE,
     lineHeightMultiplier: 1.15,
-    maxWidthPx: 960,
+    maxWidthPx: SAFE_TEXT_WIDTH,
     maxLines: 3,
   })
   // 1000 = 800 * (CANVAS_HEIGHT / 1080) — proportionally rescaled from the
@@ -268,28 +298,31 @@ function buildProductFocus(captionText: string, theme: ColorTheme, font: fontkit
   // chrome regardless of caption text — previously also held CTA text
   // (right-anchored next to the logo), now just the solid color band and
   // logo, since there's no second text field left to put there.
+  const strength = scrimStrength(style, 0.55)
   const svg = `
     <defs>
       <linearGradient id="scrim" x1="0" y1="0" x2="0" y2="1">
         <stop offset="0%" stop-color="#000000" stop-opacity="0"/>
-        <stop offset="100%" stop-color="#000000" stop-opacity="0.55"/>
+        <stop offset="${style ? 50 : 100}%" stop-color="#000000" stop-opacity="${strength}"/>
+        <stop offset="100%" stop-color="#000000" stop-opacity="${strength}"/>
       </linearGradient>
     </defs>
     <rect x="0" y="725" width="${CANVAS_WIDTH}" height="${bandTop - 725}" fill="url(#scrim)"/>
+    ${backingPanel(style, SAFE_X - 20, textY - fontSize * 0.8 - 24, SAFE_TEXT_WIDTH + 40, blockHeight + 48)}
     ${textSvg}
     <rect x="0" y="${bandTop}" width="${CANVAS_WIDTH}" height="${CANVAS_HEIGHT - bandTop}" fill="${theme.primary}"/>
     <rect x="0" y="${bandTop}" width="${CANVAS_WIDTH}" height="${CANVAS_HEIGHT - bandTop}" fill="#000000" fill-opacity="0.12"/>
     ${hasLogo ? `<circle cx="106" cy="${bandTop + (CANVAS_HEIGHT - bandTop) / 2}" r="42" fill="#ffffff" fill-opacity="0.92"/>` : ""}
   `
-  return { svg, logoBox: { x: 71, y: bandTop + (CANVAS_HEIGHT - bandTop) / 2 - 35, size: 70 } }
+  return { svg, logoBox: { x: 71, y: bandTop + (CANVAS_HEIGHT - bandTop) / 2 - 35, size: 70 }, overflow }
 }
 
-function buildQuoteCard(captionText: string, theme: ColorTheme, font: fontkit.Font, hasLogo: boolean, scale: number): OverlayResult {
-  const { lines, fontSize, lineHeight, blockHeight } = fitText(font, captionText, {
+function buildQuoteCard(captionText: string, theme: ColorTheme, font: fontkit.Font, hasLogo: boolean, scale: number, style: TextStyle | null): OverlayResult {
+  const { lines, fontSize, lineHeight, blockHeight, overflow } = fitText(font, captionText, {
     startFontSize: 72 * scale,
     minFontSize: MIN_HEADLINE_FONT_SIZE,
     lineHeightMultiplier: 1.2,
-    maxWidthPx: 940,
+    maxWidthPx: Math.min(940, SAFE_TEXT_WIDTH),
     maxLines: 4,
   })
   const startY = CANVAS_HEIGHT / 2 - blockHeight / 2 + fontSize * 0.75
@@ -301,22 +334,23 @@ function buildQuoteCard(captionText: string, theme: ColorTheme, font: fontkit.Fo
   const ctaBarHeight = 130
 
   const svg = `
-    <rect x="0" y="0" width="${CANVAS_WIDTH}" height="${CANVAS_HEIGHT}" fill="#000000" fill-opacity="0.38"/>
+    <rect x="0" y="0" width="${CANVAS_WIDTH}" height="${CANVAS_HEIGHT}" fill="#000000" fill-opacity="${scrimStrength(style, 0.38)}"/>
+    ${backingPanel(style, SAFE_X - 20, startY - fontSize * 0.75 - 28, SAFE_TEXT_WIDTH + 40, blockHeight + 56)}
     <text x="90" y="${startY - blockHeight - 20}" font-family="PostFont, sans-serif" font-weight="900" font-size="220" fill="${theme.secondary}" fill-opacity="0.5">&#8220;</text>
     ${textSvg}
     <rect x="0" y="${CANVAS_HEIGHT - ctaBarHeight}" width="${CANVAS_WIDTH}" height="${ctaBarHeight}" fill="#000000" fill-opacity="0.3"/>
     ${hasLogo ? `<circle cx="${CANVAS_WIDTH / 2}" cy="${CANVAS_HEIGHT - 65}" r="30" fill="#ffffff" fill-opacity="0.9"/>` : ""}
   `
-  return { svg, logoBox: { x: CANVAS_WIDTH / 2 - 30, y: CANVAS_HEIGHT - 95, size: 60 } }
+  return { svg, logoBox: { x: CANVAS_WIDTH / 2 - 30, y: CANVAS_HEIGHT - 95, size: 60 }, overflow }
 }
 
-function buildMinimal(captionText: string, theme: ColorTheme, font: fontkit.Font, hasLogo: boolean, scale: number): OverlayResult {
+function buildMinimal(captionText: string, theme: ColorTheme, font: fontkit.Font, hasLogo: boolean, scale: number, style: TextStyle | null): OverlayResult {
   const padX = 70
-  const { lines, fontSize, lineHeight, blockHeight } = fitText(font, captionText.toUpperCase(), {
+  const { lines, fontSize, lineHeight, blockHeight, overflow } = fitText(font, captionText.toUpperCase(), {
     startFontSize: 54 * scale,
     minFontSize: MIN_HEADLINE_FONT_SIZE,
     lineHeightMultiplier: 1.15,
-    maxWidthPx: CANVAS_WIDTH - padX - 60,
+    maxWidthPx: CANVAS_WIDTH - padX - SAFE_X,
     maxLines: 3,
   })
 
@@ -326,7 +360,8 @@ function buildMinimal(captionText: string, theme: ColorTheme, font: fontkit.Font
   const topPad = 40
   const barHeight = 4
   const gapBarToText = 30
-  const bottomPad = 34
+  // The box runs to the bottom edge; its text stays above the 6% safe edge.
+  const bottomPad = Math.round(CANVAS_HEIGHT * 0.06)
 
   const textTop = topPad + barHeight + gapBarToText
   const textFirstBaseline = textTop + fontSize * 0.8
@@ -338,12 +373,12 @@ function buildMinimal(captionText: string, theme: ColorTheme, font: fontkit.Font
     .join("")
 
   const svg = `
-    <rect x="0" y="${boxY}" width="${CANVAS_WIDTH}" height="${boxHeight}" fill="#000000" fill-opacity="0.42"/>
+    <rect x="0" y="${boxY}" width="${CANVAS_WIDTH}" height="${boxHeight}" fill="#000000" fill-opacity="${style?.needs_backing ? Math.max(BACKING_OPACITY, style.scrim_opacity) : scrimStrength(style, 0.42, 0.42)}"/>
     <rect x="${padX}" y="${boxY + topPad}" width="52" height="${barHeight}" fill="${theme.primary}"/>
     ${textSvg}
-    ${hasLogo ? `<rect x="${CANVAS_WIDTH - 130}" y="50" width="70" height="70" rx="12" fill="#ffffff" fill-opacity="0.9"/>` : ""}
+    ${hasLogo ? `<rect x="${CANVAS_WIDTH - SAFE_X - 70}" y="${SAFE_X}" width="70" height="70" rx="12" fill="#ffffff" fill-opacity="0.9"/>` : ""}
   `
-  return { svg, logoBox: { x: CANVAS_WIDTH - 122, y: 58, size: 54 } }
+  return { svg, logoBox: { x: CANVAS_WIDTH - SAFE_X - 62, y: SAFE_X + 8, size: 54 }, overflow }
 }
 
 // ─── Hard Truth Checklist ───────────────────────────────────────────────
@@ -429,7 +464,7 @@ function buildHardTruthChecklist(content: HardTruthChecklistContent, theme: Colo
   const padX = 90
   const maxTextWidth = CANVAS_WIDTH - padX * 2
 
-  const { lines: headlineLines, fontSize: headlineFontSize, lineHeight: headlineLineHeight } = fitText(font, content.headline, {
+  const { lines: headlineLines, fontSize: headlineFontSize, lineHeight: headlineLineHeight, overflow: headlineOverflow } = fitText(font, content.headline, {
     startFontSize: 62 * scale,
     minFontSize: MIN_HEADLINE_FONT_SIZE,
     lineHeightMultiplier: 1.2,
@@ -498,9 +533,9 @@ function buildHardTruthChecklist(content: HardTruthChecklistContent, theme: Colo
     <g transform="translate(${padX}, 0)">${wrongResult.svg}${rightResult.svg}</g>
     ${closingText ? `<line x1="${padX}" y1="${dividerY}" x2="${CANVAS_WIDTH - padX}" y2="${dividerY}" stroke="${CHECKLIST_INK_COLOR}" stroke-opacity="0.15" stroke-width="2"/>` : ""}
     ${closingSvg}
-    ${hasLogo ? `<rect x="${CANVAS_WIDTH - 130}" y="50" width="70" height="70" rx="12" fill="#ffffff" stroke="${CHECKLIST_INK_COLOR}" stroke-opacity="0.1" stroke-width="1"/>` : ""}
+    ${hasLogo ? `<rect x="${CANVAS_WIDTH - SAFE_X - 70}" y="${SAFE_X}" width="70" height="70" rx="12" fill="#ffffff" stroke="${CHECKLIST_INK_COLOR}" stroke-opacity="0.1" stroke-width="1"/>` : ""}
   `
-  return { svg, logoBox: { x: CANVAS_WIDTH - 122, y: 58, size: 54 } }
+  return { svg, logoBox: { x: CANVAS_WIDTH - SAFE_X - 62, y: SAFE_X + 8, size: 54 }, overflow: headlineOverflow || !!closingFit?.overflow }
 }
 
 async function fetchLogoBuffer(logoUrl: string): Promise<Buffer | null> {
@@ -534,6 +569,10 @@ export interface CompositePostImageOptions {
    * glyph widths and shrinks back down to MIN_HEADLINE_FONT_SIZE if a
    * scaled-up size doesn't fit, so this can't overflow the template's box. */
   textSizeScale?: number
+  /** From the base image (lib/image/text-contrast.ts, preferLight) -- sets
+   * each template's scrim strength and backing panel. Absent = the fixed
+   * per-template scrims. */
+  textStyle?: TextStyle | null
 }
 
 /**
@@ -553,8 +592,16 @@ export async function compositePostImage(
   baseImageBuffer: Buffer,
   options: CompositePostImageOptions
 ): Promise<Buffer> {
+  return (await compositePostImageWithWarnings(baseImageBuffer, options)).buffer
+}
+
+/** compositePostImage plus its warnings ("text_overflow"). */
+export async function compositePostImageWithWarnings(
+  baseImageBuffer: Buffer,
+  options: CompositePostImageOptions
+): Promise<{ buffer: Buffer; warnings: SlideWarning[] }> {
   if (options.template === "blank") {
-    return sharp(baseImageBuffer).png().toBuffer()
+    return { buffer: await sharp(baseImageBuffer).png().toBuffer(), warnings: [] }
   }
 
   // Sanitized right here, immediately before it flows into any of the
@@ -580,7 +627,7 @@ export async function compositePostImage(
   const fontId = options.fontId ?? DEFAULT_FONT_ID
   const font = await getFont(fontId)
   const scale = options.textSizeScale ?? 1.0
-  const { svg: overlaySvg, logoBox } = builder(captionText, options.colorTheme, font, hasLogo, scale)
+  const { svg: overlaySvg, logoBox, overflow } = builder(captionText, options.colorTheme, font, hasLogo, scale, options.textStyle ?? null)
   const svg = `<svg width="${CANVAS_WIDTH}" height="${CANVAS_HEIGHT}" xmlns="http://www.w3.org/2000/svg">${overlaySvg}</svg>`
 
   const fontPath = await getFontPath(fontId)
@@ -612,11 +659,12 @@ export async function compositePostImage(
     }
   }
 
-  return sharp(baseImageBuffer)
+  const buffer = await sharp(baseImageBuffer)
     .resize(CANVAS_WIDTH, CANVAS_HEIGHT, { fit: "cover" })
     .composite(layers)
     .png()
     .toBuffer()
+  return { buffer, warnings: overflow ? [TEXT_OVERFLOW_WARNING] : [] }
 }
 
 export interface CompositeHardTruthChecklistOptions {
@@ -640,6 +688,11 @@ export interface CompositeHardTruthChecklistOptions {
  * template never spends a photo-generation credit.
  */
 export async function compositeHardTruthChecklist(options: CompositeHardTruthChecklistOptions): Promise<Buffer> {
+  return (await compositeHardTruthChecklistWithWarnings(options)).buffer
+}
+
+/** compositeHardTruthChecklist plus its warnings ("text_overflow"). */
+export async function compositeHardTruthChecklistWithWarnings(options: CompositeHardTruthChecklistOptions): Promise<{ buffer: Buffer; warnings: SlideWarning[] }> {
   const hasLogo = !!options.logoUrl
   const fontId = options.fontId ?? DEFAULT_FONT_ID
   const font = await getFont(fontId)
@@ -656,7 +709,8 @@ export async function compositeHardTruthChecklist(options: CompositeHardTruthChe
     closingLine: options.closingLine?.trim() ? sanitizeTextForCompositing(options.closingLine.trim()) : null,
   }
 
-  const { svg: overlaySvg, logoBox } = buildHardTruthChecklist(content, options.colorTheme, font, hasLogo, scale)
+  const { svg: overlaySvg, logoBox, overflow } = buildHardTruthChecklist(content, options.colorTheme, font, hasLogo, scale)
+  const warnings: SlideWarning[] = overflow ? [TEXT_OVERFLOW_WARNING] : []
   const svg = `<svg width="${CANVAS_WIDTH}" height="${CANVAS_HEIGHT}" xmlns="http://www.w3.org/2000/svg">${overlaySvg}</svg>`
 
   const fontPath = await getFontPath(fontId)
@@ -666,24 +720,25 @@ export async function compositeHardTruthChecklist(options: CompositeHardTruthChe
   const rendered = resvg.render().asPng()
 
   if (!options.logoUrl || !logoBox) {
-    return sharp(rendered).png().toBuffer()
+    return { buffer: await sharp(rendered).png().toBuffer(), warnings }
   }
 
   const logoBuffer = await fetchLogoBuffer(options.logoUrl)
-  if (!logoBuffer) return sharp(rendered).png().toBuffer()
+  if (!logoBuffer) return { buffer: await sharp(rendered).png().toBuffer(), warnings }
 
   try {
     const resizedLogo = await sharp(logoBuffer)
       .resize(logoBox.size, logoBox.size, { fit: "contain", background: { r: 0, g: 0, b: 0, alpha: 0 } })
       .png()
       .toBuffer()
-    return sharp(rendered)
+    const buffer = await sharp(rendered)
       .composite([{ input: resizedLogo, top: Math.round(logoBox.y), left: Math.round(logoBox.x) }])
       .png()
       .toBuffer()
+    return { buffer, warnings }
   } catch {
     // Malformed/unreadable logo file — skip it rather than fail the whole
     // composite over a decorative element.
-    return sharp(rendered).png().toBuffer()
+    return { buffer: await sharp(rendered).png().toBuffer(), warnings }
   }
 }

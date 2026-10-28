@@ -10,6 +10,11 @@ import { CURATED_FONTS, DEFAULT_FONT_ID, FONT_FAMILY_NAME, findFont } from "@/li
 import type { FontId } from "@/lib/design/fonts"
 import type { BrandRow } from "@/types/database"
 import { sanitizeTextForCompositing } from "@/lib/image/sanitize-text-for-compositing"
+import { TEXT_STYLE_PALETTE, backingRgba, type TextStyle } from "@/lib/design/text-style"
+import {
+  CAROUSEL_BRAND_BASELINE, SAFE_EDGE_RATIO, TEXT_OVERFLOW_WARNING, clampBlockTop, estimateBlockWidth, fitTextStack,
+  layoutCarouselText, type FittedBlock, type SlideWarning,
+} from "@/lib/design/slide-text-layout"
 
 const CANVAS_SIZE = 1080
 
@@ -42,23 +47,6 @@ function escapeXml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;")
 }
 
-function wrapText(text: string, maxCharsPerLine: number, maxLines: number): string[] {
-  const words = text.trim().split(/\s+/).filter(Boolean)
-  const lines: string[] = []
-  let current = ""
-  for (const word of words) {
-    const candidate = current ? `${current} ${word}` : word
-    if (candidate.length > maxCharsPerLine && current) {
-      lines.push(current)
-      current = word
-    } else {
-      current = candidate
-    }
-  }
-  if (current) lines.push(current)
-  return lines.slice(0, maxLines)
-}
-
 function textLines(lines: string[], startY: number, lineHeight: number, fontSize: number, color: string, weight: number, xAttr: string = "50%", family: string = "CarouselFont, sans-serif"): string {
   return lines
     .map((line, i) => `<text x="${xAttr}" y="${startY + i * lineHeight}" text-anchor="middle" font-family="${family}" font-weight="${weight}" font-size="${fontSize}" fill="${color}">${escapeXml(line)}</text>`)
@@ -82,7 +70,7 @@ interface SlideRenderParams {
 // get a white background with the headline in the brand's primary color —
 // same visual language, rebuilt as SVG so it can be rasterized via resvg
 // instead of requiring an HTML/CSS renderer this app doesn't have.
-function buildSlideSvg(params: SlideRenderParams): string {
+function buildSlideSvg(params: SlideRenderParams): { svg: string; overflow: boolean } {
   const { index, total, isCover, isLast, primary, secondary } = params
   // Sanitized right here, before any length-based sizing/wrapping (below)
   // or <text> element uses these -- see sanitize-text-for-compositing.ts's
@@ -101,35 +89,32 @@ function buildSlideSvg(params: SlideRenderParams): string {
   const brandColor = useGradient ? "rgba(255,255,255,0.5)" : "#bbbbbb"
   const numColor = useGradient ? "rgba(255,255,255,0.45)" : "#dddddd"
 
-  const numSvg = `<text x="${CANVAS_SIZE - 52}" y="70" text-anchor="end" font-family="CarouselFont, sans-serif" font-weight="400" font-size="22" fill="${numColor}">${index + 1} / ${total}</text>`
-  const swipeSvg = `<text x="${CANVAS_SIZE - 52}" y="70" text-anchor="end" font-family="CarouselFont, sans-serif" font-weight="400" font-size="20" fill="rgba(255,255,255,0.6)">SWIPE &#8594;</text>`
-  const brandSvg = `<text x="50%" y="${CANVAS_SIZE - 56}" text-anchor="middle" font-family="CarouselFont, sans-serif" font-weight="400" font-size="22" fill="${brandColor}">${escapeXml(brandName.toUpperCase())}</text>`
+  // Corner labels and the brand line sit on the 6% safe edge.
+  const edge = Math.round(CANVAS_SIZE * SAFE_EDGE_RATIO)
+  const numSvg = `<text x="${CANVAS_SIZE - edge}" y="${edge + 6}" text-anchor="end" font-family="CarouselFont, sans-serif" font-weight="400" font-size="22" fill="${numColor}">${index + 1} / ${total}</text>`
+  const swipeSvg = `<text x="${CANVAS_SIZE - edge}" y="${edge + 6}" text-anchor="end" font-family="CarouselFont, sans-serif" font-weight="400" font-size="20" fill="rgba(255,255,255,0.6)">SWIPE &#8594;</text>`
+  const brandSvg = `<text x="50%" y="${CANVAS_SIZE - edge}" text-anchor="middle" font-family="CarouselFont, sans-serif" font-weight="400" font-size="22" fill="${brandColor}">${escapeXml(brandName.toUpperCase())}</text>`
 
-  const headlineFontSize = headline.length < 40 ? 68 : headline.length < 80 ? 56 : 44
-  const headlineLines = wrapText(headline, isCover ? 20 : 18, 4)
-  const headlineLineHeight = headlineFontSize * 1.18
-
-  const bodyFontSize = 32
-  const bodyLineHeight = bodyFontSize * 1.5
-  const bodyLines = body ? wrapText(body, 42, 8) : []
-
-  const headlineBlockHeight = headlineLines.length * headlineLineHeight
-  const bodyBlockHeight = bodyLines.length * bodyLineHeight
-  const gap = bodyLines.length > 0 ? 40 : 0
-  const totalBlockHeight = headlineBlockHeight + gap + bodyBlockHeight
-
-  const blockStartY = CANVAS_SIZE / 2 - totalBlockHeight / 2
-  const headlineStartY = blockStartY + headlineFontSize * 0.85
-  const headlineSvg = textLines(headlineLines, headlineStartY, headlineLineHeight, headlineFontSize, headlineColor, 800)
-
-  const bodyStartY = blockStartY + headlineBlockHeight + gap + bodyFontSize * 0.85
-  const bodySvg = textLines(bodyLines, bodyStartY, bodyLineHeight, bodyFontSize, bodyColor, 400)
+  // Steps sizes down instead of dropping lines (lib/design/slide-text-layout.ts);
+  // the block stays between the top corner label and the brand line.
+  const headlineBase = headline.length < 40 ? 68 : headline.length < 80 ? 56 : 44
+  const top = edge + 40
+  const bottom = CANVAS_SIZE - edge - 48
+  const stack = fitTextStack([
+    { texts: [headline], baseSize: headlineBase, charsAtBase: isCover ? 20 : 18, maxLinesEach: 4, lineHeightMult: 1.18, gapBefore: 0, kind: "headline", maxWidthPx: CANVAS_SIZE - 2 * 90 },
+    { texts: [body], baseSize: 32, charsAtBase: 42, maxLinesEach: 8, lineHeightMult: 1.5, gapBefore: 40, kind: "body", maxWidthPx: CANVAS_SIZE - 2 * edge },
+  ], bottom - top)
+  const [head, bodyBlock] = stack.blocks as [FittedBlock, FittedBlock]
+  const blockStartY = clampBlockTop(CANVAS_SIZE / 2, stack.height, top, bottom)
+  const headlineSvg = textLines(head.lines.flat(), blockStartY + head.fontSize * 0.85, head.lineHeight, head.fontSize, headlineColor, 800)
+  const bodyStartY = blockStartY + head.height + bodyBlock.gap + bodyBlock.fontSize * 0.85
+  const bodySvg = textLines(bodyBlock.lines.flat(), bodyStartY, bodyBlock.lineHeight, bodyBlock.fontSize, bodyColor, 400)
 
   const seriesSvg = isCover
-    ? `<text x="90" y="${blockStartY - 40}" font-family="CarouselFont, sans-serif" font-weight="400" font-size="18" fill="rgba(255,255,255,0.6)">${escapeXml(`${total}-PART SERIES`)}</text>`
+    ? `<text x="90" y="${Math.max(edge + 18, blockStartY - 40)}" font-family="CarouselFont, sans-serif" font-weight="400" font-size="18" fill="rgba(255,255,255,0.6)">${escapeXml(`${total}-PART SERIES`)}</text>`
     : ""
 
-  return `<svg width="${CANVAS_SIZE}" height="${CANVAS_SIZE}" xmlns="http://www.w3.org/2000/svg">${bg}${isCover ? swipeSvg : numSvg}${seriesSvg}${headlineSvg}${bodySvg}${brandSvg}</svg>`
+  return { svg: `<svg width="${CANVAS_SIZE}" height="${CANVAS_SIZE}" xmlns="http://www.w3.org/2000/svg">${bg}${isCover ? swipeSvg : numSvg}${seriesSvg}${headlineSvg}${bodySvg}${brandSvg}</svg>`, overflow: stack.overflow }
 }
 
 export interface RenderCarouselSlidesOptions {
@@ -149,6 +134,11 @@ export interface RenderCarouselSlidesOptions {
  * (components/calendar/CalendarEntryPanel.tsx).
  */
 export async function renderCarouselSlidesToPng(options: RenderCarouselSlidesOptions): Promise<Buffer[]> {
+  return (await renderCarouselSlides(options)).map((r) => r.png)
+}
+
+/** renderCarouselSlidesToPng plus each slide's warnings ("text_overflow"). */
+export async function renderCarouselSlides(options: RenderCarouselSlidesOptions): Promise<{ png: Buffer; warnings: SlideWarning[] }[]> {
   const { brand, coverHook, slides } = options
   if (slides.length === 0) return []
 
@@ -166,7 +156,7 @@ export async function renderCarouselSlidesToPng(options: RenderCarouselSlidesOpt
       const isCover = i === 0
       const isLast = i === slides.length - 1
 
-      const svg = buildSlideSvg({
+      const { svg, overflow } = buildSlideSvg({
         index: i,
         total,
         isCover,
@@ -181,7 +171,7 @@ export async function renderCarouselSlidesToPng(options: RenderCarouselSlidesOpt
       const resvg = new Resvg(svg, {
         font: { fontFiles: [fontPath], loadSystemFonts: false, defaultFontFamily: "CarouselFont" },
       })
-      return resvg.render().asPng()
+      return { png: Buffer.from(resvg.render().asPng()), warnings: overflow ? [TEXT_OVERFLOW_WARNING] : [] }
     })
   )
 }
@@ -310,45 +300,20 @@ export interface CarouselCompositeSlide {
    * (lib/design/fonts.ts resolveTypography). Absent = font_id for all text. */
   body_font_id?: FontId | null
   /** Uniform multiplier applied to every font size this slide renders --
-   * 1.0 (default) reproduces the pre-existing fixed sizes exactly. See
-   * headlineStyleFor below for how this interacts with the per-length
-   * maxChars wrap budget to avoid overflow. */
+   * 1.0 (default) reproduces the pre-existing fixed sizes exactly; the
+   * shared layout (layoutCarouselText) scales the wrap budget inversely. */
   text_size_scale?: number | null
+  /** Computed once from image_url where it was generated (lib/image/
+   * text-contrast.ts). Absent = the old fixed gradient scrim + white text. */
+  text_style?: TextStyle | null
 }
-
-// scale multiplies every tier's font size directly and inversely shrinks
-// its maxChars wrap budget -- without that inverse adjustment, a larger
-// scale would keep wrapping at the same character count while rendering
-// wider, overflowing the canvas. This approximates the real per-pixel
-// width check post-compositor.ts's fitText() does (this compositor's
-// wrapText is char-count-based, not glyph-measured), while still
-// respecting the existing length-tiered "shrink for longer text" table.
-function headlineStyleFor(type: CarouselCompositeSlide["type"], text: string, scale: number): { fontSize: number; maxChars: number } {
-  // Roughly mirrors SlidePreview's text-3xl (cover) / text-xl (content) /
-  // text-2xl (cta) Tailwind classes, tiered by length the same way
-  // story-compositor.ts's headlineStyle already is -- not a pixel-exact
-  // CSS-to-SVG mapping (there isn't a meaningful one across two totally
-  // different renderers), just a visually equivalent real font scale.
-  const tiers = type === "cover"
-    ? [{ max: 20, size: 84 }, { max: 40, size: 68 }, { max: 70, size: 52 }, { max: Infinity, size: 40 }]
-    : type === "cta"
-      ? [{ max: 20, size: 62 }, { max: 40, size: 50 }, { max: 70, size: 40 }, { max: Infinity, size: 32 }]
-      : [{ max: 20, size: 54 }, { max: 40, size: 44 }, { max: 70, size: 36 }, { max: Infinity, size: 30 }]
-  const tier = tiers.find((t) => text.length < t.max) ?? tiers[tiers.length - 1]!
-  const maxChars = Math.round(tier.size < 45 ? 26 : tier.size < 60 ? 20 : 16)
-  return { fontSize: Math.round(tier.size * scale), maxChars: Math.max(6, Math.round(maxChars / scale)) }
-}
-
-const RICH_SUBTEXT_FONT_SIZE = 34
-const RICH_POINT_FONT_SIZE = 30
-const RICH_CTA_TEXT_FONT_SIZE = 34
-const RICH_CTA_HANDLE_FONT_SIZE = 30
-const RICH_MARGIN = 80
 
 /** Priority matches SlidePreview exactly: an AI photo beats a custom
  * color/gradient, which beats the named background_style. Photo and
- * custom-color both get the dark scrim; presets never do. */
-async function buildRichBackgroundLayer(slide: CarouselCompositeSlide): Promise<{ buffer: Buffer; textColor: string; subtextColor: string }> {
+ * custom-color both get a scrim; presets never do. A photo with a
+ * text_style gets that style's uniform scrim and text color instead of the
+ * fixed gradient (`styled` tells the overlay to honour needs_backing). */
+async function buildRichBackgroundLayer(slide: CarouselCompositeSlide): Promise<{ buffer: Buffer; textColor: string; subtextColor: string; styled: TextStyle | null }> {
   const preset = RICH_BG_PRESETS[slide.background_style ?? ""] ?? RICH_BG_PRESETS[RICH_DEFAULT_PRESET]!
   const customColors = (slide.custom_background_colors ?? []).filter(Boolean)
 
@@ -359,9 +324,15 @@ async function buildRichBackgroundLayer(slide: CarouselCompositeSlide): Promise<
       // No text in any of this function's SVGs (pure background shapes) --
       // the font choice is inconsequential here, DEFAULT_FONT_ID just needs
       // to point at a font file that's guaranteed to exist.
-      const scrimPng = await svgToRichPngBuffer(`<svg width="${RICH_CANVAS_WIDTH}" height="${RICH_CANVAS_HEIGHT}" xmlns="http://www.w3.org/2000/svg">${RICH_SCRIM_SVG}</svg>`, DEFAULT_FONT_ID)
+      const style = slide.text_style ?? null
+      const palette = style ? TEXT_STYLE_PALETTE[style.text_color] : null
+      const scrim = style && palette
+        ? `<rect width="${RICH_CANVAS_WIDTH}" height="${RICH_CANVAS_HEIGHT}" fill="rgb(${palette.scrimRgb})" fill-opacity="${style.scrim_opacity}"/>`
+        : RICH_SCRIM_SVG
+      const scrimPng = await svgToRichPngBuffer(`<svg width="${RICH_CANVAS_WIDTH}" height="${RICH_CANVAS_HEIGHT}" xmlns="http://www.w3.org/2000/svg">${scrim}</svg>`, DEFAULT_FONT_ID)
       const buffer = await sharp(base).composite([{ input: scrimPng, top: 0, left: 0 }]).png().toBuffer()
-      return { buffer, textColor: "#ffffff", subtextColor: "rgba(255,255,255,0.7)" }
+      if (style && palette) return { buffer, textColor: palette.text, subtextColor: palette.sub, styled: style }
+      return { buffer, textColor: "#ffffff", subtextColor: "rgba(255,255,255,0.7)", styled: null }
     }
     // Photo failed to fetch -- fall through to custom color / preset
     // rather than leaving the slide with no background at all.
@@ -370,13 +341,13 @@ async function buildRichBackgroundLayer(slide: CarouselCompositeSlide): Promise<
   if (customColors.length > 0) {
     const svg = `<svg width="${RICH_CANVAS_WIDTH}" height="${RICH_CANVAS_HEIGHT}" xmlns="http://www.w3.org/2000/svg">${richCustomBackgroundFill(customColors)}${RICH_SCRIM_SVG}</svg>`
     const buffer = await svgToRichPngBuffer(svg, DEFAULT_FONT_ID)
-    return { buffer, textColor: "#ffffff", subtextColor: "rgba(255,255,255,0.7)" }
+    return { buffer, textColor: "#ffffff", subtextColor: "rgba(255,255,255,0.7)", styled: null }
   }
 
   const [c1, c2, c3] = preset.stops
   const svg = `<svg width="${RICH_CANVAS_WIDTH}" height="${RICH_CANVAS_HEIGHT}" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="richPreset" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="${c1}"/><stop offset="50%" stop-color="${c2}"/><stop offset="100%" stop-color="${c3}"/></linearGradient></defs><rect width="${RICH_CANVAS_WIDTH}" height="${RICH_CANVAS_HEIGHT}" fill="url(#richPreset)"/></svg>`
   const buffer = await svgToRichPngBuffer(svg, DEFAULT_FONT_ID)
-  return { buffer, textColor: preset.text, subtextColor: preset.subtext }
+  return { buffer, textColor: preset.text, subtextColor: preset.subtext, styled: null }
 }
 
 /** Replicates SlidePreview's three per-type product-image placements
@@ -394,17 +365,17 @@ async function buildRichProductLayer(slide: CarouselCompositeSlide): Promise<{ i
       const w = Math.round(RICH_CANVAS_WIDTH * 0.42)
       const h = Math.round(RICH_CANVAS_HEIGHT * 0.58)
       const resized = await sharp(photo).resize(w, h, { fit: "contain", background: { r: 0, g: 0, b: 0, alpha: 0 } }).png().toBuffer()
-      return { input: resized, top: RICH_CANVAS_HEIGHT - h - Math.round(RICH_CANVAS_HEIGHT * 0.074), left: RICH_CANVAS_WIDTH - w - Math.round(RICH_CANVAS_WIDTH * 0.037) }
+      return { input: resized, top: RICH_CANVAS_HEIGHT - h - Math.round(RICH_CANVAS_HEIGHT * 0.074), left: RICH_CANVAS_WIDTH - w - Math.round(RICH_CANVAS_WIDTH * SAFE_EDGE_RATIO) }
     }
     if (slide.type === "content") {
       const size = Math.round(RICH_CANVAS_WIDTH * 0.22)
       const resized = await sharp(photo).resize(size, size, { fit: "contain", background: { r: 255, g: 255, b: 255, alpha: 0.12 } }).png().toBuffer()
-      return { input: resized, top: Math.round(RICH_CANVAS_HEIGHT * 0.028), left: RICH_CANVAS_WIDTH - size - Math.round(RICH_CANVAS_WIDTH * 0.028) }
+      return { input: resized, top: Math.round(RICH_CANVAS_HEIGHT * SAFE_EDGE_RATIO), left: RICH_CANVAS_WIDTH - size - Math.round(RICH_CANVAS_WIDTH * SAFE_EDGE_RATIO) }
     }
     // cta
     const size = Math.round(RICH_CANVAS_WIDTH * 0.36)
     const resized = await sharp(photo).resize(size, size, { fit: "contain", background: { r: 0, g: 0, b: 0, alpha: 0 } }).png().toBuffer()
-    return { input: resized, top: Math.round(RICH_CANVAS_HEIGHT * 0.056), left: Math.round((RICH_CANVAS_WIDTH - size) / 2) }
+    return { input: resized, top: Math.round(RICH_CANVAS_HEIGHT * SAFE_EDGE_RATIO), left: Math.round((RICH_CANVAS_WIDTH - size) / 2) }
   } catch {
     return null
   }
@@ -424,8 +395,7 @@ async function svgToRichPngBuffer(svg: string, fontId: string, bodyFontId?: stri
   return Buffer.from(resvg.render().asPng())
 }
 
-function buildRichTextOverlaySvg(slide: CarouselCompositeSlide, brandName: string, textColor: string, subtextColor: string): string {
-  const scale = slide.text_size_scale ?? 1.0
+function buildRichTextOverlaySvg(slide: CarouselCompositeSlide, brandName: string, textColor: string, subtextColor: string, backing: TextStyle | null): { svg: string; overflow: boolean } {
   // Sanitized right here, before any length-based sizing/wrapping below or
   // a <text> element uses these -- see sanitize-text-for-compositing.ts's
   // own comment for why this is the only place in the pipeline this runs.
@@ -438,88 +408,72 @@ function buildRichTextOverlaySvg(slide: CarouselCompositeSlide, brandName: strin
   const headFamily = familyAttr(slide.font_id ?? DEFAULT_FONT_ID)
   const bodyFamily = familyAttr(slide.body_font_id ?? slide.font_id ?? DEFAULT_FONT_ID)
 
-  const maxWidthChars = headlineStyleFor(slide.type, headline, scale).maxChars
-  const { fontSize: headlineFontSize } = headlineStyleFor(slide.type, headline, scale)
-  const headlineLines = wrapText(headline, maxWidthChars, 4)
-  const headlineLineHeight = headlineFontSize * 1.18
-
-  const subtextFontSize = Math.round(RICH_SUBTEXT_FONT_SIZE * scale)
-  const subtextLines = slide.type === "cover" && subtext?.trim() ? wrapText(subtext, Math.max(10, Math.round(34 / scale)), 3) : []
-  const subtextLineHeight = subtextFontSize * 1.4
-
-  const pointFontSize = Math.round(RICH_POINT_FONT_SIZE * scale)
-  const pointLines = slide.type === "content" && points?.length
-    ? points.flatMap((p) => wrapText(p, Math.max(10, Math.round(42 / scale)), 2))
-    : []
-  const pointLineHeight = pointFontSize * 1.6
-
-  const ctaTextFontSize = Math.round(RICH_CTA_TEXT_FONT_SIZE * scale)
-  const ctaTextLines = slide.type === "cta" && ctaText?.trim() ? wrapText(ctaText, Math.max(10, Math.round(40 / scale)), 2) : []
-  const ctaTextLineHeight = ctaTextFontSize * 1.4
-  const ctaHandleFontSize = Math.round(RICH_CTA_HANDLE_FONT_SIZE * scale)
-  const ctaHandleLines = slide.type === "cta" && ctaHandle?.trim() ? [ctaHandle] : []
-  const ctaHandleLineHeight = ctaHandleFontSize * 1.4
-
-  const headlineBlockHeight = headlineLines.length * headlineLineHeight
-  const subtextBlockHeight = subtextLines.length * subtextLineHeight
-  const pointsBlockHeight = pointLines.length * pointLineHeight
-  const ctaTextBlockHeight = ctaTextLines.length * ctaTextLineHeight
-  const ctaHandleBlockHeight = ctaHandleLines.length * ctaHandleLineHeight
-
-  const gapToSubtext = subtextLines.length > 0 ? 36 : 0
-  const gapToPoints = pointLines.length > 0 ? 48 : 0
-  const gapToCtaText = ctaTextLines.length > 0 ? 32 : 0
-  const gapToCtaHandle = ctaHandleLines.length > 0 ? 20 : 0
-
-  const totalBlockHeight = headlineBlockHeight + gapToSubtext + subtextBlockHeight
-    + gapToPoints + pointsBlockHeight + gapToCtaText + ctaTextBlockHeight + gapToCtaHandle + ctaHandleBlockHeight
-
-  // Free-drag position (percentages, block CENTER) -- absent means
-  // dead-center, matching SlidePreview's own CAROUSEL_DEFAULT_TEXT_POSITION.
-  const centerX = slide.text_position_x ?? 50
-  const centerY = slide.text_position_y ?? 50
+  // Sizes, wrapping (no dropped words), the safe-area clamp and the
+  // overflow flag all come from the shared layout -- the builder's
+  // "text is long" notice runs the same function.
+  const layout = layoutCarouselText({ ...slide, headline, subtext, points, ctaText, ctaHandle })
+  const centerX = layout.centerX
   const centerXAttr = `${centerX}%`
-  const centerYPx = (centerY / 100) * RICH_CANVAS_HEIGHT
-  const blockStartY = centerYPx - totalBlockHeight / 2
 
-  let cursorY = blockStartY
-  const headlineSvg = textLines(headlineLines, cursorY + headlineFontSize * 0.85, headlineLineHeight, headlineFontSize, textColor, 800, centerXAttr, headFamily)
-  cursorY += headlineBlockHeight + gapToSubtext
+  let cursorY = layout.blockTop
+  const block = (b: FittedBlock, color: string, weight: number, family: string): string => {
+    cursorY += b.gap
+    const lines = b.lines.flat()
+    const svg = lines.length > 0 ? textLines(lines, cursorY + b.fontSize * 0.85, b.lineHeight, b.fontSize, color, weight, centerXAttr, family) : ""
+    cursorY += b.height
+    return svg
+  }
 
-  const subtextSvg = subtextLines.length > 0
-    ? textLines(subtextLines, cursorY + subtextFontSize * 0.85, subtextLineHeight, subtextFontSize, subtextColor, 500, centerXAttr, bodyFamily)
-    : ""
-  cursorY += subtextBlockHeight + gapToPoints
+  const headlineSvg = block(layout.headline, textColor, 800, headFamily)
+  const subtextSvg = block(layout.subtext, subtextColor, 500, bodyFamily)
 
   // Points render as left-aligned bullet lines (matching SlidePreview's
   // actual layout -- a dot + text row, not centered prose), anchored
   // under the same draggable text_position_x rather than the slide's
   // fixed left padding, so points move together with the rest of the
-  // block when dragged.
-  const pointsSvg = pointLines.length > 0
-    ? pointLines.map((line, i) => {
-        const y = cursorY + i * pointLineHeight + pointFontSize * 0.85
-        const dotX = centerX - 21
-        const textX = centerX - 14
-        return `<circle cx="${dotX}%" cy="${y - pointFontSize * 0.35}" r="5" fill="#a78bfa"/><text x="${textX}%" y="${y}" text-anchor="start" font-family="${bodyFamily}" font-weight="400" font-size="${pointFontSize}" fill="${subtextColor}">${escapeXml(line)}</text>`
-      }).join("")
-    : ""
-  cursorY += pointsBlockHeight + gapToCtaText
+  // block when dragged. One dot per point, on its first line -- a point
+  // that wraps continues under its own text, not as a second bullet.
+  cursorY += layout.points.gap
+  const p = layout.points
+  let pointRow = 0
+  const pointsSvg = p.lines.map((lines) => lines.map((line, li) => {
+    const y = cursorY + pointRow++ * p.lineHeight + p.fontSize * 0.85
+    const dot = li === 0 ? `<circle cx="${centerX - 21}%" cy="${y - p.fontSize * 0.35}" r="5" fill="#a78bfa"/>` : ""
+    return `${dot}<text x="${centerX - 14}%" y="${y}" text-anchor="start" font-family="${bodyFamily}" font-weight="400" font-size="${p.fontSize}" fill="${subtextColor}">${escapeXml(line)}</text>`
+  }).join("")).join("")
+  cursorY += p.height
 
-  const ctaTextSvg = ctaTextLines.length > 0
-    ? textLines(ctaTextLines, cursorY + ctaTextFontSize * 0.85, ctaTextLineHeight, ctaTextFontSize, subtextColor, 500, centerXAttr, bodyFamily)
-    : ""
-  cursorY += ctaTextBlockHeight + gapToCtaHandle
+  const ctaTextSvg = block(layout.ctaText, subtextColor, 500, bodyFamily)
+  const ctaHandleSvg = block(layout.ctaHandle, textColor, 700, bodyFamily)
 
-  const ctaHandleSvg = ctaHandleLines.length > 0
-    ? textLines(ctaHandleLines, cursorY + ctaHandleFontSize * 0.85, ctaHandleLineHeight, ctaHandleFontSize, textColor, 700, centerXAttr, bodyFamily)
-    : ""
+  // Soft panel behind the whole text block when the photo under it is busy
+  // (text_style.needs_backing) -- spans the centered lines and the bullets.
+  let backingSvg = ""
+  if (backing?.needs_backing) {
+    const pad = 36
+    const half = Math.max(estimateBlockWidth(layout.headline), estimateBlockWidth(layout.subtext), estimateBlockWidth(layout.ctaText), estimateBlockWidth(layout.ctaHandle)) / 2
+    const cx = (centerX / 100) * RICH_CANVAS_WIDTH
+    let left = cx - half
+    let right = cx + half
+    if (p.lines.length > 0) {
+      left = Math.min(left, ((centerX - 21) / 100) * RICH_CANVAS_WIDTH - 10)
+      right = Math.max(right, ((centerX - 14) / 100) * RICH_CANVAS_WIDTH + estimateBlockWidth(p))
+    }
+    const x = Math.max(0, left - pad)
+    const w = Math.min(RICH_CANVAS_WIDTH, right + pad) - x
+    backingSvg = `<rect x="${x}" y="${layout.blockTop - pad}" width="${w}" height="${layout.blockHeight + pad * 2}" rx="28" fill="${backingRgba(backing)}"/>`
+  }
 
+  // On the bottom safe edge, right-aligned at the side safe edge; the text
+  // block is clamped above it by layoutCarouselText, so they never overlap.
   const brandSvg = brandNameText
-    ? `<text x="${RICH_CANVAS_WIDTH - RICH_MARGIN / 2}" y="${RICH_CANVAS_HEIGHT - 44}" text-anchor="end" font-family="${bodyFamily}" font-weight="500" font-size="26" fill="${subtextColor}">${escapeXml(brandNameText)}</text>`
+    ? `<text x="${RICH_CANVAS_WIDTH * (1 - SAFE_EDGE_RATIO)}" y="${CAROUSEL_BRAND_BASELINE}" text-anchor="end" font-family="${bodyFamily}" font-weight="500" font-size="26" fill="${subtextColor}">${escapeXml(brandNameText)}</text>`
     : ""
 
-  return `<svg width="${RICH_CANVAS_WIDTH}" height="${RICH_CANVAS_HEIGHT}" xmlns="http://www.w3.org/2000/svg">${headlineSvg}${subtextSvg}${pointsSvg}${ctaTextSvg}${ctaHandleSvg}${brandSvg}</svg>`
+  return {
+    svg: `<svg width="${RICH_CANVAS_WIDTH}" height="${RICH_CANVAS_HEIGHT}" xmlns="http://www.w3.org/2000/svg">${backingSvg}${headlineSvg}${subtextSvg}${pointsSvg}${ctaTextSvg}${ctaHandleSvg}${brandSvg}</svg>`,
+    overflow: layout.overflow,
+  }
 }
 
 /**
@@ -534,21 +488,28 @@ function buildRichTextOverlaySvg(slide: CarouselCompositeSlide, brandName: strin
  * Stories.
  */
 export async function renderRichCarouselSlidesToPng(brandName: string, slides: CarouselCompositeSlide[]): Promise<Buffer[]> {
+  return (await renderRichCarouselSlides(brandName, slides)).map((r) => r.png)
+}
+
+/** renderRichCarouselSlidesToPng plus each slide's warnings ("text_overflow"). */
+export async function renderRichCarouselSlides(brandName: string, slides: CarouselCompositeSlide[]): Promise<{ png: Buffer; warnings: SlideWarning[] }[]> {
   if (slides.length === 0) return []
 
   return Promise.all(
     slides.map(async (slide) => {
-      const { buffer: backgroundLayer, textColor, subtextColor } = await buildRichBackgroundLayer(slide)
+      const { buffer: backgroundLayer, textColor, subtextColor, styled } = await buildRichBackgroundLayer(slide)
 
       const layers: { input: Buffer; top: number; left: number }[] = []
 
       const productLayer = await buildRichProductLayer(slide)
       if (productLayer) layers.push(productLayer)
 
-      const textOverlayPng = await svgToRichPngBuffer(buildRichTextOverlaySvg(slide, brandName, textColor, subtextColor), slide.font_id ?? DEFAULT_FONT_ID, slide.body_font_id ?? undefined)
+      const overlay = buildRichTextOverlaySvg(slide, brandName, textColor, subtextColor, styled)
+      const textOverlayPng = await svgToRichPngBuffer(overlay.svg, slide.font_id ?? DEFAULT_FONT_ID, slide.body_font_id ?? undefined)
       layers.push({ input: textOverlayPng, top: 0, left: 0 })
 
-      return sharp(backgroundLayer).composite(layers).png().toBuffer()
+      const png = await sharp(backgroundLayer).composite(layers).png().toBuffer()
+      return { png, warnings: overlay.overflow ? [TEXT_OVERFLOW_WARNING] : [] }
     })
   )
 }

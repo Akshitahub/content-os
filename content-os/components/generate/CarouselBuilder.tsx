@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useCallback, useEffect, useRef } from "react"
+import { useState, useCallback, useEffect, useRef, useMemo } from "react"
 import { ChevronLeft, ChevronRight, Copy, Check, Loader2, RefreshCw, Download, AlertCircle, Image, Sparkles, Move } from "lucide-react"
 import { ProductPicker, type PickedProduct } from "@/components/shared/ProductPicker"
 import { VibePicker, type Vibe } from "@/components/shared/VibePicker"
@@ -27,6 +27,8 @@ import type { ProductRow } from "@/types/database"
 import type { CarouselNarrativePlan, CarouselVisualBrief } from "@/types/app"
 import Link from "next/link"
 import { readJsonResponse } from "@/lib/utils/read-json-response"
+import { backingRgba, scrimRgba, type TextStyle } from "@/lib/design/text-style"
+import { layoutCarouselText, overflowingSlides } from "@/lib/design/slide-text-layout"
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -110,6 +112,10 @@ interface CarouselSlideRich {
    * compositor's pre-existing fixed sizes). Per-slide, same convention as
    * font_id above. */
   text_size_scale?: number | null
+  /** How text is drawn over image_url (scrim, light/dark text, backing),
+   * from the slide-image response -- see lib/design/text-style.ts. Absent
+   * = the old fixed scrim + white text. */
+  text_style?: TextStyle | null
 }
 
 interface CtaSlide {
@@ -160,6 +166,7 @@ function toExportSlide(slide: CarouselSlideRich, ctaSlide: CtaSlide | undefined,
     font_id: slide.font_id,
     body_font_id: slide.body_font_id,
     text_size_scale: slide.text_size_scale,
+    text_style: slide.image_url ? slide.text_style : null,
   }
 }
 
@@ -222,7 +229,8 @@ async function fetchSlideBackgroundResult(
   slideType?: SlideType,
   customPrompt?: string,
   visualBrief?: CarouselVisualBrief,
-  userDirection?: string | null
+  userDirection?: string | null,
+  textPosition?: { x?: number; y?: number }
 ): Promise<SlideBackgroundOutcome> {
   try {
     const res = await fetch("/api/v1/ai/carousel/slide-image/generate", {
@@ -232,11 +240,13 @@ async function fetchSlideBackgroundResult(
       // undefined so JSON.stringify omits the key entirely.
       // visualBrief: this slide's own scene (non-hook slides) -- see
       // lib/ai/carousel-slide-background.ts. Omitted when the slide has none.
-      body: JSON.stringify({ brandId, vibe, role, productImageUrl: productImageUrl ?? undefined, slideType, customPrompt: customPrompt || undefined, visualBrief, userDirection: userDirection || undefined }),
+      // textPositionX/Y: where the text block sits, so the server measures
+      // text_style over the right region.
+      body: JSON.stringify({ brandId, vibe, role, productImageUrl: productImageUrl ?? undefined, slideType, customPrompt: customPrompt || undefined, visualBrief, userDirection: userDirection || undefined, textPositionX: textPosition?.x, textPositionY: textPosition?.y }),
     })
     if (!res.ok) return { error: slideBackgroundErrorForStatus(res.status) }
-    const json = await readJsonResponse(res) as { data?: { public_url?: string; provider?: "openai" } }
-    return json.data?.public_url ? { url: json.data.public_url, provider: json.data.provider } : { error: "failed" }
+    const json = await readJsonResponse(res) as { data?: { public_url?: string; provider?: "openai"; text_style?: TextStyle | null } }
+    return json.data?.public_url ? { url: json.data.public_url, provider: json.data.provider, text_style: json.data.text_style ?? null } : { error: "failed" }
   } catch {
     return { error: "failed" }
   }
@@ -330,8 +340,11 @@ function SlidePreview({
   // text pairing.
   // Body lines use the brand's body face; a manual font pick clears it (see the picker).
   const bodyFontClass = PREVIEW_FONT_CLASS[slide.body_font_id ?? slide.font_id ?? DEFAULT_FONT_ID]
-  const textColor = hasBg || customBg ? "text-white" : s.text
-  const subtextColor = hasBg || customBg ? "text-white/70" : s.subtext
+  // An AI photo with a text_style uses its measured treatment (same values
+  // the compositor draws, so preview = export); otherwise white-on-scrim.
+  const textStyle = hasBg ? slide.text_style ?? null : null
+  const textColor = textStyle ? (textStyle.text_color === "light" ? "text-white" : "text-gray-900") : hasBg || customBg ? "text-white" : s.text
+  const subtextColor = textStyle ? (textStyle.text_color === "light" ? "text-white/85" : "text-gray-900/85") : hasBg || customBg ? "text-white/70" : s.subtext
 
   return (
     <div
@@ -352,7 +365,9 @@ function SlidePreview({
        * color/gradient background -- same treatment for both, since a
        * light custom pick (e.g. a pastel gradient) needs it just as much
        * as a photo does for the white text both use. */}
-      {(hasBg || customBg) && (
+      {textStyle ? (
+        <div className="absolute inset-0 z-0" style={{ background: scrimRgba(textStyle) }} />
+      ) : (hasBg || customBg) && (
         <div className="absolute inset-0 z-0 bg-gradient-to-t from-black/75 via-black/25 to-black/45" />
       )}
 
@@ -370,8 +385,8 @@ function SlidePreview({
             <img
               src={productImage}
               alt=""
-              className="absolute right-4 bottom-10 z-10 object-contain drop-shadow-2xl"
-              style={{ width: "42%", maxHeight: "58%" }}
+              className="absolute bottom-10 z-10 object-contain drop-shadow-2xl"
+              style={{ width: "42%", maxHeight: "58%", right: "6%" }}
             />
           )}
           {slide.type === "content" && !isCta && (
@@ -379,8 +394,8 @@ function SlidePreview({
             <img
               src={productImage}
               alt=""
-              className="absolute top-3 right-3 z-10 object-contain rounded-lg"
-              style={{ width: "22%", maxHeight: "22%", background: "rgba(255,255,255,0.12)", padding: 4 }}
+              className="absolute z-10 object-contain rounded-lg"
+              style={{ width: "22%", maxHeight: "22%", background: "rgba(255,255,255,0.12)", padding: 4, top: "6%", right: "6%" }}
             />
           )}
           {isCta && (
@@ -388,7 +403,7 @@ function SlidePreview({
             <img
               src={productImage}
               alt=""
-              className="absolute top-6 left-1/2 z-10 -translate-x-1/2 object-contain drop-shadow-xl"
+              className="absolute top-[6%] left-1/2 z-10 -translate-x-1/2 object-contain drop-shadow-xl"
               style={{ width: "36%", maxHeight: "36%" }}
             />
           )}
@@ -411,8 +426,11 @@ function SlidePreview({
           top: `${textPos.y}%`,
           transform: "translate(-50%, -50%)",
           width: "max-content",
-          maxWidth: "calc(100% - 64px)",
+          // 6% safe edge on each side.
+          maxWidth: "88%",
           touchAction: "none",
+          // Soft panel behind the text over a busy photo (text_style.needs_backing).
+          ...(textStyle?.needs_backing ? { background: backingRgba(textStyle), padding: "10px 14px", borderRadius: 14 } : {}),
         }}
       >
         {/* Drag handle -- separate hit target from the text (SlideEditor,
@@ -439,24 +457,24 @@ function SlidePreview({
         )}
         {slide.type === "cover" && (
           <>
-            <h2 className={`font-extrabold leading-tight ${textColor} ${isThumb ? "text-[8px] line-clamp-2" : "text-3xl line-clamp-3"} ${productImage && !isThumb && slide.background_image_provider !== "openai" ? "max-w-[55%]" : ""}`}>
+            <h2 className={`font-extrabold leading-tight ${textColor} ${isThumb ? "text-[8px] line-clamp-2" : "text-3xl"} ${productImage && !isThumb && slide.background_image_provider !== "openai" ? "max-w-[55%]" : ""}`}>
               {slide.headline}
             </h2>
             {!isThumb && slide.subtext && (
-              <p className={`mt-3 text-base font-medium line-clamp-2 ${subtextColor} ${bodyFontClass} ${productImage ? "max-w-[55%]" : ""}`}>{slide.subtext}</p>
+              <p className={`mt-3 text-base font-medium ${subtextColor} ${bodyFontClass} ${productImage ? "max-w-[55%]" : ""}`}>{slide.subtext}</p>
             )}
           </>
         )}
 
         {slide.type === "content" && !isCta && (
           <>
-            <h3 className={`font-bold leading-snug ${textColor} ${isThumb ? "text-[7px] line-clamp-2" : "text-xl mb-4 line-clamp-2"}`}>
+            <h3 className={`font-bold leading-snug ${textColor} ${isThumb ? "text-[7px] line-clamp-2" : "text-xl mb-4"}`}>
               {slide.headline}
             </h3>
             {!isThumb && slide.points?.map((point, i) => (
               <div key={i} className="mb-2 flex items-start gap-2">
                 <span className="mt-0.5 h-1.5 w-1.5 shrink-0 rounded-full bg-violet-400" />
-                <p className={`text-sm leading-relaxed line-clamp-2 ${subtextColor} ${bodyFontClass}`}>{point}</p>
+                <p className={`text-sm leading-relaxed ${subtextColor} ${bodyFontClass}`}>{point}</p>
               </div>
             ))}
           </>
@@ -464,12 +482,12 @@ function SlidePreview({
 
         {isCta && (
           <>
-            <h2 className={`font-extrabold leading-tight ${textColor} ${isThumb ? "text-[8px] line-clamp-2" : "text-2xl mb-3 line-clamp-3"} ${productImage && !isThumb && slide.background_image_provider !== "openai" ? "mt-[40%]" : ""}`}>
+            <h2 className={`font-extrabold leading-tight ${textColor} ${isThumb ? "text-[8px] line-clamp-2" : "text-2xl mb-3"} ${productImage && !isThumb && slide.background_image_provider !== "openai" ? "mt-[40%]" : ""}`}>
               {ctaSlide.headline}
             </h2>
             {!isThumb && (
               <>
-                <p className={`text-base font-medium line-clamp-2 ${subtextColor} ${bodyFontClass} mb-2`}>{ctaSlide.cta}</p>
+                <p className={`text-base font-medium ${subtextColor} ${bodyFontClass} mb-2`}>{ctaSlide.cta}</p>
                 <p className={`text-sm font-bold ${textColor}`}>{ctaSlide.handle}</p>
               </>
             )}
@@ -479,7 +497,7 @@ function SlidePreview({
 
       {/* Brand name bottom right */}
       {!isThumb && (
-        <div className={`absolute bottom-3 right-4 z-10 text-xs font-medium ${subtextColor}`}>
+        <div className={`absolute z-10 text-xs font-medium ${subtextColor}`} style={{ bottom: "6%", right: "6%" }}>
           {brandName}
         </div>
       )}
@@ -745,6 +763,12 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
   const extraBgCredits =
     ((allSlidesAiBg ? Math.max(0, slideCount - 2) : 0) + (productImage ? 2 : 0)) * CAROUSEL_SLIDE_AI_BACKGROUND
   const currentSlide = allSlides[activeSlide]
+  // Same layout math the compositor uses (lib/design/slide-text-layout.ts):
+  // slides whose text only fits at the smallest size, or not at all.
+  const overflowSlides = useMemo(
+    () => overflowingSlides(carousel?.slides ?? [], (s) => layoutCarouselText(toExportSlide(s, carousel?.cta_slide, null)).overflow),
+    [carousel?.slides, carousel?.cta_slide]
+  )
   const isLastSlide = activeSlide === allSlides.length - 1
 
   // Restore from sessionStorage -- confirmed live (2026-08-29): this
@@ -892,7 +916,7 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
         const role = carouselBgRole(i, count)
         // productImageUrl/slideType only actually sent when a product is
         // selected -- fetchSlideBackgroundResult drops a null productImageUrl.
-        return { key: i, run: () => fetchSlideBackgroundResult(brandId, vibe, role, productImage ?? undefined, productImage ? SLIDE_TYPE_FOR_BG_ROLE[role] : undefined, visualPrompt, slides[i]?.visual, visualPromptSeedRef.current) }
+        return { key: i, run: () => fetchSlideBackgroundResult(brandId, vibe, role, productImage ?? undefined, productImage ? SLIDE_TYPE_FOR_BG_ROLE[role] : undefined, visualPrompt, slides[i]?.visual, visualPromptSeedRef.current, { x: slides[i]?.text_position_x, y: slides[i]?.text_position_y }) }
       }),
       { onProgress: (settled, total) => { if (isCurrent()) setBgProgress({ settled, total }) }, isCancelled: () => !isCurrent() }
     )
@@ -905,7 +929,7 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
     }
     if (succeeded.size > 0) {
       setCarousel((prev) => (prev && prev.id === carouselId
-        ? { ...prev, slides: prev.slides.map((s, i) => { const bg = succeeded.get(i); return bg ? { ...s, image_url: bg.url, background_image_provider: bg.provider } : s }) }
+        ? { ...prev, slides: prev.slides.map((s, i) => { const bg = succeeded.get(i); return bg ? { ...s, image_url: bg.url, background_image_provider: bg.provider, text_style: bg.text_style ?? null } : s }) }
         : prev))
     }
     return true
@@ -1386,6 +1410,13 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
                   <span className="text-xs text-destructive">Couldn&apos;t save — check your connection</span>
                 )}
               </div>
+
+              {/* Non-blocking: the export keeps every word at a smaller size. */}
+              {overflowSlides.length > 0 && (
+                <p className="text-xs text-amber-700">
+                  {overflowSlides.length === 1 ? `Slide ${overflowSlides[0]! + 1} text is long` : `Slides ${overflowSlides.map((i: number) => i + 1).join(", ")} have long text`} — consider shortening.
+                </p>
+              )}
 
               {showEditor && (
                 <SlideEditor

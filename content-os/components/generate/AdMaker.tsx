@@ -19,6 +19,7 @@ import type { AdVariant } from "@/types/app"
 import { readJsonResponse } from "@/lib/utils/read-json-response"
 import { PREVIEW_FONT_FAMILY } from "@/lib/design/preview-fonts"
 import type { FontId } from "@/lib/design/fonts"
+import { TEXT_STYLE_PALETTE, backingRgba, scrimRgba, type TextStyle } from "@/lib/design/text-style"
 
 // ─── Scene definitions ─────────────────────────────────────────────────────
 
@@ -47,7 +48,9 @@ const LOADING_MSGS = [
 // ─── Canvas compositing ────────────────────────────────────────────────────
 
 type ImageFormat = "square" | "portrait" | "story"
-type TextColor = "white" | "dark" | "violet"
+// "auto" = the variation's text_style (computed server-side from its image);
+// an explicit White/Dark/Violet pick wins over it.
+type TextColor = "auto" | "white" | "dark" | "violet"
 type TextPosition = "top" | "center" | "bottom"
 
 function loadImage(src: string): Promise<HTMLImageElement> {
@@ -63,6 +66,9 @@ function loadImage(src: string): Promise<HTMLImageElement> {
 interface AdVariation {
   url: string
   provider: string
+  /** text_style per text position (lib/design/text-style.ts); absent on an older response. */
+  text_styles?: Partial<Record<TextPosition, TextStyle | null>> | null
+  text_style?: TextStyle | null
 }
 
 // texts[i] is variation i's on-image text (the user's typed headline, or
@@ -106,8 +112,11 @@ async function compositeAd(
     const bg = await loadImage(variation.url)
     ctx.drawImage(bg, 0, 0, w, h)
 
+    // Auto: this variation's measured text_style at the chosen position.
+    // Without one (older response, or an explicit color) the old light scrim.
+    const style = textColor === "auto" ? (variation.text_styles?.[textPosition] ?? variation.text_style ?? null) : null
     if (showText && hookText) {
-      ctx.fillStyle = "rgba(0,0,0,0.2)"
+      ctx.fillStyle = style ? scrimRgba(style) : "rgba(0,0,0,0.2)"
       ctx.fillRect(0, 0, w, h)
     }
 
@@ -118,10 +127,9 @@ async function compositeAd(
     const py = h - (h * 0.1)
 
     if (showText && hookText) {
-      const colors: Record<TextColor, string> = { white: "#ffffff", dark: "#111111", violet: "#818cf8" }
-      ctx.fillStyle = colors[textColor]
-      ctx.shadowColor = textColor === "white" ? "rgba(0,0,0,0.5)" : "rgba(255,255,255,0.3)"
-      ctx.shadowBlur = 15
+      const colors: Record<Exclude<TextColor, "auto">, string> = { white: "#ffffff", dark: "#111111", violet: "#818cf8" }
+      const fill = style ? TEXT_STYLE_PALETTE[style.text_color].text : colors[textColor === "auto" ? "white" : textColor]
+      const lightText = style ? style.text_color === "light" : textColor !== "dark"
 
       const fontSize = w * 0.052
       ctx.font = `800 ${fontSize}px ${family}`
@@ -165,6 +173,19 @@ async function compositeAd(
         ? (h / 2) - (totalH / 2)
         : py - totalH - bottomGap
 
+      // Soft panel behind the lines when the region is busy (text_style.needs_backing).
+      if (style?.needs_backing) {
+        const widest = Math.max(...lines.map((l) => ctx.measureText(l).width))
+        const pad = fontSize * 0.6
+        ctx.fillStyle = backingRgba(style)
+        ctx.beginPath()
+        ctx.roundRect(w / 2 - widest / 2 - pad, startY - fontSize * 0.85 - pad, widest + pad * 2, totalH + pad * 2, fontSize * 0.5)
+        ctx.fill()
+      }
+
+      ctx.fillStyle = fill
+      ctx.shadowColor = lightText ? "rgba(0,0,0,0.5)" : "rgba(255,255,255,0.3)"
+      ctx.shadowBlur = 15
       lines.forEach((l, i) => ctx.fillText(l, w / 2, startY + i * lineH))
       ctx.shadowBlur = 0
     }
@@ -174,7 +195,7 @@ async function compositeAd(
     ctx.textAlign = "left"
     ctx.shadowBlur = 0
     const handle = instagramHandle ? `@${instagramHandle.replace("@", "")}` : brandName
-    ctx.fillText(handle, w * 0.05, h - (h * 0.035))
+    ctx.fillText(handle, w * 0.06, h - (h * 0.06))
 
     results.push(canvas.toDataURL("image/png", 0.95))
   }
@@ -274,7 +295,7 @@ export function AdMaker({ brandId, products }: AdMakerProps) {
   // Step 3
   const [hookText, setHookText] = useState("")
   const [showText, setShowText] = useState(true)
-  const [textColor, setTextColor] = useState<TextColor>("white")
+  const [textColor, setTextColor] = useState<TextColor>("auto")
   const [textPosition, setTextPosition] = useState<TextPosition>("top")
 
   // Results
@@ -557,6 +578,7 @@ export function AdMaker({ brandId, products }: AdMakerProps) {
           scene, customScene, format, productImageBase64: productDataUrl, customPrompt: adPrompt.trim() || undefined,
           productId: selectedProductId ?? undefined, hookText: hookText.trim() || undefined,
           userDirection: (scene === "custom" ? customScene.trim() : "") || adPromptSeedRef.current || undefined,
+          textPosition,
         }),
       })
       const chargeJson: unknown = await readJsonResponse(chargeRes)
@@ -577,7 +599,7 @@ export function AdMaker({ brandId, products }: AdMakerProps) {
 
       const brandName = brand?.name ?? "Brand"
       const handle = brand?.instagram_handle ?? ""
-      const chargeData = (chargeJson as { data: { variations: { url: string; provider: string; variant?: AdVariant | null }[]; typography?: { heading?: FontId } } }).data
+      const chargeData = (chargeJson as { data: { variations: (AdVariation & { variant?: AdVariant | null })[]; typography?: { heading?: FontId } } }).data
       const variations = chargeData.variations
       const headingFont = chargeData.typography?.heading
       const variants = variations.map((v) => v.variant ?? null)
@@ -870,9 +892,10 @@ export function AdMaker({ brandId, products }: AdMakerProps) {
               <div className="space-y-1.5">
                 <label className="text-xs font-medium">Text color</label>
                 <div className="flex gap-2">
-                  {([["white", "White text", "bg-white border border-gray-200"], ["dark", "Dark text", "bg-gray-900"], ["violet", "Neon violet", "bg-violet-500"]] as [TextColor, string, string][]).map(([id, label, cls]) => (
+                  {([["auto", "Auto", "bg-gradient-to-r from-white to-gray-900 border border-gray-200"], ["white", "White text", "bg-white border border-gray-200"], ["dark", "Dark text", "bg-gray-900"], ["violet", "Neon violet", "bg-violet-500"]] as [TextColor, string, string][]).map(([id, label, cls]) => (
                     <button key={id} type="button" onClick={() => setTextColor(id)}
-                      className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition-all ${textColor === id ? "ring-2 ring-violet-500 ring-offset-1" : ""} ${cls} ${id === "white" ? "text-gray-800" : "text-white"}`}>
+                      title={id === "auto" ? "Picks light or dark text and a scrim from each image" : undefined}
+                      className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition-all ${textColor === id ? "ring-2 ring-violet-500 ring-offset-1" : ""} ${cls} ${id === "white" || id === "auto" ? "text-gray-800" : "text-white"}`}>
                       {label}
                     </button>
                   ))}

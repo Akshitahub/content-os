@@ -14,6 +14,8 @@ import type { BrandRow } from "@/types/database"
 import { timedGenerationRoute, type GenerationTimer } from "@/lib/utils/generation-timing"
 import { withDeadline, DeadlineExceededError, GENERATION_TIMED_OUT_MESSAGE } from "@/lib/utils/with-deadline"
 import { sampleImageAlignment } from "@/lib/ai/image-alignment"
+import { computeTextStyleSafe } from "@/lib/image/text-contrast"
+import { carouselTextRegion } from "@/lib/design/text-style"
 
 const CAROUSEL_VIBES = ["fun_playful", "clean_minimal", "bold_dramatic", "warm_cozy", "professional", "trendy_genz"] as const
 
@@ -50,6 +52,10 @@ const schema = z.object({
     must_show: z.string().max(300),
     composition: z.string().max(300).default(""),
   }).optional(),
+  // Where the slide's text block sits (percent, block center) -- the region
+  // text_style is measured over. Absent = dead center, SlidePreview's default.
+  textPositionX: z.number().min(0).max(100).optional(),
+  textPositionY: z.number().min(0).max(100).optional(),
 })
 
 // Chains up to 2 sequential image-provider calls (first attempt + retry) inside
@@ -241,5 +247,9 @@ async function handlePost(request: Request, timer: GenerationTimer) {
   // request carries no carousel id, so the event has none.
   sampleImageAlignment({ supabase, userId: user.id, brandId, contentType: "carousel", format: "carousel", imageUrl: uploadResult.publicUrl, brief: visualBrief })
 
-  return NextResponse.json({ data: { public_url: uploadResult.publicUrl, role, provider } }, { status: 200 })
+  // How text should be drawn over this background (lib/image/text-contrast.ts),
+  // computed once here and stored on the slide next to its image_url.
+  const textStyle = await computeTextStyleSafe(result.buffer, carouselTextRegion({ x: parsed.data.textPositionX, y: parsed.data.textPositionY }))
+
+  return NextResponse.json({ data: { public_url: uploadResult.publicUrl, role, provider, text_style: textStyle } }, { status: 200 })
 }

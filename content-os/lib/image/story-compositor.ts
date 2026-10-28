@@ -7,6 +7,11 @@ import { decompress } from "wawoff2"
 import { CURATED_FONTS, DEFAULT_FONT_ID, FONT_FAMILY_NAME, findFont } from "@/lib/design/fonts"
 import type { FontId } from "@/lib/design/fonts"
 import { sanitizeTextForCompositing } from "@/lib/image/sanitize-text-for-compositing"
+import { TEXT_STYLE_PALETTE, backingRgba, type TextStyle } from "@/lib/design/text-style"
+import {
+  STORY_SAFE_ZONE, STORY_TEXT_AREA, TEXT_OVERFLOW_WARNING, clampBlockTop, clampCenterX, estimateBlockWidth,
+  layoutStoryChecklistHook, layoutStoryChecklistPair, layoutStoryText, type FittedBlock, type SlideWarning,
+} from "@/lib/design/slide-text-layout"
 
 // Real Instagram Story canvas — confirmed against Meta's own Stories spec
 // (1080x1920, 9:16) and already documented as the intended target in
@@ -22,7 +27,7 @@ const CANVAS_HEIGHT = 1920
 // text_position (which only controls alignment within this already-safe
 // interior). Matches StorySequence.tsx's live-preview math exactly
 // (250/1920 of total height).
-const SAFE_ZONE = 250
+const SAFE_ZONE = STORY_SAFE_ZONE
 
 // Same cached-TTF pattern as lib/image/post-compositor.ts — resvg-js's font
 // loader only accepts raw TrueType, not the woff2 @fontsource ships, so
@@ -61,23 +66,6 @@ async function svgToPngBuffer(svg: string, fontId: string, bodyFontId?: string):
 
 function escapeXml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;")
-}
-
-function wrapText(text: string, maxCharsPerLine: number, maxLines: number): string[] {
-  const words = text.trim().split(/\s+/).filter(Boolean)
-  const lines: string[] = []
-  let current = ""
-  for (const word of words) {
-    const candidate = current ? `${current} ${word}` : word
-    if (candidate.length > maxCharsPerLine && current) {
-      lines.push(current)
-      current = word
-    } else {
-      current = candidate
-    }
-  }
-  if (current) lines.push(current)
-  return lines.slice(0, maxLines)
 }
 
 function textLines(lines: string[], startY: number, lineHeight: number, fontSize: number, color: string, weight: number, xAttr: string, family: string = "StoryFont, sans-serif"): string {
@@ -160,9 +148,10 @@ async function fetchImageBuffer(source: string): Promise<Buffer | null> {
 
 /** Priority matches the live preview exactly: an AI/uploaded photo
  * (background_image_url) beats a custom color/gradient, which beats the
- * named preset. Photo and custom-color both get the dark scrim; presets
- * never do. */
-async function buildBackgroundLayer(slide: StoryCompositeSlide): Promise<{ buffer: Buffer; textColor: string; subColor: string }> {
+ * named preset. Photo and custom-color both get a scrim; presets never
+ * do. A photo with a text_style gets that style's uniform scrim and text
+ * color instead of the fixed gradient. */
+async function buildBackgroundLayer(slide: StoryCompositeSlide): Promise<{ buffer: Buffer; textColor: string; subColor: string; styled: TextStyle | null }> {
   const preset = STORY_BG_PRESETS[slide.background] ?? STORY_BG_PRESETS[DEFAULT_PRESET]!
   const customColors = (slide.custom_background_colors ?? []).filter(Boolean)
 
@@ -173,9 +162,15 @@ async function buildBackgroundLayer(slide: StoryCompositeSlide): Promise<{ buffe
       // No text in any of this function's SVGs (pure background shapes) --
       // the font choice is inconsequential here, DEFAULT_FONT_ID just needs
       // to point at a font file that's guaranteed to exist.
-      const scrimPng = await svgToPngBuffer(`<svg width="${CANVAS_WIDTH}" height="${CANVAS_HEIGHT}" xmlns="http://www.w3.org/2000/svg">${SCRIM_SVG}</svg>`, DEFAULT_FONT_ID)
+      const style = slide.text_style ?? null
+      const palette = style ? TEXT_STYLE_PALETTE[style.text_color] : null
+      const scrim = style && palette
+        ? `<rect width="${CANVAS_WIDTH}" height="${CANVAS_HEIGHT}" fill="rgb(${palette.scrimRgb})" fill-opacity="${style.scrim_opacity}"/>`
+        : SCRIM_SVG
+      const scrimPng = await svgToPngBuffer(`<svg width="${CANVAS_WIDTH}" height="${CANVAS_HEIGHT}" xmlns="http://www.w3.org/2000/svg">${scrim}</svg>`, DEFAULT_FONT_ID)
       const buffer = await sharp(base).composite([{ input: scrimPng, top: 0, left: 0 }]).png().toBuffer()
-      return { buffer, textColor: "#ffffff", subColor: "rgba(255,255,255,0.7)" }
+      if (style && palette) return { buffer, textColor: palette.text, subColor: palette.sub, styled: style }
+      return { buffer, textColor: "#ffffff", subColor: "rgba(255,255,255,0.7)", styled: null }
     }
     // Photo failed to fetch — fall through to custom color / preset below
     // rather than leaving the slide with no background at all.
@@ -184,13 +179,13 @@ async function buildBackgroundLayer(slide: StoryCompositeSlide): Promise<{ buffe
   if (customColors.length > 0) {
     const svg = `<svg width="${CANVAS_WIDTH}" height="${CANVAS_HEIGHT}" xmlns="http://www.w3.org/2000/svg">${customBackgroundFill(customColors)}${SCRIM_SVG}</svg>`
     const buffer = await svgToPngBuffer(svg, DEFAULT_FONT_ID)
-    return { buffer, textColor: "#ffffff", subColor: "rgba(255,255,255,0.7)" }
+    return { buffer, textColor: "#ffffff", subColor: "rgba(255,255,255,0.7)", styled: null }
   }
 
   const [c1, c2, c3] = preset.stops
   const svg = `<svg width="${CANVAS_WIDTH}" height="${CANVAS_HEIGHT}" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="preset" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="${c1}"/><stop offset="50%" stop-color="${c2}"/><stop offset="100%" stop-color="${c3}"/></linearGradient></defs><rect width="${CANVAS_WIDTH}" height="${CANVAS_HEIGHT}" fill="url(#preset)"/></svg>`
   const buffer = await svgToPngBuffer(svg, DEFAULT_FONT_ID)
-  return { buffer, textColor: preset.text, subColor: preset.sub }
+  return { buffer, textColor: preset.text, subColor: preset.sub, styled: null }
 }
 
 // Same gating StorySequence.tsx's live preview uses: buildStoryTypeSequence
@@ -265,26 +260,6 @@ async function clampLayerForComposite(buffer: Buffer, left: number, top: number)
 
 // ─── Text ───────────────────────────────────────────────────────────────────
 
-// scale multiplies every font size directly and inversely shrinks each
-// wrap width's maxChars budget -- without that inverse adjustment, a
-// larger scale would keep wrapping at the same character count while
-// rendering wider, overflowing the canvas. This approximates the real
-// per-pixel width check post-compositor.ts's fitText() does (this
-// compositor's wrapText is char-count-based, not glyph-measured), while
-// still respecting the existing length-tiered "shrink for longer text"
-// table below.
-function headlineStyle(text: string, scale: number): { fontSize: number; maxChars: number } {
-  const base =
-    text.length < 20 ? { fontSize: 92, maxChars: 15 } :
-    text.length < 40 ? { fontSize: 72, maxChars: 19 } :
-    text.length < 70 ? { fontSize: 56, maxChars: 24 } :
-    { fontSize: 44, maxChars: 30 }
-  return { fontSize: Math.round(base.fontSize * scale), maxChars: Math.max(6, Math.round(base.maxChars / scale)) }
-}
-
-const SUBTEXT_FONT_SIZE = 42
-const POLL_FONT_SIZE = 34
-
 // ─── Hard Truth Checklist (Story vibe) ─────────────────────────────────────
 // Same concept as lib/image/post-compositor.ts's buildHardTruthChecklist,
 // adapted to one slide per beat instead of one flat card -- see
@@ -336,23 +311,22 @@ function estimateTextWidth(text: string, fontSize: number): number {
 // the phrase spans a line-wrap boundary, it's simply not found on any
 // single line and the headline renders plain instead of guessing a
 // position -- same fallback post-compositor.ts's own version uses.
-function buildChecklistHookOverlaySvg(slide: StoryCompositeSlide, textColor: string): string {
-  const scale = slide.text_size_scale ?? 1.0
+function buildChecklistHookOverlaySvg(slide: StoryCompositeSlide, textColor: string): { svg: string; overflow: boolean } {
   const headline = sanitizeTextForCompositing(slide.text)
   const highlightedPhrase = slide.checklist_highlighted_phrase?.trim()
     ? sanitizeTextForCompositing(slide.checklist_highlighted_phrase.trim())
     : null
 
-  const { fontSize, maxChars } = headlineStyle(headline, scale)
-  const lines = wrapText(headline, maxChars, 4)
-  const lineHeight = fontSize * 1.2
+  const fitted = layoutStoryChecklistHook(headline, slide.text_size_scale ?? 1.0)
+  const { fontSize, lineHeight } = fitted.blocks[0]!
+  const lines = fitted.blocks[0]!.lines.flat()
 
   const highlightLineIndex = highlightedPhrase
     ? lines.findIndex((l) => l.toLowerCase().includes(highlightedPhrase.toLowerCase()))
     : -1
 
   const totalHeight = lines.length * lineHeight
-  const startY = CANVAS_HEIGHT / 2 - totalHeight / 2 + fontSize * 0.85
+  const startY = clampBlockTop(CANVAS_HEIGHT / 2, totalHeight, STORY_TEXT_AREA.top, STORY_TEXT_AREA.bottom) + fontSize * 0.85
 
   const highlightRects: string[] = []
   const textSvg = lines.map((line, i) => {
@@ -373,33 +347,30 @@ function buildChecklistHookOverlaySvg(slide: StoryCompositeSlide, textColor: str
     return `<text x="50%" y="${y}" text-anchor="middle" font-family="${familyAttr(slide.font_id ?? DEFAULT_FONT_ID)}" font-weight="900" font-size="${fontSize}" fill="${textColor}">${escapeXml(line)}</text>`
   }).join("")
 
-  return `<svg width="${CANVAS_WIDTH}" height="${CANVAS_HEIGHT}" xmlns="http://www.w3.org/2000/svg">${highlightRects.join("")}${textSvg}</svg>`
+  return { svg: `<svg width="${CANVAS_WIDTH}" height="${CANVAS_HEIGHT}" xmlns="http://www.w3.org/2000/svg">${highlightRects.join("")}${textSvg}</svg>`, overflow: fitted.overflow }
 }
 
 // Reveal/buildup slide -- exactly one ✗ wrong-way line paired with its ✓
 // right-way line, stacked vertically and centered on the slide. Item text
 // itself stays a uniform ink color for both rows (same as the Post
 // template's buildMarkedList) -- only the marks are colored.
-function buildChecklistPairOverlaySvg(slide: StoryCompositeSlide, textColor: string): string {
-  const scale = slide.text_size_scale ?? 1.0
+function buildChecklistPairOverlaySvg(slide: StoryCompositeSlide, textColor: string): { svg: string; overflow: boolean } {
   const wrongItem = slide.checklist_wrong_item?.trim() ? sanitizeTextForCompositing(slide.checklist_wrong_item.trim()) : ""
   const rightItem = slide.checklist_right_item?.trim() ? sanitizeTextForCompositing(slide.checklist_right_item.trim()) : ""
 
-  const fontSize = Math.round(52 * scale)
-  const lineHeight = fontSize * 1.3
-  const maxChars = Math.max(8, Math.round(22 / scale))
+  const fitted = layoutStoryChecklistPair(wrongItem, rightItem, slide.text_size_scale ?? 1.0)
+  const [wrongBlock, rightBlock] = fitted.blocks as [FittedBlock, FittedBlock]
+  const { fontSize, lineHeight } = wrongBlock
   const markSize = fontSize * 0.62
   const markGap = fontSize * 1.3
   const padX = 90
-  const rowGap = fontSize * 1.6
 
-  const wrongLines = wrapText(wrongItem, maxChars, 3)
-  const rightLines = wrapText(rightItem, maxChars, 3)
-  const wrongBlockHeight = wrongLines.length * lineHeight
-  const rightBlockHeight = rightLines.length * lineHeight
-  const totalHeight = wrongBlockHeight + rowGap + rightBlockHeight
+  const wrongLines = wrongBlock.lines.flat()
+  const rightLines = rightBlock.lines.flat()
+  const wrongBlockHeight = wrongBlock.height
+  const rowGap = rightBlock.gap
 
-  let cursorY = CANVAS_HEIGHT / 2 - totalHeight / 2
+  let cursorY = clampBlockTop(CANVAS_HEIGHT / 2, fitted.height, STORY_TEXT_AREA.top, STORY_TEXT_AREA.bottom)
 
   const wrongSvg = wrongLines.map((line, i) => {
     const y = cursorY + i * lineHeight + fontSize * 0.8
@@ -414,7 +385,7 @@ function buildChecklistPairOverlaySvg(slide: StoryCompositeSlide, textColor: str
     return `${mark}<text x="${padX + markGap}" y="${y}" text-anchor="start" font-family="${familyAttr(slide.body_font_id ?? slide.font_id ?? DEFAULT_FONT_ID)}" font-weight="700" font-size="${fontSize}" fill="${textColor}">${escapeXml(line)}</text>`
   }).join("")
 
-  return `<svg width="${CANVAS_WIDTH}" height="${CANVAS_HEIGHT}" xmlns="http://www.w3.org/2000/svg">${wrongSvg}${rightSvg}</svg>`
+  return { svg: `<svg width="${CANVAS_WIDTH}" height="${CANVAS_HEIGHT}" xmlns="http://www.w3.org/2000/svg">${wrongSvg}${rightSvg}</svg>`, overflow: fitted.overflow }
 }
 
 // A slide is "checklist-flagged" when it carries the fields only the
@@ -426,7 +397,7 @@ function isChecklistFlaggedSlide(slide: StoryCompositeSlide): boolean {
   return !!slide.checklist_highlighted_phrase || (!!slide.checklist_wrong_item && !!slide.checklist_right_item)
 }
 
-function buildTextOverlaySvg(slide: StoryCompositeSlide, textColor: string, subColor: string): string {
+function buildTextOverlaySvg(slide: StoryCompositeSlide, textColor: string, subColor: string, backing: TextStyle | null): { svg: string; overflow: boolean } {
   // Hard Truth Checklist vibe -- structurally different rendering per
   // slide type (contrarian headline+highlight on hook, one ✗/✓ pair per
   // reveal/buildup slide), detected purely from field presence. cta
@@ -440,27 +411,12 @@ function buildTextOverlaySvg(slide: StoryCompositeSlide, textColor: string, subC
   if ((slide.type === "reveal" || slide.type === "buildup") && slide.checklist_wrong_item && slide.checklist_right_item) {
     return buildChecklistPairOverlaySvg(slide, textColor)
   }
-  const scale = slide.text_size_scale ?? 1.0
   // Sanitized right here, before any length-based sizing/wrapping below or
   // a <text> element uses these -- see sanitize-text-for-compositing.ts's
   // own comment for why this is the only place in the pipeline this runs.
   const text = sanitizeTextForCompositing(slide.text)
   const subtext = sanitizeTextForCompositing(slide.subtext)
   const pollOptions = slide.poll_options?.map((o) => sanitizeTextForCompositing(o))
-
-  const maxWidthChars = {
-    headline: headlineStyle(text, scale).maxChars,
-    subtext: Math.max(10, Math.round(36 / scale)),
-    poll: Math.max(10, Math.round(40 / scale)),
-  }
-
-  const { fontSize: headlineFontSize } = headlineStyle(text, scale)
-  const headlineLines = wrapText(text, maxWidthChars.headline, 4)
-  const headlineLineHeight = headlineFontSize * 1.15
-
-  const subtextFontSize = Math.round(SUBTEXT_FONT_SIZE * scale)
-  const subtextLines = subtext.trim() ? wrapText(subtext, maxWidthChars.subtext, 3) : []
-  const subtextLineHeight = subtextFontSize * 1.4
 
   // Plain centered text, not an interactive sticker -- baked into the
   // image file, this can't actually collect taps/votes once published, so
@@ -472,46 +428,56 @@ function buildTextOverlaySvg(slide: StoryCompositeSlide, textColor: string, subC
   const pollText = slide.has_poll && pollOptions && pollOptions.length > 0
     ? sanitizeTextForCompositing(pollOptions.join("  ·  "))
     : ""
-  const pollFontSize = Math.round(POLL_FONT_SIZE * scale)
-  const pollLines = pollText ? wrapText(pollText, maxWidthChars.poll, 2) : []
-  const pollLineHeight = pollFontSize * 1.4
 
-  const headlineBlockHeight = headlineLines.length * headlineLineHeight
-  const subtextBlockHeight = subtextLines.length * subtextLineHeight
-  const pollBlockHeight = pollLines.length * pollLineHeight
-  const gapToSubtext = subtextLines.length > 0 ? 28 : 0
-  const gapToPoll = pollLines.length > 0 ? 64 : 0
-  const totalBlockHeight = headlineBlockHeight + gapToSubtext + subtextBlockHeight + gapToPoll + pollBlockHeight
+  // Sizes and wrapping (every word kept, sizes stepped down to a floor
+  // instead) from the shared layout the builder's notice also uses.
+  const layout = layoutStoryText({ text, subtext, pollText, text_size_scale: slide.text_size_scale })
 
   // Free-drag position (percentages, block CENTER) takes over completely
   // once set -- see StoryCompositeSlide.text_position_x/y's own comment.
   // Falls back to deriving a center point from text_position for any
   // slide that's never been dragged, via the same formula the live
   // preview defaults to (defaultTextCenter above), so nothing jumps
-  // between editor and real export.
+  // between editor and real export. Either way the block is kept inside
+  // the story safe zone (and 6% from the sides).
   const center = slide.text_position_x !== undefined && slide.text_position_y !== undefined
     ? { x: slide.text_position_x, y: slide.text_position_y }
     : defaultTextCenter(slide.text_position)
-  const centerXAttr = `${center.x}%`
-  const centerYPx = (center.y / 100) * CANVAS_HEIGHT
-  const blockStartY = centerYPx - totalBlockHeight / 2
+  const blockWidth = Math.max(estimateBlockWidth(layout.headline), estimateBlockWidth(layout.subtext), estimateBlockWidth(layout.poll))
+  const centerXPx = clampCenterX((center.x / 100) * CANVAS_WIDTH, blockWidth, STORY_TEXT_AREA.left, STORY_TEXT_AREA.right)
+  const centerXAttr = `${(centerXPx / CANVAS_WIDTH) * 100}%`
+  const blockStartY = clampBlockTop((center.y / 100) * CANVAS_HEIGHT, layout.height, STORY_TEXT_AREA.top, STORY_TEXT_AREA.bottom)
 
   const headFamily = familyAttr(slide.font_id ?? DEFAULT_FONT_ID)
   const bodyFamily = familyAttr(slide.body_font_id ?? slide.font_id ?? DEFAULT_FONT_ID)
   let cursorY = blockStartY
-  const headlineSvg = textLines(headlineLines, cursorY + headlineFontSize * 0.85, headlineLineHeight, headlineFontSize, textColor, 900, centerXAttr, headFamily)
-  cursorY += headlineBlockHeight + gapToSubtext
+  const block = (b: FittedBlock, color: string, weight: number, family: string): string => {
+    cursorY += b.gap
+    const lines = b.lines.flat()
+    const svg = lines.length > 0 ? textLines(lines, cursorY + b.fontSize * 0.85, b.lineHeight, b.fontSize, color, weight, centerXAttr, family) : ""
+    cursorY += b.height
+    return svg
+  }
+  const headlineSvg = block(layout.headline, textColor, 900, headFamily)
+  const subtextSvg = block(layout.subtext, subColor, 600, bodyFamily)
+  const pollSvg = block(layout.poll, subColor, 700, bodyFamily)
 
-  const subtextSvg = subtextLines.length > 0
-    ? textLines(subtextLines, cursorY + subtextFontSize * 0.85, subtextLineHeight, subtextFontSize, subColor, 600, centerXAttr, bodyFamily)
+  const backingSvg = backing?.needs_backing
+    ? backingRect(centerXPx - blockWidth / 2, blockStartY, blockWidth, layout.height, backing)
     : ""
-  cursorY += subtextBlockHeight + gapToPoll
 
-  const pollSvg = pollLines.length > 0
-    ? textLines(pollLines, cursorY + pollFontSize * 0.85, pollLineHeight, pollFontSize, subColor, 700, centerXAttr, bodyFamily)
-    : ""
+  return {
+    svg: `<svg width="${CANVAS_WIDTH}" height="${CANVAS_HEIGHT}" xmlns="http://www.w3.org/2000/svg">${backingSvg}${headlineSvg}${subtextSvg}${pollSvg}</svg>`,
+    overflow: layout.overflow,
+  }
+}
 
-  return `<svg width="${CANVAS_WIDTH}" height="${CANVAS_HEIGHT}" xmlns="http://www.w3.org/2000/svg">${headlineSvg}${subtextSvg}${pollSvg}</svg>`
+// Soft panel behind a text block over a busy photo (text_style.needs_backing).
+function backingRect(x: number, y: number, w: number, h: number, style: TextStyle): string {
+  const pad = 40
+  const left = Math.max(0, x - pad)
+  const right = Math.min(CANVAS_WIDTH, x + w + pad)
+  return `<rect x="${left}" y="${y - pad}" width="${right - left}" height="${h + pad * 2}" rx="32" fill="${backingRgba(style)}"/>`
 }
 
 // ─── Public API ─────────────────────────────────────────────────────────────
@@ -589,6 +555,9 @@ export interface StoryCompositeSlide {
    * `subtext` are always mirrored alongside these). */
   checklist_wrong_item?: string | null
   checklist_right_item?: string | null
+  /** Computed once from background_image_url where it was generated
+   * (lib/image/text-contrast.ts). Absent = the old fixed gradient scrim. */
+  text_style?: TextStyle | null
 }
 
 /**
@@ -603,12 +572,17 @@ export interface StoryCompositeSlide {
  * in-app "here's roughly how it'll look" aid, not the exported asset.
  */
 export async function renderStorySlidesToPng(slides: StoryCompositeSlide[]): Promise<Buffer[]> {
+  return (await renderStorySlides(slides)).map((r) => r.png)
+}
+
+/** renderStorySlidesToPng plus each slide's warnings ("text_overflow"). */
+export async function renderStorySlides(slides: StoryCompositeSlide[]): Promise<{ png: Buffer; warnings: SlideWarning[] }[]> {
   const total = slides.length
   if (total === 0) return []
 
   return Promise.all(
     slides.map(async (slide) => {
-      const { buffer: backgroundLayer, textColor: bgTextColor, subColor: bgSubColor } = await buildBackgroundLayer(slide)
+      const { buffer: backgroundLayer, textColor: bgTextColor, subColor: bgSubColor, styled } = await buildBackgroundLayer(slide)
       // Exact user-picked hex overrides the background-derived pairing for
       // headline, subtext, AND poll text (buildTextOverlaySvg applies
       // textColor to the headline and subColor to both subtext and poll) --
@@ -645,10 +619,12 @@ export async function renderStorySlidesToPng(slides: StoryCompositeSlide[]): Pro
         }
       }
 
-      const textOverlayPng = await svgToPngBuffer(buildTextOverlaySvg(slide, textColor, subColor), slide.font_id ?? DEFAULT_FONT_ID, slide.body_font_id ?? undefined)
+      const overlay = buildTextOverlaySvg(slide, textColor, subColor, styled)
+      const textOverlayPng = await svgToPngBuffer(overlay.svg, slide.font_id ?? DEFAULT_FONT_ID, slide.body_font_id ?? undefined)
       layers.push({ input: textOverlayPng, top: 0, left: 0 })
 
-      return sharp(backgroundLayer).composite(layers).png().toBuffer()
+      const png = await sharp(backgroundLayer).composite(layers).png().toBuffer()
+      return { png, warnings: overlay.overflow ? [TEXT_OVERFLOW_WARNING] : [] }
     })
   )
 }

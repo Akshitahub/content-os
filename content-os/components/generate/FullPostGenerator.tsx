@@ -17,7 +17,8 @@ import { useGenerationStore } from "@/stores/generationStore"
 import { usePromptWriter } from "@/hooks/usePromptWriter"
 import { PromptWriterField } from "@/components/generate/PromptWriterField"
 import { useBrand } from "@/hooks/useBrand"
-import { flattenOverlayImage } from "@/lib/utils/post-overlay-export"
+import { flattenOverlayImage, overlayScrimStops } from "@/lib/utils/post-overlay-export"
+import type { TextStyle } from "@/lib/design/text-style"
 import { resolveFonts, resolveSuggestedFont, DEFAULT_FONT_ID, type FontId } from "@/lib/design/fonts"
 import { PREVIEW_FONT_CLASS } from "@/lib/design/preview-fonts"
 import type { FullPostResult, ContentResult } from "@/hooks/useGeneration"
@@ -103,6 +104,9 @@ export function FullPostGenerator({ brandId, products }: Props) {
   const selectedLayout: PostTemplateId = DEFAULT_POST_TEMPLATE_ID
   const selectedColorThemeId = ""
   const [postImageUrl, setPostImageUrl] = useState<string | null>(null)
+  // From the post-image response: scrim/backing for the overlay headline
+  // (preview and flattenOverlayImage use the same values).
+  const [postTextStyle, setPostTextStyle] = useState<TextStyle | null>(null)
   const [imageSource, setImageSource] = useState<"ai" | null>(null)
   // Commit 3 (overlay decoupling): for the "ai" path, postImageUrl is now
   // ALWAYS the clean, text-free background — runImageGeneration below no
@@ -214,6 +218,7 @@ export function FullPostGenerator({ brandId, products }: Props) {
       {
         onSuccess: (imgData) => {
           setPostImageUrl(imgData.public_url)
+          setPostTextStyle(imgData.text_style ?? null)
           setImageSource("ai")
           setOverlayText(initialOverlayText)
           setOverlayFontId(initialOverlayFont)
@@ -273,6 +278,7 @@ export function FullPostGenerator({ brandId, products }: Props) {
 
     setPendingImageGen({ data, sessionId })
     setPostImageUrl(null)
+    setPostTextStyle(null)
     setImageSource(null)
     setImageError(null)
     const seed = additionalContext.trim() || caption.image_prompt?.trim() || null
@@ -392,13 +398,13 @@ export function FullPostGenerator({ brandId, products }: Props) {
     let cancelled = false
     setFlattening(true)
     const timer = setTimeout(() => {
-      flattenOverlayImage(postImageUrl, overlayText, undefined, overlayFontId)
+      flattenOverlayImage(postImageUrl, overlayText, undefined, overlayFontId, postTextStyle)
         .then((dataUrl) => { if (!cancelled) setFlattenedImageUrl(dataUrl) })
         .catch(() => { if (!cancelled) setFlattenedImageUrl(null) })
         .finally(() => { if (!cancelled) setFlattening(false) })
     }, 400)
     return () => { cancelled = true; clearTimeout(timer) }
-  }, [imageSource, postImageUrl, overlayText, overlayFontId])
+  }, [imageSource, postImageUrl, overlayText, overlayFontId, postTextStyle])
 
   const copy = useCallback((text: string, key: string) => {
     navigator.clipboard.writeText(text)
@@ -412,6 +418,7 @@ export function FullPostGenerator({ brandId, products }: Props) {
     setJustSaved(false)
     setFullPostResult(null)
     setPostImageUrl(null)
+    setPostTextStyle(null)
     setImageSource(null)
     setImageError(null)
     setPostSessionId(null)
@@ -683,6 +690,7 @@ export function FullPostGenerator({ brandId, products }: Props) {
             onOverlayTextChange={setOverlayText}
             overlayFontId={overlayFontId}
             onOverlayFontChange={setOverlayFontId}
+            overlayTextStyle={postTextStyle}
             flattenedImageUrl={flattenedImageUrl}
             flattening={flattening}
             previewMode={previewMode}
@@ -969,6 +977,7 @@ function PostImagePreview({
   onOverlayTextChange,
   overlayFontId,
   onOverlayFontChange,
+  overlayTextStyle,
   downloadUrl,
   flattening,
   previewMode,
@@ -991,6 +1000,7 @@ function PostImagePreview({
   onOverlayTextChange: (text: string) => void
   overlayFontId: FontId
   onOverlayFontChange: (fontId: FontId) => void
+  overlayTextStyle: TextStyle | null
   /** What Download/Schedule should actually use — the flattened (headline
    * baked in) PNG when there's overlay text, otherwise the clean
    * background itself. Never re-generates anything; this is client-canvas
@@ -1068,7 +1078,7 @@ function PostImagePreview({
               you see here is what Download/Schedule actually produce. */}
           <div
             className="pointer-events-none absolute inset-x-0 bottom-0"
-            style={{ height: "38%", background: "linear-gradient(to bottom, rgba(0,0,0,0) 0%, rgba(0,0,0,0.55) 35%, rgba(0,0,0,0.65) 100%)" }}
+            style={{ height: "38%", background: (({ mid, end }) => `linear-gradient(to bottom, rgba(0,0,0,0) 0%, rgba(0,0,0,${mid}) 35%, rgba(0,0,0,${end}) 100%)`)(overlayScrimStops(overlayTextStyle)) }}
           />
           <textarea
             value={overlayText}
@@ -1216,6 +1226,7 @@ function FullPostResults({
   onOverlayTextChange,
   overlayFontId,
   onOverlayFontChange,
+  overlayTextStyle,
   flattenedImageUrl,
   flattening,
   previewMode,
@@ -1237,6 +1248,7 @@ function FullPostResults({
   onOverlayTextChange: (text: string) => void
   overlayFontId: FontId
   onOverlayFontChange: (fontId: FontId) => void
+  overlayTextStyle: TextStyle | null
   flattenedImageUrl: string | null
   flattening: boolean
   previewMode: "canvas" | "feed"
@@ -1284,6 +1296,7 @@ function FullPostResults({
         onOverlayTextChange={onOverlayTextChange}
         overlayFontId={overlayFontId}
         onOverlayFontChange={onOverlayFontChange}
+        overlayTextStyle={overlayTextStyle}
         downloadUrl={shareableImageUrl ?? postImageUrl ?? ""}
         flattening={flattening}
         previewMode={previewMode}

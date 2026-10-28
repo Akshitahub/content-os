@@ -1,7 +1,10 @@
 import sharp from "sharp"
 import { generateOpenAIImage, resolveImageQuality, IMAGE_PROVIDER, type ImageDimensions, type ImageQuality } from "@/lib/ai/image-provider"
 import { sumCostUsd } from "@/lib/ai/pricing"
-import { compositePostImage, compositeHardTruthChecklist } from "@/lib/image/post-compositor"
+import { compositePostImageWithWarnings, compositeHardTruthChecklistWithWarnings } from "@/lib/image/post-compositor"
+import { computeTextStyleSafe } from "@/lib/image/text-contrast"
+import { postTextRegion, type TextStyle } from "@/lib/design/text-style"
+import type { SlideWarning } from "@/lib/design/slide-text-layout"
 import type { PostTemplateId } from "@/lib/design/post-templates"
 import type { ColorTheme } from "@/lib/design/color-themes"
 import type { UserPlan } from "@/types/app"
@@ -76,7 +79,13 @@ function resolvePostImageDimensions(aspectRatio: "4:5" | "1:1" | "9:16" | undefi
 }
 
 export type PostImagePipelineResult =
-  | { success: true; buffer: Buffer; mimeType: string; fullPrompt: string; provider: typeof IMAGE_PROVIDER | "none"; attempts: ImageGenerationAttempt[]; textComposited: boolean }
+  | {
+      success: true; buffer: Buffer; mimeType: string; fullPrompt: string; provider: typeof IMAGE_PROVIDER | "none"; attempts: ImageGenerationAttempt[]; textComposited: boolean
+      /** From the raw background at the text's region (null for the flat checklist card or on failure). */
+      textStyle?: TextStyle | null
+      /** "text_overflow" when the composited text didn't fit at the smallest size. */
+      warnings?: SlideWarning[]
+    }
   | { success: false; error: string; attempts: ImageGenerationAttempt[] }
 
 // Structured failure classification — distinct from the free-text `error`
@@ -589,7 +598,7 @@ export async function generatePostImage(rawOptions: GeneratePostImageOptions): P
   // empty checklist card.
   if (options.template === "hard_truth_checklist" && options.checklistHeadline?.trim()) {
     try {
-      const composited = await compositeHardTruthChecklist({
+      const { buffer: composited, warnings } = await compositeHardTruthChecklistWithWarnings({
         colorTheme: options.colorTheme,
         logoUrl: options.logoUrl,
         fontId: options.fontId,
@@ -609,6 +618,8 @@ export async function generatePostImage(rawOptions: GeneratePostImageOptions): P
         provider: "none",
         attempts: [],
         textComposited: true,
+        textStyle: null,
+        warnings,
       }
     } catch (err) {
       console.error("[post-image-pipeline] hard_truth_checklist compositing failed:", err instanceof Error ? `${err.name}: ${err.message}` : err)
@@ -660,6 +671,11 @@ export async function generatePostImage(rawOptions: GeneratePostImageOptions): P
   const result = await fetchBackgroundImage(fullPrompt, retryPrompt, options.plan, options.isInternalUnlimitedUser, requestedDimensions, options.productImageUrl, options.quality)
   if (!result.success) return result
 
+  // Text treatment, computed once from the raw background at the region the
+  // text will occupy (the template's zone, or FullPost's bottom-third overlay
+  // when there's no caption) -- post text is always white, so preferLight.
+  const textStyle = await computeTextStyleSafe(result.buffer, postTextRegion(options.template, willCompositeText), { preferLight: true })
+
   // No caption text (the new default) — skip compositePostImage entirely
   // rather than compositing an empty/placeholder overlay. Still needs the
   // same resize-to-target-canvas normalization compositePostImage's own
@@ -671,7 +687,7 @@ export async function generatePostImage(rawOptions: GeneratePostImageOptions): P
     console.log(`[post-image-pipeline] no caption text provided -- skipping text compositing, returning plain background at ${requestedDimensions.aspectRatio}`)
     try {
       const normalized = await sharp(result.buffer).resize(requestedDimensions.width, requestedDimensions.height, { fit: "cover" }).png().toBuffer()
-      return { success: true, buffer: normalized, mimeType: "image/png", fullPrompt, provider: result.provider, attempts: result.attempts, textComposited: false }
+      return { success: true, buffer: normalized, mimeType: "image/png", fullPrompt, provider: result.provider, attempts: result.attempts, textComposited: false, textStyle, warnings: [] }
     } catch (err) {
       console.error("[post-image-pipeline] normalizing plain background failed:", err instanceof Error ? `${err.name}: ${err.message}` : err)
       return { success: false, error: "Couldn't finish preparing the generated image. Please try again.", attempts: result.attempts }
@@ -694,16 +710,17 @@ export async function generatePostImage(rawOptions: GeneratePostImageOptions): P
   )
 
   try {
-    const composited = await compositePostImage(result.buffer, {
+    const { buffer: composited, warnings } = await compositePostImageWithWarnings(result.buffer, {
       template: options.template,
       colorTheme: options.colorTheme,
       captionText,
       logoUrl: options.logoUrl,
       fontId: options.fontId,
       textSizeScale: options.textSizeScale ?? undefined,
+      textStyle,
     })
-    console.log(`[post-image-pipeline] composited successfully: ${composited.length} bytes`)
-    return { success: true, buffer: composited, mimeType: "image/png", fullPrompt, provider: result.provider, attempts: result.attempts, textComposited: true }
+    console.log(`[post-image-pipeline] composited successfully: ${composited.length} bytes${warnings.length ? ` warnings=${warnings.join(",")}` : ""}`)
+    return { success: true, buffer: composited, mimeType: "image/png", fullPrompt, provider: result.provider, attempts: result.attempts, textComposited: true, textStyle, warnings }
   } catch (err) {
     console.error("[post-image-pipeline] compositing failed:", err instanceof Error ? `${err.name}: ${err.message}\n${err.stack}` : err)
     return { success: false, error: "Couldn't finish styling the generated image. Please try again.", attempts: result.attempts }

@@ -14,6 +14,8 @@ import type { BrandRow } from "@/types/database"
 import { timedGenerationRoute, type GenerationTimer } from "@/lib/utils/generation-timing"
 import { withDeadline, DeadlineExceededError, GENERATION_TIMED_OUT_MESSAGE } from "@/lib/utils/with-deadline"
 import { sampleImageAlignment } from "@/lib/ai/image-alignment"
+import { computeTextStyleSafe } from "@/lib/image/text-contrast"
+import { storyTextRegion } from "@/lib/design/text-style"
 
 const STORY_VIBES = ["fun_playful", "clean_minimal", "bold_dramatic", "warm_cozy", "professional", "trendy_genz"] as const
 
@@ -222,5 +224,9 @@ async function handlePost(request: Request, timer: GenerationTimer) {
   // request carries no story id, so the event has none.
   sampleImageAlignment({ supabase, userId: user.id, brandId, contentType: "story", format: "story", imageUrl: uploadResult.publicUrl, brief: visualBrief })
 
-  return NextResponse.json({ data: { public_url: uploadResult.publicUrl, role, provider } }, { status: 200 })
+  // How text should be drawn over this background at the slide's
+  // text_position (lib/image/text-contrast.ts), stored on the slide.
+  const textStyle = await computeTextStyleSafe(result.buffer, storyTextRegion(textPosition))
+
+  return NextResponse.json({ data: { public_url: uploadResult.publicUrl, role, provider, text_style: textStyle } }, { status: 200 })
 }

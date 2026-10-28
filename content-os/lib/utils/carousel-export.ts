@@ -11,6 +11,8 @@
 // thing that actually reaches real Instagram carousels. Mirrors
 // lib/utils/story-export.ts exactly.
 
+import type { TextStyle } from "@/lib/design/text-style"
+
 export interface CarouselExportSlide {
   type: "cover" | "content" | "cta"
   headline: string
@@ -31,6 +33,8 @@ export interface CarouselExportSlide {
   font_id?: string | null
   /** The brand's body font -- see the compositor's body_font_id. */
   body_font_id?: string | null
+  /** How to draw text over image_url -- see the compositor's text_style. */
+  text_style?: TextStyle | null
   /** Uniform font-size multiplier for this slide -- see
    * CarouselSlideRich.text_size_scale's own comment. */
   text_size_scale?: number | null

@@ -16,6 +16,8 @@ import { withDeadline, DeadlineExceededError, GENERATION_TIMED_OUT_MESSAGE } fro
 import { getActiveLessons } from "@/lib/ai/brand-brain"
 import { recordContentEvent } from "@/lib/usage/content-events"
 import { gateEventMeta } from "@/lib/ai/quality-gate"
+import type { TextStyle } from "@/lib/design/text-style"
+import { overflowingSlides, storySlideOverflows } from "@/lib/design/slide-text-layout"
 
 const schema = z.object({
   brandId: z.string().uuid(),
@@ -51,6 +53,9 @@ export type StorySlide = {
    * already sanitized by lib/ai/story-sequence-generator.ts. Persisted with
    * the slide; sent back as the slide-image route's visualBrief. */
   visual?: VisualBrief
+  /** Client-only, from the slide-image response alongside
+   * background_image_url: how text is drawn over it (lib/design/text-style.ts). */
+  text_style?: TextStyle | null
   /** Client-only enrichment — never set by this route. Filled in by
    * StorySequence.tsx as a best-effort follow-up (hook/cta slides only)
    * after generation succeeds; falls back to the flat `background` gradient
@@ -384,7 +389,10 @@ async function handlePost(request: Request, timer: GenerationTimer) {
     } catch (persistErr) {
       console.error("[ai/stories/generate] persist failed (non-fatal):", persistErr)
     }
-    recordContentEvent(supabase, { userId: user.id, brandId, contentType: "story", contentId: storyRowId, event: "generated", meta: { model: gen.model, cost_usd: gen.costUsd, ...gateEventMeta(gen.gate) } })
+    // Frames whose text only fits past the compositor's smallest size
+    // (lib/design/slide-text-layout.ts) -- the builder shows the same notice.
+    const textOverflow = overflowingSlides(d.stories as StorySlide[], storySlideOverflows)
+    recordContentEvent(supabase, { userId: user.id, brandId, contentType: "story", contentId: storyRowId, event: "generated", meta: { model: gen.model, cost_usd: gen.costUsd, ...gateEventMeta(gen.gate), ...(textOverflow.length ? { text_overflow: true, text_overflow_slides: textOverflow.map((i) => i + 1) } : {}) } })
 
     await recordOutcome(true)
     return NextResponse.json({ data: { ...d, id: storyRowId } }, { status: 200 })

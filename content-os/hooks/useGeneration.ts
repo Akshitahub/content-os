@@ -21,6 +21,7 @@ import type {
   Platform,
 } from "@/types/app"
 import type { GenerateHooksInput, GenerateCaptionsInput, GenerateImageInput, GenerateContentInput, GenerateFullPostInput, GeneratePostImageInput, GenerateFullPostFromPhotoInput } from "@/lib/validations/ai"
+import type { TextStyle } from "@/lib/design/text-style"
 
 // Discriminated union so components can narrow on result.format
 export type ContentResult =
@@ -57,6 +58,8 @@ export type GeneratedPostImage = {
   public_url: string
   storage_path: string
   image_prompt: string
+  /** How to draw the overlay headline over this image (lib/design/text-style.ts). */
+  text_style?: TextStyle | null
 }
 
 function throwApiError(json: unknown, fallback: string): never {

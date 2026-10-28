@@ -317,7 +317,7 @@ async function handlePost(request: Request, timer: GenerationTimer) {
   recordContentEvent(supabase, {
     userId: user.id, brandId, contentType: "post_image", contentId: contentProjectId ?? savedImage?.id ?? null,
     event: attempt > 1 ? "regenerated" : "generated",
-    meta: { model: modelLabel, cost_usd: attemptsCostUsd(result.attempts), part: "post image" },
+    meta: { model: modelLabel, cost_usd: attemptsCostUsd(result.attempts), part: "post image", ...(result.warnings?.length ? { text_overflow: true } : {}) },
   })
   // Sampled image-alignment check against the caption's visual brief.
   sampleImageAlignment({ supabase, userId: user.id, brandId, contentType: "post_image", contentId: contentProjectId ?? savedImage?.id ?? null, format: "post", imageUrl: publicUrlData.publicUrl, brief: visualBrief })
@@ -328,6 +328,9 @@ async function handlePost(request: Request, timer: GenerationTimer) {
       public_url: publicUrlData.publicUrl,
       storage_path: storagePath,
       image_prompt: result.fullPrompt,
+      // How to draw text over this image (FullPost overlay preview + export).
+      text_style: result.textStyle ?? null,
+      warnings: result.warnings ?? [],
     },
   }, { status: 200 })
 }

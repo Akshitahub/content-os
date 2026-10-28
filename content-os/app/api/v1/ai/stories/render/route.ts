@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import { buildError, ErrorCodes } from "@/types/api"
-import { renderStorySlidesToPng, type StoryCompositeSlide } from "@/lib/image/story-compositor"
+import { renderStorySlides, type StoryCompositeSlide } from "@/lib/image/story-compositor"
 import { uploadMediaToStorage } from "@/lib/storage/upload-media"
 import { z } from "zod"
+import { textStyleSchema } from "@/lib/design/text-style"
 
 // Not a generation call -- no checkAndIncrementUsage/credit cost here, same
 // as the DOM-screenshot flow it replaces never charged credits either.
@@ -56,6 +57,7 @@ const slideSchema = z.object({
   // StoryCompositeSlide.font_id's own comment (lib/image/story-compositor.ts).
   font_id: fontIdEnum.nullish(),
   body_font_id: fontIdEnum.nullish(),
+  text_style: textStyleSchema.nullish(),
   // Uniform font-size multiplier for this slide -- see
   // StoryCompositeSlide.text_size_scale's own comment.
   text_size_scale: z.number().min(0.7).max(1.5).nullish(),
@@ -87,7 +89,8 @@ export async function POST(request: Request) {
   }
 
   try {
-    const buffers = await renderStorySlidesToPng(parsed.data.slides as StoryCompositeSlide[])
+    const rendered = await renderStorySlides(parsed.data.slides as StoryCompositeSlide[])
+    const buffers = rendered.map((r) => r.png)
     const imageUrls = buffers.map((buf) => `data:image/png;base64,${buf.toString("base64")}`)
     // Upload in parallel so the schedule path can send small hosted URLs
     // instead of shuttling several MB of base64 back through the browser
@@ -98,7 +101,8 @@ export async function POST(request: Request) {
       buffers.map((buf, i) => uploadMediaToStorage({ kind: "buffer", buffer: buf, mimeType: "image/png" }, `story-renders/${user.id}-${Date.now()}-${i}`, { generatedImage: true }))
     )
     const hostedUrls = hostedResults.every(r => "publicUrl" in r) ? hostedResults.map(r => (r as { publicUrl: string }).publicUrl) : null
-    return NextResponse.json({ data: { imageUrls, hostedUrls } })
+    // warnings[i]: ["text_overflow"] when slide i's text only fits past the smallest size.
+    return NextResponse.json({ data: { imageUrls, hostedUrls, warnings: rendered.map((r) => r.warnings) } })
   } catch (err) {
     console.error("[ai/stories/render] compositing failed:", err instanceof Error ? err.message : err)
     return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Couldn't render the story image. Please try again."), { status: 500 })

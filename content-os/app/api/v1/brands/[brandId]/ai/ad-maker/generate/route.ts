@@ -22,6 +22,8 @@ import { gateEventMeta } from "@/lib/ai/quality-gate"
 import { sampleImageAlignment } from "@/lib/ai/image-alignment"
 import { resolveTypography } from "@/lib/design/fonts"
 import { rememberBrandTypography } from "@/lib/design/brand-typography"
+import { computeTextStyleSafe } from "@/lib/image/text-contrast"
+import { adTextRegion } from "@/lib/design/text-style"
 
 const BUCKET = "brand-images"
 
@@ -108,7 +110,7 @@ async function handlePost(request: Request, { params }: RouteParams, timer: Gene
   // identical fix for why (a friendly per-field message, e.g. customPrompt's
   // own .max() text, instead of a raw JSON issues dump).
   if (!parsed.success) return NextResponse.json(buildError(ErrorCodes.VALIDATION_ERROR, "Validation failed.", parsed.error.issues[0]?.message), { status: 400 })
-  const { scene, customScene, format, productImageBase64, customPrompt, productId, hookText, userDirection } = parsed.data
+  const { scene, customScene, format, productImageBase64, customPrompt, productId, hookText, userDirection, textPosition } = parsed.data
 
   const usageCheck = await checkAndIncrementUsage(user.id, AD_MAKER, FEATURE)
   if (!usageCheck.ok) {
@@ -241,7 +243,12 @@ async function handlePost(request: Request, { params }: RouteParams, timer: Gene
         const { error: uploadError } = await admin.storage
           .from(BUCKET)
           .upload(storagePath, image.buffer, { contentType: image.mimeType, upsert: false })
-        return uploadError ? null : { storagePath, provider: result.provider, variant }
+        if (uploadError) return null
+        // text_style for each text position (the user can move the text after
+        // generating); text_style is the one for the requested position.
+        const [top, center, bottom] = await Promise.all((["top", "center", "bottom"] as const).map((p) => computeTextStyleSafe(result.buffer, adTextRegion(p))))
+        const textStyles = { top: top ?? null, center: center ?? null, bottom: bottom ?? null }
+        return { storagePath, provider: result.provider, variant, textStyles }
       })
     )
   ).filter((u): u is NonNullable<typeof u> => !!u)
@@ -274,6 +281,8 @@ async function handlePost(request: Request, { params }: RouteParams, timer: Gene
     url: admin.storage.from(BUCKET).getPublicUrl(u.storagePath).data.publicUrl,
     provider: u.provider,
     variant: u.variant,
+    text_style: u.textStyles[textPosition ?? "top"],
+    text_styles: u.textStyles,
   }))
 
   // No content row exists for Ad Maker, so no id -- and "Generate again"
