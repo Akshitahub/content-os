@@ -263,6 +263,15 @@ export const generateAdMakerBackgroundSchema = z.object({
     .max(1500, "Scene prompt must be under 1500 characters")
     .optional()
     .transform((val) => val?.replace(/<[^>]*>/g, "").trim()),
+  // Optional inputs for the strategy step (lib/ai/ad-strategy.ts): the saved
+  // product the photo came from (for its facts) and the on-image text the
+  // user typed, used as their direction. Older clients omit both.
+  productId: z.string().uuid("Invalid product ID").optional(),
+  hookText: z
+    .string()
+    .max(200, "Headline text is too long")
+    .optional()
+    .transform((val) => val?.replace(/<[^>]*>/g, "").trim()),
 })
 
 export type GenerateAdMakerBackgroundInput = z.infer<typeof generateAdMakerBackgroundSchema>

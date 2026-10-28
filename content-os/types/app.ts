@@ -214,6 +214,33 @@ export type AdCopy = {
   primary_text: string
   description: string
   cta_button: string
+  /** Strategy decided before the copy (lib/ai/prompts.ts buildAdCopyUserPrompt). Returned only; not persisted. */
+  ad_brief?: AdBrief
+  angle?: AdAngle
+}
+
+export type AdAngle = "pain_point" | "benefit" | "proof" | "demonstration" | "objection"
+
+/** Who an ad is for and the ONE thing it sells -- decided before any copy or image (lib/ai/ad-strategy.ts). */
+export type AdBrief = {
+  audience: string
+  desired_action: string
+  funnel_stage: "awareness" | "consideration" | "conversion"
+  value_proposition: string
+  /** Only when stated in the brand/product facts; otherwise null. */
+  offer: string | null
+  proof: string | null
+}
+
+/** One Ad Maker creative hypothesis: an angle, its copy and what its image must show. */
+export type AdVariant = {
+  angle: AdAngle
+  hypothesis: string
+  /** Also the on-image text when the user didn't type one. */
+  headline: string
+  primary_text: string
+  cta_button: string
+  visual?: VisualBrief
 }
 
 // Maps each ContentFormat to its output type.

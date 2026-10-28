@@ -731,6 +731,14 @@ ${extraContext}
 
 Write Meta ad copy for the above brand${options.product ? ` promoting "${options.product.name}"` : ""}.
 
+STRATEGY FIRST — decide "ad_brief" before writing any copy (emit it first):
+- "audience": who this ad is for, specifically. "desired_action": the one thing they should do.
+- "funnel_stage": awareness | consideration | conversion. "value_proposition": the ONE value proposition the copy serves.
+- "offer" / "proof": ONLY if stated in the brand or product facts above, otherwise null — and don't imply them.
+Then pick ONE "angle" (pain_point | benefit | proof | demonstration | objection; "proof" only if ad_brief.proof is not null) and write the copy from it.
+- Price, discount, testimonial, guarantee or urgency ONLY if present in the facts above.
+- No empty adjectives ("premium", "elevated", "seamless", "luxurious") unless the copy states the specific detail that justifies them.
+
 Character limit rules (STRICT):
 - headline: MUST be 40 characters or fewer
 - primary_text: aim for ≤125 characters (this is the main feed text above the image)
@@ -739,6 +747,8 @@ Character limit rules (STRICT):
 
 Respond with this exact JSON:
 {
+  "ad_brief": { "audience": "...", "desired_action": "...", "funnel_stage": "consideration", "value_proposition": "...", "offer": null, "proof": null },
+  "angle": "benefit",
   "headline": "≤40 char headline",
   "primary_text": "hook-led ad body, ideally ≤125 chars",
   "description": "one supporting sentence",

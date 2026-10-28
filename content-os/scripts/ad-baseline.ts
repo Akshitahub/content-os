@@ -170,6 +170,8 @@ globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
 
 type VariationRecord = {
   index: number
+  /** This variation's strategy variant (angle/hypothesis/copy/visual), null without a strategy. */
+  variant: unknown
   imageFile: string | null
   latencyMs: number
   costUsd: number | null
@@ -185,6 +187,7 @@ type VariationRecord = {
 async function main(): Promise<void> {
   const { requestImagePromptStream } = await import("@/lib/ai/image-prompt-writer")
   const { generateAdMakerBackground } = await import("@/lib/ai/ad-maker-background")
+  const { generateAdStrategy } = await import("@/lib/ai/ad-strategy")
   const { generateContent } = await import("@/lib/ai/content-generator")
   const { attemptsCostUsd } = await import("@/lib/ai/post-image-pipeline")
   const { IMAGE_PROVIDER_CONFIG } = await import("@/lib/ai/image-provider")
@@ -241,7 +244,20 @@ async function main(): Promise<void> {
     customPrompt = undefined
   }
 
-  // 2. The 3 background variations, built exactly as the route builds them.
+  // 2. Strategy step, as the ad-maker route runs it (user direction = the
+  // typed headline; no custom scene here). Fails soft like the route.
+  currentStage = "ad_strategy"
+  console.log("Deciding the ad strategy…")
+  started = Date.now()
+  let strategy: Awaited<ReturnType<typeof generateAdStrategy>> | null = null
+  try {
+    strategy = await generateAdStrategy({ brand, product, userDirection: hookText || undefined, format, timeoutMs: 45_000 })
+  } catch (err) {
+    errors.push(`ad_strategy (fell back to brief-less variations): ${err instanceof Error ? err.message : String(err)}`)
+  }
+  const strategyLatencyMs = Date.now() - started
+
+  // 3. The 3 background variations, built exactly as the route builds them.
   const backgroundOptions = {
     scene,
     customScene: undefined,
@@ -258,11 +274,12 @@ async function main(): Promise<void> {
     console.log(`Variation ${i + 1}/${VARIATION_COUNT}…`)
     const firstCall = captured.length
     started = Date.now()
-    const result = await generateAdMakerBackground(backgroundOptions)
+    const result = await generateAdMakerBackground({ ...backgroundOptions, visualBrief: strategy?.variants[i]?.visual })
     const imageRequests = captured.slice(firstCall)
     const first = imageRequests[0]?.request as { prompt?: unknown } | undefined
     const record: VariationRecord = {
       index: i + 1,
+      variant: strategy?.variants[i] ?? null,
       imageFile: null,
       latencyMs: Date.now() - started,
       costUsd: attemptsCostUsd(result.attempts),
@@ -303,7 +320,7 @@ async function main(): Promise<void> {
 
   // 4. Outputs.
   const imageCost = sumCostUsd(...variations.map((v) => v.costUsd))
-  const totalLatencyMs = promptLatencyMs + variations.reduce((a, v) => a + v.latencyMs, 0) + adCopyLatencyMs
+  const totalLatencyMs = promptLatencyMs + strategyLatencyMs + variations.reduce((a, v) => a + v.latencyMs, 0) + adCopyLatencyMs
   const run = {
     inputs: { brandId, brandName: brand.name, productId, productName: product.name, productImageUrl, scene, format, hookText: hookText || null, label },
     startedAt: runStartedAt.toISOString(),
@@ -311,14 +328,17 @@ async function main(): Promise<void> {
     isInternalUnlimitedUser: isUnlimited,
     models: { scenePromptWriter: MODELS.creative, image: IMAGE_PROVIDER_CONFIG.model, adCopy: MODELS.creative },
     scenePrompt: adPrompt,
+    adBrief: strategy?.brief ?? null,
+    variants: strategy?.variants ?? null,
     variations,
     adCopy,
     calls: captured,
     cost: {
       scenePrompt: { costUsd: null, latencyMs: promptLatencyMs, note: "streamed without usage reporting -- not priced" },
+      strategy: { model: strategy?.model ?? null, usage: strategy?.usage ?? null, costUsd: strategy?.costUsd ?? null, latencyMs: strategyLatencyMs },
       images: { costUsd: imageCost },
       adCopy: { usage: adCopyUsage, costUsd: adCopyCost, latencyMs: adCopyLatencyMs },
-      totalUsd: sumCostUsd(imageCost, adCopyCost),
+      totalUsd: sumCostUsd(strategy?.costUsd, imageCost, adCopyCost),
       totalLatencyMs,
     },
     errors,
@@ -337,15 +357,28 @@ async function main(): Promise<void> {
     "",
     `**On-image text:** ${hookText || "(none typed)"}`,
     "",
-    "| # | Image |",
-    "|---|-------|",
-    ...variations.map((v) => `| ${v.index} | ${v.imageFile ? `![](${v.imageFile})` : `failed: ${cell(v.error ?? "")}`} |`),
+    ...(strategy ? [
+      "## Ad brief",
+      `- **Audience:** ${strategy.brief.audience}`,
+      `- **Desired action:** ${strategy.brief.desired_action} (${strategy.brief.funnel_stage})`,
+      `- **Value proposition:** ${strategy.brief.value_proposition}`,
+      `- **Offer:** ${strategy.brief.offer ?? "none"} · **Proof:** ${strategy.brief.proof ?? "none"}`,
+      "",
+    ] : []),
+    "| # | Angle | Hypothesis | Headline | Primary text | CTA | Visual brief | Image |",
+    "|---|-------|------------|----------|--------------|-----|--------------|-------|",
+    ...variations.map((v) => {
+      const vv = v.variant as { angle?: string; hypothesis?: string; headline?: string; primary_text?: string; cta_button?: string; visual?: { kind?: string; must_show?: string } } | null
+      return `| ${v.index} | ${vv?.angle ?? "—"} | ${cell(vv?.hypothesis ?? "—")} | ${cell(vv?.headline ?? "—")} | ${cell(vv?.primary_text ?? "—")} | ${vv?.cta_button ?? "—"} | ${vv?.visual ? cell(`${vv.visual.kind}: ${vv.visual.must_show}`) : "—"} | ${v.imageFile ? `![](${v.imageFile})` : `failed: ${cell(v.error ?? "")}`} |`
+    }),
     "",
     "## Ad copy (ad_copy format)",
     `- **Headline:** ${copy?.headline ?? "—"}`,
     `- **Primary text:** ${copy?.primary_text ?? "—"}`,
     `- **Description:** ${copy?.description ?? "—"}`,
     `- **CTA:** ${copy?.cta_button ?? "—"}`,
+    `- **Angle:** ${(copy as { angle?: string } | null)?.angle ?? "—"}`,
+    `- **Ad brief:** ${JSON.stringify((copy as { ad_brief?: unknown } | null)?.ad_brief ?? null)}`,
     ...(errors.length ? ["", "## Errors", ...errors.map((e) => `- ${e}`)] : []),
     "",
   ].join("\n")

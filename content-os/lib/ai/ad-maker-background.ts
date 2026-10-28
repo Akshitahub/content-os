@@ -10,6 +10,7 @@ import {
   type ImageDimensions,
 } from "./post-image-pipeline"
 import type { UserPlan } from "@/types/app"
+import { briefScene, type VisualBrief } from "./visual-brief"
 
 // Kept in sync with the SCENE_PROMPTS dict in components/generate/AdMaker.tsx
 // (that file stays "use client" for its own preset picker UI, so this
@@ -64,6 +65,11 @@ export interface GenerateAdMakerBackgroundOptions {
    * of what this contains -- soft creative input, not a replacement for
    * those code-enforced constraints. */
   customPrompt?: string | null
+  /** This variation's own visual brief (lib/ai/ad-strategy.ts, already
+   * sanitized and restricted to product-led kinds). When present it becomes
+   * the creative core and the scene preset / custom scene / customPrompt
+   * becomes the setting ("set in: ..."). Omitted = today's behaviour. */
+  visualBrief?: VisualBrief
 }
 
 /**
@@ -77,6 +83,12 @@ export async function generateAdMakerBackground(
   options: GenerateAdMakerBackgroundOptions
 ): Promise<BackgroundImageResult> {
   const sceneDesc = options.customPrompt?.trim() || resolveSceneDescription(options.scene, options.customScene)
+  // With a brief, the variation's own subject leads and the chosen scene is
+  // just where it's set.
+  const brief = options.visualBrief
+  const briefCore = brief
+    ? [briefScene(brief, "an abstract atmospheric background"), brief.composition ? `composition: ${brief.composition}` : ""].filter(Boolean).join(", ")
+    : ""
   const niche = options.brandNiche || "lifestyle brand"
   const hasReferenceImage = !!options.productImageUrl
   const dimensions = FORMAT_DIMENSIONS[options.format] ?? FORMAT_DIMENSIONS.square
@@ -86,7 +98,7 @@ export async function generateAdMakerBackground(
   // quality/composition guards layered on top of the scene description,
   // wrapped for a real product reference photo when one's attached.
   const sceneDescription = [
-    sceneDesc,
+    brief ? `${briefCore}, set in: ${sceneDesc}` : sceneDesc,
     `${niche} brand`,
     PHOTOGRAPHY_STYLE,
     hasReferenceImage ? REFERENCE_IMAGE_PEOPLE_GUARD : NO_PEOPLE_BY_DEFAULT_GUARD,
@@ -100,7 +112,7 @@ export async function generateAdMakerBackground(
   // comma-separated segment) instead of its full description.
   const core = sceneDesc.split(",")[0]?.trim() || sceneDesc.slice(0, 150)
   const fallbackSceneDescription = [
-    core,
+    brief ? `${briefScene(brief, "an abstract atmospheric background")}, set in: ${core}` : core,
     `${niche} brand`,
     PHOTOGRAPHY_STYLE,
     hasReferenceImage ? REFERENCE_IMAGE_PEOPLE_GUARD : NO_PEOPLE_BY_DEFAULT_GUARD,

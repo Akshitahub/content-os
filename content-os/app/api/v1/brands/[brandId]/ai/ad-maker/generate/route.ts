@@ -7,10 +7,11 @@ import { AD_MAKER } from "@/lib/usage/credit-costs"
 const FEATURE = "ad_maker"
 import { generateAdMakerBackgroundSchema } from "@/lib/validations/ai"
 import { generateAdMakerBackground } from "@/lib/ai/ad-maker-background"
+import { generateAdStrategy, type AdStrategyResult } from "@/lib/ai/ad-strategy"
 import { attemptsCostUsd } from "@/lib/ai/post-image-pipeline"
 import { sumCostUsd } from "@/lib/ai/pricing"
 import { isInternalUnlimited } from "@/lib/usage/is-internal-unlimited"
-import type { BrandRow } from "@/types/database"
+import type { BrandRow, ProductRow } from "@/types/database"
 import type { UserPlan } from "@/types/app"
 import { timedGenerationRoute, type GenerationTimer } from "@/lib/utils/generation-timing"
 import { withDeadline, DeadlineExceededError, GENERATION_TIMED_OUT_MESSAGE } from "@/lib/utils/with-deadline"
@@ -44,6 +45,10 @@ const VARIATION_COUNT = 3
 // than relied on alone. Worth revisiting if the provider's own concurrency
 // limits turn out to make this unnecessary.
 const STAGGER_MS = 400
+
+// The strategy text call runs before the images; past this it's abandoned
+// and the ad falls back to brief-less variations.
+const STRATEGY_DEADLINE_MS = 60_000
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
@@ -97,7 +102,7 @@ async function handlePost(request: Request, { params }: RouteParams, timer: Gene
   // identical fix for why (a friendly per-field message, e.g. customPrompt's
   // own .max() text, instead of a raw JSON issues dump).
   if (!parsed.success) return NextResponse.json(buildError(ErrorCodes.VALIDATION_ERROR, "Validation failed.", parsed.error.issues[0]?.message), { status: 400 })
-  const { scene, customScene, format, productImageBase64, customPrompt } = parsed.data
+  const { scene, customScene, format, productImageBase64, customPrompt, productId, hookText } = parsed.data
 
   const usageCheck = await checkAndIncrementUsage(user.id, AD_MAKER, FEATURE)
   if (!usageCheck.ok) {
@@ -150,6 +155,27 @@ async function handlePost(request: Request, { params }: RouteParams, timer: Gene
     }
   }
 
+  // Strategy first: ad brief + 3 distinct variants (lib/ai/ad-strategy.ts).
+  // The extra text call is absorbed into the existing AD_MAKER credit cost
+  // for now -- no price change. Any failure or timeout falls back to exactly
+  // the old behaviour (3 variations from the same scene, no briefs); it
+  // never fails the ad.
+  let strategy: AdStrategyResult | null = null
+  try {
+    let product: ProductRow | null = null
+    if (productId) {
+      const { data: prod } = await supabase.from("products").select("*").eq("id", productId).eq("brand_id", brandId).single<ProductRow>()
+      product = prod
+    }
+    strategy = await timer.step("caption", withDeadline(
+      generateAdStrategy({ brand, product, userDirection: hookText || (scene === "custom" ? customScene : undefined), format, timeoutMs: 45_000 }),
+      Math.min(STRATEGY_DEADLINE_MS, deadlineAt - Date.now()),
+      "ad strategy"
+    ))
+  } catch (err) {
+    console.error("[ai/ad-maker/generate] ad strategy failed, falling back to brief-less variations:", err instanceof Error ? err.message : err)
+  }
+
   const backgroundOptions = {
     scene,
     customScene,
@@ -163,7 +189,7 @@ async function handlePost(request: Request, { params }: RouteParams, timer: Gene
   const results = await timer.step("image", Promise.all(
     Array.from({ length: VARIATION_COUNT }, async (_, i): Promise<Awaited<ReturnType<typeof generateAdMakerBackground>>> => {
       if (i > 0) await sleep(i * STAGGER_MS)
-      return withDeadline(generateAdMakerBackground(backgroundOptions), deadlineAt - Date.now(), "ad maker variation").catch((err) => ({
+      return withDeadline(generateAdMakerBackground({ ...backgroundOptions, visualBrief: strategy?.variants[i]?.visual }), deadlineAt - Date.now(), "ad maker variation").catch((err) => ({
         success: false as const,
         error: err instanceof DeadlineExceededError ? GENERATION_TIMED_OUT_MESSAGE : (err instanceof Error ? err.message : "Image generation failed"),
         attempts: [],
@@ -175,34 +201,45 @@ async function handlePost(request: Request, { params }: RouteParams, timer: Gene
   // output is the only thing that actually justifies failing the whole
   // request (and refunding). Previously a single failed variation out of
   // 3 failed everything, even when the other two succeeded fine.
-  const successes = results.filter((r): r is Extract<(typeof results)[number], { success: true }> => r.success)
+  // Each result keeps its own variant, so copy and image stay paired even
+  // when a variation fails.
+  type Result = (typeof results)[number]
+  const successes = results
+    .map((r, i) => ({ r, variant: strategy?.variants[i] ?? null }))
+    .filter((x): x is { r: Extract<Result, { success: true }>; variant: AdStrategyResult["variants"][number] | null } => x.r.success)
+  const strategyLog = {
+    prompt_tokens: strategy?.usage?.prompt_tokens ?? null,
+    completion_tokens: strategy?.usage?.completion_tokens ?? null,
+    total_tokens: strategy?.usage?.total_tokens ?? null,
+  }
 
   if (successes.length === 0) {
-    const firstFailure = results.find((r): r is Extract<(typeof results)[number], { success: false }> => !r.success)
+    const firstFailure = results.find((r): r is Extract<Result, { success: false }> => !r.success)
     console.error(`[ai/ad-maker/generate] all ${VARIATION_COUNT} background variations failed after ${Date.now() - startTime}ms:`, firstFailure?.error)
     await logGenerationOutcome(supabase, logId, {
-      user_id: user.id, brand_id: brandId, feature: FEATURE, model: "unknown",
-      cost_usd: sumCostUsd(...results.map((r) => attemptsCostUsd(r.attempts))),
+      user_id: user.id, brand_id: brandId, feature: FEATURE, model: strategy ? `unknown+${strategy.model}` : "unknown",
+      ...strategyLog,
+      cost_usd: sumCostUsd(strategy?.costUsd, ...results.map((r) => attemptsCostUsd(r.attempts))),
       latency_ms: Date.now() - startTime, success: false, error_message: firstFailure?.error ?? "All variations failed",
     })
     await refundGenerationUsage(supabase, user.id, AD_MAKER, logId)
     return NextResponse.json(buildError(ErrorCodes.AI_GENERATION_FAILED, "Couldn't generate a background. Please try again."), { status: 500 })
   }
 
-  const uploadedPaths = (
+  const uploaded = (
     await Promise.all(
-      successes.map(async (result, i) => {
+      successes.map(async ({ r: result, variant }, i) => {
         const image = await prepareGeneratedImage(result.buffer, result.mimeType, "ai/ad-maker/generate")
         const storagePath = `${user.id}/${brandId}/ad-maker-${Date.now()}-${i}-${crypto.randomUUID()}.${image.ext}`
         const { error: uploadError } = await admin.storage
           .from(BUCKET)
           .upload(storagePath, image.buffer, { contentType: image.mimeType, upsert: false })
-        return uploadError ? null : storagePath
+        return uploadError ? null : { storagePath, provider: result.provider, variant }
       })
     )
-  ).filter((path): path is string => !!path)
+  ).filter((u): u is NonNullable<typeof u> => !!u)
 
-  if (uploadedPaths.length === 0) {
+  if (uploaded.length === 0) {
     // Same partial-success reasoning as generation above -- a variation
     // that generated but never actually made it to storage isn't usable
     // output either. Only fatal if NONE of the successfully-generated
@@ -214,17 +251,23 @@ async function handlePost(request: Request, { params }: RouteParams, timer: Gene
     )
   }
 
-  const backgroundUrls = uploadedPaths.map((path) => admin.storage.from(BUCKET).getPublicUrl(path).data.publicUrl)
-  const provider = successes[0]!.provider
+  const provider = successes[0]!.r.provider
 
   await logGenerationOutcome(supabase, logId, {
-    user_id: user.id, brand_id: brandId, feature: FEATURE, model: provider,
-    // All variations, including failed ones -- each was billed.
-    cost_usd: sumCostUsd(...results.map((r) => attemptsCostUsd(r.attempts))),
+    user_id: user.id, brand_id: brandId, feature: FEATURE, model: strategy ? `${provider}+${strategy.model}` : provider,
+    ...strategyLog,
+    // All variations, including failed ones -- each was billed -- plus the strategy call.
+    cost_usd: sumCostUsd(strategy?.costUsd, ...results.map((r) => attemptsCostUsd(r.attempts))),
     latency_ms: Date.now() - startTime, success: true,
   })
 
-  const variations = successes.map((r, i) => ({ url: backgroundUrls[i], provider: r.provider }))
+  // url/provider stay where older clients read them; variant (the copy for
+  // this image) and ad_brief are new and null when the strategy step failed.
+  const variations = uploaded.map((u) => ({
+    url: admin.storage.from(BUCKET).getPublicUrl(u.storagePath).data.publicUrl,
+    provider: u.provider,
+    variant: u.variant,
+  }))
 
-  return NextResponse.json({ data: { variations } }, { status: 200 })
+  return NextResponse.json({ data: { variations, ad_brief: strategy?.brief ?? null } }, { status: 200 })
 }

@@ -3,7 +3,7 @@
 import { useState, useRef, useCallback, useEffect } from "react"
 import {
   Upload, Check, Loader2, Download, RefreshCw, ChevronRight, AlertCircle, X, CalendarClock,
-  Sun, Moon, Gem, Table, Leaf, Palmtree, Building2, Coffee, Flame, TreePine, PartyPopper, Wand2,
+  Sun, Moon, Gem, Table, Leaf, Palmtree, Building2, Coffee, Flame, TreePine, PartyPopper, Wand2, Copy,
 } from "lucide-react"
 import { useBrand } from "@/hooks/useBrand"
 import { GenerationWarning } from "@/components/shared/GenerationWarning"
@@ -15,6 +15,7 @@ import { AD_MAKER as AD_MAKER_CREDIT_COST } from "@/lib/usage/credit-costs"
 import { usePromptWriter } from "@/hooks/usePromptWriter"
 import { PromptWriterField } from "@/components/generate/PromptWriterField"
 import type { ProductRow } from "@/types/database"
+import type { AdVariant } from "@/types/app"
 import { readJsonResponse } from "@/lib/utils/read-json-response"
 
 // ─── Scene definitions ─────────────────────────────────────────────────────
@@ -62,9 +63,11 @@ interface AdVariation {
   provider: string
 }
 
+// texts[i] is variation i's on-image text (the user's typed headline, or
+// that variation's own strategy headline).
 async function compositeAd(
   variations: AdVariation[],
-  hookText: string,
+  texts: string[],
   showText: boolean,
   textPosition: TextPosition,
   textColor: TextColor,
@@ -85,7 +88,8 @@ async function compositeAd(
   // server-side (see .../ad-maker/generate/route.ts), instead of the old
   // per-variation client-side Pollinations fetch with its own bespoke
   // retry loop.
-  for (const variation of variations) {
+  for (const [vi, variation] of variations.entries()) {
+    const hookText = texts[vi] ?? ""
     const canvas = document.createElement("canvas")
     canvas.width = w
     canvas.height = h
@@ -265,6 +269,13 @@ export function AdMaker({ brandId, products }: AdMakerProps) {
   const [generating, setGenerating] = useState(false)
   const [genError, setGenError] = useState<unknown>(null)
   const [results, setResults] = useState<string[]>([])
+  // Per-result copy from the strategy step (lib/ai/ad-strategy.ts), same
+  // index as results -- null where the strategy step didn't run/failed.
+  const [resultVariants, setResultVariants] = useState<(AdVariant | null)[]>([])
+  const [copiedIdx, setCopiedIdx] = useState<number | null>(null)
+  // The saved product the photo came from, if any -- sent so the strategy
+  // step can use its real facts. Null for an uploaded/pasted photo.
+  const [selectedProductId, setSelectedProductId] = useState<string | null>(null)
   const [expandedIdx, setExpandedIdx] = useState<number | null>(0)
   const [showSuccess, setShowSuccess] = useState(false)
   const [msgIdx, setMsgIdx] = useState(0)
@@ -294,9 +305,10 @@ export function AdMaker({ brandId, products }: AdMakerProps) {
     const saved = sessionStorage.getItem(STORAGE_KEY)
     if (saved) {
       try {
-        const parsed = JSON.parse(saved) as { resultImages?: string[]; selectedScene?: string; productDataUrl?: string }
+        const parsed = JSON.parse(saved) as { resultImages?: string[]; resultVariants?: (AdVariant | null)[]; selectedScene?: string; productDataUrl?: string }
         if (parsed.resultImages && parsed.resultImages.length > 0) {
           setResults(parsed.resultImages)
+          setResultVariants(parsed.resultVariants ?? [])
           setExpandedIdx(0)
           setStep(3)
         } else if (parsed.productDataUrl) {
@@ -313,10 +325,10 @@ export function AdMaker({ brandId, products }: AdMakerProps) {
   useEffect(() => {
     if (results.length > 0) {
       try {
-        sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ resultImages: results, selectedScene: scene }))
+        sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ resultImages: results, resultVariants, selectedScene: scene }))
       } catch {}
     }
-  }, [results, scene, STORAGE_KEY])
+  }, [results, resultVariants, scene, STORAGE_KEY])
 
   // Persist productDataUrl (for step 2 restore) — only when no results yet
   useEffect(() => {
@@ -377,6 +389,7 @@ export function AdMaker({ brandId, products }: AdMakerProps) {
     setBgError("")
     setProductDataUrl(null)
     setSelectedFile(file)
+    setSelectedProductId(null)
     const reader = new FileReader()
     reader.onload = () => setOriginalPreview(reader.result as string)
     reader.readAsDataURL(file)
@@ -470,6 +483,7 @@ export function AdMaker({ brandId, products }: AdMakerProps) {
         reader.readAsDataURL(blob)
       })
       setOriginalPreview(dataUrl)
+      setSelectedProductId(null)
       await handleRemoveBg(null, dataUrl)
     } catch {
       setBgError("Couldn't fetch that image. Try downloading and uploading it instead.")
@@ -491,6 +505,7 @@ export function AdMaker({ brandId, products }: AdMakerProps) {
       setOriginalPreview(dataUrl)
       setSelectedFile(null)
       setProductDataUrl(null)
+      setSelectedProductId(product.id)
     } catch {
       setBgError("Couldn't load that product's photo. Try uploading it directly instead.")
     } finally {
@@ -511,6 +526,7 @@ export function AdMaker({ brandId, products }: AdMakerProps) {
     setGenerating(true)
     setGenError(null)
     setResults([])
+    setResultVariants([])
     setExpandedIdx(null)
 
     // The canvas compositing below (drawing the fetched background +
@@ -524,7 +540,10 @@ export function AdMaker({ brandId, products }: AdMakerProps) {
       const chargeRes = await fetch(`/api/v1/brands/${brandId}/ai/ad-maker/generate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ scene, customScene, format, productImageBase64: productDataUrl, customPrompt: adPrompt.trim() || undefined }),
+        body: JSON.stringify({
+          scene, customScene, format, productImageBase64: productDataUrl, customPrompt: adPrompt.trim() || undefined,
+          productId: selectedProductId ?? undefined, hookText: hookText.trim() || undefined,
+        }),
       })
       const chargeJson: unknown = await readJsonResponse(chargeRes)
       if (!chargeRes.ok || isApiError(chargeJson)) {
@@ -544,9 +563,14 @@ export function AdMaker({ brandId, products }: AdMakerProps) {
 
       const brandName = brand?.name ?? "Brand"
       const handle = brand?.instagram_handle ?? ""
-      const variations = (chargeJson as { data: { variations: { url: string; provider: string }[] } }).data.variations
-      const composited = await compositeAd(variations, hookText, showText, textPosition, textColor, format, brandName, handle)
+      const variations = (chargeJson as { data: { variations: { url: string; provider: string; variant?: AdVariant | null }[] } }).data.variations
+      const variants = variations.map((v) => v.variant ?? null)
+      // The user's typed headline wins; otherwise each variation carries its
+      // own strategy headline. showText still turns text off entirely.
+      const texts = variations.map((v) => hookText.trim() || v.variant?.headline || "")
+      const composited = await compositeAd(variations, texts, showText, textPosition, textColor, format, brandName, handle)
       setResults(composited)
+      setResultVariants(variants)
       setExpandedIdx(0)
       setShowSuccess(true)
       setTimeout(() => setShowSuccess(false), 4000)
@@ -602,6 +626,8 @@ export function AdMaker({ brandId, products }: AdMakerProps) {
     setProductDataUrl(null)
     setBgError("")
     setResults([])
+    setResultVariants([])
+    setSelectedProductId(null)
     setExpandedIdx(null)
     setGenError(null)
     setPasteUrl("")
@@ -894,11 +920,18 @@ export function AdMaker({ brandId, products }: AdMakerProps) {
           <p className="text-sm font-medium text-center text-muted-foreground">Pick the one you love ↑</p>
           <div className="grid grid-cols-3 gap-3">
             {results.map((url, i) => (
-              <button key={i} type="button" onClick={() => setExpandedIdx(expandedIdx === i ? null : i)}
-                className={`overflow-hidden rounded-xl border-2 transition-all ${expandedIdx === i ? "border-violet-500 shadow-md" : "border-border hover:border-violet-300"}`}>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={url} alt={`Variation ${i + 1}`} className="w-full object-cover aspect-square" />
-              </button>
+              <div key={i} className="space-y-1">
+                <button type="button" onClick={() => setExpandedIdx(expandedIdx === i ? null : i)}
+                  className={`w-full overflow-hidden rounded-xl border-2 transition-all ${expandedIdx === i ? "border-violet-500 shadow-md" : "border-border hover:border-violet-300"}`}>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={url} alt={`Variation ${i + 1}`} className="w-full object-cover aspect-square" />
+                </button>
+                {resultVariants[i] && (
+                  <p className="text-center text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                    {resultVariants[i]!.angle.replace("_", " ")}
+                  </p>
+                )}
+              </div>
             ))}
           </div>
 
@@ -906,6 +939,28 @@ export function AdMaker({ brandId, products }: AdMakerProps) {
             <div className="rounded-xl border bg-card p-4 space-y-3">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={results[expandedIdx]} alt="Selected variation" className="w-full max-w-xs mx-auto rounded-xl shadow-md" />
+              {resultVariants[expandedIdx] && (() => {
+                const v = resultVariants[expandedIdx]!
+                return (
+                  <div className="space-y-1 rounded-lg border bg-secondary/30 p-3 text-xs">
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="font-semibold">{v.headline}</p>
+                      <button type="button"
+                        onClick={() => {
+                          void navigator.clipboard.writeText(`${v.headline}\n\n${v.primary_text}\n\nCTA: ${v.cta_button}`)
+                          setCopiedIdx(expandedIdx)
+                          setTimeout(() => setCopiedIdx(null), 2000)
+                        }}
+                        className="flex shrink-0 items-center gap-1 rounded-full border border-input px-2 py-0.5 hover:bg-secondary">
+                        {copiedIdx === expandedIdx ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+                        {copiedIdx === expandedIdx ? "Copied" : "Copy"}
+                      </button>
+                    </div>
+                    <p className="text-muted-foreground">{v.primary_text}</p>
+                    <p><span className="text-muted-foreground">CTA:</span> {v.cta_button}</p>
+                  </div>
+                )
+              })()}
               <div className="grid grid-cols-2 gap-2">
                 <button onClick={() => downloadVariation(expandedIdx!)}
                   className="flex items-center justify-center gap-1.5 rounded-full border border-input py-2 text-xs font-medium hover:bg-secondary">
@@ -941,7 +996,7 @@ export function AdMaker({ brandId, products }: AdMakerProps) {
                 <ScheduleAction
                   brandId={brandId}
                   imageUrl={scheduleImageUrl}
-                  caption={hookText.trim()}
+                  caption={hookText.trim() || resultVariants[expandedIdx]?.primary_text || ""}
                   hashtags={[]}
                 />
               )}
