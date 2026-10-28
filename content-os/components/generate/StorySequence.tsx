@@ -5,7 +5,8 @@ import { Loader2, Download, Copy, Check, RefreshCw, AlertCircle, Image, Upload, 
 import { resolveFonts, DEFAULT_FONT_ID, TEXT_SIZE_OPTIONS, DEFAULT_TEXT_SIZE_SCALE } from "@/lib/design/fonts"
 import { PREVIEW_FONT_CLASS } from "@/lib/design/preview-fonts"
 import { ProductPicker, type PickedProduct } from "@/components/shared/ProductPicker"
-import type { StorySlide, StoryCaption } from "@/app/api/v1/ai/stories/generate/route"
+import type { StorySlide, StoryCaption, StoryPlan } from "@/app/api/v1/ai/stories/generate/route"
+import type { VisualBrief } from "@/lib/ai/visual-brief"
 import { downloadStorySlideAsImage, downloadStorySlidesAsImages, type StoryExportSlide } from "@/lib/utils/story-export"
 import { GenerationWarning } from "@/components/shared/GenerationWarning"
 import { UsageLimitBanner } from "@/components/generate/UsageLimitBanner"
@@ -168,7 +169,8 @@ async function fetchSlideBackgroundResult(
   role: "hook" | "cta" | "body",
   productImageUrl?: string | null,
   textPosition?: StorySlide["text_position"],
-  customPrompt?: string
+  customPrompt?: string,
+  visualBrief?: VisualBrief
 ): Promise<SlideBackgroundOutcome> {
   try {
     const res = await fetch("/api/v1/ai/stories/slide-image/generate", {
@@ -178,7 +180,9 @@ async function fetchSlideBackgroundResult(
       // "no product selected" case) to undefined so JSON.stringify omits
       // the key entirely -- the route's schema accepts productImageUrl as
       // optional, not nullable.
-      body: JSON.stringify({ brandId, vibe, role, productImageUrl: productImageUrl ?? undefined, textPosition, customPrompt: customPrompt || undefined }),
+      // visualBrief: this frame's own scene (non-hook frames) -- see
+      // lib/ai/story-slide-background.ts. Omitted when the frame has none.
+      body: JSON.stringify({ brandId, vibe, role, productImageUrl: productImageUrl ?? undefined, textPosition, customPrompt: customPrompt || undefined, visualBrief }),
     })
     if (!res.ok) return { error: slideBackgroundErrorForStatus(res.status) }
     const json = await readJsonResponse(res) as { data?: { public_url?: string; provider?: "openai" } }
@@ -918,8 +922,11 @@ export function StorySequence({ brandId }: { brandId: string }) {
             vibe,
             role,
             usesProduct ? (selectedProduct?.imageUrl ?? null) : undefined,
-            role !== "body" || usesProduct ? slide.text_position : undefined,
-            visualPrompt
+            // A frame with its own brief keeps its text region calm too --
+            // its scene isn't the abstract centre-calm default.
+            role !== "body" || usesProduct || slide.visual ? slide.text_position : undefined,
+            visualPrompt,
+            slide.visual
           ),
         }
       }),
@@ -1000,7 +1007,7 @@ export function StorySequence({ brandId }: { brandId: string }) {
           vibe: isCustomColorMode ? undefined : vibe,
         }),
       })
-      const json = await readJsonResponse(res) as { data?: { id?: string | null; stories: StorySlide[]; caption?: StoryCaption }; error?: { code?: string; message?: string } }
+      const json = await readJsonResponse(res) as { data?: { id?: string | null; stories: StorySlide[]; caption?: StoryCaption; story_plan?: StoryPlan }; error?: { code?: string; message?: string } }
       if (!res.ok || !json.data?.stories) {
         if (isApiError(json)) throw new ApiResponseError(json.error.code, json.error.message)
         throw new Error(json.error?.message ?? "Generation failed")
@@ -1263,7 +1270,7 @@ export function StorySequence({ brandId }: { brandId: string }) {
                       stage={promptWriter.stage}
                       error={promptWriter.error}
                       onRewrite={writeVisualPrompt}
-                      placeholder="Describe the hook/CTA background scene, or leave blank and let SocioPosts write one from your topic and vibe"
+                      placeholder="Describe the first frame's background scene (the other frames follow each frame's own visual brief), or leave blank and let SocioPosts write one from your topic and vibe"
                     />
                   )}
                 </div>

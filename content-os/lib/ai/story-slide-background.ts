@@ -10,6 +10,7 @@ import {
 import type { ImageQuality } from "./image-provider"
 import { type Vibe, DEFAULT_VIBE, VIBE_BACKGROUND_STYLES, VIBE_FALLBACK_COLORS, ABSTRACT_SAFETY_BOILERPLATE, describeColor } from "./vibe-background-styles"
 import type { UserPlan } from "@/types/app"
+import { SPLIT_LABEL_GUARD, briefScene as sharedBriefScene, briefUsesProductReference, type VisualBrief } from "./visual-brief"
 import type { BrandRow } from "@/types/database"
 
 export type StoryVibe = Vibe
@@ -126,6 +127,77 @@ function simplifyStorySlidePrompt(vibe: Vibe, productImageUrl?: string | null, c
   ].join(", ")
 }
 
+// ─── Per-frame visual briefs ────────────────────────────────────────────────
+// Same structure as lib/ai/carousel-slide-background.ts: every non-hook
+// frame with a visual brief (already sanitized, never combined with the
+// frame's text) gets its OWN scene from it instead of the one shared
+// customPrompt scene. Every no-text/typography guard stays, and the
+// text-overlay safe zone is always applied -- the frame's text_position is
+// known. Only the "purely abstract" line is dropped for concrete kinds.
+
+const STORY_ABSTRACT_OPENER = "abstract atmospheric vertical background image for a full-screen phone story slide"
+const VERTICAL_COMPOSITION = "vertical 9:16 phone-screen composition, subject stacked vertically rather than a wide landscape scene"
+
+function briefScene(brief: VisualBrief): string {
+  return sharedBriefScene(brief, STORY_ABSTRACT_OPENER)
+}
+
+function buildBriefStorySlidePrompt(brief: VisualBrief, niche: string | null, vibe: Vibe, colors: string[], productImageUrl?: string | null, textPosition?: "top" | "center" | "bottom"): string {
+  const colorNames = colors.map(describeColor).filter((c): c is string => !!c).slice(0, 3)
+  const composition = brief.composition ? `composition: ${brief.composition}` : ""
+  const isSplit = brief.kind === "side_by_side" || brief.kind === "before_after"
+  const noText = [
+    "no text, no words, no letters, no numbers, no logos anywhere in the image",
+    "no rendered slogans, taglines, or typography of any kind, however short",
+  ]
+
+  // product_scene / detail_closeup / before_after with a real product photo
+  // attached -- same reference-image path as buildStorySlidePrompt, with the
+  // brief as the scene and the hard no-text lines added on top.
+  if (productImageUrl) {
+    return wrapForReferenceImage([
+      briefScene(brief),
+      composition,
+      VERTICAL_COMPOSITION,
+      PHOTOGRAPHY_STYLE,
+      REFERENCE_IMAGE_PEOPLE_GUARD,
+      niche ? `${niche} brand` : "",
+      VIBE_BACKGROUND_STYLES[vibe],
+      colorNames.length > 0 ? `color palette inspired by ${colorNames.join(" and ")}` : "",
+      ...noText,
+      isSplit ? SPLIT_LABEL_GUARD : "",
+      resolveTextSafeZoneGuard(textPosition),
+      POST_IMAGE_QUALITY_AND_NEGATIVE_GUARD,
+    ].filter(Boolean).join(", "))
+  }
+
+  return [
+    briefScene(brief),
+    composition,
+    VERTICAL_COMPOSITION,
+    VIBE_BACKGROUND_STYLES[vibe],
+    colorNames.length > 0 ? `color palette inspired by ${colorNames.join(" and ")}` : "",
+    niche ? `evokes the mood of a ${niche} brand` : "",
+    ...noText,
+    brief.kind === "abstract_mood" ? "no literal photos of people, products, or objects — purely abstract shapes, gradients, and textures" : "",
+    isSplit ? SPLIT_LABEL_GUARD : "",
+    resolveTextSafeZoneGuard(textPosition),
+    ABSTRACT_SAFETY_BOILERPLATE,
+  ].filter(Boolean).join(", ")
+}
+
+function simplifyBriefStorySlidePrompt(brief: VisualBrief, vibe: Vibe, productImageUrl?: string | null): string {
+  if (productImageUrl) {
+    return wrapForReferenceImage([briefScene(brief), VERTICAL_COMPOSITION, PHOTOGRAPHY_STYLE, REFERENCE_IMAGE_PEOPLE_GUARD, VIBE_BACKGROUND_STYLES[vibe], "no text, no words, no letters"].join(", "))
+  }
+  return [
+    briefScene(brief),
+    VERTICAL_COMPOSITION,
+    VIBE_BACKGROUND_STYLES[vibe],
+    "no text, no words, no letters",
+  ].join(", ")
+}
+
 export interface GenerateStorySlideBackgroundOptions {
   vibe?: StoryVibe
   brand: BrandRow
@@ -158,6 +230,11 @@ export interface GenerateStorySlideBackgroundOptions {
    * buildStorySlidePrompt/simplifyStorySlidePrompt below still applies
    * exactly as before regardless of what this contains. */
   customPrompt?: string
+  /** This frame's own visual brief (already run through
+   * sanitizeVisualBrief). On any non-hook frame it replaces customPrompt as
+   * the scene -- the hook keeps the user-reviewed shared scene. Omitted =
+   * today's behaviour. */
+  visualBrief?: VisualBrief
   /** gpt-image-2 quality; omitted = "medium". The slide-image route
    * passes "low" (text is composited on top); raised to "medium" when
    * productImageUrl is set. */
@@ -182,6 +259,16 @@ export async function generateStorySlideBackground(
   const vibe = options.vibe ?? DEFAULT_VIBE
   const brandColors = resolveBrandColors(options.brand)
   const colors = brandColors.length > 0 ? brandColors : VIBE_FALLBACK_COLORS[vibe]
+
+  // Hook keeps the shared customPrompt scene; every other frame with a brief
+  // gets its own scene from it.
+  const brief = options.role === "hook" ? undefined : options.visualBrief
+  if (brief) {
+    const productImageUrl = briefUsesProductReference(brief) ? options.productImageUrl : undefined
+    const prompt = buildBriefStorySlidePrompt(brief, options.brand.niche, vibe, colors, productImageUrl, options.textPosition)
+    const fallbackPrompt = simplifyBriefStorySlidePrompt(brief, vibe, productImageUrl)
+    return fetchBackgroundImage(prompt, fallbackPrompt, options.plan, options.isInternalUnlimitedUser, STORY_DIMENSIONS, productImageUrl, options.quality)
+  }
 
   const prompt = buildStorySlidePrompt(options.brand.niche, vibe, colors, options.productImageUrl, options.textPosition, options.customPrompt)
   const fallbackPrompt = simplifyStorySlidePrompt(vibe, options.productImageUrl, options.customPrompt)

@@ -9,6 +9,7 @@ import { findContentQualityIssues, sanitizeLeakedArtifacts } from "@/lib/ai/cont
 import { z } from "zod"
 import type { BrandRow } from "@/types/database"
 import { resolveSuggestedFont, type FontId } from "@/lib/design/fonts"
+import type { VisualBrief } from "@/lib/ai/visual-brief"
 import { timedGenerationRoute, type GenerationTimer } from "@/lib/utils/generation-timing"
 import { withDeadline, DeadlineExceededError, GENERATION_TIMED_OUT_MESSAGE } from "@/lib/utils/with-deadline"
 
@@ -42,6 +43,10 @@ export type StorySlide = {
    * dedicated fields specifically to trigger the ✗/✓ marked rendering. */
   checklist_wrong_item?: string | null
   checklist_right_item?: string | null
+  /** What this frame's AI background must show (lib/ai/visual-brief.ts),
+   * already sanitized by lib/ai/story-sequence-generator.ts. Persisted with
+   * the slide; sent back as the slide-image route's visualBrief. */
+  visual?: VisualBrief
   /** Client-only enrichment — never set by this route. Filled in by
    * StorySequence.tsx as a best-effort follow-up (hook/cta slides only)
    * after generation succeeds; falls back to the flat `background` gradient
@@ -125,9 +130,17 @@ export type StoryCaption = {
   hashtags: string[]
 }
 
+/** The plan the story model writes before its frames (lib/ai/story-sequence-generator.ts). Returned with the sequence; not persisted (the stories row has no column for it). */
+export type StoryPlan = {
+  goal?: string
+  next_action?: string
+  arc?: { story_number: number; type: string; message: string }[]
+}
+
 export type GeneratedStorySequence = {
   stories: StorySlide[]
   caption?: StoryCaption
+  story_plan?: StoryPlan
 }
 
 // Confirmed live (2026-08-28): the LLM's `background` choice was almost

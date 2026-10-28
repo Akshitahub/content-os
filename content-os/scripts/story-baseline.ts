@@ -173,6 +173,27 @@ function storyBgRole(type: unknown): "hook" | "cta" | "body" {
   return type === "hook" || type === "cta" ? type : "body"
 }
 
+// story_plan as markdown for slides.md.
+function storyPlanLines(plan: unknown): string[] {
+  if (!plan || typeof plan !== "object") return ["**Story plan:** (none returned)", ""]
+  const p = plan as { goal?: unknown; next_action?: unknown; arc?: unknown }
+  const arc = Array.isArray(p.arc) ? (p.arc as { story_number?: unknown; type?: unknown; message?: unknown }[]) : []
+  return [
+    "## Story plan",
+    `- **Goal:** ${String(p.goal ?? "")}`,
+    `- **Next action:** ${String(p.next_action ?? "")}`,
+    ...arc.map((a) => `  ${String(a.story_number ?? "?")}. *${String(a.type ?? "")}* — ${String(a.message ?? "")}`),
+    "",
+  ]
+}
+
+// A frame's visual brief as one table cell: "kind: must_show (composition)".
+function visualCell(visual: unknown): string {
+  if (!visual || typeof visual !== "object") return "—"
+  const v = visual as { kind?: unknown; must_show?: unknown; composition?: unknown }
+  return `${String(v.kind ?? "?")}: ${String(v.must_show ?? "")}${v.composition ? ` (${String(v.composition)})` : ""}`
+}
+
 // ─── Run ────────────────────────────────────────────────────────────────────
 
 type SlideRecord = {
@@ -189,6 +210,10 @@ type SlideRecord = {
   latencyMs: number
   costUsd: number | null
   provider: string | null
+  /** The frame's visual brief (kind/must_show/composition), if the model gave one. */
+  visual: unknown
+  /** The brief actually sent (re-sanitized, as the slide-image route does) -- null on the hook, which keeps the shared scene. */
+  briefUsed: unknown
   /** Whether a product reference photo went with this frame (always false here -- no product is selected). */
   productReferenceUsed: boolean
   /** The prompt string actually sent to the image provider on the first attempt. */
@@ -202,6 +227,7 @@ async function main(): Promise<void> {
   const { requestStorySequence } = await import("@/lib/ai/story-sequence-generator")
   const { requestImagePromptStream } = await import("@/lib/ai/image-prompt-writer")
   const { generateStorySlideBackground } = await import("@/lib/ai/story-slide-background")
+  const { sanitizeVisualBrief, briefUsesProductReference } = await import("@/lib/ai/visual-brief")
   const { attemptsCostUsd } = await import("@/lib/ai/post-image-pipeline")
   const { IMAGE_PROVIDER_CONFIG } = await import("@/lib/ai/image-provider")
   const { MODELS } = await import("@/lib/ai/models")
@@ -310,14 +336,17 @@ async function main(): Promise<void> {
   }
 
   // 4. A background for every frame, as StorySequence's runStoryBackgrounds
-  // calls the slide-image route with no product selected: hook/cta send
-  // their text_position, body frames don't.
+  // calls the slide-image route with no product selected: hook/cta (and any
+  // frame with its own brief) send their text_position, plus the frame's
+  // visual as visualBrief, re-sanitized like the route does.
   const slideRecords: SlideRecord[] = []
   for (let i = 0; i < stories.length; i++) {
     const s = stories[i]!
     const role = storyBgRole(s.type)
     const textPosition = s.text_position as "top" | "center" | "bottom" | undefined
-    const textPositionSent = role !== "body" ? textPosition : undefined
+    const textPositionSent = role !== "body" || s.visual ? textPosition : undefined
+    const visualBrief = sanitizeVisualBrief(s.visual)
+    const productImageUrl: string | undefined = undefined
     currentStage = `slide_${i + 1}`
     const firstCall = captured.length
     console.log(`Frame ${i + 1}/${stories.length} (${String(s.type)} -> ${role})…`)
@@ -328,9 +357,10 @@ async function main(): Promise<void> {
       plan,
       isInternalUnlimitedUser: isUnlimited,
       role,
-      productImageUrl: undefined,
+      productImageUrl,
       textPosition: textPositionSent,
       customPrompt,
+      visualBrief,
       quality: "low",
     })
     const imageRequests = captured.slice(firstCall)
@@ -347,7 +377,9 @@ async function main(): Promise<void> {
       latencyMs: Date.now() - started,
       costUsd: attemptsCostUsd(result.attempts),
       provider: result.success ? result.provider : null,
-      productReferenceUsed: false,
+      visual: s.visual ?? null,
+      briefUsed: role === "hook" ? null : (visualBrief ?? null),
+      productReferenceUsed: !!productImageUrl && (role === "hook" || briefUsesProductReference(visualBrief)),
       finalImagePrompt: typeof firstImageRequest?.prompt === "string" ? firstImageRequest.prompt : null,
       attempts: result.attempts,
       imageRequests,
@@ -377,6 +409,7 @@ async function main(): Promise<void> {
     storyPrompt: copyCalls[0]?.request ?? null,
     storyCalls: copyCalls,
     rawStoryOutputs: copyCalls.map((c) => c.responseContent ?? null),
+    storyPlan: d.story_plan ?? null,
     storyData: d,
     finalStories: stories,
     effectiveVibe: effectiveVibe ?? null,
@@ -404,9 +437,10 @@ async function main(): Promise<void> {
     "",
     `**Visual prompt:** ${cell(visualPrompt || "(none)")}`,
     "",
-    "| # | Type | Bg role | Text position | Text | Subtext | Image |",
-    "|---|------|---------|---------------|------|---------|-------|",
-    ...slideRecords.map((r) => `| ${r.index} | ${r.type} | ${r.role} | ${r.textPosition ?? "—"} | ${cell(r.text)} | ${cell(r.subtext)} | ${r.imageFile ? `![](${r.imageFile})` : `failed: ${cell(r.error ?? "")}`} |`),
+    ...storyPlanLines(d.story_plan),
+    "| # | Type | Bg role | Text position | Text | Subtext | Visual brief | Image |",
+    "|---|------|---------|---------------|------|---------|--------------|-------|",
+    ...slideRecords.map((r) => `| ${r.index} | ${r.type} | ${r.role} | ${r.textPosition ?? "—"} | ${cell(r.text)} | ${cell(r.subtext)} | ${cell(visualCell(r.visual))} | ${r.imageFile ? `![](${r.imageFile})` : `failed: ${cell(r.error ?? "")}`} |`),
     ...(errors.length ? ["", "## Errors", ...errors.map((e) => `- ${e}`)] : []),
     "",
   ].join("\n")

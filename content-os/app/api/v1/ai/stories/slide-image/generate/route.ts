@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import { buildError, ErrorCodes } from "@/types/api"
 import { generateStorySlideBackground, type StoryVibe } from "@/lib/ai/story-slide-background"
+import { VISUAL_KINDS, briefUsesProductReference, sanitizeVisualBrief } from "@/lib/ai/visual-brief"
 import { attemptsCostUsd } from "@/lib/ai/post-image-pipeline"
 import { uploadMediaToStorage } from "@/lib/storage/upload-media"
 import { isInternalUnlimited } from "@/lib/usage/is-internal-unlimited"
@@ -32,6 +33,14 @@ const schema = z.object({
     .max(1500, "Visual scene must be under 1500 characters")
     .optional()
     .transform((val) => val?.replace(/<[^>]*>/g, "").trim()),
+  // The frame's own visual brief from the story generation (lib/ai/
+  // story-sequence-generator.ts). Re-sanitized below -- the client copy is
+  // never trusted as-is.
+  visualBrief: z.object({
+    kind: z.enum(VISUAL_KINDS),
+    must_show: z.string().max(300),
+    composition: z.string().max(300).default(""),
+  }).optional(),
 })
 
 // Chains up to 2 sequential image-provider calls (first attempt + retry) inside
@@ -91,6 +100,14 @@ async function handlePost(request: Request, timer: GenerationTimer) {
   if (!parsed.success) return NextResponse.json(buildError(ErrorCodes.VALIDATION_ERROR, "Validation failed.", parsed.error.issues[0]?.message), { status: 400 })
 
   const { brandId, vibe, role, productImageUrl, textPosition, customPrompt } = parsed.data
+  const visualBrief = sanitizeVisualBrief(parsed.data.visualBrief)
+  // The product photo this frame will actually use -- mirrors
+  // generateStorySlideBackground (a non-hook frame whose brief kind skips
+  // the reference never sends it), so a skipped reference isn't charged.
+  const effectiveProductImageUrl =
+    role !== "hook" && visualBrief && !briefUsesProductReference(visualBrief)
+      ? undefined
+      : productImageUrl
 
   const { data: brand } = await supabase.from("brands").select("*").eq("id", brandId).eq("user_id", user.id).single<BrandRow>()
   if (!brand) return NextResponse.json(buildError(ErrorCodes.BRAND_NOT_FOUND, "Brand not found."), { status: 404 })
@@ -106,7 +123,7 @@ async function handlePost(request: Request, timer: GenerationTimer) {
   // to — so it charges here too. Checked and charged up front, same
   // pattern as every other paid generation route, refunded below if
   // generation or upload ends up failing.
-  const isChargeable = role === "body" || !!productImageUrl
+  const isChargeable = role === "body" || !!effectiveProductImageUrl
   let usageLogId: string | null = null
   if (isChargeable) {
     const usageCheck = await checkAndIncrementUsage(user.id, STORY_SLIDE_AI_BACKGROUND, "story_slide_bg_body")
@@ -124,9 +141,10 @@ async function handlePost(request: Request, timer: GenerationTimer) {
     plan,
     isInternalUnlimitedUser: isUnlimited,
     role,
-    productImageUrl,
+    productImageUrl: effectiveProductImageUrl,
     textPosition,
     customPrompt,
+    visualBrief,
     // Text is composited over slide backgrounds, so "low" is enough --
     // raised to "medium" automatically when a product photo is attached.
     quality: "low",

@@ -4,6 +4,7 @@ import { buildPastExamplesBlock, buildSuggestedFontField, QUALITY_BAR } from "./
 import { createCreativeCompletion } from "./creative-completion"
 import { buildFactSource, guardCopy } from "./fact-guard"
 import { addTextUsage, sumCostUsd, type TextUsage } from "./pricing"
+import { VISUAL_KINDS, sanitizeVisualBrief, type VisualBrief } from "./visual-brief"
 
 // Story-sequence prompt building + the model call, moved verbatim out of
 // app/api/v1/ai/stories/generate/route.ts during the Phase 1b Groq ->
@@ -29,13 +30,14 @@ function buildStoryTypeSequence(storyCount: number): string[] {
 // in typeSequence — building the JSON example dynamically (below) instead
 // of a hardcoded 4-slide array so the example the model sees always
 // matches the count it's told to produce, for every storyCount from 1-10.
-const EXAMPLE_SLIDE_BY_TYPE: Record<string, { text: string; subtext: string; background: StorySlide["background"]; text_position: StorySlide["text_position"]; has_poll: boolean; poll_options?: [string, string] }> = {
+const EXAMPLE_SLIDE_BY_TYPE: Record<string, { text: string; subtext: string; background: StorySlide["background"]; text_position: StorySlide["text_position"]; has_poll: boolean; poll_options?: [string, string]; visual: VisualBrief }> = {
   hook: {
     text: "What if your inbox emptied itself",
     subtext: "Most founders find out too late",
     background: "gradient_violet",
     text_position: "top",
     has_poll: false,
+    visual: { kind: "detail_closeup", must_show: "A phone lying face up on a cluttered desk beside a cold cup of coffee, its screen glowing but blurred, shot from directly above", composition: "phone and cup stacked in the lower half, top third calm for text" },
   },
   reveal: {
     text: "Your mornings, back to yourself",
@@ -43,6 +45,7 @@ const EXAMPLE_SLIDE_BY_TYPE: Record<string, { text: string; subtext: string; bac
     background: "gradient_pink",
     text_position: "center",
     has_poll: false,
+    visual: { kind: "product_scene", must_show: "A founder leaning back in a chair by a sunny window, laptop closed on the desk, morning light, vertical mid shot", composition: "subject in the lower third, vertical centre calm for text" },
   },
   buildup: {
     text: "Manual replies vs. automated ones",
@@ -51,6 +54,7 @@ const EXAMPLE_SLIDE_BY_TYPE: Record<string, { text: string; subtext: string; bac
     text_position: "bottom",
     has_poll: true,
     poll_options: ["Manual, always", "Ready to automate"],
+    visual: { kind: "side_by_side", must_show: "Left half a desk buried under paper envelopes and sticky notes, right half the same desk cleared with a single plant, eye level", composition: "both halves fill the upper two-thirds, bottom third calm for text" },
   },
   cta: {
     text: "Your inbox, handled",
@@ -58,6 +62,7 @@ const EXAMPLE_SLIDE_BY_TYPE: Record<string, { text: string; subtext: string; bac
     background: "gradient_dark",
     text_position: "center",
     has_poll: false,
+    visual: { kind: "detail_closeup", must_show: "A hand setting a phone face down on a tidy desk next to a fresh cup of tea, soft evening light", composition: "hand and phone at the bottom, vertical centre calm for text" },
   },
 }
 
@@ -73,6 +78,7 @@ function buildExampleStoriesJson(typeSequence: string[]): string {
       text_position: example.text_position,
       has_poll: example.has_poll,
       ...(example.poll_options ? { poll_options: example.poll_options } : {}),
+      visual: example.visual,
     }
   })
   // Indented so nested lines line up under the "stories": key it gets
@@ -231,7 +237,33 @@ Story types:
 - buildup: Adds details, benefits, social proof, or context
 - cta: Final slide with strong call to action and @handle
 
+STEP 1 — STORY PLAN (do this first, emit it as "story_plan" before the stories):
+- "goal": the one thing this sequence should make the viewer think or do.
+- "next_action": the concrete action the cta frame asks for (tap link, reply, DM, shop).
+- "arc": one entry per frame, in the type sequence above — its "story_number", its "type", and the single "message" that frame carries.
+Then write every frame from its arc entry.
+
+STORY FRAME RULES:
+- One message per frame. Each frame adds something the previous frame didn't — never restate it.
+- "text" must be readable in about 2 seconds at large size: 8 words or fewer.
+- The cta frame's "text" states the payoff; its "subtext" is an action that matches next_action.
+- No empty adjectives ("premium", "refined", "elevated", "seamless", "luxurious") unless the same frame states the specific detail that justifies them.
+- Only use facts from the brand context or topic above (the number and placeholder rules still apply).
+
 TEXT RULES: No exclamation marks, no hashtags, no emojis in "text" or "subtext" — plain, punchy text only.
+
+VISUAL DIRECTION — every story object gets a "visual" brief for its full-screen 9:16 background image:
+- "kind": one of ${VISUAL_KINDS.join(" | ")}.
+- "must_show": 1-2 sentences, concrete and photographable — which objects, in what arrangement, from what angle.
+- "composition": where the subject sits and which region stays calm for the text.
+Rules:
+- Compose for a vertical phone screen: subject stacked vertically, not a wide landscape scene.
+- Keep the frame's text_position region (top / center / bottom) calm — put the subject elsewhere.
+- The visual must DEMONSTRATE the frame's message, not decorate it: a comparison shows both things, a process shows its stages, a material shows the actual material.
+- Consecutive frames vary the subject and the framing (wide / mid / close-up) — never the same scene twice.
+- Use "abstract_mood" only for the hook or cta frame, and only when no concrete visual fits the brand.
+- must_show describes ONLY visible things. Never put words, labels, headlines, quotes, numbers, logos or captions in it — the image model renders those as garbled text.
+- Only depict what's plausible for this brand's actual products or services in the brand context above.
 
 SLIDE TEXT FORMATS — confirmed live (2026-08-29): every slide defaulting
 to the same "punchy claim + supporting detail" shape for "text"/"subtext"
@@ -273,6 +305,11 @@ ${QUALITY_BAR}
 
 Respond with ONLY this JSON:
 {
+  "story_plan": {
+    "goal": "the one thing this sequence should make the viewer think or do",
+    "next_action": "the concrete action the cta frame asks for",
+    "arc": [${typeSequence.map((type, i) => `{ "story_number": ${i + 1}, "type": "${type}", "message": "the single message of this frame" }`).join(", ")}]
+  },
   "stories": ${buildExampleStoriesJson(typeSequence)},
   "caption": {
     "caption_text": "hook line, 1-2 lines of value, then ${ctaPhrase} and ${handle} on its own line — see CAPTION above",
@@ -317,7 +354,11 @@ ${QUALITY_BAR}`,
     // Budget scales with storyCount (up to 10), unchanged from Groq: hidden
     // reasoning tokens count against it on gpt-5.5 too.
     reasoningEffort: "medium" as const,
-    maxCompletionTokens: Math.max(3000, storyCount * 350),
+    // Raised from max(3000, storyCount * 350) for the story_plan and the
+    // per-frame visual briefs the normal prompt now asks for -- an
+    // ESTIMATE, not measured. Hard Truth Checklist (no AI image, no plan)
+    // keeps the old budget.
+    maxCompletionTokens: vibe === "hard_truth_checklist" ? Math.max(3000, storyCount * 350) : Math.max(4000, storyCount * 600),
     // ESTIMATE, not measured (no OPENAI_API_KEY where this was written) --
     // see scripts/test-creative-stages.ts. Sized for a 10-slide sequence
     // at medium effort; revisit against real latency.
@@ -344,9 +385,27 @@ ${QUALITY_BAR}`,
         return retryParsed
       },
     })
-    if (guarded !== parsed) raw = JSON.stringify(guarded)
+    const withVisuals = sanitizeStoryVisuals(guarded)
+    if (withVisuals !== parsed) raw = JSON.stringify(withVisuals)
   }
   return { raw, model: first.model, usage, costUsd }
+}
+
+// Runs sanitizeVisualBrief (lib/ai/visual-brief.ts) on every story's
+// "visual", dropping an invalid one. Returns `data` itself when no story
+// carries a "visual" key (e.g. Hard Truth Checklist), so its raw text is
+// left untouched.
+function sanitizeStoryVisuals(data: Record<string, unknown>): Record<string, unknown> {
+  if (!Array.isArray(data.stories) || !data.stories.some((s) => s && typeof s === "object" && "visual" in s)) return data
+  return {
+    ...data,
+    stories: data.stories.map((s) => {
+      if (!s || typeof s !== "object" || Array.isArray(s)) return s
+      const { visual, ...rest } = s as Record<string, unknown>
+      const clean = sanitizeVisualBrief(visual)
+      return clean ? { ...rest, visual: clean } : rest
+    }),
+  }
 }
 
 // Same lenient cleanup the route applies before its own JSON.parse.
