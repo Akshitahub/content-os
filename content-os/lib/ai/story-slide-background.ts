@@ -4,13 +4,13 @@ import {
   PHOTOGRAPHY_STYLE,
   REFERENCE_IMAGE_PEOPLE_GUARD,
   POST_IMAGE_QUALITY_AND_NEGATIVE_GUARD,
-  type BackgroundImageResult,
   type ImageDimensions,
 } from "./post-image-pipeline"
 import type { ImageQuality } from "./image-provider"
 import { type Vibe, DEFAULT_VIBE, VIBE_BACKGROUND_STYLES, VIBE_FALLBACK_COLORS, ABSTRACT_SAFETY_BOILERPLATE, describeColor } from "./vibe-background-styles"
 import type { UserPlan } from "@/types/app"
-import { SPLIT_LABEL_GUARD, briefScene as sharedBriefScene, briefUsesProductReference, type VisualBrief } from "./visual-brief"
+import { SPLIT_LABEL_GUARD, briefScene as sharedBriefScene, briefUsesProductReference, halfBrief, halfUsesProductReference, type VisualBrief } from "./visual-brief"
+import { generateWithSplitLayer, type SplitBackgroundResult } from "./split-layer"
 import type { BrandRow } from "@/types/database"
 
 export type StoryVibe = Vibe
@@ -270,7 +270,7 @@ export interface GenerateStorySlideBackgroundOptions {
  */
 export async function generateStorySlideBackground(
   options: GenerateStorySlideBackgroundOptions
-): Promise<BackgroundImageResult> {
+): Promise<SplitBackgroundResult> {
   const vibe = options.vibe ?? DEFAULT_VIBE
   const brandColors = resolveBrandColors(options.brand)
   const colors = brandColors.length > 0 ? brandColors : VIBE_FALLBACK_COLORS[vibe]
@@ -283,7 +283,22 @@ export async function generateStorySlideBackground(
     const productImageUrl = briefUsesProductReference(brief) ? options.productImageUrl : undefined
     const prompt = buildBriefStorySlidePrompt(brief, options.brand.niche, vibe, colors, productImageUrl, options.textPosition, options.userDirection)
     const fallbackPrompt = simplifyBriefStorySlidePrompt(brief, vibe, productImageUrl)
-    return fetchBackgroundImage(prompt, fallbackPrompt, options.plan, options.isInternalUnlimitedUser, STORY_DIMENSIONS, productImageUrl, options.quality)
+    // A split brief with both halves becomes two images composited side by
+    // side (lib/ai/split-layer.ts); anything else is the single prompt.
+    return generateWithSplitLayer({
+      brief, dims: STORY_DIMENSIONS, plan: options.plan, isInternalUnlimitedUser: options.isInternalUnlimitedUser, quality: options.quality,
+      buildHalf: (text, side) => {
+        const half = halfBrief(text)
+        const ref = halfUsesProductReference(brief, side) ? options.productImageUrl : undefined
+        return {
+          prompt: buildBriefStorySlidePrompt(half, options.brand.niche, vibe, colors, ref, options.textPosition, options.userDirection),
+          fallbackPrompt: simplifyBriefStorySlidePrompt(half, vibe, ref),
+          productImageUrl: ref,
+        }
+      },
+      fetchImage: fetchBackgroundImage,
+      single: () => fetchBackgroundImage(prompt, fallbackPrompt, options.plan, options.isInternalUnlimitedUser, STORY_DIMENSIONS, productImageUrl, options.quality),
+    })
   }
 
   const prompt = buildStorySlidePrompt(options.brand.niche, vibe, colors, options.productImageUrl, options.textPosition, options.customPrompt)

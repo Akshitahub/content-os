@@ -57,7 +57,7 @@ const EXAMPLE_SLIDE_BY_TYPE: Record<string, { text: string; subtext: string; bac
     text_position: "bottom",
     has_poll: true,
     poll_options: ["Manual, always", "Ready to automate"],
-    visual: { kind: "side_by_side", must_show: "Left half a desk buried under paper envelopes and sticky notes, right half the same desk cleared with a single plant, eye level", composition: "both halves fill the upper two-thirds, bottom third calm for text" },
+    visual: { kind: "side_by_side", must_show: "Left half a desk buried under paper envelopes and sticky notes, right half the same desk cleared with a single plant, eye level", composition: "both halves fill the upper two-thirds, bottom third calm for text", left: "A desk buried under paper envelopes and sticky notes, eye level", right: "The same desk cleared, a single plant on it, eye level" },
   },
   cta: {
     text: "Your inbox, handled",
@@ -266,6 +266,7 @@ VISUAL DIRECTION — every story object gets a "visual" brief for its full-scree
 - "kind": one of ${VISUAL_KINDS.join(" | ")}.
 - "must_show": 1-2 sentences, concrete and photographable — which objects, in what arrangement, from what angle.
 - "composition": where the subject sits and which region stays calm for the text.
+- For side_by_side or before_after, also give "left" and "right": what each half alone shows (before / first option on the left), visible things only, under 200 characters each.
 Rules:
 - Compose for a vertical phone screen: subject stacked vertically, not a wide landscape scene.
 - Keep the frame's text_position region (top / center / bottom) calm — put the subject elsewhere.

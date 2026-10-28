@@ -184,6 +184,12 @@ type VariationRecord = {
   finalImagePrompt: string | null
   attempts: unknown[]
   imageRequests: CapturedCall[]
+  /** text_style per text position, as the ad-maker route computes it (AdMaker's "Auto" color). */
+  textStyles?: Record<"top" | "center" | "bottom", unknown>
+  /** Ads keep product-led kinds -- the split layer never runs here (always null). */
+  split?: null
+  /** Ad text is drawn client-side (AdMaker compositeAd), which never drops words -- always empty here. */
+  warnings?: string[]
   error?: string
 }
 
@@ -302,6 +308,12 @@ async function main(): Promise<void> {
     if (result.success) {
       record.imageFile = `variation-${i + 1}.${result.mimeType.includes("jpeg") ? "jpg" : "png"}`
       writeFileSync(join(outDir, record.imageFile), result.buffer)
+      const { computeTextStyleSafe } = await import("@/lib/image/text-contrast")
+      const { adTextRegion } = await import("@/lib/design/text-style")
+      const [top, center, bottom] = await Promise.all((["top", "center", "bottom"] as const).map((p) => computeTextStyleSafe(result.buffer, adTextRegion(p))))
+      record.textStyles = { top, center, bottom }
+      record.split = null
+      record.warnings = []
     } else {
       record.error = result.error
       errors.push(`variation ${i + 1}: ${result.error}`)

@@ -59,6 +59,12 @@ export const IMAGE_PROVIDER_CONFIG = {
     story: "1008x1792",
     /** 3:2 -- landscape (Images-tab 16:9 still maps here; unchanged). */
     landscape: "1536x1024",
+    /** 2:5 -- one half of a 4:5 split layout (lib/ai/split-layer.ts,
+     * 540x1350 per half). 1,024,000 px. */
+    halfPortrait: "640x1600",
+    /** 1:3 -- one half of a 9:16 split (540x1920 is 9:32, past the 3:1
+     * limit, so this is the tallest allowed; cover-cropped to fit). */
+    halfTall: "576x1728",
   },
 } as const
 

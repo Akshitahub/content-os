@@ -242,7 +242,13 @@ async function main(): Promise<void> {
   const seed = combinedContext.trim() || caption.image_prompt?.trim() || null
   let imagePrompt = ""
   let promptLatencyMs = 0
-  let imageRecord: { file: string | null; latencyMs: number; costUsd: number | null; provider: string | null; attempts: unknown[]; finalImagePrompt: string | null; productReferenceUsed: boolean; skipped?: string; error?: string } = {
+  let imageRecord: {
+    file: string | null; latencyMs: number; costUsd: number | null; provider: string | null; attempts: unknown[]; finalImagePrompt: string | null; productReferenceUsed: boolean; skipped?: string; error?: string
+    /** What the post-image route returns as text_style (the FullPost overlay band, no caption sent). */
+    textStyle?: unknown
+    /** Split layer (lib/ai/split-layer.ts): whether the two-half composite ran, and both half prompts. */
+    split?: unknown
+  } = {
     file: null, latencyMs: 0, costUsd: null, provider: null, attempts: [], finalImagePrompt: null, productReferenceUsed: false,
   }
 
@@ -307,6 +313,8 @@ async function main(): Promise<void> {
         finalImagePrompt: typeof first?.prompt === "string" ? first.prompt : null,
         // No product is selected here, so never; with one it would follow briefUsesProductReference.
         productReferenceUsed: false && briefUsesProductReference(visualBrief),
+        textStyle: result.success ? result.textStyle ?? null : null,
+        split: result.success ? result.split ?? null : null,
       }
       if (result.success) {
         imageRecord.file = `image.${result.mimeType.includes("jpeg") ? "jpg" : "png"}`
@@ -331,7 +339,7 @@ async function main(): Promise<void> {
   // the closest server equivalent is compositePostImage (what
   // generatePostImage uses when captionText is set), so that's rendered
   // here -- layout can differ slightly from the client canvas.
-  let finalOutput: { rendered: boolean; renderer?: string; reason?: string; file?: string } = { rendered: false }
+  let finalOutput: { rendered: boolean; renderer?: string; reason?: string; file?: string; textStyle?: unknown; warnings?: string[] } = { rendered: false }
   if (!imageRecord.file) {
     finalOutput = { rendered: false, reason: imageRecord.skipped ?? "no background image" }
   } else if (!overlayText) {
@@ -340,16 +348,22 @@ async function main(): Promise<void> {
     finalOutput = { rendered: false, reason: "blank template draws no overlay" }
   } else {
     try {
-      const { compositePostImage } = await import("@/lib/image/post-compositor")
-      const buf = await compositePostImage(readFileSync(join(outDir, imageRecord.file)), {
+      const { compositePostImageWithWarnings } = await import("@/lib/image/post-compositor")
+      const { computeTextStyleSafe } = await import("@/lib/image/text-contrast")
+      const { postTextRegion } = await import("@/lib/design/text-style")
+      const base = readFileSync(join(outDir, imageRecord.file))
+      // As generatePostImage computes it when it composites a caption: the template's text zone, white text.
+      const textStyle = await computeTextStyleSafe(base, postTextRegion(template, true), { preferLight: true })
+      const { buffer: buf, warnings } = await compositePostImageWithWarnings(base, {
         template,
         colorTheme: findColorTheme(colorThemes, colorThemeId),
         captionText: overlayText,
         logoUrl: brand.logo_url,
         fontId: caption.suggested_font_id ?? undefined,
+        textStyle,
       })
       writeFileSync(join(outDir, "final.png"), buf)
-      finalOutput = { rendered: true, file: "final.png", renderer: "compositePostImage (lib/image/post-compositor.ts) -- Full Post's own overlay is a client-side canvas, so this is an approximation of it" }
+      finalOutput = { rendered: true, file: "final.png", renderer: "compositePostImageWithWarnings (lib/image/post-compositor.ts) -- Full Post's own overlay is a client-side canvas, so this is an approximation of it", textStyle, warnings }
     } catch (err) {
       errors.push(`final render: ${err instanceof Error ? err.message : String(err)}`)
       finalOutput = { rendered: false, reason: "compositor threw -- see errors" }

@@ -243,6 +243,7 @@ VISUAL BRIEF: Also emit "visual" — what the post's image must show:
 - "kind": one of ${VISUAL_KINDS.join(" | ")}. Pick the kind that serves the message: detail_closeup for a texture, material or ingredient claim; before_after for a result; product_scene for an offer; side_by_side for a comparison; process_sequence for a how-to; sketch_or_drawing for a design or planning idea.
 - "must_show": 1-2 sentences, concrete and photographable — ONE clear focal point that demonstrates the message, plus its setting and camera angle.
 - "composition": where the subject sits and which area stays calm. Compose for a portrait 4:5 feed image, subject kept near the centre so a square or 9:16 crop still works.
+- For side_by_side or before_after, also give "left" and "right": what each half alone shows (before / first option on the left), visible things only, under 200 characters each.
 - must_show describes ONLY visible things. Never put words, labels, headlines, quotes, numbers, logos or captions in it — the image model renders those as garbled text.
 - Only depict what's plausible for this brand's actual products or services in the brand context.
 - If suggested_template is hard_truth_checklist (no photo), "visual" may be omitted.`

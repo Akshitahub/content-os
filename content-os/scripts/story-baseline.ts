@@ -221,6 +221,12 @@ type SlideRecord = {
   finalImageFile?: string | null
   /** --vision only: 1-5 score of the background against its brief, with the reason. */
   alignment?: { score: number; reason: string; costUsd: number | null } | null
+  /** How text is drawn over this background (lib/image/text-contrast.ts), as the slide-image route computes it. */
+  textStyle?: unknown
+  /** Final render warnings for this slide ("text_overflow"). */
+  warnings?: string[]
+  /** Split layer (lib/ai/split-layer.ts): whether the two-half composite ran, and both half prompts. */
+  split?: { used: boolean; halfPrompts: { left: string; right: string }; fallbackReason?: string } | null
   latencyMs: number
   costUsd: number | null
   provider: string | null
@@ -242,6 +248,8 @@ async function main(): Promise<void> {
   const { requestImagePromptStream } = await import("@/lib/ai/image-prompt-writer")
   const { generateStorySlideBackground } = await import("@/lib/ai/story-slide-background")
   const { sanitizeVisualBrief, briefUsesProductReference } = await import("@/lib/ai/visual-brief")
+  const { computeTextStyleSafe } = await import("@/lib/image/text-contrast")
+  const { storyTextRegion } = await import("@/lib/design/text-style")
   const { attemptsCostUsd } = await import("@/lib/ai/post-image-pipeline")
   const { IMAGE_PROVIDER_CONFIG } = await import("@/lib/ai/image-provider")
   const { MODELS } = await import("@/lib/ai/models")
@@ -407,11 +415,14 @@ async function main(): Promise<void> {
       finalImagePrompt: typeof firstImageRequest?.prompt === "string" ? firstImageRequest.prompt : null,
       attempts: result.attempts,
       imageRequests,
+      split: result.split ?? null,
     }
     if (result.success) {
       const ext = result.mimeType.includes("jpeg") ? "jpg" : "png"
       record.imageFile = `slide-${String(i + 1).padStart(2, "0")}.${ext}`
       writeFileSync(join(outDir, record.imageFile), result.buffer)
+      // As the slide-image route computes it (region from the text_position it was sent).
+      record.textStyle = await computeTextStyleSafe(result.buffer, storyTextRegion(textPositionSent))
     } else {
       record.error = result.error
       errors.push(`frame ${i + 1}: ${result.error}`)
@@ -434,7 +445,7 @@ async function main(): Promise<void> {
 
   let finalOutput: { rendered: boolean; renderer?: string; reason?: string } = { rendered: false }
   try {
-    const { renderStorySlidesToPng } = await import("@/lib/image/story-compositor")
+    const { renderStorySlides } = await import("@/lib/image/story-compositor")
     // Copied from StorySequence.tsx's toExportSlide (~line 75); the
     // background provider is "openai", so the product overlay defaults off.
     const exportSlides = stories.map((raw, i) => {
@@ -458,19 +469,24 @@ async function main(): Promise<void> {
         product_position_y: s.product_position_y,
         custom_text_color: s.custom_text_color,
         font_id: s.font_id,
+        body_font_id: s.body_font_id,
         text_size_scale: s.text_size_scale,
         checklist_highlighted_phrase: s.checklist_highlighted_phrase,
         checklist_wrong_item: s.checklist_wrong_item,
         checklist_right_item: s.checklist_right_item,
+        text_style: file ? (slideRecords[i]?.textStyle as import("@/lib/design/text-style").TextStyle | null | undefined) ?? null : null,
       }
     })
-    const finals = await renderStorySlidesToPng(exportSlides)
-    finals.forEach((buf, i) => {
+    const finals = await renderStorySlides(exportSlides)
+    finals.forEach(({ png, warnings }, i) => {
       const file = `final-${String(i + 1).padStart(2, "0")}.png`
-      writeFileSync(join(outDir, file), buf)
-      if (slideRecords[i]) slideRecords[i]!.finalImageFile = file
+      writeFileSync(join(outDir, file), png)
+      if (slideRecords[i]) {
+        slideRecords[i]!.finalImageFile = file
+        slideRecords[i]!.warnings = warnings
+      }
     })
-    finalOutput = { rendered: true, renderer: "renderStorySlidesToPng (lib/image/story-compositor.ts, the stories/render export route)" }
+    finalOutput = { rendered: true, renderer: "renderStorySlides (lib/image/story-compositor.ts, the stories/render export route)" }
   } catch (err) {
     errors.push(`final render: ${err instanceof Error ? err.message : String(err)}`)
     finalOutput = { rendered: false, reason: "renderer threw -- see errors" }

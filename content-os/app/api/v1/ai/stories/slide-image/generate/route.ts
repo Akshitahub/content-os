@@ -51,6 +51,8 @@ const schema = z.object({
     kind: z.enum(VISUAL_KINDS),
     must_show: z.string().max(300),
     composition: z.string().max(300).default(""),
+    left: z.string().max(300).optional(),
+    right: z.string().max(300).optional(),
   }).optional(),
 })
 

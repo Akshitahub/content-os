@@ -4,12 +4,12 @@ import {
   PHOTOGRAPHY_STYLE,
   REFERENCE_IMAGE_PEOPLE_GUARD,
   POST_IMAGE_QUALITY_AND_NEGATIVE_GUARD,
-  type BackgroundImageResult,
 } from "./post-image-pipeline"
 import type { ImageQuality } from "./image-provider"
 import { type Vibe, DEFAULT_VIBE, VIBE_BACKGROUND_STYLES, VIBE_FALLBACK_COLORS, ABSTRACT_SAFETY_BOILERPLATE, describeColor } from "./vibe-background-styles"
 import type { UserPlan } from "@/types/app"
-import { SPLIT_LABEL_GUARD, briefScene as sharedBriefScene, briefUsesProductReference, type VisualBrief } from "./visual-brief"
+import { SPLIT_LABEL_GUARD, briefScene as sharedBriefScene, briefUsesProductReference, halfBrief, halfUsesProductReference, type VisualBrief } from "./visual-brief"
+import { generateWithSplitLayer, type SplitBackgroundResult } from "./split-layer"
 import type { BrandRow } from "@/types/database"
 
 // Preserves the pre-existing export name for callers (e.g.
@@ -17,6 +17,9 @@ import type { BrandRow } from "@/types/database"
 // now lives in vibe-background-styles.ts, shared with
 // lib/ai/story-slide-background.ts.
 export type CarouselVibe = Vibe
+
+// fetchBackgroundImage's default canvas (PORTRAIT_DIMENSIONS) -- the split layer composites at it.
+const CAROUSEL_DIMENSIONS = { width: 1080, height: 1350, aspectRatio: "4:5" }
 
 function resolveBrandColors(brand: BrandRow): string[] {
   const colors: string[] = []
@@ -282,7 +285,7 @@ export interface GenerateCarouselSlideBackgroundOptions {
  */
 export async function generateCarouselSlideBackground(
   options: GenerateCarouselSlideBackgroundOptions
-): Promise<BackgroundImageResult> {
+): Promise<SplitBackgroundResult> {
   const vibe = options.vibe ?? DEFAULT_VIBE
   const brandColors = resolveBrandColors(options.brand)
   const colors = brandColors.length > 0 ? brandColors : VIBE_FALLBACK_COLORS[vibe]
@@ -295,7 +298,22 @@ export async function generateCarouselSlideBackground(
     const productImageUrl = briefUsesProductReference(brief) ? options.productImageUrl : undefined
     const prompt = buildBriefSlidePrompt(brief, options.brand.niche, vibe, colors, options.role, productImageUrl, options.slideType, options.userDirection)
     const fallbackPrompt = simplifyBriefSlidePrompt(brief, vibe, productImageUrl)
-    return fetchBackgroundImage(prompt, fallbackPrompt, options.plan, options.isInternalUnlimitedUser, undefined, productImageUrl, options.quality)
+    // A split brief with both halves becomes two images composited side by
+    // side (lib/ai/split-layer.ts); anything else is the single prompt.
+    return generateWithSplitLayer({
+      brief, dims: CAROUSEL_DIMENSIONS, plan: options.plan, isInternalUnlimitedUser: options.isInternalUnlimitedUser, quality: options.quality,
+      buildHalf: (text, side) => {
+        const half = halfBrief(text)
+        const ref = halfUsesProductReference(brief, side) ? options.productImageUrl : undefined
+        return {
+          prompt: buildBriefSlidePrompt(half, options.brand.niche, vibe, colors, options.role, ref, options.slideType, options.userDirection),
+          fallbackPrompt: simplifyBriefSlidePrompt(half, vibe, ref),
+          productImageUrl: ref,
+        }
+      },
+      fetchImage: fetchBackgroundImage,
+      single: () => fetchBackgroundImage(prompt, fallbackPrompt, options.plan, options.isInternalUnlimitedUser, undefined, productImageUrl, options.quality),
+    })
   }
 
   const prompt = buildSlidePrompt(options.brand.niche, vibe, colors, options.role, options.productImageUrl, options.slideType, options.customPrompt)

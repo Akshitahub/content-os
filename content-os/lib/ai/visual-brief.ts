@@ -14,6 +14,19 @@ export type VisualBrief = {
   must_show: string
   /** Where the subject sits and where the overlaid text goes. */
   composition: string
+  /** side_by_side / before_after only: what each half shows (visible things
+   * only, <= 200 chars). With both, the halves are generated as two images
+   * and composited (lib/ai/split-layer.ts). */
+  left?: string
+  right?: string
+}
+
+export const SPLIT_KINDS = new Set<VisualKind>(["side_by_side", "before_after"])
+const HALF_TEXT_MAX = 200
+
+/** A split brief with both halves -- what the two-image split layer needs. */
+export function hasSplitHalves(brief: VisualBrief | undefined): brief is VisualBrief & { left: string; right: string } {
+  return !!brief && SPLIT_KINDS.has(brief.kind) && !!brief.left && !!brief.right
 }
 
 // ─── Sanitizing the model's brief ──────────────────────────────────────────
@@ -33,11 +46,11 @@ function stripQuoted(text: string): string {
     .trim()
 }
 
-function clampText(text: string): string {
-  if (text.length <= VISUAL_TEXT_MAX) return text
-  const cut = text.slice(0, VISUAL_TEXT_MAX)
+function clampText(text: string, max = VISUAL_TEXT_MAX): string {
+  if (text.length <= max) return text
+  const cut = text.slice(0, max)
   const lastSpace = cut.lastIndexOf(" ")
-  return (lastSpace > VISUAL_TEXT_MAX / 2 ? cut.slice(0, lastSpace) : cut).trim()
+  return (lastSpace > max / 2 ? cut.slice(0, lastSpace) : cut).trim()
 }
 
 /**
@@ -55,7 +68,12 @@ export function sanitizeVisualBrief(raw: unknown): VisualBrief | undefined {
     ? (v.kind as VisualKind)
     : "product_scene"
   const composition = typeof v.composition === "string" ? clampText(stripQuoted(v.composition)) : ""
-  return { kind, must_show: mustShow, composition }
+  // Halves only for split kinds, sanitized like must_show, and only as a
+  // pair -- one half alone can't drive a two-image split.
+  const half = (x: unknown) => (typeof x === "string" ? clampText(stripQuoted(x), HALF_TEXT_MAX) : "")
+  const left = SPLIT_KINDS.has(kind) ? half(v.left) : ""
+  const right = SPLIT_KINDS.has(kind) ? half(v.right) : ""
+  return left && right ? { kind, must_show: mustShow, composition, left, right } : { kind, must_show: mustShow, composition }
 }
 
 // ─── Turning a brief into an image-prompt scene ────────────────────────────
@@ -86,6 +104,18 @@ export const SPLIT_LABEL_GUARD = "no dividing labels, captions or arrows — the
 export function briefScene(brief: VisualBrief, abstractOpener: string): string {
   const framing = brief.kind === "abstract_mood" ? `${abstractOpener}, evoking` : BRIEF_FRAMING[brief.kind]
   return `${framing} ${brief.must_show}`
+}
+
+/** One half of a split brief as its own single-subject brief, for the split
+ * layer's per-half prompt (the format's normal brief prompt, same guards). */
+export function halfBrief(text: string): VisualBrief {
+  return { kind: "product_scene", must_show: text, composition: "single subject centred in a narrow vertical frame" }
+}
+
+/** Which half of a split keeps the product reference: none for side_by_side
+ * (a two-way comparison), only the after (right) half for before_after. */
+export function halfUsesProductReference(brief: VisualBrief, side: "left" | "right"): boolean {
+  return brief.kind === "before_after" && side === "right"
 }
 
 /** Whether a slide with this brief keeps the product reference photo (see BRIEF_KINDS_WITHOUT_PRODUCT_REFERENCE). */

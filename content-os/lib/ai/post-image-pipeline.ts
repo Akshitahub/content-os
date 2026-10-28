@@ -3,12 +3,13 @@ import { generateOpenAIImage, resolveImageQuality, IMAGE_PROVIDER, type ImageDim
 import { sumCostUsd } from "@/lib/ai/pricing"
 import { compositePostImageWithWarnings, compositeHardTruthChecklistWithWarnings } from "@/lib/image/post-compositor"
 import { computeTextStyleSafe } from "@/lib/image/text-contrast"
+import { generateWithSplitLayer, type SplitLayerInfo } from "./split-layer"
 import { postTextRegion, type TextStyle } from "@/lib/design/text-style"
 import type { SlideWarning } from "@/lib/design/slide-text-layout"
 import type { PostTemplateId } from "@/lib/design/post-templates"
 import type { ColorTheme } from "@/lib/design/color-themes"
 import type { UserPlan } from "@/types/app"
-import { briefUsesProductReference, type VisualBrief } from "./visual-brief"
+import { briefUsesProductReference, halfUsesProductReference, type VisualBrief } from "./visual-brief"
 
 export type { ImageDimensions }
 
@@ -85,6 +86,8 @@ export type PostImagePipelineResult =
       textStyle?: TextStyle | null
       /** "text_overflow" when the composited text didn't fit at the smallest size. */
       warnings?: SlideWarning[]
+      /** Present when the brief was a split with both halves (lib/ai/split-layer.ts). */
+      split?: SplitLayerInfo
     }
   | { success: false; error: string; attempts: ImageGenerationAttempt[] }
 
@@ -642,13 +645,15 @@ export async function generatePostImage(rawOptions: GeneratePostImageOptions): P
   const captionText = options.captionText?.trim() || ""
   const willCompositeText = !!captionText && options.template !== "blank"
 
-  const sceneDescription = [
-    cappedImagePrompt,
+  // One scene's full prompt text around its creative core -- the post's
+  // imagePrompt, or (split layer) one half of a split brief.
+  const sceneFor = (core: string, withReference: boolean) => [
+    core,
     options.brandNiche ? `${options.brandNiche} brand` : "",
     resolveNicheSetting(options.brandNiche),
     cappedTargetAudience ? `styled to appeal to ${cappedTargetAudience}` : "",
     options.visualStyle === "editorial_graphic" ? EDITORIAL_GRAPHIC_STYLE : PHOTOGRAPHY_STYLE,
-    hasReferenceImage ? REFERENCE_IMAGE_PEOPLE_GUARD : NO_PEOPLE_BY_DEFAULT_GUARD,
+    withReference ? REFERENCE_IMAGE_PEOPLE_GUARD : NO_PEOPLE_BY_DEFAULT_GUARD,
     buildNegativeGuard(options.brandNiche),
     // Only relevant when there's actually going to be a text overlay —
     // biasing every image toward a simpler lower third no longer makes
@@ -658,6 +663,7 @@ export async function generatePostImage(rawOptions: GeneratePostImageOptions): P
     CENTERED_COMPOSITION_GUARD,
     POST_IMAGE_QUALITY_AND_NEGATIVE_GUARD,
   ].filter(Boolean).join(", ")
+  const sceneDescription = sceneFor(cappedImagePrompt, hasReferenceImage)
   const fullPrompt = hasReferenceImage ? wrapForReferenceImage(sceneDescription) : sceneDescription
 
   // Passes the UNwrapped sceneDescription, not fullPrompt -- simplifyPrompt
@@ -668,8 +674,21 @@ export async function generatePostImage(rawOptions: GeneratePostImageOptions): P
   // wrapping itself, once it has the real core.
   const retryPrompt = simplifyPrompt(sceneDescription, options.brandNiche, hasReferenceImage)
   const requestedDimensions = resolvePostImageDimensions(options.aspectRatio)
-  const result = await fetchBackgroundImage(fullPrompt, retryPrompt, options.plan, options.isInternalUnlimitedUser, requestedDimensions, options.productImageUrl, options.quality)
+  // A split brief with both halves becomes two images composited side by
+  // side (lib/ai/split-layer.ts); otherwise the single prompt, as before.
+  const brief = options.visualBrief
+  const result = await generateWithSplitLayer({
+    brief, dims: requestedDimensions, plan: options.plan, isInternalUnlimitedUser: options.isInternalUnlimitedUser, quality: options.quality,
+    fetchImage: fetchBackgroundImage,
+    buildHalf: (text, side) => {
+      const ref = brief && halfUsesProductReference(brief, side) ? options.productImageUrl : null
+      const scene = sceneFor(`a photorealistic scene featuring ${text}, single subject centred in a narrow vertical frame`, !!ref)
+      return { prompt: ref ? wrapForReferenceImage(scene) : scene, fallbackPrompt: simplifyPrompt(scene, options.brandNiche, !!ref), productImageUrl: ref }
+    },
+    single: () => fetchBackgroundImage(fullPrompt, retryPrompt, options.plan, options.isInternalUnlimitedUser, requestedDimensions, options.productImageUrl, options.quality),
+  })
   if (!result.success) return result
+  const split = result.split
 
   // Text treatment, computed once from the raw background at the region the
   // text will occupy (the template's zone, or FullPost's bottom-third overlay
@@ -687,7 +706,7 @@ export async function generatePostImage(rawOptions: GeneratePostImageOptions): P
     console.log(`[post-image-pipeline] no caption text provided -- skipping text compositing, returning plain background at ${requestedDimensions.aspectRatio}`)
     try {
       const normalized = await sharp(result.buffer).resize(requestedDimensions.width, requestedDimensions.height, { fit: "cover" }).png().toBuffer()
-      return { success: true, buffer: normalized, mimeType: "image/png", fullPrompt, provider: result.provider, attempts: result.attempts, textComposited: false, textStyle, warnings: [] }
+      return { success: true, buffer: normalized, mimeType: "image/png", fullPrompt, provider: result.provider, attempts: result.attempts, textComposited: false, textStyle, warnings: [], split }
     } catch (err) {
       console.error("[post-image-pipeline] normalizing plain background failed:", err instanceof Error ? `${err.name}: ${err.message}` : err)
       return { success: false, error: "Couldn't finish preparing the generated image. Please try again.", attempts: result.attempts }
@@ -720,7 +739,7 @@ export async function generatePostImage(rawOptions: GeneratePostImageOptions): P
       textStyle,
     })
     console.log(`[post-image-pipeline] composited successfully: ${composited.length} bytes${warnings.length ? ` warnings=${warnings.join(",")}` : ""}`)
-    return { success: true, buffer: composited, mimeType: "image/png", fullPrompt, provider: result.provider, attempts: result.attempts, textComposited: true, textStyle, warnings }
+    return { success: true, buffer: composited, mimeType: "image/png", fullPrompt, provider: result.provider, attempts: result.attempts, textComposited: true, textStyle, warnings, split }
   } catch (err) {
     console.error("[post-image-pipeline] compositing failed:", err instanceof Error ? `${err.name}: ${err.message}\n${err.stack}` : err)
     return { success: false, error: "Couldn't finish styling the generated image. Please try again.", attempts: result.attempts }

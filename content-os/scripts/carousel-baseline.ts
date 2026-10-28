@@ -263,6 +263,12 @@ type SlideRecord = {
   finalImageFile?: string | null
   /** --vision only: 1-5 score of the background against its brief, with the reason. */
   alignment?: { score: number; reason: string; costUsd: number | null } | null
+  /** How text is drawn over this background (lib/image/text-contrast.ts), as the slide-image route computes it. */
+  textStyle?: unknown
+  /** Final render warnings for this slide ("text_overflow"). */
+  warnings?: string[]
+  /** Split layer (lib/ai/split-layer.ts): whether the two-half composite ran, and both half prompts. */
+  split?: { used: boolean; halfPrompts: { left: string; right: string }; fallbackReason?: string } | null
   latencyMs: number
   costUsd: number | null
   provider: string | null
@@ -277,6 +283,8 @@ async function main(): Promise<void> {
   const { requestImagePromptStream } = await import("@/lib/ai/image-prompt-writer")
   const { generateCarouselSlideBackground } = await import("@/lib/ai/carousel-slide-background")
   const { sanitizeVisualBrief, briefUsesProductReference } = await import("@/lib/ai/visual-brief")
+  const { computeTextStyleSafe } = await import("@/lib/image/text-contrast")
+  const { carouselTextRegion } = await import("@/lib/design/text-style")
   const { attemptsCostUsd } = await import("@/lib/ai/post-image-pipeline")
   const { IMAGE_PROVIDER_CONFIG } = await import("@/lib/ai/image-provider")
   const { MODELS } = await import("@/lib/ai/models")
@@ -442,6 +450,7 @@ async function main(): Promise<void> {
       provider: result.success ? result.provider : null,
       attempts: result.attempts,
       imageRequests: captured.slice(firstCall),
+      split: result.split ?? null,
     }
     const firstImageRequest = record.imageRequests[0]?.request as { prompt?: unknown } | undefined
     record.finalImagePrompt = typeof firstImageRequest?.prompt === "string" ? firstImageRequest.prompt : null
@@ -452,6 +461,8 @@ async function main(): Promise<void> {
       const ext = result.mimeType.includes("jpeg") ? "jpg" : "png"
       record.imageFile = `slide-${String(i + 1).padStart(2, "0")}.${ext}`
       writeFileSync(join(outDir, record.imageFile), result.buffer)
+      // As the slide-image route computes it (region from the text position).
+      record.textStyle = await computeTextStyleSafe(result.buffer, carouselTextRegion({ x: s.text_position_x as number | undefined, y: s.text_position_y as number | undefined }))
     } else {
       record.error = result.error
       errors.push(`slide ${i + 1}: ${result.error}`)
@@ -475,7 +486,7 @@ async function main(): Promise<void> {
 
   let finalOutput: { rendered: boolean; renderer?: string; reason?: string } = { rendered: false }
   try {
-    const { renderRichCarouselSlidesToPng } = await import("@/lib/image/carousel-compositor")
+    const { renderRichCarouselSlides } = await import("@/lib/image/carousel-compositor")
     // Copied from CarouselBuilder.tsx's toExportSlide (~line 143).
     const exportSlides = slides.map((raw, i) => {
       const s = raw as Record<string, never>
@@ -494,16 +505,21 @@ async function main(): Promise<void> {
         text_position_y: s.text_position_y,
         productImageSource: null,
         font_id: s.font_id,
+        body_font_id: s.body_font_id,
         text_size_scale: s.text_size_scale,
+        text_style: file ? (slideRecords[i]?.textStyle as import("@/lib/design/text-style").TextStyle | null | undefined) ?? null : null,
       }
     })
-    const finals = await renderRichCarouselSlidesToPng(brand.name, exportSlides)
-    finals.forEach((buf, i) => {
+    const finals = await renderRichCarouselSlides(brand.name, exportSlides)
+    finals.forEach(({ png, warnings }, i) => {
       const file = `final-${String(i + 1).padStart(2, "0")}.png`
-      writeFileSync(join(outDir, file), buf)
-      if (slideRecords[i]) slideRecords[i]!.finalImageFile = file
+      writeFileSync(join(outDir, file), png)
+      if (slideRecords[i]) {
+        slideRecords[i]!.finalImageFile = file
+        slideRecords[i]!.warnings = warnings
+      }
     })
-    finalOutput = { rendered: true, renderer: "renderRichCarouselSlidesToPng (lib/image/carousel-compositor.ts, the carousel/render export route)" }
+    finalOutput = { rendered: true, renderer: "renderRichCarouselSlides (lib/image/carousel-compositor.ts, the carousel/render export route)" }
   } catch (err) {
     errors.push(`final render: ${err instanceof Error ? err.message : String(err)}`)
     finalOutput = { rendered: false, reason: "renderer threw -- see errors" }
