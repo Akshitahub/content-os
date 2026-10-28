@@ -1,0 +1,460 @@
+{
+  "inputs": {
+    "brandId": "ae6456b1-6e4f-4c82-8073-570c0b6c9449",
+    "brandName": "Creon Systems",
+    "topic": "From sketch to finished office lounge: our design process",
+    "slides": 6,
+    "vibe": null,
+    "platform": "instagram",
+    "label": "baseline"
+  },
+  "startedAt": "2026-10-27T08:52:21.463Z",
+  "plan": "starter",
+  "isInternalUnlimitedUser": false,
+  "models": {
+    "carouselCopy": "openai/gpt-oss-120b",
+    "imagePromptWriter": "openai/gpt-oss-120b",
+    "image": "gpt-image-2",
+    "imageQuality": "low"
+  },
+  "pastExamples": [],
+  "carouselPrompt": [
+    {
+      "role": "system",
+      "content": "You are an expert carousel content creator for Indian D2C brands on Instagram and LinkedIn. CRITICAL: Respond with ONLY valid JSON. No markdown code fences, no explanation text before or after, no trailing commas. The response must be parseable by JSON.parse() directly."
+    },
+    {
+      "role": "user",
+      "content": "Brand: Creon Systems\nNiche: Interior design & custom furniture\nAudience: Business owners, office managers, homeowners in Delhi NCR\nTone: Professional, Precise, Refined\n\nCAROUSEL TOPIC: \"From sketch to finished office lounge: our design process\"\nPLATFORM: instagram\nTOTAL SLIDES: 6\n\nCreate a high-performing instagram carousel on this topic for this brand.\n\nCRITICAL RULES:\n- NEVER use square-bracket placeholders like [Age], [Name], [Number], [Year], [Date] etc.\n- Only use a number (founding year, age, stats, prices, results) if it appears in the brand facts or topic above — otherwise write content that doesn't need it\n- Write only actual, complete text — no template variables, no placeholders\n- No exclamation marks, no hashtags, no emojis in \"headline\", \"subtext\", \"points\", \"cta\", or \"cover_hook\" — plain, punchy text only\n- Keep headline under ~50 characters and each bullet point under ~12 words — slides are meant to be scanned in a swipe, not read like an essay\n- RESPOND WITH ONLY VALID JSON — no markdown fences, no explanation text, no trailing commas\n\nSLIDE STRUCTURE:\n- Slide 1: Cover slide (type: \"cover\") — bold hook headline + teaser subtext\n- Slides 2 to 5: Content slides (type: \"content\") — see CONTENT SLIDE FORMATS below\n- Slide 6: CTA slide (type: \"cta\") — strong call to action\n\nCONTENT SLIDE FORMATS — confirmed live (2026-08-29): every content slide\ndefaulting to the same \"title + 3 bullet points\" shape reads as\nrepetitive across different carousels, even when the wording changes.\nVary the structure slide-by-slide instead, choosing whichever format\nactually fits that slide's specific content best — don't force every\ncarousel through the same rotation, and don't use the same format twice\nin a row. Every format still uses only \"headline\" and \"points\" (the\nexisting fields — a real UI, not just this prompt, renders these, so no\nnew field names):\n- Bold statement — a single striking line does all the work. \"headline\"\n  carries it; \"points\" is an empty array. Best for a point that doesn't\n  need supporting bullets to land. It may lead with a number only if that\n  exact number is in the brand facts or topic above — otherwise no number.\n- Short comparison — \"points\" has exactly 2 items framed as a contrast\n  (before/after, old way/new way, myth/reality). \"headline\" names what's\n  being compared.\n- Question and answer — \"headline\" is phrased as a real question the\n  audience would ask; \"points\" has exactly 1 item that directly answers\n  it.\n- Full list — the existing format: \"headline\" is a clear title, \"points\"\n  has 2-3 supporting bullets.\nAcross a whole carousel, use a genuine mix — not every content slide as\na list, and not the same format repeated back-to-back.\n\nBACKGROUND STYLES (rotate through these, DO NOT repeat same style twice in a row):\n- \"gradient_dark\" — dark violet to purple (for cover and CTA)\n- \"gradient_light\" — light violet to white (for content slides)\n- \"white_violet\" — white with violet accents (for content slides)\n- \"dark_navy\" — dark navy to black (alternate option)\n\nCOVER HOOK GUIDANCE — cover_hook is what actually gets used as the Instagram caption when this carousel is scheduled, so it carries the same weight as a real caption hook. Make it SPECIFIC to this brand/topic, never a generic template line.\n\nGOOD cover hooks (study these):\nGOOD: \"Your skin is lying to you.\"\nGOOD: \"Nobody talks about this beauty mistake.\"\n\nBAD cover hooks (never write these):\nBAD: \"Swipe to learn more!\"\nBAD: \"5 tips you need to know\"\n\nHASHTAG STRATEGY — 5+5+5 RULE for the \"hashtags\" field:\n- 5 niche-specific (medium competition, 100K–2M posts): e.g. #SkincareRoutine, #CleanBeautyIndia\n- 5 brand/product-specific (low competition, unique to brand): e.g. #BrandName, #ProductName\n- 5 broad/trending (high volume, 5M+ posts): e.g. #Skincare, #Beauty, #SelfCare\n\n\nQUALITY STANDARD — every piece of content must meet this bar:\n- Sound like a skilled human copywriter wrote it, not a generic AI\n- SUBJECT PRIORITY: when the user gives a topic or brief (shown as POST TOPIC, topic, or additional context), THAT decides what the content is about -- its own product, offer, occasion or business, even if it differs from this brand's own products. The brand profile then sets only the voice, tone, audience and call to action, never the subject. Only when no real topic is given does the brand's own product/niche become the subject\n- Be SPECIFIC -- to the user's topic when one is given, otherwise to this brand's actual products/niche -- never generic filler like \"amazing deals\" or \"great quality\"\n- Have a clear emotional angle (curiosity, urgency, humor, relatability, aspiration) — never flat or purely informational\n- Write like the best Instagram accounts do right now — thumb-stopping opening line, short punchy fragments over long sentences, a real hook or pattern-interrupt in the first few words, current internet-native phrasing. This should read like it was made in 2026 by someone who lives on the app, not a corporate caption from 2015\n- Avoid generic AI-sounding phrases and clichés (e.g. \"in today's fast-paced world\", \"unlock the power of\", \"elevate your\", \"game-changer\", \"look no further\", \"take it to the next level\") — write like a real person who knows this specific brand, not generic marketing copy\n- Do not use em dashes (—); use commas, periods, or natural sentence breaks instead\n- Match the EXACT tone_of_voice provided — if it's \"playful\", be genuinely funny; if \"premium\", be genuinely elevated\n- If the topic, prompt, or additional context given is vague, generic, or low-effort (e.g. a single word, \"new post\", \"sale\", or something that could mean almost anything for this brand), do NOT write something equally vague back. Infer the single most compelling, specific, on-brand angle that input most plausibly points to — using the brand's actual niche, products, and audience above — and write high-quality, specific content from that inferred angle instead of restating the vague input literally\n- FACTS ONLY: numbers, percentages, prices, durations, counts, statistics, results, and product claims may only be used if they appear in the brand or product facts or the brief supplied above. Never invent a statistic, a study, a customer count, a rating, a time saved, or a result. If no such fact is supplied, write copy that doesn't need a number — a specific observation, a contrast, or a question works just as well\n- NEVER mention third-party platforms (Amazon, Flipkart, Myntra, Nykaa, Meesho, etc.) unless explicitly part of the brand's stated sales channels\n- NEVER name, quote, or imply endorsement, association, or a personal opinion from any real, identifiable person (celebrities, influencers, public figures) — even if such a name appears in the brand's own input fields (e.g. \"campaign angle\" or \"additional context\"). If a real name appears in an input, treat it only as a loose style/vibe cue (e.g. \"glamorous, red-carpet energy\") and never as a literal claim like \"X's favorite\" or \"loved by X\" — that fabricates a false endorsement and is a real legal risk for the brand\n\nRespond with ONLY this JSON (no markdown, no explanation):\n{\n  \"title\": \"short carousel title\",\n  \"cover_hook\": \"the scroll-stopping cover text — see COVER HOOK GUIDANCE above\",\n  \"suggested_vibe\": \"one of: fun_playful | clean_minimal | bold_dramatic | warm_cozy | professional | trendy_genz — whichever best fits this topic and the brand's own tone_of_voice/vibe above\",\n  \"suggested_font_id\": \"one of: anton | inter | playfair | quicksand | caveat -- the typeface for the on-image text, picked from the brand vibe, the suggested_vibe you picked (it sets the slide colors) and this post's mood: festive / elegant / luxury -> playfair, playful / friendly -> quicksand, bold / sale / hype -> anton, clean / professional / SaaS -> inter, personal / handmade -> caveat (never caveat when the text has long body copy or lists)\",\n  \"slides\": [\n    {\n      \"slide_number\": 1,\n      \"type\": \"cover\",\n      \"headline\": \"Big bold cover headline\",\n      \"subtext\": \"Swipe to discover →\",\n      \"background_style\": \"gradient_dark\"\n    },\n    {\n      \"slide_number\": 2,\n      \"type\": \"content\",\n      \"headline\": \"Most first-time buyers never come back\",\n      \"points\": [],\n      \"background_style\": \"gradient_light\"\n    },\n    {\n      \"slide_number\": 3,\n      \"type\": \"content\",\n      \"headline\": \"Generic emails vs. personalized ones\",\n      \"points\": [\"Generic: skimmed and deleted\", \"Personalized: opened and answered\"],\n      \"background_style\": \"white_violet\"\n    },\n    {\n      \"slide_number\": 4,\n      \"type\": \"content\",\n      \"headline\": \"Why do most carts get abandoned?\",\n      \"points\": [\"Shipping cost shows up too late in checkout\"],\n      \"background_style\": \"gradient_light\"\n    },\n    {\n      \"slide_number\": 5,\n      \"type\": \"content\",\n      \"headline\": \"Fix your checkout flow in 3 steps\",\n      \"points\": [\"Show shipping cost upfront\", \"Cut form fields to the essentials\", \"Add a guest checkout option\"],\n      \"background_style\": \"white_violet\"\n    }\n  ],\n  \"cta_slide\": {\n    \"headline\": \"Strong CTA headline\",\n    \"cta\": \"Follow for more tips like this\",\n    \"handle\": \"@yourhandle\"\n  },\n  \"hashtags\": [\"niche1\", \"niche2\", \"niche3\", \"niche4\", \"niche5\", \"brand1\", \"brand2\", \"brand3\", \"brand4\", \"brand5\", \"broad1\", \"broad2\", \"broad3\", \"broad4\", \"broad5\"]\n}\n\nMake every slide punchy, valuable, and shareable. The cover must stop the scroll immediately."
+    }
+  ],
+  "carouselCalls": [
+    {
+      "stage": "carousel_copy",
+      "url": "https://api.groq.com/openai/v1/chat/completions",
+      "model": "openai/gpt-oss-120b",
+      "status": 200,
+      "latencyMs": 4587,
+      "request": [
+        {
+          "role": "system",
+          "content": "You are an expert carousel content creator for Indian D2C brands on Instagram and LinkedIn. CRITICAL: Respond with ONLY valid JSON. No markdown code fences, no explanation text before or after, no trailing commas. The response must be parseable by JSON.parse() directly."
+        },
+        {
+          "role": "user",
+          "content": "Brand: Creon Systems\nNiche: Interior design & custom furniture\nAudience: Business owners, office managers, homeowners in Delhi NCR\nTone: Professional, Precise, Refined\n\nCAROUSEL TOPIC: \"From sketch to finished office lounge: our design process\"\nPLATFORM: instagram\nTOTAL SLIDES: 6\n\nCreate a high-performing instagram carousel on this topic for this brand.\n\nCRITICAL RULES:\n- NEVER use square-bracket placeholders like [Age], [Name], [Number], [Year], [Date] etc.\n- Only use a number (founding year, age, stats, prices, results) if it appears in the brand facts or topic above — otherwise write content that doesn't need it\n- Write only actual, complete text — no template variables, no placeholders\n- No exclamation marks, no hashtags, no emojis in \"headline\", \"subtext\", \"points\", \"cta\", or \"cover_hook\" — plain, punchy text only\n- Keep headline under ~50 characters and each bullet point under ~12 words — slides are meant to be scanned in a swipe, not read like an essay\n- RESPOND WITH ONLY VALID JSON — no markdown fences, no explanation text, no trailing commas\n\nSLIDE STRUCTURE:\n- Slide 1: Cover slide (type: \"cover\") — bold hook headline + teaser subtext\n- Slides 2 to 5: Content slides (type: \"content\") — see CONTENT SLIDE FORMATS below\n- Slide 6: CTA slide (type: \"cta\") — strong call to action\n\nCONTENT SLIDE FORMATS — confirmed live (2026-08-29): every content slide\ndefaulting to the same \"title + 3 bullet points\" shape reads as\nrepetitive across different carousels, even when the wording changes.\nVary the structure slide-by-slide instead, choosing whichever format\nactually fits that slide's specific content best — don't force every\ncarousel through the same rotation, and don't use the same format twice\nin a row. Every format still uses only \"headline\" and \"points\" (the\nexisting fields — a real UI, not just this prompt, renders these, so no\nnew field names):\n- Bold statement — a single striking line does all the work. \"headline\"\n  carries it; \"points\" is an empty array. Best for a point that doesn't\n  need supporting bullets to land. It may lead with a number only if that\n  exact number is in the brand facts or topic above — otherwise no number.\n- Short comparison — \"points\" has exactly 2 items framed as a contrast\n  (before/after, old way/new way, myth/reality). \"headline\" names what's\n  being compared.\n- Question and answer — \"headline\" is phrased as a real question the\n  audience would ask; \"points\" has exactly 1 item that directly answers\n  it.\n- Full list — the existing format: \"headline\" is a clear title, \"points\"\n  has 2-3 supporting bullets.\nAcross a whole carousel, use a genuine mix — not every content slide as\na list, and not the same format repeated back-to-back.\n\nBACKGROUND STYLES (rotate through these, DO NOT repeat same style twice in a row):\n- \"gradient_dark\" — dark violet to purple (for cover and CTA)\n- \"gradient_light\" — light violet to white (for content slides)\n- \"white_violet\" — white with violet accents (for content slides)\n- \"dark_navy\" — dark navy to black (alternate option)\n\nCOVER HOOK GUIDANCE — cover_hook is what actually gets used as the Instagram caption when this carousel is scheduled, so it carries the same weight as a real caption hook. Make it SPECIFIC to this brand/topic, never a generic template line.\n\nGOOD cover hooks (study these):\nGOOD: \"Your skin is lying to you.\"\nGOOD: \"Nobody talks about this beauty mistake.\"\n\nBAD cover hooks (never write these):\nBAD: \"Swipe to learn more!\"\nBAD: \"5 tips you need to know\"\n\nHASHTAG STRATEGY — 5+5+5 RULE for the \"hashtags\" field:\n- 5 niche-specific (medium competition, 100K–2M posts): e.g. #SkincareRoutine, #CleanBeautyIndia\n- 5 brand/product-specific (low competition, unique to brand): e.g. #BrandName, #ProductName\n- 5 broad/trending (high volume, 5M+ posts): e.g. #Skincare, #Beauty, #SelfCare\n\n\nQUALITY STANDARD — every piece of content must meet this bar:\n- Sound like a skilled human copywriter wrote it, not a generic AI\n- SUBJECT PRIORITY: when the user gives a topic or brief (shown as POST TOPIC, topic, or additional context), THAT decides what the content is about -- its own product, offer, occasion or business, even if it differs from this brand's own products. The brand profile then sets only the voice, tone, audience and call to action, never the subject. Only when no real topic is given does the brand's own product/niche become the subject\n- Be SPECIFIC -- to the user's topic when one is given, otherwise to this brand's actual products/niche -- never generic filler like \"amazing deals\" or \"great quality\"\n- Have a clear emotional angle (curiosity, urgency, humor, relatability, aspiration) — never flat or purely informational\n- Write like the best Instagram accounts do right now — thumb-stopping opening line, short punchy fragments over long sentences, a real hook or pattern-interrupt in the first few words, current internet-native phrasing. This should read like it was made in 2026 by someone who lives on the app, not a corporate caption from 2015\n- Avoid generic AI-sounding phrases and clichés (e.g. \"in today's fast-paced world\", \"unlock the power of\", \"elevate your\", \"game-changer\", \"look no further\", \"take it to the next level\") — write like a real person who knows this specific brand, not generic marketing copy\n- Do not use em dashes (—); use commas, periods, or natural sentence breaks instead\n- Match the EXACT tone_of_voice provided — if it's \"playful\", be genuinely funny; if \"premium\", be genuinely elevated\n- If the topic, prompt, or additional context given is vague, generic, or low-effort (e.g. a single word, \"new post\", \"sale\", or something that could mean almost anything for this brand), do NOT write something equally vague back. Infer the single most compelling, specific, on-brand angle that input most plausibly points to — using the brand's actual niche, products, and audience above — and write high-quality, specific content from that inferred angle instead of restating the vague input literally\n- FACTS ONLY: numbers, percentages, prices, durations, counts, statistics, results, and product claims may only be used if they appear in the brand or product facts or the brief supplied above. Never invent a statistic, a study, a customer count, a rating, a time saved, or a result. If no such fact is supplied, write copy that doesn't need a number — a specific observation, a contrast, or a question works just as well\n- NEVER mention third-party platforms (Amazon, Flipkart, Myntra, Nykaa, Meesho, etc.) unless explicitly part of the brand's stated sales channels\n- NEVER name, quote, or imply endorsement, association, or a personal opinion from any real, identifiable person (celebrities, influencers, public figures) — even if such a name appears in the brand's own input fields (e.g. \"campaign angle\" or \"additional context\"). If a real name appears in an input, treat it only as a loose style/vibe cue (e.g. \"glamorous, red-carpet energy\") and never as a literal claim like \"X's favorite\" or \"loved by X\" — that fabricates a false endorsement and is a real legal risk for the brand\n\nRespond with ONLY this JSON (no markdown, no explanation):\n{\n  \"title\": \"short carousel title\",\n  \"cover_hook\": \"the scroll-stopping cover text — see COVER HOOK GUIDANCE above\",\n  \"suggested_vibe\": \"one of: fun_playful | clean_minimal | bold_dramatic | warm_cozy | professional | trendy_genz — whichever best fits this topic and the brand's own tone_of_voice/vibe above\",\n  \"suggested_font_id\": \"one of: anton | inter | playfair | quicksand | caveat -- the typeface for the on-image text, picked from the brand vibe, the suggested_vibe you picked (it sets the slide colors) and this post's mood: festive / elegant / luxury -> playfair, playful / friendly -> quicksand, bold / sale / hype -> anton, clean / professional / SaaS -> inter, personal / handmade -> caveat (never caveat when the text has long body copy or lists)\",\n  \"slides\": [\n    {\n      \"slide_number\": 1,\n      \"type\": \"cover\",\n      \"headline\": \"Big bold cover headline\",\n      \"subtext\": \"Swipe to discover →\",\n      \"background_style\": \"gradient_dark\"\n    },\n    {\n      \"slide_number\": 2,\n      \"type\": \"content\",\n      \"headline\": \"Most first-time buyers never come back\",\n      \"points\": [],\n      \"background_style\": \"gradient_light\"\n    },\n    {\n      \"slide_number\": 3,\n      \"type\": \"content\",\n      \"headline\": \"Generic emails vs. personalized ones\",\n      \"points\": [\"Generic: skimmed and deleted\", \"Personalized: opened and answered\"],\n      \"background_style\": \"white_violet\"\n    },\n    {\n      \"slide_number\": 4,\n      \"type\": \"content\",\n      \"headline\": \"Why do most carts get abandoned?\",\n      \"points\": [\"Shipping cost shows up too late in checkout\"],\n      \"background_style\": \"gradient_light\"\n    },\n    {\n      \"slide_number\": 5,\n      \"type\": \"content\",\n      \"headline\": \"Fix your checkout flow in 3 steps\",\n      \"points\": [\"Show shipping cost upfront\", \"Cut form fields to the essentials\", \"Add a guest checkout option\"],\n      \"background_style\": \"white_violet\"\n    }\n  ],\n  \"cta_slide\": {\n    \"headline\": \"Strong CTA headline\",\n    \"cta\": \"Follow for more tips like this\",\n    \"handle\": \"@yourhandle\"\n  },\n  \"hashtags\": [\"niche1\", \"niche2\", \"niche3\", \"niche4\", \"niche5\", \"brand1\", \"brand2\", \"brand3\", \"brand4\", \"brand5\", \"broad1\", \"broad2\", \"broad3\", \"broad4\", \"broad5\"]\n}\n\nMake every slide punchy, valuable, and shareable. The cover must stop the scroll immediately."
+        }
+      ],
+      "responseContent": "{\n  \"title\": \"Design Journey: Sketch to Lounge\",\n  \"cover_hook\": \"See how Creon transforms a simple sketch into a refined Delhi office lounge\",\n  \"suggested_vibe\": \"professional\",\n  \"suggested_font_id\": \"inter\",\n  \"slides\": [\n    {\n      \"slide_number\": 1,\n      \"type\": \"cover\",\n      \"headline\": \"From Sketch to Signature Office Lounge\",\n      \"subtext\": \"Explore each step of our refined process\",\n      \"background_style\": \"gradient_dark\"\n    },\n    {\n      \"slide_number\": 2,\n      \"type\": \"content\",\n      \"headline\": \"Every lounge starts with a precise sketch\",\n      \"points\": [],\n      \"background_style\": \"gradient_light\"\n    },\n    {\n      \"slide_number\": 3,\n      \"type\": \"content\",\n      \"headline\": \"Concept vs. Reality\",\n      \"points\": [\n        \"Concept: hand drawn layout, ideas on paper\",\n        \"Reality: 3D model, material selection, lighting plan\"\n      ],\n      \"background_style\": \"white_violet\"\n    },\n    {\n      \"slide_number\": 4,\n      \"type\": \"content\",\n      \"headline\": \"How do we ensure functional flow?\",\n      \"points\": [\n        \"We map movement paths and ergonomics before any cut\"\n      ],\n      \"background_style\": \"dark_navy\"\n    },\n    {\n      \"slide_number\": 5,\n      \"type\": \"content\",\n      \"headline\": \"Final touches that define the lounge\",\n      \"points\": [\n        \"Custom furniture crafted to brand palette\",\n        \"Acoustic panels installed for quiet work\",\n        \"Smart lighting programmed for mood and productivity\"\n      ],\n      \"background_style\": \"gradient_light\"\n    }\n  ],\n  \"cta_slide\": {\n    \"headline\": \"Ready for a bespoke office lounge\",\n    \"cta\": \"Contact us to start your design\",\n    \"handle\": \"@creonsystems\"\n  },\n  \"hashtags\": [\n    \"interiordesign\",\n    \"customfurniture\",\n    \"officedecor\",\n    \"delhincr\",\n    \"workspacedesign\",\n    \"creonsystems\",\n    \"creoninteriors\",\n    \"creondesign\",\n    \"creonlounge\",\n    \"creoncustom\",\n    \"design\",\n    \"architecture\",\n    \"homedecor\",\n    \"interiors\",\n    \"office\"\n  ]\n}"
+    }
+  ],
+  "rawCarouselOutputs": [
+    "{\n  \"title\": \"Design Journey: Sketch to Lounge\",\n  \"cover_hook\": \"See how Creon transforms a simple sketch into a refined Delhi office lounge\",\n  \"suggested_vibe\": \"professional\",\n  \"suggested_font_id\": \"inter\",\n  \"slides\": [\n    {\n      \"slide_number\": 1,\n      \"type\": \"cover\",\n      \"headline\": \"From Sketch to Signature Office Lounge\",\n      \"subtext\": \"Explore each step of our refined process\",\n      \"background_style\": \"gradient_dark\"\n    },\n    {\n      \"slide_number\": 2,\n      \"type\": \"content\",\n      \"headline\": \"Every lounge starts with a precise sketch\",\n      \"points\": [],\n      \"background_style\": \"gradient_light\"\n    },\n    {\n      \"slide_number\": 3,\n      \"type\": \"content\",\n      \"headline\": \"Concept vs. Reality\",\n      \"points\": [\n        \"Concept: hand drawn layout, ideas on paper\",\n        \"Reality: 3D model, material selection, lighting plan\"\n      ],\n      \"background_style\": \"white_violet\"\n    },\n    {\n      \"slide_number\": 4,\n      \"type\": \"content\",\n      \"headline\": \"How do we ensure functional flow?\",\n      \"points\": [\n        \"We map movement paths and ergonomics before any cut\"\n      ],\n      \"background_style\": \"dark_navy\"\n    },\n    {\n      \"slide_number\": 5,\n      \"type\": \"content\",\n      \"headline\": \"Final touches that define the lounge\",\n      \"points\": [\n        \"Custom furniture crafted to brand palette\",\n        \"Acoustic panels installed for quiet work\",\n        \"Smart lighting programmed for mood and productivity\"\n      ],\n      \"background_style\": \"gradient_light\"\n    }\n  ],\n  \"cta_slide\": {\n    \"headline\": \"Ready for a bespoke office lounge\",\n    \"cta\": \"Contact us to start your design\",\n    \"handle\": \"@creonsystems\"\n  },\n  \"hashtags\": [\n    \"interiordesign\",\n    \"customfurniture\",\n    \"officedecor\",\n    \"delhincr\",\n    \"workspacedesign\",\n    \"creonsystems\",\n    \"creoninteriors\",\n    \"creondesign\",\n    \"creonlounge\",\n    \"creoncustom\",\n    \"design\",\n    \"architecture\",\n    \"homedecor\",\n    \"interiors\",\n    \"office\"\n  ]\n}"
+  ],
+  "carouselData": {
+    "title": "Design Journey: Sketch to Lounge",
+    "cover_hook": "See how Creon transforms a simple sketch into a refined Delhi office lounge",
+    "suggested_vibe": "professional",
+    "suggested_font_id": "inter",
+    "slides": [
+      {
+        "slide_number": 1,
+        "type": "cover",
+        "headline": "From Sketch to Signature Office Lounge",
+        "subtext": "Explore each step of our refined process",
+        "background_style": "gradient_dark"
+      },
+      {
+        "slide_number": 2,
+        "type": "content",
+        "headline": "Every lounge starts with a precise sketch",
+        "points": [],
+        "background_style": "gradient_light"
+      },
+      {
+        "slide_number": 3,
+        "type": "content",
+        "headline": "Concept vs. Reality",
+        "points": [
+          "Concept: hand drawn layout, ideas on paper",
+          "Reality: 3D model, material selection, lighting plan"
+        ],
+        "background_style": "white_violet"
+      },
+      {
+        "slide_number": 4,
+        "type": "content",
+        "headline": "How do we ensure functional flow?",
+        "points": [
+          "We map movement paths and ergonomics before any cut"
+        ],
+        "background_style": "dark_navy"
+      },
+      {
+        "slide_number": 5,
+        "type": "content",
+        "headline": "Final touches that define the lounge",
+        "points": [
+          "Custom furniture crafted to brand palette",
+          "Acoustic panels installed for quiet work",
+          "Smart lighting programmed for mood and productivity"
+        ],
+        "background_style": "gradient_light"
+      }
+    ],
+    "cta_slide": {
+      "headline": "Ready for a bespoke office lounge",
+      "cta": "Contact us to start your design",
+      "handle": "@creonsystems"
+    },
+    "hashtags": [
+      "interiordesign",
+      "customfurniture",
+      "officedecor",
+      "delhincr",
+      "workspacedesign",
+      "creonsystems",
+      "creoninteriors",
+      "creondesign",
+      "creonlounge",
+      "creoncustom",
+      "design",
+      "architecture",
+      "homedecor",
+      "interiors",
+      "office"
+    ]
+  },
+  "finalSlides": [
+    {
+      "slide_number": 1,
+      "type": "cover",
+      "headline": "From Sketch to Signature Office Lounge",
+      "subtext": "Explore each step of our refined process",
+      "background_style": "vibe_professional",
+      "font_id": "inter"
+    },
+    {
+      "slide_number": 2,
+      "type": "content",
+      "headline": "Every lounge starts with a precise sketch",
+      "points": [],
+      "background_style": "vibe_professional",
+      "font_id": "inter"
+    },
+    {
+      "slide_number": 3,
+      "type": "content",
+      "headline": "Concept vs. Reality",
+      "points": [
+        "Concept: hand drawn layout, ideas on paper",
+        "Reality: 3D model, material selection, lighting plan"
+      ],
+      "background_style": "vibe_professional",
+      "font_id": "inter"
+    },
+    {
+      "slide_number": 4,
+      "type": "content",
+      "headline": "How do we ensure functional flow?",
+      "points": [
+        "We map movement paths and ergonomics before any cut"
+      ],
+      "background_style": "vibe_professional",
+      "font_id": "inter"
+    },
+    {
+      "slide_number": 5,
+      "type": "content",
+      "headline": "Final touches that define the lounge",
+      "points": [
+        "Custom furniture crafted to brand palette",
+        "Acoustic panels installed for quiet work",
+        "Smart lighting programmed for mood and productivity"
+      ],
+      "background_style": "vibe_professional",
+      "font_id": "inter"
+    },
+    {
+      "slide_number": 6,
+      "type": "cta",
+      "background_style": "vibe_professional",
+      "headline": "Ready for a bespoke office lounge",
+      "cta": "Contact us to start your design",
+      "handle": "@creonsystems",
+      "font_id": "inter"
+    }
+  ],
+  "effectiveVibe": "professional",
+  "fontId": "inter",
+  "visualPrompt": "A polished walnut modular desk with a smooth matte finish, paired with two compact chrome drawer units featuring brushed stainless handles, sits centrally on a muted charcoal rug; beside it a sleek black metal swivel chair with ergonomic backrest and a thin brass footrest completes the arrangement. The scene is set in a contemporary Delhi office space with floor‑to‑ceiling glass walls revealing a faint city skyline, a tall fiddle‑leaf fig in a white ceramic pot, and a minimalist steel bookshelf holding a few architectural volumes. Soft, diffused daylight streams through a skylight, casting a warm glow that highlights the wood grain while subtle ambient LEDs add a cool edge. The composition frames the desk and chair in the left two‑thirds of the image, leaving a calm, uncluttered negative space on the right for a headline. Photorealistic studio lighting style with shallow depth of field captures the refined textures, and the image contains no text, logos, watermarks, or distorted hands.",
+  "imagePromptCall": [
+    {
+      "stage": "image_prompt_write",
+      "url": "https://api.groq.com/openai/v1/chat/completions",
+      "model": "openai/gpt-oss-120b",
+      "status": 200,
+      "latencyMs": 434,
+      "request": [
+        {
+          "role": "system",
+          "content": "You are an expert prompt writer for an AI image generation model (a photorealistic diffusion model). Your ONLY job is to output ONE single, complete, well-formed image-generation prompt as plain text -- nothing else.\n\nRules:\n- Output ONLY the prompt text itself. No preamble, no explanation, no surrounding quotes, no markdown, no labels like \"Prompt:\".\n- Write ONE flowing descriptive passage -- not a list, not multiple options, not bullet points or numbered lines -- of 80 to 150 words, moving through these in order:\n  1. The subject/product with concrete specifics: exact materials, colors, quantity, and finish (e.g. \"three amber glass jar candles with brass lids\"), never a vague generality.\n  2. The setting and any props relevant to the brief (e.g. diyas, marigolds, a brass thali, silk fabric for a Diwali scene) -- grounded in what the user described or the brand/product context, never generic filler unrelated to the brief.\n  3. Lighting and mood (e.g. a warm golden glow, a soft flicker, shallow depth of field).\n  4. Composition matched to the requested canvas shape, naming where to leave calm, uncluttered negative space for a headline to be overlaid afterward.\n  5. Style and camera language matched to the requested visual direction (e.g. a photorealistic studio product shot with specific lens/lighting language, versus a flat editorial graphic composition with no camera or DSLR language at all).\n  6. A short closing clause ruling out text, logos, watermarks, and distorted hands appearing anywhere in the image.\n- If the user provided their own description, treat it as the creative brief -- keep their intent and refine/complete any vague or underspecified part into something concrete. Do not discard what they asked for.\n- If the user gave no real description, invent one complete, specific scene from scratch using the brand/product context you're given -- never output a generic, vague, or placeholder-sounding scene.\n- Ground the scene in the subject of the user's own description when they gave one (e.g. \"our candle brand\" -> candles), even if it differs from the brand's niche; only when they gave no real description, ground it in the brand's actual niche and product -- never a generic stock-photo scene that could belong to any company.\n- Never describe or write out any text, words, lettering, captions, logos, watermarks, or labels appearing in the image, no matter how short -- a diffusion model renders text as garbled nonsense, and any real headline is composited on separately in code afterward. This is a hard rule, not a style preference.\n- Do not mention camera brands, aspect ratio as a number/ratio, resolution, or megapixels -- describe composition in plain visual language instead (e.g. \"wide open space across the top of the frame\"); the exact technical values are handled separately in code.\n- If a real product reference photo is noted as attached, describe the SURROUNDING SCENE, setting, and lighting only -- do not redescribe the product's own appearance (color, shape, packaging), since that photo already shows it exactly.\n- Never mention SocioPosts, Groq, OpenAI, gpt-image, or any other AI tool/vendor name anywhere in the scene you write -- this is a plain visual description of a photograph, not a mention of the tools that made it.\n- Never let internal field or workflow names (e.g. \"hook slide\", \"cta slide\", \"template\", \"checklist\", \"carousel\") leak into the visual description -- describe only what a viewer would actually see in the finished photo."
+        },
+        {
+          "role": "user",
+          "content": "Brand: Creon Systems\nNiche/industry: Interior design & custom furniture\nTarget audience: Business owners, office managers, homeowners in Delhi NCR\nBrand tone: Professional, Precise, Refined\nBrand vibe: fun_playful\n\nThe user gave no description of their own -- compose one complete, specific image-generation prompt from scratch, grounded in the brand/product context above.\n\nRespond with ONLY the prompt text, nothing else."
+        }
+      ]
+    }
+  ],
+  "slides": [
+    {
+      "index": 1,
+      "role": "hook",
+      "headline": "From Sketch to Signature Office Lounge",
+      "points": [],
+      "imageFile": "slide-01.png",
+      "latencyMs": 16020,
+      "costUsd": 0.007495,
+      "provider": "openai",
+      "attempts": [
+        {
+          "attemptNumber": 1,
+          "provider": "openai",
+          "promptVariant": "primary",
+          "success": true,
+          "failureReason": null,
+          "errorMessage": null,
+          "costUsd": 0.007495
+        }
+      ],
+      "imageRequests": [
+        {
+          "stage": "slide_1",
+          "url": "https://api.openai.com/v1/images/generations",
+          "model": "gpt-image-2",
+          "status": 200,
+          "latencyMs": 13511,
+          "request": {
+            "prompt": "A polished walnut modular desk with a smooth matte finish, paired with two compact chrome drawer units featuring brushed stainless handles, sits centrally on a muted charcoal rug; beside it a sleek black metal swivel chair with ergonomic backrest and a thin brass footrest completes the arrangement. The scene is set in a contemporary Delhi office space with floor‑to‑ceiling glass walls revealing a faint city skyline, a tall fiddle‑leaf fig in a white ceramic pot, and a minimalist steel bookshelf holding a few architectural volumes. Soft, diffused daylight streams through a skylight, casting a warm glow that highlights the wood grain while subtle ambient LEDs add a cool edge. The composition frames the desk and chair in the left two‑thirds of the image, leaving a calm, uncluttered negative space on the right for a headline. Photorealistic studio lighting style with shallow depth of field captures the refined textures, and the image contains no text, logos, watermarks, or distorted hands., minimalist abstract background, soft subtle gradient, generous negative space, gentle geometric shapes, understated texture, color palette inspired by a near-white neutral and a near-white neutral and a neutral gray, evokes the mood of a Interior design & custom furniture brand, no text, no words, no letters, no numbers, no logos anywhere in the image, no rendered slogans, taglines, or typography of any kind, however short, no literal photos of people, products, or objects — purely abstract shapes, gradients, and textures, leave calm, uncluttered negative space so text stays readable when overlaid on top, keep the composition's key visual interest centered in the frame — avoid placing it in the outer ~10% margin on any side, no watermarks, no illegible text or symbols, clean ultra-high-resolution 8K quality render, sharp focus, modern and elevated aesthetic, visually striking and on-trend for 2026 social media, tightly grounded in and relevant to the specific style/vibe described above, no generic or unrelated filler patterns",
+            "size": "1088x1360",
+            "quality": "low",
+            "n": 1
+          }
+        }
+      ]
+    },
+    {
+      "index": 2,
+      "role": "body",
+      "headline": "Every lounge starts with a precise sketch",
+      "points": [],
+      "imageFile": "slide-02.png",
+      "latencyMs": 15028,
+      "costUsd": 0.007495,
+      "provider": "openai",
+      "attempts": [
+        {
+          "attemptNumber": 1,
+          "provider": "openai",
+          "promptVariant": "primary",
+          "success": true,
+          "failureReason": null,
+          "errorMessage": null,
+          "costUsd": 0.007495
+        }
+      ],
+      "imageRequests": [
+        {
+          "stage": "slide_2",
+          "url": "https://api.openai.com/v1/images/generations",
+          "model": "gpt-image-2",
+          "status": 200,
+          "latencyMs": 12616,
+          "request": {
+            "prompt": "A polished walnut modular desk with a smooth matte finish, paired with two compact chrome drawer units featuring brushed stainless handles, sits centrally on a muted charcoal rug; beside it a sleek black metal swivel chair with ergonomic backrest and a thin brass footrest completes the arrangement. The scene is set in a contemporary Delhi office space with floor‑to‑ceiling glass walls revealing a faint city skyline, a tall fiddle‑leaf fig in a white ceramic pot, and a minimalist steel bookshelf holding a few architectural volumes. Soft, diffused daylight streams through a skylight, casting a warm glow that highlights the wood grain while subtle ambient LEDs add a cool edge. The composition frames the desk and chair in the left two‑thirds of the image, leaving a calm, uncluttered negative space on the right for a headline. Photorealistic studio lighting style with shallow depth of field captures the refined textures, and the image contains no text, logos, watermarks, or distorted hands., minimalist abstract background, soft subtle gradient, generous negative space, gentle geometric shapes, understated texture, color palette inspired by a near-white neutral and a near-white neutral and a neutral gray, evokes the mood of a Interior design & custom furniture brand, no text, no words, no letters, no numbers, no logos anywhere in the image, no rendered slogans, taglines, or typography of any kind, however short, no literal photos of people, products, or objects — purely abstract shapes, gradients, and textures, leave calm, uncluttered negative space so text stays readable when overlaid on top, keep the composition's key visual interest centered in the frame — avoid placing it in the outer ~10% margin on any side, no watermarks, no illegible text or symbols, clean ultra-high-resolution 8K quality render, sharp focus, modern and elevated aesthetic, visually striking and on-trend for 2026 social media, tightly grounded in and relevant to the specific style/vibe described above, no generic or unrelated filler patterns",
+            "size": "1088x1360",
+            "quality": "low",
+            "n": 1
+          }
+        }
+      ]
+    },
+    {
+      "index": 3,
+      "role": "body",
+      "headline": "Concept vs. Reality",
+      "points": [
+        "Concept: hand drawn layout, ideas on paper",
+        "Reality: 3D model, material selection, lighting plan"
+      ],
+      "imageFile": "slide-03.png",
+      "latencyMs": 14803,
+      "costUsd": 0.007495,
+      "provider": "openai",
+      "attempts": [
+        {
+          "attemptNumber": 1,
+          "provider": "openai",
+          "promptVariant": "primary",
+          "success": true,
+          "failureReason": null,
+          "errorMessage": null,
+          "costUsd": 0.007495
+        }
+      ],
+      "imageRequests": [
+        {
+          "stage": "slide_3",
+          "url": "https://api.openai.com/v1/images/generations",
+          "model": "gpt-image-2",
+          "status": 200,
+          "latencyMs": 12310,
+          "request": {
+            "prompt": "A polished walnut modular desk with a smooth matte finish, paired with two compact chrome drawer units featuring brushed stainless handles, sits centrally on a muted charcoal rug; beside it a sleek black metal swivel chair with ergonomic backrest and a thin brass footrest completes the arrangement. The scene is set in a contemporary Delhi office space with floor‑to‑ceiling glass walls revealing a faint city skyline, a tall fiddle‑leaf fig in a white ceramic pot, and a minimalist steel bookshelf holding a few architectural volumes. Soft, diffused daylight streams through a skylight, casting a warm glow that highlights the wood grain while subtle ambient LEDs add a cool edge. The composition frames the desk and chair in the left two‑thirds of the image, leaving a calm, uncluttered negative space on the right for a headline. Photorealistic studio lighting style with shallow depth of field captures the refined textures, and the image contains no text, logos, watermarks, or distorted hands., minimalist abstract background, soft subtle gradient, generous negative space, gentle geometric shapes, understated texture, color palette inspired by a near-white neutral and a near-white neutral and a neutral gray, evokes the mood of a Interior design & custom furniture brand, no text, no words, no letters, no numbers, no logos anywhere in the image, no rendered slogans, taglines, or typography of any kind, however short, no literal photos of people, products, or objects — purely abstract shapes, gradients, and textures, leave calm, uncluttered negative space so text stays readable when overlaid on top, keep the composition's key visual interest centered in the frame — avoid placing it in the outer ~10% margin on any side, no watermarks, no illegible text or symbols, clean ultra-high-resolution 8K quality render, sharp focus, modern and elevated aesthetic, visually striking and on-trend for 2026 social media, tightly grounded in and relevant to the specific style/vibe described above, no generic or unrelated filler patterns",
+            "size": "1088x1360",
+            "quality": "low",
+            "n": 1
+          }
+        }
+      ]
+    },
+    {
+      "index": 4,
+      "role": "body",
+      "headline": "How do we ensure functional flow?",
+      "points": [
+        "We map movement paths and ergonomics before any cut"
+      ],
+      "imageFile": "slide-04.png",
+      "latencyMs": 15116,
+      "costUsd": 0.007495,
+      "provider": "openai",
+      "attempts": [
+        {
+          "attemptNumber": 1,
+          "provider": "openai",
+          "promptVariant": "primary",
+          "success": true,
+          "failureReason": null,
+          "errorMessage": null,
+          "costUsd": 0.007495
+        }
+      ],
+      "imageRequests": [
+        {
+          "stage": "slide_4",
+          "url": "https://api.openai.com/v1/images/generations",
+          "model": "gpt-image-2",
+          "status": 200,
+          "latencyMs": 12117,
+          "request": {
+            "prompt": "A polished walnut modular desk with a smooth matte finish, paired with two compact chrome drawer units featuring brushed stainless handles, sits centrally on a muted charcoal rug; beside it a sleek black metal swivel chair with ergonomic backrest and a thin brass footrest completes the arrangement. The scene is set in a contemporary Delhi office space with floor‑to‑ceiling glass walls revealing a faint city skyline, a tall fiddle‑leaf fig in a white ceramic pot, and a minimalist steel bookshelf holding a few architectural volumes. Soft, diffused daylight streams through a skylight, casting a warm glow that highlights the wood grain while subtle ambient LEDs add a cool edge. The composition frames the desk and chair in the left two‑thirds of the image, leaving a calm, uncluttered negative space on the right for a headline. Photorealistic studio lighting style with shallow depth of field captures the refined textures, and the image contains no text, logos, watermarks, or distorted hands., minimalist abstract background, soft subtle gradient, generous negative space, gentle geometric shapes, understated texture, color palette inspired by a near-white neutral and a near-white neutral and a neutral gray, evokes the mood of a Interior design & custom furniture brand, no text, no words, no letters, no numbers, no logos anywhere in the image, no rendered slogans, taglines, or typography of any kind, however short, no literal photos of people, products, or objects — purely abstract shapes, gradients, and textures, leave calm, uncluttered negative space so text stays readable when overlaid on top, keep the composition's key visual interest centered in the frame — avoid placing it in the outer ~10% margin on any side, no watermarks, no illegible text or symbols, clean ultra-high-resolution 8K quality render, sharp focus, modern and elevated aesthetic, visually striking and on-trend for 2026 social media, tightly grounded in and relevant to the specific style/vibe described above, no generic or unrelated filler patterns",
+            "size": "1088x1360",
+            "quality": "low",
+            "n": 1
+          }
+        }
+      ]
+    },
+    {
+      "index": 5,
+      "role": "body",
+      "headline": "Final touches that define the lounge",
+      "points": [
+        "Custom furniture crafted to brand palette",
+        "Acoustic panels installed for quiet work",
+        "Smart lighting programmed for mood and productivity"
+      ],
+      "imageFile": "slide-05.png",
+      "latencyMs": 16027,
+      "costUsd": 0.007495,
+      "provider": "openai",
+      "attempts": [
+        {
+          "attemptNumber": 1,
+          "provider": "openai",
+          "promptVariant": "primary",
+          "success": true,
+          "failureReason": null,
+          "errorMessage": null,
+          "costUsd": 0.007495
+        }
+      ],
+      "imageRequests": [
+        {
+          "stage": "slide_5",
+          "url": "https://api.openai.com/v1/images/generations",
+          "model": "gpt-image-2",
+          "status": 200,
+          "latencyMs": 10814,
+          "request": {
+            "prompt": "A polished walnut modular desk with a smooth matte finish, paired with two compact chrome drawer units featuring brushed stainless handles, sits centrally on a muted charcoal rug; beside it a sleek black metal swivel chair with ergonomic backrest and a thin brass footrest completes the arrangement. The scene is set in a contemporary Delhi office space with floor‑to‑ceiling glass walls revealing a faint city skyline, a tall fiddle‑leaf fig in a white ceramic pot, and a minimalist steel bookshelf holding a few architectural volumes. Soft, diffused daylight streams through a skylight, casting a warm glow that highlights the wood grain while subtle ambient LEDs add a cool edge. The composition frames the desk and chair in the left two‑thirds of the image, leaving a calm, uncluttered negative space on the right for a headline. Photorealistic studio lighting style with shallow depth of field captures the refined textures, and the image contains no text, logos, watermarks, or distorted hands., minimalist abstract background, soft subtle gradient, generous negative space, gentle geometric shapes, understated texture, color palette inspired by a near-white neutral and a near-white neutral and a neutral gray, evokes the mood of a Interior design & custom furniture brand, no text, no words, no letters, no numbers, no logos anywhere in the image, no rendered slogans, taglines, or typography of any kind, however short, no literal photos of people, products, or objects — purely abstract shapes, gradients, and textures, leave calm, uncluttered negative space so text stays readable when overlaid on top, keep the composition's key visual interest centered in the frame — avoid placing it in the outer ~10% margin on any side, no watermarks, no illegible text or symbols, clean ultra-high-resolution 8K quality render, sharp focus, modern and elevated aesthetic, visually striking and on-trend for 2026 social media, tightly grounded in and relevant to the specific style/vibe described above, no generic or unrelated filler patterns",
+            "size": "1088x1360",
+            "quality": "low",
+            "n": 1
+          }
+        }
+      ]
+    },
+    {
+      "index": 6,
+      "role": "cta",
+      "headline": "Ready for a bespoke office lounge",
+      "points": [],
+      "imageFile": "slide-06.png",
+      "latencyMs": 14002,
+      "costUsd": 0.007565,
+      "provider": "openai",
+      "attempts": [
+        {
+          "attemptNumber": 1,
+          "provider": "openai",
+          "promptVariant": "primary",
+          "success": true,
+          "failureReason": null,
+          "errorMessage": null,
+          "costUsd": 0.007565
+        }
+      ],
+      "imageRequests": [
+        {
+          "stage": "slide_6",
+          "url": "https://api.openai.com/v1/images/generations",
+          "model": "gpt-image-2",
+          "status": 200,
+          "latencyMs": 11810,
+          "request": {
+            "prompt": "A polished walnut modular desk with a smooth matte finish, paired with two compact chrome drawer units featuring brushed stainless handles, sits centrally on a muted charcoal rug; beside it a sleek black metal swivel chair with ergonomic backrest and a thin brass footrest completes the arrangement. The scene is set in a contemporary Delhi office space with floor‑to‑ceiling glass walls revealing a faint city skyline, a tall fiddle‑leaf fig in a white ceramic pot, and a minimalist steel bookshelf holding a few architectural volumes. Soft, diffused daylight streams through a skylight, casting a warm glow that highlights the wood grain while subtle ambient LEDs add a cool edge. The composition frames the desk and chair in the left two‑thirds of the image, leaving a calm, uncluttered negative space on the right for a headline. Photorealistic studio lighting style with shallow depth of field captures the refined textures, and the image contains no text, logos, watermarks, or distorted hands., minimalist abstract background, soft subtle gradient, generous negative space, gentle geometric shapes, understated texture, color palette inspired by a near-white neutral and a near-white neutral and a neutral gray, evokes the mood of a Interior design & custom furniture brand, evokes a warm, inviting, confident closing/call-to-action mood, no text, no words, no letters, no numbers, no logos anywhere in the image, no rendered slogans, taglines, or typography of any kind, however short, no literal photos of people, products, or objects — purely abstract shapes, gradients, and textures, leave calm, uncluttered negative space so text stays readable when overlaid on top, keep the composition's key visual interest centered in the frame — avoid placing it in the outer ~10% margin on any side, no watermarks, no illegible text or symbols, clean ultra-high-resolution 8K quality render, sharp focus, modern and elevated aesthetic, visually striking and on-trend for 2026 social media, tightly grounded in and relevant to the specific style/vibe described above, no generic or unrelated filler patterns",
+            "size": "1088x1360",
+            "quality": "low",
+            "n": 1
+          }
+        }
+      ]
+    }
+  ],
+  "cost": {
+    "carouselCopy": {
+      "usage": {
+        "prompt_tokens": 2470,
+        "completion_tokens": 1820,
+        "total_tokens": 4290,
+        "cached_tokens": 0
+      },
+      "costUsd": 0.001463,
+      "latencyMs": 4605
+    },
+    "imagePrompt": {
+      "usage": null,
+      "costUsd": null,
+      "latencyMs": 1174,
+      "note": "streamed without usage reporting -- not priced"
+    },
+    "images": {
+      "costUsd": 0.04504
+    },
+    "totalUsd": 0.046503
+  },
+  "errors": []
+}
