@@ -22,6 +22,7 @@ import type { BrandRow, ProductRow, CalendarEntryRow, Json, Database } from "@/t
 import type { ContentSlot, FastlaneResult, Platform, ReelScene, UserPlan } from "@/types/app"
 import { prepareGeneratedImage } from "@/lib/storage/generated-image"
 import { getActiveLessons } from "@/lib/ai/brand-brain"
+import { recordContentEvent } from "@/lib/usage/content-events"
 
 // Background Autopilot worker (supabase/migrations/057_autopilot_slot_jobs.sql).
 // A Supabase Cron job calls app/api/v1/cron/autopilot-drain every 20s while
@@ -448,6 +449,16 @@ async function persistSlot(admin: Admin, job: SlotJobRow, ctx: RunContext, p: Pr
     }).select("id").single() as { data: { id: string } | null; error: { message: string } | null }
     if (entryError || !entry) throw new Error(`Calendar insert failed: ${entryError?.message ?? "no row"}`)
     written.entryId = entry.id
+
+    // Autopilot generated these rows and put them on the calendar in one go.
+    const source = { userId: job.user_id, brandId, meta: { source: "autopilot", model: MODELS.creative } }
+    recordContentEvent(admin, [
+      ...(written.hookId ? [{ ...source, contentType: "hook" as const, contentId: written.hookId, event: "generated" as const }] : []),
+      ...(written.captionId ? [{ ...source, contentType: "caption" as const, contentId: written.captionId, event: "generated" as const }] : []),
+      ...(written.carouselId ? [{ ...source, contentType: "carousel" as const, contentId: written.carouselId, event: "generated" as const }] : []),
+      ...(written.captionId ? [{ ...source, contentType: "caption" as const, contentId: written.captionId, event: "scheduled" as const, meta: { source: "autopilot", entry_status: "content_ready" } }] : []),
+      ...(written.carouselId ? [{ ...source, contentType: "carousel" as const, contentId: written.carouselId, event: "scheduled" as const, meta: { source: "autopilot", entry_status: "content_ready" } }] : []),
+    ])
 
     await db("autopilot_slot_jobs").update({ calendar_entry_id: entry.id, updated_at: new Date().toISOString() }).eq("id", job.id)
 

@@ -17,6 +17,7 @@ import { timedGenerationRoute, type GenerationTimer } from "@/lib/utils/generati
 import { withDeadline, DeadlineExceededError, GENERATION_TIMED_OUT_MESSAGE } from "@/lib/utils/with-deadline"
 import { prepareGeneratedImage } from "@/lib/storage/generated-image"
 import { getActiveLessons } from "@/lib/ai/brand-brain"
+import { recordContentEvent } from "@/lib/usage/content-events"
 
 const BUCKET = "brand-images"
 
@@ -269,6 +270,13 @@ async function handlePost(request: Request, { params }: RouteParams, timer: Gene
     provider: u.provider,
     variant: u.variant,
   }))
+
+  // No content row exists for Ad Maker, so no id -- and "Generate again"
+  // hits this same route, so it can't be told apart from a first run.
+  recordContentEvent(supabase, {
+    userId: user.id, brandId, contentType: "ad_maker", contentId: null, event: "generated",
+    meta: { model: strategy ? `${provider}+${strategy.model}` : provider, cost_usd: sumCostUsd(strategy?.costUsd, ...results.map((r) => attemptsCostUsd(r.attempts))), variations: variations.length, strategy: !!strategy },
+  })
 
   return NextResponse.json({ data: { variations, ad_brief: strategy?.brief ?? null } }, { status: 200 })
 }

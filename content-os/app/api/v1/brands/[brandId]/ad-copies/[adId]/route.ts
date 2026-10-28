@@ -4,6 +4,7 @@ import { buildError, ErrorCodes } from "@/types/api"
 import { z } from "zod"
 import type { AdCopyRow } from "@/types/database"
 import { recordLowRatingNote } from "@/lib/ai/feedback-note"
+import { recordContentEvent, savedAndRatedEvents } from "@/lib/usage/content-events"
 
 type Params = { params: Promise<{ brandId: string; adId: string }> }
 
@@ -70,6 +71,8 @@ export async function PUT(request: Request, { params }: Params) {
       console.error("[brands/ad-copies/:id] update error:", error)
       return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Update failed."), { status: 500 })
     }
+    // Content events (lib/usage/content-events.ts): saved / rated / edited.
+    recordContentEvent(supabase, savedAndRatedEvents({ userId: user.id, brandId, contentType: "ad_copy", contentId: adId }, update))
     // The "why" behind a 1-2 star rating, distilled into the brand's
     // lessons -- same flow as the captions/hooks rating routes. Fail-soft.
     await recordLowRatingNote({

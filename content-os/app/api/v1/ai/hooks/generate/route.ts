@@ -10,6 +10,7 @@ import { HOOK_OR_CAPTION } from "@/lib/usage/credit-costs"
 const FEATURE = "hooks"
 import type { BrandRow, ProductRow } from "@/types/database"
 import { getActiveLessons } from "@/lib/ai/brand-brain"
+import { recordContentEvent } from "@/lib/usage/content-events"
 
 export async function POST(request: Request) {
   console.log("[ai/hooks/generate] POST called")
@@ -98,6 +99,12 @@ export async function POST(request: Request) {
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data: savedHooks } = await (supabase.from("hooks") as any).insert(hookInserts).select()
+  const hookRows = (savedHooks ?? []) as { id: string }[]
+  // One call made every hook -- its cost is split evenly across them.
+  recordContentEvent(supabase, hookRows.map((h) => ({
+    userId: user.id, brandId, contentType: "hook" as const, contentId: h.id, event: "generated" as const,
+    meta: { model: result.model, cost_usd: result.costUsd != null && hookRows.length ? result.costUsd / hookRows.length : null },
+  })))
 
   // Log success
   await logGenerationOutcome(supabase, logId, {

@@ -12,6 +12,7 @@ import { fetchPastExamples } from "@/lib/ai/past-examples"
 import type { BrandRow, ProductRow } from "@/types/database"
 import type { GeneratedCaption, ReelScript, CarouselContent, AdCopy, ContentFormat } from "@/types/app"
 import { getActiveLessons, LESSON_SCOPE_FOR_FORMAT } from "@/lib/ai/brand-brain"
+import { recordContentEvent, type ContentEventType } from "@/lib/usage/content-events"
 
 /**
  * "How this compares to what's worked before" — a rough, honest keyword
@@ -113,17 +114,20 @@ export async function POST(request: Request) {
 
   // Persist each format to its own table
   let reelScriptId: string | null = null
+  // The row this generation saved, for its "generated" content event.
+  let eventContent: { type: ContentEventType; id: string | null } | null = null
   try {
     if (format === "social_post") {
       const caption = result.data as GeneratedCaption
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      await (supabase.from("captions") as any).insert({
+      const { data: row } = await (supabase.from("captions") as any).insert({
         brand_id: brandId, product_id: productId ?? null,
         caption_text: caption.caption_text, hashtags: caption.hashtags,
         cta: caption.cta, character_count: caption.character_count,
         platform: platform ?? "instagram", model_used: result.model,
         is_saved: true,
-      })
+      }).select("id").single() as { data: { id: string } | null }
+      eventContent = { type: "caption", id: row?.id ?? null }
     } else if (format === "reel_script") {
       const script = result.data as ReelScript
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -137,24 +141,29 @@ export async function POST(request: Request) {
     } else if (format === "carousel") {
       const carousel = result.data as CarouselContent
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      await (supabase.from("carousels") as any).insert({
+      const { data: row } = await (supabase.from("carousels") as any).insert({
         brand_id: brandId, product_id: productId ?? null,
         platform: platform ?? null,
         slides: carousel.slides, hashtags: carousel.hashtags ?? [],
         is_saved: true,
-      })
+      }).select("id").single() as { data: { id: string } | null }
+      eventContent = { type: "carousel", id: row?.id ?? null }
     } else if (format === "ad_copy") {
       const ad = result.data as AdCopy
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      await (supabase.from("ad_copies") as any).insert({
+      const { data: row } = await (supabase.from("ad_copies") as any).insert({
         brand_id: brandId, product_id: productId ?? null,
         platform: platform ?? null, headline: ad.headline,
         primary_text: ad.primary_text, description: ad.description ?? null,
         cta_button: ad.cta_button ?? null, is_saved: true,
-      })
+      }).select("id").single() as { data: { id: string } | null }
+      eventContent = { type: "ad_copy", id: row?.id ?? null }
     }
   } catch (persistErr) {
     console.error("[ai/content/generate] persist failed (non-fatal):", persistErr)
+  }
+  if (eventContent) {
+    recordContentEvent(supabase, { userId: user.id, brandId, contentType: eventContent.type, contentId: eventContent.id, event: "generated", meta: { model: result.model, cost_usd: result.costUsd } })
   }
 
   await logGenerationOutcome(supabase, logId, {

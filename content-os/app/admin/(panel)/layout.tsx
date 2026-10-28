@@ -37,6 +37,9 @@ export default async function AdminPanelLayout({
             <Link href="/admin/users" className="text-sm text-muted-foreground transition-colors hover:text-foreground">
               Users
             </Link>
+            <Link href="/admin/metrics" className="text-sm text-muted-foreground transition-colors hover:text-foreground">
+              Metrics
+            </Link>
           </nav>
         </div>
         <div className="flex items-center gap-3">

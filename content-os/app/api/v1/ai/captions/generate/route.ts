@@ -13,6 +13,7 @@ import { resolveCaptionEngagementRatings } from "@/lib/ai/engagement-ratings"
 import { getRecurringFeedbackNotes } from "@/lib/ai/feedback-notes"
 import type { BrandRow, ProductRow } from "@/types/database"
 import { getActiveLessons } from "@/lib/ai/brand-brain"
+import { recordContentEvent } from "@/lib/usage/content-events"
 
 export async function POST(request: Request) {
   console.log("[ai/captions/generate] POST called")
@@ -118,6 +119,7 @@ export async function POST(request: Request) {
     model_used: result.model,
     is_saved: true,
   }).select().single()
+  recordContentEvent(supabase, { userId: user.id, brandId, contentType: "caption", contentId: savedCaption?.id ?? null, event: "generated", meta: { model: result.model, cost_usd: result.costUsd } })
 
   await logGenerationOutcome(supabase, logId, {
     user_id: user.id, brand_id: brandId, feature: FEATURE, model: result.model,

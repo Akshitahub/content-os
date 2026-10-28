@@ -5,6 +5,7 @@ import { z } from "zod"
 import type { CarouselRow } from "@/types/database"
 import { extractStoragePath } from "@/lib/storage/extract-storage-path"
 import { recordLowRatingNote } from "@/lib/ai/feedback-note"
+import { changedFieldNames, recordContentEvent, savedAndRatedEvents } from "@/lib/usage/content-events"
 
 const MEDIA_BUCKET = "published-media"
 
@@ -70,6 +71,10 @@ export async function PUT(request: Request, { params }: Params) {
   }
 
   const { note, ...update } = parsed.data
+  // Previous slides, only when this PUT saves them -- to tell a real user
+  // edit from the app writing background images back (not an edit).
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const before = update.slides ? (await (supabase.from("carousels") as any).select("slides").eq("id", carouselId).eq("brand_id", brandId).maybeSingle()).data as { slides: unknown } | null : null
 
   try {
     // Any successful PUT (rating, save/unsave, or a bare touch call) is
@@ -86,6 +91,12 @@ export async function PUT(request: Request, { params }: Params) {
       console.error("[brands/carousels/:id] update error:", error)
       return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Update failed."), { status: 500 })
     }
+    // Content events (lib/usage/content-events.ts): saved / rated / edited.
+    const editedFields = update.slides ? changedFieldNames(before?.slides, update.slides, new Set(["image_url", "background_image_provider"])) : []
+    recordContentEvent(supabase, [
+      ...savedAndRatedEvents({ userId: user.id, brandId, contentType: "carousel", contentId: carouselId }, update),
+      ...(editedFields.length ? [{ userId: user.id, brandId, contentType: "carousel" as const, contentId: carouselId, event: "edited" as const, meta: { fields: editedFields } }] : []),
+    ])
     // The "why" behind a 1-2 star rating, distilled into the brand's
     // lessons -- same flow as the captions/hooks rating routes. Fail-soft.
     await recordLowRatingNote({

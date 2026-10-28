@@ -1120,6 +1120,30 @@ export type Database = {
           last_accessed_at?: string
         }
       }
+      // supabase/migrations/061_content_events.sql -- see lib/usage/content-events.ts.
+      content_events: {
+        Row: {
+          id: string
+          user_id: string | null
+          brand_id: string
+          content_type: string
+          content_id: string | null
+          event: string
+          meta: Json
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          user_id?: string | null
+          brand_id: string
+          content_type: string
+          content_id?: string | null
+          event: string
+          meta?: Json
+          created_at?: string
+        }
+        Update: never
+      }
       post_image_generation_sessions: {
         Row: {
           id: string

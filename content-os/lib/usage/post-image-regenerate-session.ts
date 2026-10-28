@@ -37,7 +37,7 @@ export async function createPostImageSession(userId: string): Promise<{ sessionI
 }
 
 export type SessionChargeResult =
-  | { ok: true; shouldCharge: boolean }
+  | { ok: true; shouldCharge: boolean; attempt: number }
   | { ok: false }
 
 /**
@@ -76,5 +76,6 @@ export async function checkAndIncrementPostImageSession(userId: string, sessionI
     .update({ image_generation_count: count + 1 })
     .eq("id", sessionId)
 
-  return { ok: true, shouldCharge }
+  // attempt: 1 for the session's first image, 2+ for regenerates (content events).
+  return { ok: true, shouldCharge, attempt: count + 1 }
 }

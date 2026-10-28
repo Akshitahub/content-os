@@ -4,6 +4,7 @@ import { buildError, ErrorCodes } from "@/types/api"
 import type { CaptionRow } from "@/types/database"
 import { z } from "zod"
 import { distillLesson } from "@/lib/ai/brand-brain"
+import { recordContentEvent, savedAndRatedEvents } from "@/lib/usage/content-events"
 
 type RouteParams = { params: Promise<{ brandId: string; captionId: string }> }
 
@@ -104,6 +105,8 @@ export async function PUT(request: Request, { params }: RouteParams) {
         after(() => distillLesson(supabase, lessonInput))
       }
     }
+
+    recordContentEvent(supabase, savedAndRatedEvents({ userId: user.id, brandId, contentType: "caption", contentId: captionId }, captionUpdate))
 
     return NextResponse.json({ data: updated })
   } catch (err) {

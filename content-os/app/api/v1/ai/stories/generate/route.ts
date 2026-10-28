@@ -13,6 +13,7 @@ import type { VisualBrief } from "@/lib/ai/visual-brief"
 import { timedGenerationRoute, type GenerationTimer } from "@/lib/utils/generation-timing"
 import { withDeadline, DeadlineExceededError, GENERATION_TIMED_OUT_MESSAGE } from "@/lib/utils/with-deadline"
 import { getActiveLessons } from "@/lib/ai/brand-brain"
+import { recordContentEvent } from "@/lib/usage/content-events"
 
 const schema = z.object({
   brandId: z.string().uuid(),
@@ -371,6 +372,7 @@ async function handlePost(request: Request, timer: GenerationTimer) {
     } catch (persistErr) {
       console.error("[ai/stories/generate] persist failed (non-fatal):", persistErr)
     }
+    recordContentEvent(supabase, { userId: user.id, brandId, contentType: "story", contentId: storyRowId, event: "generated", meta: { model: gen.model, cost_usd: gen.costUsd } })
 
     await recordOutcome(true)
     return NextResponse.json({ data: { ...d, id: storyRowId } }, { status: 200 })

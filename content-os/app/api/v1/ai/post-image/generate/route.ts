@@ -14,6 +14,7 @@ import type { UserPlan } from "@/types/app"
 import { timedGenerationRoute, type GenerationTimer } from "@/lib/utils/generation-timing"
 import { prepareGeneratedImage } from "@/lib/storage/generated-image"
 import { sanitizeVisualBrief } from "@/lib/ai/visual-brief"
+import { recordContentEvent } from "@/lib/usage/content-events"
 
 const BUCKET = "brand-images"
 const FEATURE = "post_image"
@@ -308,6 +309,14 @@ async function handlePost(request: Request, timer: GenerationTimer) {
     cost_usd: attemptsCostUsd(result.attempts),
     latency_ms: latencyMs, success: true,
     ...(contentProjectId ? { content_project_id: contentProjectId } : {}),
+  })
+
+  // A later image in the same regenerate session is a regenerate of this post.
+  const attempt = sessionCheck.ok ? sessionCheck.attempt : 1
+  recordContentEvent(supabase, {
+    userId: user.id, brandId, contentType: "post_image", contentId: contentProjectId ?? savedImage?.id ?? null,
+    event: attempt > 1 ? "regenerated" : "generated",
+    meta: { model: modelLabel, cost_usd: attemptsCostUsd(result.attempts), part: "post image" },
   })
 
   return NextResponse.json({

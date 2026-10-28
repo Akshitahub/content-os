@@ -5,6 +5,7 @@ import { z } from "zod"
 import type { StoryRow } from "@/types/database"
 import { extractStoragePath } from "@/lib/storage/extract-storage-path"
 import { recordLowRatingNote } from "@/lib/ai/feedback-note"
+import { changedFieldNames, recordContentEvent, savedAndRatedEvents } from "@/lib/usage/content-events"
 
 const MEDIA_BUCKET = "published-media"
 
@@ -70,6 +71,10 @@ export async function PUT(request: Request, { params }: Params) {
   }
 
   const { note, ...update } = parsed.data
+  // Previous stories, only when this PUT saves them -- to tell a real user
+  // edit from the app writing background images back (not an edit).
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const before = update.stories ? (await (supabase.from("stories") as any).select("stories").eq("id", storyId).eq("brand_id", brandId).maybeSingle()).data as { stories: unknown } | null : null
 
   try {
     // Any successful PUT (rating, save/unsave, or a bare touch call) is
@@ -86,6 +91,12 @@ export async function PUT(request: Request, { params }: Params) {
       console.error("[brands/stories/:id] update error:", error)
       return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Update failed."), { status: 500 })
     }
+    // Content events (lib/usage/content-events.ts): saved / rated / edited.
+    const editedFields = update.stories ? changedFieldNames(before?.stories, update.stories, new Set(["background_image_url", "background_image_provider"])) : []
+    recordContentEvent(supabase, [
+      ...savedAndRatedEvents({ userId: user.id, brandId, contentType: "story", contentId: storyId }, update),
+      ...(editedFields.length ? [{ userId: user.id, brandId, contentType: "story" as const, contentId: storyId, event: "edited" as const, meta: { fields: editedFields } }] : []),
+    ])
     // The "why" behind a 1-2 star rating, distilled into the brand's
     // lessons -- same flow as the captions/hooks rating routes. Fail-soft.
     await recordLowRatingNote({

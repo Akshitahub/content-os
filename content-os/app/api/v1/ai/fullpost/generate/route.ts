@@ -18,6 +18,7 @@ import type { BrandRow, ProductRow } from "@/types/database"
 import type { GeneratedCaption, ReelScript, CarouselContent, AdCopy } from "@/types/app"
 import { timedGenerationRoute, type GenerationTimer } from "@/lib/utils/generation-timing"
 import { getActiveLessons, LESSON_SCOPE_FOR_FORMAT } from "@/lib/ai/brand-brain"
+import { recordContentEvent, type ContentEventType } from "@/lib/usage/content-events"
 
 // Mirrors components/generate/FullPostGenerator.tsx's former client-side
 // ANGLE_HINT map verbatim -- moved server-side so the angle is a real,
@@ -269,7 +270,7 @@ async function handlePost(request: Request, timer: GenerationTimer) {
     // why: the confirmed failure mode is structural, and retrying a
     // structurally-doomed insert would just fail identically again.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { error: hookInsertError } = await (supabase.from("hooks") as any).insert({
+    const { data: hookRow, error: hookInsertError } = await (supabase.from("hooks") as any).insert({
       brand_id: brandId,
       product_id: productId ?? null,
       hook_text: hook.hook_text,
@@ -277,7 +278,7 @@ async function handlePost(request: Request, timer: GenerationTimer) {
       generation_prompt: `fullpost platform:${platform ?? "any"}`,
       model_used: hookResult.model,
       is_saved: true,
-    })
+    }).select("id").single()
     if (hookInsertError) throw new Error(`Failed to save hook: ${hookInsertError.message}`)
 
     // Persist content to its table. Same explicit-error-check reasoning as
@@ -300,49 +301,61 @@ async function handlePost(request: Request, timer: GenerationTimer) {
     // real error response, so the client is never told a post succeeded
     // when its core content record didn't save.
     let contentInsertError: { message: string } | null = null
+    let contentRowId: string | null = null
     if (format === "social_post") {
       const caption = contentResult.data as GeneratedCaption
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { error } = await (supabase.from("captions") as any).insert({
+      const { data: row, error } = await (supabase.from("captions") as any).insert({
         brand_id: brandId,
         content_project_id: contentProjectId,
         caption_text: caption.caption_text, hashtags: caption.hashtags,
         cta: caption.cta, character_count: caption.character_count,
         platform: platform ?? "instagram", model_used: contentResult.model,
         is_saved: true,
-      })
+      }).select("id").single()
       contentInsertError = error
+      contentRowId = row?.id ?? null
     } else if (format === "reel_script") {
       const script = contentResult.data as ReelScript
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { error } = await (supabase.from("reel_scripts") as any).insert({
+      const { data: row, error } = await (supabase.from("reel_scripts") as any).insert({
         brand_id: brandId, product_id: productId ?? null,
         platform: platform ?? null, hook: script.hook,
         scenes: script.scenes, caption: script.caption ?? null,
         hashtags: script.hashtags ?? [], is_saved: true,
-      })
+      }).select("id").single()
       contentInsertError = error
+      contentRowId = row?.id ?? null
     } else if (format === "carousel") {
       const carousel = contentResult.data as CarouselContent
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { error } = await (supabase.from("carousels") as any).insert({
+      const { data: row, error } = await (supabase.from("carousels") as any).insert({
         brand_id: brandId, product_id: productId ?? null,
         platform: platform ?? null, slides: carousel.slides,
         hashtags: carousel.hashtags ?? [], is_saved: true,
-      })
+      }).select("id").single()
       contentInsertError = error
+      contentRowId = row?.id ?? null
     } else if (format === "ad_copy") {
       const ad = contentResult.data as AdCopy
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { error } = await (supabase.from("ad_copies") as any).insert({
+      const { data: row, error } = await (supabase.from("ad_copies") as any).insert({
         brand_id: brandId, product_id: productId ?? null,
         platform: platform ?? null, headline: ad.headline,
         primary_text: ad.primary_text, description: ad.description ?? null,
         cta_button: ad.cta_button ?? null, is_saved: true,
-      })
+      }).select("id").single()
       contentInsertError = error
+      contentRowId = row?.id ?? null
     }
     if (contentInsertError) throw new Error(`Failed to save ${format} content: ${contentInsertError.message}`)
+
+    // "generated" content events for the hook and the format's own row.
+    const contentEventType = ({ social_post: "caption", carousel: "carousel", ad_copy: "ad_copy" } as Record<string, ContentEventType | undefined>)[format]
+    recordContentEvent(supabase, [
+      { userId: user.id, brandId, contentType: "hook", contentId: hookRow?.id ?? null, event: "generated", meta: { model: hookResult.model, cost_usd: hookResult.costUsd } },
+      ...(contentEventType ? [{ userId: user.id, brandId, contentType: contentEventType, contentId: contentRowId, event: "generated" as const, meta: { model: contentResult.model, cost_usd: contentResult.costUsd } }] : []),
+    ])
 
     // Pure logging — deferred via after() so it runs once the response has
     // been sent instead of adding its own latency to it. Plain

@@ -4,6 +4,7 @@ import { buildError, ErrorCodes } from "@/types/api"
 import type { HookRow } from "@/types/database"
 import { z } from "zod"
 import { distillLesson } from "@/lib/ai/brand-brain"
+import { recordContentEvent, savedAndRatedEvents } from "@/lib/usage/content-events"
 
 type RouteParams = { params: Promise<{ brandId: string; hookId: string }> }
 
@@ -102,6 +103,8 @@ export async function PUT(request: Request, { params }: RouteParams) {
         after(() => distillLesson(supabase, lessonInput))
       }
     }
+
+    recordContentEvent(supabase, savedAndRatedEvents({ userId: user.id, brandId, contentType: "hook", contentId: hookId }, hookUpdate))
 
     return NextResponse.json({ data: updated })
   } catch (err) {
