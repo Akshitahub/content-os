@@ -219,6 +219,7 @@ async function main(): Promise<void> {
   // Learned brand lessons, fetched the way the routes fetch them (fail-soft --
   // [] if brand_lessons isn't there yet). "image" lessons go to the prompt writer.
   const { getActiveLessons, imageLessonRules } = await import("@/lib/ai/brand-brain")
+  const { brandBrainImageConstraints, parseBrandBrain } = await import("@/lib/brand-brain-profile")
   const adLessons = await getActiveLessons(supabase, brand.id, "ad_copy")
   const imageLessons = imageLessonRules(await getActiveLessons(supabase, brand.id, "image"))
   console.log(`Brand: ${brand.name} · product ${product.name} · owner plan ${plan}${isUnlimited ? " (internal unlimited)" : ""}`)
@@ -236,7 +237,7 @@ async function main(): Promise<void> {
       isRewrite: false,
       brand: { name: brand.name, niche: brand.niche, target_audience: brand.target_audience, tone_of_voice: brand.tone_of_voice, vibe: brand.vibe },
       product: null,
-      constraints: { styleLabel: SCENE_NAMES[scene], aspectRatioLabel: format, hasProductReference: true, lessons: imageLessons },
+      constraints: { styleLabel: SCENE_NAMES[scene], aspectRatioLabel: format, hasProductReference: true, lessons: imageLessons, ...brandBrainImageConstraints(parseBrandBrain(brand.brand_brain)) },
     })
     for await (const chunk of stream) adPrompt += chunk.choices[0]?.delta?.content ?? ""
   } catch (err) {

@@ -89,6 +89,13 @@ export interface ExtractedBrandData {
   content_pillars: string[]
   target_emotion: string
   vibe: string
+  /** Brand Brain facts (060) -- only what the page itself states; empty when it doesn't. */
+  differentiators: string[]
+  customer_problems: string[]
+  /** Specific factual claims stated on the page (the import route records the page URL as their source). */
+  verified_claims: string[]
+  phrases_to_use: string[]
+  photography_style: string
 }
 
 export async function extractBrandFromPage(page: FetchedPage): Promise<ExtractedBrandData> {
@@ -107,7 +114,8 @@ export async function extractBrandFromPage(page: FetchedPage): Promise<Extracted
     // reasoning tokens with no output guarantee. Bounded JSON extraction
     // doesn't need deep reasoning.
     reasoning_effort: "low",
-    max_tokens: 1000,
+    // Raised from 1000 for the Brand Brain fields below.
+    max_tokens: 1400,
     response_format: { type: "json_object" },
     messages: [
       {
@@ -128,7 +136,12 @@ export async function extractBrandFromPage(page: FetchedPage): Promise<Extracted
   "positioning": "one sentence on what makes this brand different from competitors or alternatives — its unique angle, not just what it sells, e.g. 'The only handmade option in a market of mass-produced jewellery' or 'Priced for students, quality of premium brands'. Infer from the page's own claims (comparisons, 'why us' sections, differentiators called out); empty string if nothing on the page actually supports a specific claim — don't invent one",
   "content_pillars": ["3-5 main topics this brand would post about based on their niche, e.g. 'Product features', 'Customer stories', 'Behind the scenes'"],
   "target_emotion": "the primary emotion this brand evokes in customers, e.g. 'Empowered', 'Joyful', 'Confident'",
-  "vibe": "one of: fun_playful | clean_minimal | bold_dramatic | warm_cozy | professional | trendy_genz — which best matches this brand's visual and content style"
+  "vibe": "one of: fun_playful | clean_minimal | bold_dramatic | warm_cozy | professional | trendy_genz — which best matches this brand's visual and content style",
+  "differentiators": ["up to 5 concrete ways this brand is different, as the page itself states them (e.g. 'Made to measure in 2 weeks'); empty array if the page states none — don't invent"],
+  "customer_problems": ["up to 5 customer problems the page says this brand solves; empty array if none are stated"],
+  "verified_claims": ["up to 5 specific factual claims stated on THIS page, worded as the page words them (e.g. '4.8 stars from 2,000 reviews', 'Handmade in Jaipur'); empty array if none — never a claim that isn't on the page"],
+  "phrases_to_use": ["up to 5 signature phrases or wording the brand actually uses on the page; empty array if none stand out"],
+  "photography_style": "the brand's own photography style as seen on the page (lighting, setting, framing, colours), e.g. 'Bright natural light, lifestyle shots in real homes'; empty string if the page gives nothing to judge it by"
 }`,
       },
       { role: "user", content: buildPageContext(page) },
@@ -168,6 +181,11 @@ export async function extractBrandFromPage(page: FetchedPage): Promise<Extracted
     content_pillars: Array.isArray(parsed.content_pillars) ? parsed.content_pillars.slice(0, 5) : [],
     target_emotion: parsed.target_emotion ?? "",
     vibe: parsed.vibe ?? "fun_playful",
+    differentiators: Array.isArray(parsed.differentiators) ? parsed.differentiators.slice(0, 5) : [],
+    customer_problems: Array.isArray(parsed.customer_problems) ? parsed.customer_problems.slice(0, 5) : [],
+    verified_claims: Array.isArray(parsed.verified_claims) ? parsed.verified_claims.slice(0, 5) : [],
+    phrases_to_use: Array.isArray(parsed.phrases_to_use) ? parsed.phrases_to_use.slice(0, 5) : [],
+    photography_style: parsed.photography_style ?? "",
   }
 }
 

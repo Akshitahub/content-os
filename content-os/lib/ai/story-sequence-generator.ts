@@ -6,6 +6,7 @@ import { buildFactSource, guardCopy } from "./fact-guard"
 import { addTextUsage, sumCostUsd, type TextUsage } from "./pricing"
 import { VISUAL_KINDS, sanitizeVisualBrief, type VisualBrief } from "./visual-brief"
 import { withLessons, type BrandLesson } from "./brand-brain"
+import { buildBrandBrainLines, parseBrandBrain } from "@/lib/brand-brain-profile"
 
 // Story-sequence prompt building + the model call, moved verbatim out of
 // app/api/v1/ai/stories/generate/route.ts during the Phase 1b Groq ->
@@ -210,6 +211,7 @@ function buildStoriesPrompt(brand: BrandRow, topic: string, storyCount: number, 
     brand.tone_of_voice ? `Tone: ${brand.tone_of_voice}` : null,
     brand.instagram_handle ? `Handle: @${brand.instagram_handle}` : null,
     vibe ? `Visual Vibe: ${vibe}` : null,
+    ...buildBrandBrainLines(parseBrandBrain(brand.brand_brain)),
   ].filter(Boolean).join("\n")
 
   const typeSequence = buildStoryTypeSequence(storyCount)

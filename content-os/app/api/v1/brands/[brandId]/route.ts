@@ -5,6 +5,7 @@ import { buildError, ErrorCodes } from "@/types/api"
 import type { BrandRow } from "@/types/database"
 import type { SupabaseClient } from "@supabase/supabase-js"
 import type { Database } from "@/types/database"
+import { isMissingBrandBrainColumn } from "@/lib/brand-brain-profile"
 
 type RouteParams = { params: Promise<{ brandId: string }> }
 
@@ -81,11 +82,22 @@ export async function PUT(request: Request, { params }: RouteParams) {
   }
 
   try {
-    const { data: updated, error } = await brandsTable(result.supabase!)
-      .update(parsed.data)
+    const runUpdate = (fields: Record<string, unknown>) => brandsTable(result.supabase!)
+      .update(fields)
       .eq("id", brandId)
       .select()
-      .single() as { data: BrandRow | null; error: { message: string } | null }
+      .single() as Promise<{ data: BrandRow | null; error: { code?: string; message: string } | null }>
+    let { data: updated, error } = await runUpdate(parsed.data)
+
+    // Migration 060 not run yet: save everything else, but say so plainly if
+    // the Brand Brain was all that was being saved.
+    if (isMissingBrandBrainColumn(error)) {
+      const { brand_brain: _brandBrain, ...rest } = parsed.data
+      if (Object.keys(rest).length === 0) {
+        return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Brand Brain isn't available yet -- database migration 060 hasn't been run."), { status: 503 })
+      }
+      ;({ data: updated, error } = await runUpdate(rest))
+    }
 
     if (error) {
       console.error(`[brands/${brandId}] PUT update error:`, error)

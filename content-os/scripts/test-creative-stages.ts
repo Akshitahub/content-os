@@ -60,6 +60,7 @@ const TEST_BRAND: BrandRow = {
   content_pillars: ["product", "educational", "behind_scenes"],
   target_emotion: null,
   positioning: "The affordable clean-beauty brand that actually works for Indian skin and climate",
+  brand_brain: {},
   vibe: "warm_cozy",
   onboarding_type: null,
   posting_frequency: null,

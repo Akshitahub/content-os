@@ -5,6 +5,7 @@ import { fetchPage, PageFetchError } from "@/lib/web/fetch-page"
 import { extractBrandFromPage, extractImagesFromPage, ExtractionError } from "@/lib/ai/url-extractor"
 import type { BrandRow } from "@/types/database"
 import { z } from "zod"
+import { isMissingBrandBrainColumn, parseBrandBrain } from "@/lib/brand-brain-profile"
 
 const importSchema = z.object({
   url: z.string().url("Enter a valid URL (include https://)"),
@@ -47,9 +48,19 @@ export async function POST(request: Request) {
       )
     }
 
+    // The Brand Brain parts the page itself states (060), normalized.
+    const brandBrain = parseBrandBrain({
+      facts: {
+        differentiators: extracted.differentiators,
+        customer_problems: extracted.customer_problems,
+        verified_claims: extracted.verified_claims.map((claim) => ({ claim, source_url: parsed.data.url })),
+      },
+      voice: { phrases_to_use: extracted.phrases_to_use },
+      visual: { photography_style: extracted.photography_style },
+    })
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data: brand, error: insertError } = await (supabase.from("brands") as any)
-      .insert({
+    const insertBrand = (row: Record<string, unknown>) => (supabase.from("brands") as any).insert(row).select().single() as Promise<{ data: BrandRow | null; error: { code?: string; message: string } | null }>
+    const brandRow = {
         user_id: user.id,
         name: extracted.name,
         description: extracted.description || null,
@@ -67,9 +78,14 @@ export async function POST(request: Request) {
         content_pillars: extracted.content_pillars ?? [],
         target_emotion: extracted.target_emotion || null,
         vibe: extracted.vibe || "fun_playful",
-      })
-      .select()
-      .single() as { data: BrandRow | null; error: { message: string } | null }
+      }
+    let { data: brand, error: insertError } = await insertBrand({ ...brandRow, brand_brain: brandBrain })
+    // Migration 060 not run yet -- save the brand without its Brand Brain
+    // rather than failing the whole import.
+    if (isMissingBrandBrainColumn(insertError)) {
+      console.error("[brands/import] brand_brain column missing (run migration 060) -- saving without it")
+      ;({ data: brand, error: insertError } = await insertBrand(brandRow))
+    }
 
     if (insertError) {
       console.error("[brands/import] insert error:", insertError)

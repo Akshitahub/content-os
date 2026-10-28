@@ -158,6 +158,8 @@ export type Database = {
           content_pillars: string[]
           target_emotion: string | null
           positioning: string | null
+          /** Structured Brand Brain profile (060_brand_brain_profile.sql) -- parse with lib/brand-brain-profile.ts. */
+          brand_brain: Json
           vibe: string | null
           onboarding_type: string | null
           posting_frequency: string | null
@@ -186,6 +188,7 @@ export type Database = {
           content_pillars?: string[]
           target_emotion?: string | null
           positioning?: string | null
+          brand_brain?: Json
           vibe?: string | null
           onboarding_type?: string | null
           posting_frequency?: string | null
@@ -212,6 +215,7 @@ export type Database = {
           content_pillars?: string[]
           target_emotion?: string | null
           positioning?: string | null
+          brand_brain?: Json
           vibe?: string | null
           onboarding_type?: string | null
           posting_frequency?: string | null

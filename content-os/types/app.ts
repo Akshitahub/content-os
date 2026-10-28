@@ -219,6 +219,31 @@ export type AdCopy = {
   angle?: AdAngle
 }
 
+/** Structured brand profile in brands.brand_brain (060) -- every field optional; parse with lib/brand-brain-profile.ts. */
+export type BrandBrain = {
+  facts?: {
+    differentiators?: string[]
+    customer_problems?: string[]
+    /** Claims the brand itself states, with the page they came from -- the fact guard treats their numbers as supported. */
+    verified_claims?: { claim: string; source_url: string }[]
+  }
+  voice?: {
+    phrases_to_use?: string[]
+    phrases_to_avoid?: string[]
+    claims_never_to_make?: string[]
+  }
+  visual?: {
+    photography_style?: string
+    avoid_visuals?: string[]
+  }
+  strategy?: {
+    audience_segments?: string[]
+    objections?: string[]
+    campaign_goal?: string
+    seasonal_context?: string
+  }
+}
+
 export type AdAngle = "pain_point" | "benefit" | "proof" | "demonstration" | "objection"
 
 /** Who an ad is for and the ONE thing it sells -- decided before any copy or image (lib/ai/ad-strategy.ts). */

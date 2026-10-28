@@ -4,6 +4,7 @@ import { buildError, ErrorCodes } from "@/types/api"
 import { z } from "zod"
 import type { StoryRow } from "@/types/database"
 import { extractStoragePath } from "@/lib/storage/extract-storage-path"
+import { recordLowRatingNote } from "@/lib/ai/feedback-note"
 
 const MEDIA_BUCKET = "published-media"
 
@@ -19,12 +20,21 @@ const storySlideSchema = z.record(z.string(), z.unknown())
 const updateSchema = z.object({
   user_rating: z.number().int().min(1).max(5).optional(),
   is_saved: z.boolean().optional(),
+  // Only meaningful alongside a 1-2 star user_rating -- see
+  // lib/ai/feedback-note.ts. Not a column, so it's split out before update().
+  note: z.string().max(1000).optional().nullable(),
   // Previously there was no way to ever persist slide background image
   // URLs back to this row at all -- StorySequence.tsx only ever held them
   // in local React state, so a "saved" story sequence in the Library
   // never actually had its images in the database to show.
   stories: z.array(storySlideSchema).optional(),
 })
+
+// The rated story's own words, for lesson distillation.
+function storyFeedbackText(row: StoryRow | null): string {
+  const frames = Array.isArray(row?.stories) ? (row!.stories as Record<string, unknown>[]) : []
+  return frames.map((s) => [s?.text, s?.subtext].filter((t) => typeof t === "string" && t).join(" -- ")).filter(Boolean).join("\n")
+}
 
 export async function PUT(request: Request, { params }: Params) {
   console.log("[brands/stories/:id] PUT called")
@@ -59,13 +69,15 @@ export async function PUT(request: Request, { params }: Params) {
     return NextResponse.json(buildError(ErrorCodes.UNAUTHORIZED, "Access denied."), { status: 403 })
   }
 
+  const { note, ...update } = parsed.data
+
   try {
     // Any successful PUT (rating, save/unsave, or a bare touch call) is
     // genuine engagement — stamp last_accessed_at so this doesn't look
     // abandoned to the cleanup cron.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { data, error } = await (supabase.from("stories") as any)
-      .update({ ...parsed.data, last_accessed_at: new Date().toISOString() })
+      .update({ ...update, last_accessed_at: new Date().toISOString() })
       .eq("id", storyId)
       .eq("brand_id", brandId)
       .select()
@@ -74,6 +86,12 @@ export async function PUT(request: Request, { params }: Params) {
       console.error("[brands/stories/:id] update error:", error)
       return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Update failed."), { status: 500 })
     }
+    // The "why" behind a 1-2 star rating, distilled into the brand's
+    // lessons -- same flow as the captions/hooks rating routes. Fail-soft.
+    await recordLowRatingNote({
+      supabase, brandId, contentType: "story", contentId: storyId, rating: update.user_rating,
+      note, contentText: storyFeedbackText(data), scope: "story", logPrefix: "[brands/stories/:id]",
+    })
     return NextResponse.json({ data })
   } catch (err) {
     console.error("[brands/stories/:id] error:", err)

@@ -7,6 +7,7 @@ import { sanitizeVisualBrief } from "@/lib/ai/visual-brief"
 import { visualBriefInputSchema } from "@/lib/validations/ai"
 import type { BrandRow, ProductRow } from "@/types/database"
 import { getActiveLessons, imageLessonRules } from "@/lib/ai/brand-brain"
+import { brandBrainImageConstraints, parseBrandBrain } from "@/lib/brand-brain-profile"
 
 const flowEnum = z.enum(["post", "story", "carousel", "ad_maker", "image_tool"])
 
@@ -102,6 +103,10 @@ export async function POST(request: Request) {
 
   // This brand's "image" lessons -- fetched here, never trusted from the client.
   const imageLessons = imageLessonRules(await getActiveLessons(supabase, brandId, "image"))
+  // Brand Brain visual direction (060). Its own fail-soft query, so a
+  // missing brand_brain column can't break the brand lookup above.
+  const { data: brainRow } = await supabase.from("brands").select("brand_brain").eq("id", brandId).maybeSingle() as { data: { brand_brain?: unknown } | null }
+  const brandVisual = brandBrainImageConstraints(parseBrandBrain(brainRow?.brand_brain))
 
   let modelStream: Awaited<ReturnType<typeof requestImagePromptStream>>
   try {
@@ -112,7 +117,7 @@ export async function POST(request: Request) {
       brand,
       product,
       // The client's brief is re-sanitized, never trusted as sent.
-      constraints: { ...constraints, visualBrief: sanitizeVisualBrief(constraints.visualBrief), lessons: imageLessons } as ImagePromptConstraints,
+      constraints: { ...constraints, visualBrief: sanitizeVisualBrief(constraints.visualBrief), lessons: imageLessons, ...brandVisual } as ImagePromptConstraints,
     })
   } catch (err) {
     // Logged as explicit fields (not just a bare `console.error(err)`) so

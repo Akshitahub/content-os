@@ -2,6 +2,7 @@ import type { BrandRow, ProductRow } from "@/types/database"
 import type { HookType, Platform } from "@/types/app"
 import { VISUAL_KINDS } from "./visual-brief"
 import { withLessons, type BrandLesson } from "./brand-brain"
+import { buildBrandBrainLines, parseBrandBrain } from "@/lib/brand-brain-profile"
 
 export const QUALITY_BAR = `
 
@@ -43,6 +44,8 @@ export function buildBrandContext(brand: BrandRow, product?: ProductRow | null):
   if (b.target_emotion) lines.push(`Target Emotion to Evoke: ${b.target_emotion}`)
   if (b.cta_phrase) lines.push(`CTA Phrase: ${b.cta_phrase}`)
   if (b.content_pillars?.length) lines.push(`Content Pillars: ${b.content_pillars.join(", ")}`)
+  // Structured Brand Brain profile (060) -- nothing added when it's empty.
+  lines.push(...buildBrandBrainLines(parseBrandBrain(brand.brand_brain)))
 
   if (product) {
     lines.push(`\nProduct being promoted: ${product.name}`)

@@ -1,4 +1,5 @@
 import { z } from "zod"
+import { brandBrainSchema } from "@/lib/brand-brain-profile"
 
 const brandBaseSchema = z.object({
   name: z.string().min(1, "Brand name is required").max(100).trim(),
@@ -15,6 +16,8 @@ const brandBaseSchema = z.object({
   posting_frequency: z.string().max(20).nullish(),
   target_platforms: z.array(z.string().max(30)).optional(),
   onboarding_type: z.string().max(50).nullish(),
+  // Structured Brand Brain profile (060) -- normalized by parseBrandBrain.
+  brand_brain: brandBrainSchema.optional(),
 })
 
 export const createBrandSchema = brandBaseSchema

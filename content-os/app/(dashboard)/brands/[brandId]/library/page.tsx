@@ -717,10 +717,10 @@ function CarouselCard({ carousel, brandId, onOpenDetail }: { carousel: CarouselR
     if (ok === false) setDownloadError("Couldn't create the PDF. Please try again.")
   }
   const ratingMutation = useMutation({
-    mutationFn: async (rating: number) => {
+    mutationFn: async ({ rating, note }: { rating: number; note?: string }) => {
       const res = await fetch(`/api/v1/brands/${brandId}/carousels/${carousel.id}`, {
         method: "PUT", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ user_rating: rating }),
+        body: JSON.stringify({ user_rating: rating, note }),
       })
       if (!res.ok) throw new Error("Failed to update rating")
     },
@@ -818,7 +818,7 @@ function CarouselCard({ carousel, brandId, onOpenDetail }: { carousel: CarouselR
               canSchedule
               onRequestDelete={() => setDeleteConfirming(true)}
               rating={carousel.user_rating}
-              onRatingChange={(r) => ratingMutation.mutate(r)}
+              onRatingChange={(r, note) => ratingMutation.mutate({ rating: r, note })}
               ratingPending={ratingMutation.isPending}
               onCopyPreviewLink={() => copyPreviewLink(brandId, "carousel", carousel.id)}
               copyPreviewLinkPending={copyLinkPending}
@@ -844,7 +844,7 @@ function CarouselCard({ carousel, brandId, onOpenDetail }: { carousel: CarouselR
           <p className="text-xs text-destructive" onClick={(e) => e.stopPropagation()}>{downloadError}</p>
         )}
         <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t" onClick={(e) => e.stopPropagation()}>
-          <StarRating value={carousel.user_rating} onChange={(r) => ratingMutation.mutate(r)} disabled={ratingMutation.isPending} />
+          <StarRating value={carousel.user_rating} onChange={(r, note) => ratingMutation.mutate({ rating: r, note })} disabled={ratingMutation.isPending} />
           <div className="flex items-center gap-1">
             <CopyButton
               text={slides.map((s, i) => [`Slide ${i + 1}`, s.headline, s.subtext, ...(s.points ?? [])].filter(Boolean).join("\n")).join("\n\n")}
@@ -899,10 +899,10 @@ function StoryCard({ story, brandId, onOpenDetail }: { story: StoryRow; brandId:
   const { copyPreviewLink, isPending: copyLinkPending, feedback: copyLinkFeedback } = useCopyPreviewLink()
   const slides = (story.stories as Json[] as StorySlideShape[]) ?? []
   const ratingMutation = useMutation({
-    mutationFn: async (rating: number) => {
+    mutationFn: async ({ rating, note }: { rating: number; note?: string }) => {
       const res = await fetch(`/api/v1/brands/${brandId}/stories/${story.id}`, {
         method: "PUT", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ user_rating: rating }),
+        body: JSON.stringify({ user_rating: rating, note }),
       })
       if (!res.ok) throw new Error("Failed to update rating")
     },
@@ -1005,7 +1005,7 @@ function StoryCard({ story, brandId, onOpenDetail }: { story: StoryRow; brandId:
               canSchedule
               onRequestDelete={() => setDeleteConfirming(true)}
               rating={story.user_rating}
-              onRatingChange={(r) => ratingMutation.mutate(r)}
+              onRatingChange={(r, note) => ratingMutation.mutate({ rating: r, note })}
               ratingPending={ratingMutation.isPending}
               onCopyPreviewLink={() => copyPreviewLink(brandId, "story", story.id)}
               copyPreviewLinkPending={copyLinkPending}
@@ -1022,7 +1022,7 @@ function StoryCard({ story, brandId, onOpenDetail }: { story: StoryRow; brandId:
           </p>
         )}
         <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t" onClick={(e) => e.stopPropagation()}>
-          <StarRating value={story.user_rating} onChange={(r) => ratingMutation.mutate(r)} disabled={ratingMutation.isPending} />
+          <StarRating value={story.user_rating} onChange={(r, note) => ratingMutation.mutate({ rating: r, note })} disabled={ratingMutation.isPending} />
           <div className="flex items-center gap-1">
             <CopyButton
               text={slides.map((s, i) => `Story ${i + 1} (${s.type ?? ""}):\n${s.text ?? ""}\n${s.subtext ?? ""}`).join("\n\n")}
@@ -1047,10 +1047,10 @@ function AdCopyCard({ ad, brandId, onOpenDetail }: { ad: AdCopyRow; brandId: str
   const qc = useQueryClient()
   const { copyPreviewLink, isPending: copyLinkPending, feedback: copyLinkFeedback } = useCopyPreviewLink()
   const ratingMutation = useMutation({
-    mutationFn: async (rating: number) => {
+    mutationFn: async ({ rating, note }: { rating: number; note?: string }) => {
       const res = await fetch(`/api/v1/brands/${brandId}/ad-copies/${ad.id}`, {
         method: "PUT", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ user_rating: rating }),
+        body: JSON.stringify({ user_rating: rating, note }),
       })
       if (!res.ok) throw new Error("Failed to update rating")
     },
@@ -1113,7 +1113,7 @@ function AdCopyCard({ ad, brandId, onOpenDetail }: { ad: AdCopyRow; brandId: str
               canSchedule={false}
               onRequestDelete={() => setDeleteConfirming(true)}
               rating={ad.user_rating}
-              onRatingChange={(r) => ratingMutation.mutate(r)}
+              onRatingChange={(r, note) => ratingMutation.mutate({ rating: r, note })}
               ratingPending={ratingMutation.isPending}
               onCopyPreviewLink={() => copyPreviewLink(brandId, "ad_copy", ad.id)}
               copyPreviewLinkPending={copyLinkPending}
@@ -1129,7 +1129,7 @@ function AdCopyCard({ ad, brandId, onOpenDetail }: { ad: AdCopyRow; brandId: str
           <span className="inline-flex items-center rounded-md bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">{ad.cta_button}</span>
         )}
         <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t" onClick={(e) => e.stopPropagation()}>
-          <StarRating value={ad.user_rating} onChange={(r) => ratingMutation.mutate(r)} disabled={ratingMutation.isPending} />
+          <StarRating value={ad.user_rating} onChange={(r, note) => ratingMutation.mutate({ rating: r, note })} disabled={ratingMutation.isPending} />
           <div className="flex items-center gap-1">
             <CopyButton text={fullText} touchUrl={`/api/v1/brands/${brandId}/ad-copies/${ad.id}`} />
             <DeleteConfirmButton

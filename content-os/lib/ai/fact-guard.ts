@@ -1,4 +1,5 @@
 import type { BrandRow, ProductRow } from "@/types/database"
+import { parseBrandBrain } from "@/lib/brand-brain-profile"
 
 // Backstop for QUALITY_BAR's "FACTS ONLY" rule (lib/ai/prompts.ts): finds
 // claim-bearing numbers in generated copy that don't appear anywhere in
@@ -139,6 +140,9 @@ export function buildFactSource(input: {
       b.ai_persona ?? "", b.cta_phrase ?? "", b.brand_personality ?? "", b.target_emotion ?? "",
       b.positioning ?? "", b.instagram_handle ?? "", b.website_url ?? "",
       ...(b.brand_values ?? []), ...(b.content_pillars ?? []),
+      // Brand Brain verified claims (060) are stated by the brand itself, so
+      // their numbers count as supported.
+      ...(parseBrandBrain(b.brand_brain).facts?.verified_claims ?? []).map((c) => c.claim),
     )
   }
   const p = input.product

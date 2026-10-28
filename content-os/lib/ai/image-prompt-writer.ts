@@ -66,6 +66,11 @@ export interface ImagePromptConstraints {
    * "Do: ..."), fetched server-side by the write route -- never sent by the
    * client. Soft direction only; every code-side guard still applies. */
   lessons?: string[]
+  /** Brand Brain visual direction (brands.brand_brain.visual, 060) --
+   * style direction and things never to show. Soft direction for the
+   * writer only; every code-side guard still applies. */
+  photographyStyle?: string
+  avoidVisuals?: string[]
 }
 
 export interface WriteImagePromptInput {
@@ -136,6 +141,8 @@ function buildConstraintsLine(constraints: ImagePromptConstraints): string {
   if (constraints.role === "cta") lines.push("This is the closing slide -- give it a warm, confident, closing mood.")
   if (constraints.hasProductReference) lines.push("A real product reference photo is attached separately -- describe only the scene/setting/lighting around it, not the product's own appearance.")
   if (constraints.allowTextInImage) lines.push("The user has explicitly allowed on-image text this time, but still only describe the scene -- do not write out literal words to render.")
+  if (constraints.photographyStyle) lines.push(`This brand's photography style: ${constraints.photographyStyle}`)
+  if (constraints.avoidVisuals?.length) lines.push(`Never show: ${constraints.avoidVisuals.join("; ")}`)
   if (constraints.lessons?.length) {
     lines.push(`Avoid/Do for this brand's images (learned from its own feedback): ${constraints.lessons.join("; ")}`)
   }

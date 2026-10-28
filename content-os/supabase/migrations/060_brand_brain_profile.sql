@@ -1,0 +1,16 @@
+-- MANUAL STEP REQUIRED: run this by hand in the Supabase SQL Editor -- no
+-- automated migration runner is wired up in this environment.
+--
+-- Structured "Brand Brain" profile on brands (lib/brand-brain-profile.ts's
+-- BrandBrain): facts (differentiators, customer problems, verified claims
+-- with their source URL), voice (phrases to use / avoid, claims never to
+-- make), visual (photography style, visuals to avoid) and strategy
+-- (audience segments, objections, campaign goal, seasonal context). Filled
+-- by website import (lib/ai/url-extractor.ts) and the Brand Brain section
+-- on the brand page; read by every prompt's brand context, the fact guard
+-- (verified claims) and the image-prompt writer (visual).
+--
+-- Until this runs, the app keeps working: brand import and brand updates
+-- retry without brand_brain when the column is missing, and every reader
+-- treats a missing value as an empty profile.
+ALTER TABLE public.brands ADD COLUMN IF NOT EXISTS brand_brain JSONB NOT NULL DEFAULT '{}'::jsonb;
