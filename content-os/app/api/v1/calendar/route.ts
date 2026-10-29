@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server"
 import { buildError, ErrorCodes } from "@/types/api"
 import type { CalendarEntryRow, Json } from "@/types/database"
 import { z } from "zod"
+import { scheduledEntryDueAt } from "@/lib/utils/ist"
 
 // lib/ai/fastlane.ts's own Autopilot insert stores a real generated AI
 // image directly on the entry it belongs to (platformData.image_url,
@@ -241,12 +242,31 @@ export async function PATCH(request: Request) {
     scheduled_time: z.string().nullable().optional(),
     // Drag-and-drop rescheduling in ContentCalendar.tsx's month view.
     scheduled_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    // Rescheduling a missed entry clears its old failure reason with null.
+    error_message: z.string().nullable().optional(),
   })
 
   const parsed = patchSchema.safeParse(body)
   if (!parsed.success) return NextResponse.json(buildError(ErrorCodes.VALIDATION_ERROR, "Validation failed.", parsed.error.message), { status: 400 })
 
-  const { id, ...updates } = parsed.data
+  const { id, ...fields } = parsed.data
+  const updates: Record<string, unknown> = { ...fields }
+
+  // (Re)scheduling: the publish cron picks up anything "scheduled" whose IST
+  // due time has passed, so a past time would publish immediately. Require a
+  // date and a due time still in the future -- the same IST parsing the cron
+  // uses (scheduledEntryDueAt).
+  if (fields.status === "scheduled") {
+    if (!fields.scheduled_date) {
+      return NextResponse.json(buildError(ErrorCodes.VALIDATION_ERROR, "Pick a date to schedule this post for."), { status: 400 })
+    }
+    if (scheduledEntryDueAt(fields.scheduled_date, fields.scheduled_time ?? null).getTime() <= Date.now()) {
+      return NextResponse.json(buildError(ErrorCodes.VALIDATION_ERROR, "Pick a date and time in the future."), { status: 400 })
+    }
+    // A fresh schedule gets the cron's full retry budget again -- a missed
+    // entry already used it up, so one more failure would re-miss it at once.
+    updates.publish_attempts = 0
+  }
 
   try {
     const { data: entry } = await supabase

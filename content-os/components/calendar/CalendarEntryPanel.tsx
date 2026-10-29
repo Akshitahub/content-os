@@ -10,6 +10,8 @@ import { flattenOverlayImage } from "@/lib/utils/post-overlay-export"
 import { isFontId } from "@/lib/design/fonts"
 import { readJsonResponse } from "@/lib/utils/read-json-response"
 import { savedOverlayLayoutSchema } from "@/lib/design/text-layouts"
+import { useAutopostPause } from "@/hooks/useAutopostPause"
+import { addDays, format } from "date-fns"
 
 // Matches what app/api/v1/brands/[brandId]/calendar/[entryId]/regenerate/route.ts
 // actually supports — routing "reel" (or any other content_type) there
@@ -128,6 +130,14 @@ export function CalendarEntryPanel({ entry, onClose, onUpdate, brandId }: Calend
   const [regenerateError, setRegenerateError] = useState<string | null>(null)
   const [showCancelConfirm, setShowCancelConfirm] = useState(false)
   const [isCancellingSchedule, setIsCancellingSchedule] = useState(false)
+  // Reschedule (missed entries): inline date + time, confirmed with a PATCH.
+  const [isRescheduling, setIsRescheduling] = useState(false)
+  const [rescheduleDate, setRescheduleDate] = useState("")
+  const [rescheduleTime, setRescheduleTime] = useState("")
+  const [isSavingReschedule, setIsSavingReschedule] = useState(false)
+  const [rescheduleError, setRescheduleError] = useState<string | null>(null)
+  // Rescheduling still works while paused -- it just won't publish until resumed.
+  const { data: autopostPause } = useAutopostPause(brandId)
   const [cancelScheduleError, setCancelScheduleError] = useState<string | null>(null)
   // "Edit text on image" -- only for Posts scheduled from the Post tool
   // with a saved text-free base image (platform_specific_data.base_image_url).
@@ -293,6 +303,39 @@ export function CalendarEntryPanel({ entry, onClose, onUpdate, brandId }: Calend
   // column (not derived from status), so leaving it set would let a stale
   // specific time resurface if this entry is ever rescheduled without the
   // user picking a fresh one.
+  // Defaults: tomorrow, at the entry's original time (or 10:00).
+  function openReschedule() {
+    if (!entry) return
+    setRescheduleDate(format(addDays(new Date(), 1), "yyyy-MM-dd"))
+    setRescheduleTime(entry.scheduled_time?.slice(0, 5) || "10:00")
+    setRescheduleError(null)
+    setIsRescheduling(true)
+  }
+
+  async function handleReschedule() {
+    if (!entry) return
+    setIsSavingReschedule(true)
+    setRescheduleError(null)
+    try {
+      const res = await fetch("/api/v1/calendar", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: entry.id, status: "scheduled", scheduled_date: rescheduleDate, scheduled_time: rescheduleTime, error_message: null }),
+      })
+      const json: unknown = await readJsonResponse(res)
+      if (!res.ok || isApiError(json)) {
+        setRescheduleError(isApiError(json) ? json.error.message : "Couldn't reschedule. Please try again.")
+        return
+      }
+      onUpdate((json as { data: CalendarEntryRow }).data)
+      setIsRescheduling(false)
+    } catch {
+      setRescheduleError("Network error. Please try again.")
+    } finally {
+      setIsSavingReschedule(false)
+    }
+  }
+
   async function handleCancelSchedule() {
     if (!entry) return
     setIsCancellingSchedule(true)
@@ -386,6 +429,42 @@ export function CalendarEntryPanel({ entry, onClose, onUpdate, brandId }: Calend
                       ? entry.error_message
                       : "Auto-publishing failed after multiple attempts. Copy the content below and post it manually."}
                   </p>
+                  {isConnected && hasPublishPipeline && (
+                    isRescheduling ? (
+                      <div className="mt-3 space-y-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <input
+                            type="date"
+                            value={rescheduleDate}
+                            onChange={(e) => setRescheduleDate(e.target.value)}
+                            aria-label="New date"
+                            className="h-8 rounded-md border border-input bg-background px-2 text-xs"
+                          />
+                          <input
+                            type="time"
+                            value={rescheduleTime}
+                            onChange={(e) => setRescheduleTime(e.target.value)}
+                            aria-label="New time"
+                            className="h-8 rounded-md border border-input bg-background px-2 text-xs"
+                          />
+                          <Button size="sm" onClick={handleReschedule} disabled={isSavingReschedule || !rescheduleDate || !rescheduleTime}>
+                            {isSavingReschedule ? "Rescheduling…" : "Confirm"}
+                          </Button>
+                          <Button size="sm" variant="ghost" onClick={() => setIsRescheduling(false)} disabled={isSavingReschedule}>
+                            Cancel
+                          </Button>
+                        </div>
+                        {autopostPause?.paused && (
+                          <p className="text-xs text-amber-800">Autoposting is paused — this won&apos;t publish until you resume it.</p>
+                        )}
+                        {rescheduleError && <p className="text-xs text-destructive">{rescheduleError}</p>}
+                      </div>
+                    ) : (
+                      <Button size="sm" variant="outline" className="mt-3" onClick={openReschedule}>
+                        Reschedule
+                      </Button>
+                    )
+                  )}
                 </div>
               )}
 
