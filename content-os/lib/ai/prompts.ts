@@ -1,6 +1,6 @@
 import type { BrandRow, ProductRow } from "@/types/database"
 import type { HookType, Platform } from "@/types/app"
-import { VISUAL_KINDS } from "./visual-brief"
+import { VISUAL_KINDS, NO_TEXT_BEARING_SUBJECTS_RULE } from "./visual-brief"
 import { withLessons, type BrandLesson } from "./brand-brain"
 import { buildBrandBrainLines, parseBrandBrain } from "@/lib/brand-brain-profile"
 import { kickerHighlightRule } from "@/lib/design/text-layouts"
@@ -266,6 +266,7 @@ VISUAL BRIEF: Also emit "visual" — what the post's image must show:
 - For side_by_side or before_after, also give "left" and "right": what each half alone shows (before / first option on the left), visible things only, under 200 characters each.
 - must_show describes ONLY visible things. Never put words, labels, headlines, quotes, numbers, logos or captions in it — the image model renders those as garbled text.
 - Only depict what's plausible for this brand's actual products or services in the brand context.
+${NO_TEXT_BEARING_SUBJECTS_RULE} Exception: a real product photo used as the reference keeps its own packaging label.
 - If suggested_template is hard_truth_checklist (no photo), "visual" may be omitted.`
 
 // Readable labels for BrandRow.vibe (a free-text column, same values as

@@ -4,7 +4,7 @@ import { MODELS, getGroqClient } from "./models"
 import { buildBrandContext } from "./prompts"
 import { factRetryTimeoutMs } from "./fact-guard"
 import { textCostUsd, toTextUsage, type TextUsage } from "./pricing"
-import type { VisualBrief } from "./visual-brief"
+import { findTextBearingSubject, type VisualBrief } from "./visual-brief"
 
 // Pre-image quality gate (spec §8): before any image is made, one cheap
 // MODELS.scoring call checks the generated copy + visual briefs against the
@@ -125,7 +125,7 @@ ${lines.join("\n")}
 
 Report problems with these checks:
 - unsupported_claim: a factual claim about the brand, product, a client project, materials, features, specifications, results or guarantees that the FACTS do not state. Words count, not just numbers (e.g. "breathable leather suited for Delhi's climate" when the facts say nothing about leather or climate). General advice, opinions and tone are NOT claims.
-- visual_mismatch: the visual brief doesn't show what that item's copy says, or its kind contradicts its must_show.
+- visual_mismatch: the visual brief doesn't show what that item's copy says, or its kind contradicts its must_show, or it centres on something that carries readable text (a screen, document, sign, calendar, chart).
 - generic: a line with no concrete information -- a slogan that says nothing specific.
 - duplicate: two items with the same angle, subject or visual (report it on the later item).
 
@@ -175,6 +175,28 @@ export async function checkCreative(params: {
   }
 }
 
+// Marks the deterministic text-bearing-subject issues among the model's.
+export const TEXT_BEARING_DETAIL_PREFIX = "[text-bearing]"
+
+/**
+ * The cheap deterministic part of the gate (no model call): every item
+ * whose visual brief shows a text-bearing object (lib/ai/visual-brief.ts
+ * findTextBearingSubject) is a visual_mismatch, so the targeted repair
+ * rewrites that brief. Runs even when the model check is skipped.
+ */
+function textBearingIssues(items: GateItem[], productReference: boolean): GateIssue[] {
+  return items.flatMap((it, i) => {
+    const subject = findTextBearingSubject(it.visual, { productReference })
+    if (!subject) return []
+    return [{
+      item: i,
+      check: "visual_mismatch" as const,
+      detail: `${TEXT_BEARING_DETAIL_PREFIX} the brief shows "${subject}", which carries readable text the image model will garble`,
+      fix_hint: `rewrite the visual so no "${subject}" with readable text is shown: put it face-down, its screen dark or out of focus, or show the person's reaction or the physical result instead -- readable words belong to the text overlay`,
+    }]
+  })
+}
+
 function countIssues(issues: GateIssue[]): Record<GateCheck, number> {
   const counts = Object.fromEntries(GATE_CHECKS.map((c) => [c, 0])) as Record<GateCheck, number>
   for (const i of issues) counts[i.check]++
@@ -205,19 +227,23 @@ export async function runQualityGate<T>(params: {
   deadline?: number
   normalTimeoutMs: number
   repair: (correction: string, timeoutMs: number) => Promise<T>
+  /** The brand's real product photo is the image reference -- its packaging/label is real, not invented text. */
+  productReference?: boolean
 }): Promise<{ data: T; gate: GateReport }> {
   const check = await checkCreative(params)
+  // The model's issues plus the deterministic text-bearing-subject ones.
+  const issues = [...check.issues, ...textBearingIssues(itemsFor(params.format, params.data), !!params.productReference)]
   const report: GateReport = {
     skipped: check.skipped,
-    issues: check.issues,
-    counts: countIssues(check.issues),
+    issues,
+    counts: countIssues(issues),
     repaired: false,
     repairSkipped: null,
     usage: check.usage,
     costUsd: check.costUsd,
   }
-  const critical = check.issues.filter((i) => CRITICAL.has(i.check))
-  const nonCritical = check.issues.filter((i) => !CRITICAL.has(i.check))
+  const critical = issues.filter((i) => CRITICAL.has(i.check))
+  const nonCritical = issues.filter((i) => !CRITICAL.has(i.check))
   if (nonCritical.length) console.log(`[quality-gate] ${params.format}: non-critical issues (logged only): ${nonCritical.map((i) => `${i.item}:${i.check}`).join(", ")}`)
   if (critical.length === 0) return { data: params.data, gate: report }
 

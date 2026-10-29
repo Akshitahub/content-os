@@ -6,7 +6,7 @@ import { createCreativeCompletion } from "./creative-completion"
 import { buildFactSource, guardCopy, stripGuard } from "./fact-guard"
 import { runQualityGate, type GateReport } from "./quality-gate"
 import { addTextUsage, sumCostUsd, type TextUsage } from "./pricing"
-import { sanitizeVisualBrief, type VisualBrief, type VisualKind } from "./visual-brief"
+import { sanitizeVisualBrief, type VisualBrief, type VisualKind, NO_TEXT_BEARING_SUBJECTS_RULE } from "./visual-brief"
 import { withLessons, type BrandLesson } from "./brand-brain"
 import { kickerHighlightRule, sanitizeHighlight, sanitizeKicker } from "@/lib/design/text-layouts"
 
@@ -71,6 +71,7 @@ ${kickerHighlightRule()}
 - "visual": what the image must show, with the product clearly the hero:
   - "kind": product_scene | detail_closeup | before_after.
   - "must_show": 1-2 sentences, concrete and photographable — the product, its setting and the camera angle. Only visible things: never words, labels, prices, numbers, logos or captions.
+  ${NO_TEXT_BEARING_SUBJECTS_RULE.slice(2)} The product's own real packaging (from the product photo) is the one exception.
   - "composition": where the product sits and which area stays calm for the headline.
 
 RULES:
@@ -185,6 +186,8 @@ export async function generateAdStrategy(params: {
     brief: [userDirection],
     deadline: params.deadline,
     normalTimeoutMs: timeoutMs,
+    // Ad Maker always generates from the real product photo.
+    productReference: true,
     repair: async (correction, repairTimeoutMs) => {
       const fix = await createCreativeCompletion({ ...callParams, timeoutMs: repairTimeoutMs, followUp: { previous: raw, correction } })
       usage = addTextUsage(usage, fix.usage)

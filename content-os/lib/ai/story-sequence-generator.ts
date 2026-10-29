@@ -5,7 +5,7 @@ import { createCreativeCompletion } from "./creative-completion"
 import { buildFactSource, guardCopy, stripGuard } from "./fact-guard"
 import { runQualityGate, type GateReport } from "./quality-gate"
 import { addTextUsage, sumCostUsd, type TextUsage } from "./pricing"
-import { VISUAL_KINDS, sanitizeVisualBrief, type VisualBrief } from "./visual-brief"
+import { NO_TEXT_BEARING_SUBJECTS_RULE, VISUAL_KINDS, sanitizeVisualBrief, type VisualBrief } from "./visual-brief"
 import { kickerHighlightRule } from "@/lib/design/text-layouts"
 import { withLessons, type BrandLesson } from "./brand-brain"
 import { buildBrandBrainLines, parseBrandBrain } from "@/lib/brand-brain-profile"
@@ -58,7 +58,7 @@ const EXAMPLE_SLIDE_BY_TYPE: Record<string, { text: string; subtext: string; bac
     text_position: "bottom",
     has_poll: true,
     poll_options: ["Manual, always", "Ready to automate"],
-    visual: { kind: "side_by_side", must_show: "Left half a desk buried under paper envelopes and sticky notes, right half the same desk cleared with a single plant, eye level", composition: "both halves fill the upper two-thirds, bottom third calm for text", left: "A desk buried under paper envelopes and sticky notes, eye level", right: "The same desk cleared, a single plant on it, eye level" },
+    visual: { kind: "side_by_side", must_show: "Left half a desk buried under unopened parcels and tangled cables, right half the same desk cleared with a single plant, eye level", composition: "both halves fill the upper two-thirds, bottom third calm for text", left: "A desk buried under unopened parcels and tangled cables, eye level", right: "The same desk cleared, a single plant on it, eye level" },
   },
   cta: {
     text: "Your inbox, handled",
@@ -279,6 +279,7 @@ Rules:
 - Use "abstract_mood" only for the hook or cta frame, and only when no concrete visual fits the brand.
 - must_show describes ONLY visible things. Never put words, labels, headlines, quotes, numbers, logos or captions in it — the image model renders those as garbled text.
 - Only depict what's plausible for this brand's actual products or services in the brand context above.
+${NO_TEXT_BEARING_SUBJECTS_RULE}
 
 SLIDE TEXT FORMATS — confirmed live (2026-08-29): every slide defaulting
 to the same "punchy claim + supporting detail" shape for "text"/"subtext"

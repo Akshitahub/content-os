@@ -122,3 +122,53 @@ export function halfUsesProductReference(brief: VisualBrief, side: "left" | "rig
 export function briefUsesProductReference(brief: VisualBrief | undefined): boolean {
   return !brief || !BRIEF_KINDS_WITHOUT_PRODUCT_REFERENCE.has(brief.kind)
 }
+
+// ─── No text-bearing subjects ──────────────────────────────────────────────
+// A brief that asks for a screen, a document or a sign contradicts every
+// image prompt's "no text" guard -- and the image model draws the words
+// anyway, as garbled lettering. Briefs show such things only indirectly;
+// readable words belong to the text overlay.
+
+/** The prompt rule every brief prompt (carousel, story, post, ad) carries. */
+export const NO_TEXT_BEARING_SUBJECTS_RULE = `- The scene must NEVER centre on or prominently show anything that normally carries readable text: phone, tablet or laptop screens, documents, notebooks with writing, sticky notes with words, signs, packaging labels with copy, calendars, dashboards or charts. If the idea needs one (e.g. "a content calendar"), show it indirectly: the device face-down or its screen dark or out of focus, the person's reaction, or the physical result. Readable words belong to the text overlay, never the image.`
+
+// Objects that normally carry readable text. Packaging/labels are allowed
+// when the brand's real product photo is the image reference (its real label).
+const TEXT_BEARING_TERMS: { pattern: RegExp; packaging?: boolean }[] = [
+  { pattern: /\b(smart)?phones?\b|\bmobiles?\b|\bcellphones?\b/ },
+  { pattern: /\btablets?\b|\bipads?\b|\blaptops?\b|\bcomputers?\b|\bmonitors?\b|\bscreens?\b|\btvs?\b|\btelevisions?\b/ },
+  { pattern: /\bapps?\b|\bwebsites?\b|\binterfaces?\b|\bdashboards?\b/ },
+  { pattern: /\bdocuments?\b|\breports?\b|\binvoices?\b|\breceipts?\b|\bcontracts?\b|\bmenus?\b|\bbrochures?\b|\bflyers?\b|\bleaflets?\b|\bposters?\b|\bmagazines?\b|\bnewspapers?\b|\bspreadsheets?\b|\bdesign briefs?\b/ },
+  { pattern: /\bnotebooks?\b|\bnotepads?\b|\bsticky notes?\b|\bpost-its?\b|\bwhiteboards?\b|\bchalkboards?\b|\bblackboards?\b/ },
+  { pattern: /\bsigns?\b|\bsignage\b|\bbillboards?\b|\bbanners?\b|\bplacards?\b|\bnameplates?\b|\bplaques?\b/ },
+  { pattern: /\bcalendars?\b|\bplanners?\b|\bcharts?\b|\bgraphs?\b|\binfographics?\b|\bchecklists?\b/ },
+  { pattern: /\blabels?\b|\bpackaging\b|\bprice tags?\b/, packaging: true },
+]
+
+// A qualifier that keeps the object from showing readable text.
+const NO_TEXT_QUALIFIER = /\bface[- ]?down\b|\bturned over\b|\bupside down\b|\bscreen (?:is )?(?:dark|off|black|blank)\b|\b(?:dark|black|blank|switched[- ]off|turned[- ]off) screen\b|\bswitched off\b|\bturned off\b|\bout of focus\b|\bunfocused\b|\bblurr?(?:ed|y)\b|\bsoft[- ]focus\b|\bbokeh\b|\billegible\b|\bunreadable\b|\bblank\b|\bclosed\b|\bno (?:visible |readable )?(?:text|writing|words|lettering)\b|\bwithout (?:any )?(?:text|writing|words|lettering)\b/
+
+/**
+ * The text-bearing object a brief shows without a qualifier ("face-down",
+ * "screen dark", "out of focus", ...), or null. Checked clause by clause:
+ * a qualifier counts in the object's clause or the next two ("a phone on
+ * the desk beside a coffee, its screen blurred"). Deterministic, no model call -- the
+ * quality gate turns a hit into a visual_mismatch for its targeted repair.
+ */
+export function findTextBearingSubject(brief: VisualBrief | null | undefined, opts: { productReference?: boolean } = {}): string | null {
+  if (!brief) return null
+  for (const field of [brief.must_show, brief.left, brief.right]) {
+    if (!field) continue
+    const clauses = field.toLowerCase().split(/[,;:.]|\s(?:and|with|while|beside|next to|on top of)\s/).map((c) => c.trim()).filter(Boolean)
+    for (let i = 0; i < clauses.length; i++) {
+      for (const term of TEXT_BEARING_TERMS) {
+        if (term.packaging && opts.productReference) continue
+        const m = term.pattern.exec(clauses[i]!)
+        if (!m) continue
+        if (clauses.slice(i, i + 3).some((c) => NO_TEXT_QUALIFIER.test(c))) continue
+        return m[0]
+      }
+    }
+  }
+  return null
+}

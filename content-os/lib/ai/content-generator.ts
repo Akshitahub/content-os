@@ -286,6 +286,8 @@ export async function generateContent(
         brief: [options.hookText, options.additionalContext],
         deadline: options.factGuardDeadline,
         normalTimeoutMs: 40_000,
+        // A picked product with a photo becomes the image reference (post-image route).
+        productReference: !!options.product?.image_urls?.[0],
         repair: async (correction) => {
           const repaired = await generateValidatedCaption({
             messages: [...messages, { role: "assistant", content: JSON.stringify(firstCaption) }, { role: "user", content: correction }],
