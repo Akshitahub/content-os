@@ -160,6 +160,8 @@ export type Database = {
           positioning: string | null
           /** Structured Brand Brain profile (060_brand_brain_profile.sql) -- parse with lib/brand-brain-profile.ts. */
           brand_brain: Json
+          /** Set while autoposting is paused (062_brand_autopost_pause.sql); NULL = publishing normally. */
+          autopost_paused_at: string | null
           vibe: string | null
           onboarding_type: string | null
           posting_frequency: string | null
@@ -189,6 +191,7 @@ export type Database = {
           target_emotion?: string | null
           positioning?: string | null
           brand_brain?: Json
+          autopost_paused_at?: string | null
           vibe?: string | null
           onboarding_type?: string | null
           posting_frequency?: string | null
@@ -216,6 +219,7 @@ export type Database = {
           target_emotion?: string | null
           positioning?: string | null
           brand_brain?: Json
+          autopost_paused_at?: string | null
           vibe?: string | null
           onboarding_type?: string | null
           posting_frequency?: string | null

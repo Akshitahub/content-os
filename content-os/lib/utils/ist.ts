@@ -52,3 +52,15 @@ export function getISTNow(): Date {
     get("second")
   )
 }
+
+/**
+ * When a calendar entry is due. scheduled_date/scheduled_time are plain IST
+ * wall-clock values (from <input type="date">/<input type="time">, no zone
+ * attached); +05:30 makes them parse as the right instant regardless of the
+ * runtime's timezone -- without it Node reads the string as UTC and a post
+ * meant for 17:20 IST isn't due until 22:50 IST. Shared by the publish cron
+ * and the autopost-pause resume, so both agree on what's "due".
+ */
+export function scheduledEntryDueAt(scheduledDate: string, scheduledTime: string | null): Date {
+  return new Date(`${scheduledDate}T${scheduledTime ?? "00:00:00"}+05:30`)
+}

@@ -1,6 +1,8 @@
 "use client"
 
 import { useState, useEffect, useCallback, useMemo } from "react"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
+import { calendarKeys } from "@/hooks/useAutopostPause"
 import Link from "next/link"
 import { ChevronLeft, ChevronRight, Plus, X, Loader2, LayoutGrid, List } from "lucide-react"
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameMonth, isToday, startOfWeek, endOfWeek, addWeeks, subWeeks } from "date-fns"
@@ -40,8 +42,7 @@ interface NewEntryForm {
 
 export function ContentCalendar({ brandId, defaultView = "month" }: ContentCalendarProps) {
   const [currentDate, setCurrentDate] = useState(new Date())
-  const [entries, setEntries] = useState<CalendarEntry[]>([])
-  const [isLoading, setIsLoading] = useState(true)
+  const queryClient = useQueryClient()
   const [showNewEntryModal, setShowNewEntryModal] = useState(false)
   const [selectedEntry, setSelectedEntry] = useState<CalendarEntry | null>(null)
   const [isSaving, setIsSaving] = useState(false)
@@ -59,20 +60,25 @@ export function ContentCalendar({ brandId, defaultView = "month" }: ContentCalen
 
   const month = format(currentDate, "yyyy-MM")
 
-  const fetchEntries = useCallback(async () => {
-    setIsLoading(true)
-    try {
+  // React Query (calendarKeys) so anything that changes this brand's entries
+  // -- e.g. resuming autoposting, which marks overdue ones missed -- can
+  // refresh this view by invalidating calendarKeys.brand(brandId). A failed
+  // load shows an empty month, same as before.
+  const entriesKey = calendarKeys.month(brandId, month)
+  const { data: entriesData, isLoading } = useQuery({
+    queryKey: entriesKey,
+    queryFn: async () => {
       const res = await fetch(`/api/v1/calendar?brandId=${brandId}&month=${month}`)
       const json = await res.json() as { data?: CalendarEntry[] }
-      if (json.data) setEntries(json.data)
-    } catch {
-      // silent
-    } finally {
-      setIsLoading(false)
-    }
-  }, [brandId, month])
-
-  useEffect(() => { fetchEntries() }, [fetchEntries])
+      return json.data ?? []
+    },
+  })
+  const entries = useMemo(() => entriesData ?? [], [entriesData])
+  // Optimistic edits below write straight into the cached month.
+  const setEntries = useCallback((update: CalendarEntry[] | ((prev: CalendarEntry[]) => CalendarEntry[])) => {
+    queryClient.setQueryData<CalendarEntry[]>(entriesKey, (prev) => (typeof update === "function" ? update(prev ?? []) : update))
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [queryClient, brandId, month])
 
   // Occasion suggestions for empty days -- keyed on [viewMode, currentDate]
   // rather than the days/weekDays arrays below, since eachDayOfInterval

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { createAdminClient } from "@/lib/supabase/server"
 import { publishViaZernio } from "@/lib/social/zernio-client"
+import { scheduledEntryDueAt } from "@/lib/utils/ist"
 import { uploadMediaToStorage } from "@/lib/storage/upload-media"
 import type { SupabaseClient } from "@supabase/supabase-js"
 import type { Database, CalendarEntryRow, SocialConnectionRow } from "@/types/database"
@@ -77,6 +78,27 @@ async function recordFailure(admin: AdminClient, entry: CalendarEntryRow, reason
     `[cron/publish-scheduled] entry ${entry.id}: attempt ${attempts}/${MAX_PUBLISH_ATTEMPTS} failed (${reason}) — now ${nextStatus}`
   )
   return "failed"
+}
+
+// 062_brand_autopost_pause.sql not run yet: no brand can be paused, so the
+// cron publishes exactly as before. Any other read error fails closed.
+function isMissingPauseColumn(error: { code?: string; message?: string }): boolean {
+  return error.code === "42703" || /autopost_paused_at/.test(error.message ?? "")
+}
+
+/**
+ * The brand-level kill switch, re-read right before publishing -- closes the
+ * race where the user pauses after this run already picked the entry up.
+ * True = don't publish (paused, or the state couldn't be read).
+ */
+async function isBrandPaused(admin: AdminClient, brandId: string): Promise<boolean> {
+  const { data, error } = await admin.from("brands").select("autopost_paused_at").eq("id", brandId).maybeSingle<{ autopost_paused_at: string | null }>()
+  if (error) {
+    if (isMissingPauseColumn(error)) return false
+    console.error(`[cron/publish-scheduled] brand ${brandId}: couldn't read autopost pause state, holding its entries this run:`, error.message)
+    return true
+  }
+  return !!data?.autopost_paused_at
 }
 
 async function processEntry(admin: AdminClient, entry: CalendarEntryRow): Promise<"published" | "failed" | "skipped"> {
@@ -229,6 +251,13 @@ async function processEntry(admin: AdminClient, entry: CalendarEntryRow): Promis
   if (!caption.trim()) {
     console.error(`[cron/publish-scheduled] entry ${entry.id}: no caption text available`)
     return await recordFailure(admin, entry, "No caption text available.")
+  }
+
+  // Last check before the first publishViaZernio call (both branches below):
+  // the user may have paused since this run started. Status left untouched.
+  if (await isBrandPaused(admin, entry.brand_id)) {
+    console.log(`[cron/publish-scheduled] entry ${entry.id}: brand ${entry.brand_id} paused autoposting mid-run -- skipped, left scheduled`)
+    return "skipped"
   }
 
   if (isStory) {
@@ -426,20 +455,39 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Failed to fetch scheduled entries." }, { status: 500 })
   }
 
-  const dueEntries = (candidates ?? []).filter(entry => {
-    // +05:30 makes the stored IST wall-clock value parse as the correct UTC
-    // instant, regardless of the runtime's own timezone — without it, Node
-    // reads a timezone-less string as UTC, so a post meant for 17:20 IST
-    // wouldn't be considered due until 17:20 UTC (22:50 IST), 5.5h late.
-    const dueAt = new Date(`${entry.scheduled_date}T${entry.scheduled_time ?? "00:00:00"}+05:30`)
-    return dueAt.getTime() <= now.getTime()
-  })
+  // IST wall-clock -> instant; see scheduledEntryDueAt.
+  const dueEntries = (candidates ?? []).filter(entry => scheduledEntryDueAt(entry.scheduled_date, entry.scheduled_time).getTime() <= now.getTime())
 
   console.log(`[cron/publish-scheduled] ${dueEntries.length} entr${dueEntries.length === 1 ? "y" : "ies"} due`)
 
   const summary = { processed: 0, published: 0, failed: 0, skipped: 0 }
 
-  await runWithConcurrency(dueEntries, async (entry) => {
+  // Brand-level kill switch: one query for every brand with something due.
+  // A paused brand's entries are counted as skipped and left scheduled
+  // (resuming marks the overdue ones missed -- see autopost-pause/route.ts).
+  const dueBrandIds = [...new Set(dueEntries.map((e) => e.brand_id))]
+  let pausedBrandIds = new Set<string>()
+  if (dueBrandIds.length > 0) {
+    const { data: brandRows, error: pauseError } = await admin
+      .from("brands")
+      .select("id, autopost_paused_at")
+      .in("id", dueBrandIds)
+      .returns<{ id: string; autopost_paused_at: string | null }[]>()
+    if (pauseError && !isMissingPauseColumn(pauseError)) {
+      console.error("[cron/publish-scheduled] couldn't read autopost pause state, holding every due entry this run:", pauseError.message)
+      pausedBrandIds = new Set(dueBrandIds)
+    } else {
+      pausedBrandIds = new Set((brandRows ?? []).filter((b) => b.autopost_paused_at).map((b) => b.id))
+    }
+  }
+  const publishable = dueEntries.filter((e) => !pausedBrandIds.has(e.brand_id))
+  const held = dueEntries.length - publishable.length
+  if (held > 0) {
+    summary.skipped += held
+    console.log(`[cron/publish-scheduled] skipped ${held} entr${held === 1 ? "y" : "ies"} for ${pausedBrandIds.size} brand(s) with autoposting paused: ${[...pausedBrandIds].join(", ")}`)
+  }
+
+  await runWithConcurrency(publishable, async (entry) => {
     summary.processed++
     try {
       const result = await processEntry(admin, entry)

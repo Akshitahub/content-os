@@ -5,6 +5,7 @@ import { ContentCalendar } from "@/components/calendar/ContentCalendar"
 import { useBrand } from "@/hooks/useBrand"
 import { useBrandStore } from "@/stores/brandStore"
 import { useEffect } from "react"
+import { AutopostPauseControl, AutopostPausedBanner } from "@/components/calendar/AutopostPauseControl"
 
 export default function CalendarPage() {
   const params = useParams()
@@ -27,13 +28,17 @@ export default function CalendarPage() {
             Your 30-day content plan. Click any date to edit or add a post.
           </p>
         </div>
-        <a
-          href={`/brands/${brandId}/fastlane`}
-          className="inline-flex h-9 items-center gap-1.5 rounded-full bg-violet-600 px-4 text-sm font-semibold text-white hover:bg-violet-700 transition-colors shrink-0"
-        >
-          ✈️ Run Autopilot
-        </a>
+        <div className="flex flex-wrap items-start gap-2">
+          <AutopostPauseControl brandId={brandId} />
+          <a
+            href={`/brands/${brandId}/fastlane`}
+            className="inline-flex h-9 items-center gap-1.5 rounded-full bg-violet-600 px-4 text-sm font-semibold text-white hover:bg-violet-700 transition-colors shrink-0"
+          >
+            ✈️ Run Autopilot
+          </a>
+        </div>
       </div>
+      <AutopostPausedBanner brandId={brandId} />
       <ContentCalendar brandId={brandId} defaultView={defaultView} />
     </div>
   )

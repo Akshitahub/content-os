@@ -19,6 +19,7 @@ import type { CalendarEntryRow, AutopilotRunStatusRow } from "@/types/database"
 import { useQueryClient } from "@tanstack/react-query"
 import { useUserCredits, userCreditsKeys } from "@/hooks/useUserCredits"
 import { readJsonResponse } from "@/lib/utils/read-json-response"
+import { AutopostPauseControl, AutopostPausedBanner } from "@/components/calendar/AutopostPauseControl"
 
 const STATUS_BADGE: Record<string, string> = {
   planned: "bg-slate-100 text-slate-700",
@@ -511,6 +512,15 @@ export default function AutopilotPage() {
 
   return (
     <div className="flex min-h-full flex-col items-center justify-center px-4 py-6 md:p-8">
+
+      {/* Brand-level kill switch -- visible in every state. Pausing stops
+          publishing only; generating and approving here still work. */}
+      <div className="mb-6 w-full max-w-2xl">
+        <AutopostPausedBanner brandId={brandId} />
+        <div className="flex justify-end">
+          <AutopostPauseControl brandId={brandId} />
+        </div>
+      </div>
 
       {/* SETUP */}
       {state === "SETUP" && (
