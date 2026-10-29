@@ -1,6 +1,6 @@
 import { createCreativeCompletion } from "./creative-completion"
 import { buildFactSource, guardCopy, stripGuard } from "./fact-guard"
-import { addTextUsage, sumCostUsd, type TextUsage } from "./pricing"
+import { addTextUsage, sumCostUsd, UsageCarryingError, type TextUsage } from "./pricing"
 import { getUpcomingOccasionsForAutopilot } from "@/lib/occasions/get-upcoming-occasions"
 import { submitSceneAssetJobs } from "@/lib/video/reel-scene-assets"
 import type { KlingWebhookConfig } from "@/lib/video/kling-client"
@@ -8,8 +8,15 @@ import { createAdminClient } from "@/lib/supabase/server"
 import { CONTENT_MIX, buildContentMix } from "@/lib/ai/autopilot-content-mix"
 import { findContentQualityIssues, sanitizeLeakedArtifacts } from "@/lib/ai/content-quality-check"
 import type { BrandRow, ProductRow } from "@/types/database"
-import type { ContentStrategy, ContentSlot, Platform, ReelScene, UserPlan } from "@/types/app"
+import type { ContentStrategy, ContentSlot, GeneratedCaption, Platform, ReelScene, UserPlan } from "@/types/app"
 import { withLessons, type BrandLesson } from "./brand-brain"
+import { generateContent } from "./content-generator"
+import { generateHooks } from "./hooks-generator"
+import { generateCarouselWithRetry } from "./carousel-generator"
+import { finishGeneratedCarousel } from "./carousel-postprocess"
+import { briefScene, type VisualBrief } from "./visual-brief"
+import type { GateReport } from "./quality-gate"
+import type { BrandTypography } from "@/lib/design/fonts"
 
 // Strategy planning + per-slot generation helpers for Autopilot. The run
 // itself is no longer executed here in one request: app/api/v1/brands/
@@ -300,9 +307,11 @@ interface CarouselSlide {
   slide_number: number
   headline: string
   body: string
+  kicker?: string | null
+  highlight?: string | null
 }
 
-interface SlotContent {
+export interface SlotContent {
   title: string
   hook: string
   caption: string
@@ -310,10 +319,27 @@ interface SlotContent {
   visual_direction: string
   audio_suggestion: string
   call_to_action: string
+  /** Carousels: plain {headline, body} per slide -- the HTML preview and the plain renderer fallback. */
   slides?: CarouselSlide[]
   scenes?: ReelScene[]
   /** The one angle the model committed to (see SLOT_COPY_RULES) -- informational only, never persisted. */
   angle?: string
+  /** On-image extras for the hook (lib/design/text-layouts.ts) -- posts only. */
+  kicker?: string | null
+  highlight?: string | null
+  /** The model that wrote the copy (content events' meta). */
+  model?: string
+  /** Pre-image quality gate report (lib/ai/quality-gate.ts) -- posts and carousels; recorded via gateEventMeta. */
+  gate?: GateReport
+  /** Posts: the caption's visual brief, which drives generatePostImage. */
+  visual?: VisualBrief
+  /** Posts: the image prompt built from that brief (falls back to the caption's image_prompt). */
+  imagePrompt?: string
+  /** Carousels: the shared generator's slides after the manual route's
+   * post-processing (lib/ai/carousel-postprocess.ts) -- typed slides with
+   * visual briefs, typography and layouts, for per-slide backgrounds and the
+   * rich compositor. Saved as the carousels row's slides. */
+  carousel?: { slides: Record<string, unknown>[]; typography: BrandTypography }
 }
 
 const SLOT_CONTENT_SYSTEM_PROMPT = "You write Instagram/social copy for Indian D2C brands that stops the scroll. Before writing, pick ONE sharp angle for this post and commit to it. Write like a sharp human creator, not a brand. Respond with valid JSON only. No markdown."
@@ -363,34 +389,33 @@ function buildSlotContextLines(brand: BrandRow, product: ProductRow | null): str
   return lines.join("\n")
 }
 
-function buildSlotContentPrompt(brand: BrandRow, slot: ContentSlot, product: ProductRow | null, totalSlots: number): string {
-  const pillarCtx = slot.content_pillar ? `\nContent Pillar: ${slot.content_pillar}` : ""
-  const pillarDescriptions: Record<string, string> = {
-    product: "showcase the product's features and benefits compellingly",
-    behind_scenes: "reveal what happens behind the brand — authentic and human",
-    educational: "teach something genuinely useful to the audience",
-    humor_meme: "be witty and relatable — make them laugh or nod",
-    occasion: "tie the brand to this occasion naturally without being forced",
-    testimonial: "show a relatable customer situation the product fits into — no quotes or named customers",
-    announcement: "build excitement around something new or upcoming",
-    inspiration: "uplift and motivate — connect values to the audience's aspirations",
-    founder_story: "share the brand's origin, mission, or founder journey",
-  }
-  const pillarInstruction = slot.content_pillar
-    ? `This post should specifically: ${pillarDescriptions[slot.content_pillar] ?? "match the content pillar"}`
-    : ""
+const PILLAR_DESCRIPTIONS: Record<string, string> = {
+  product: "showcase the product's features and benefits compellingly",
+  behind_scenes: "reveal what happens behind the brand — authentic and human",
+  educational: "teach something genuinely useful to the audience",
+  humor_meme: "be witty and relatable — make them laugh or nod",
+  occasion: "tie the brand to this occasion naturally without being forced",
+  testimonial: "show a relatable customer situation the product fits into — no quotes or named customers",
+  announcement: "build excitement around something new or upcoming",
+  inspiration: "uplift and motivate — connect values to the audience's aspirations",
+  founder_story: "share the brand's origin, mission, or founder journey",
+}
 
-  return `Create a complete ${slot.content_type} post for ${brand.name} on ${slot.platform}.
-${buildSlotContextLines(brand, product)}
-Theme: ${slot.theme}${pillarCtx}
-Day: ${slot.day} of ${totalSlots}${pillarInstruction ? `\n${pillarInstruction}` : ""}
-
-IMPORTANT: This is slot ${slot.day}/${totalSlots}. Make it UNIQUE — different angle than typical posts for this brand.
-
-${SLOT_COPY_RULES}
-
-Return this exact JSON:
-{"angle":"the one angle you picked","title":"post title","hook":"the hook, per HOOK rules","kicker":"optional label above the hook, 4 words or fewer, or null","highlight":"optional 1-4 words copied exactly from the hook, or null","caption":"caption as short lines separated by \\n, per CAPTION rules","hashtags":["hashtag1","hashtag2","hashtag3","hashtag4","hashtag5"],"visual_direction":"describe the ideal image/video for this post","audio_suggestion":"suggested background music mood or sound","call_to_action":"the caption's closing action line"}`
+/**
+ * What one Autopilot slot is about, as the shared generators' brief text
+ * (additionalContext for posts, the topic for carousels). It's also part of
+ * the fact source, so the product details listed here are claimable facts.
+ */
+function buildSlotBrief(slot: ContentSlot, product: ProductRow | null, totalSlots: number): string {
+  const pillar = slot.content_pillar
+  return [
+    `Theme: ${slot.theme}`,
+    pillar ? `Content pillar: ${pillar} — ${PILLAR_DESCRIPTIONS[pillar] ?? "match the content pillar"}` : "",
+    pillar === "testimonial" ? "Describe a relatable customer situation; never a quote attributed to a person." : "",
+    product ? `Product focus: ${product.name}${formatProductPrice(product) ? ` (${formatProductPrice(product)})` : ""}${product.description?.trim() ? ` — ${product.description.trim()}` : ""}` : "",
+    product?.key_benefits?.filter(Boolean).length ? `Key benefits: ${product.key_benefits.filter(Boolean).join("; ")}` : "",
+    `This is Autopilot slot ${slot.day} of ${totalSlots}: take a different angle from this brand's other posts this month.`,
+  ].filter(Boolean).join("\n")
 }
 
 function buildReelScriptSlotContentPrompt(brand: BrandRow, slot: ContentSlot, product: ProductRow | null, totalSlots: number): string {
@@ -409,20 +434,6 @@ Break the reel into 3-5 scenes totaling 15-30 seconds (3-8 seconds each). Each s
 
 Return this exact JSON:
 {"angle":"the one angle you picked","title":"post title","hook":"the hook, per HOOK rules","caption":"caption as short lines separated by \\n, per CAPTION rules","hashtags":["hashtag1","hashtag2","hashtag3","hashtag4","hashtag5"],"visual_direction":"one-line overall visual style/mood for the reel","audio_suggestion":"suggested background music mood or sound","call_to_action":"the caption's closing action line","scenes":[{"visual_direction":"what the viewer sees in this scene","voiceover_or_text_overlay":"spoken words or on-screen text for this scene","duration_seconds":5}]}`
-}
-
-function buildCarouselSlotContentPrompt(brand: BrandRow, slot: ContentSlot, product: ProductRow | null): string {
-  const pillarCtx = slot.content_pillar ? `\nContent Pillar: ${slot.content_pillar}` : ""
-  return `Create a 5-slide carousel post for ${brand.name} on ${slot.platform}.
-${buildSlotContextLines(brand, product)}
-Theme: ${slot.theme}${pillarCtx}
-
-${SLOT_COPY_RULES}
-
-CAROUSEL — exactly 5 slides. Slide 1's headline is the cover and follows the HOOK rules (same as "hook"). Slides 2-4 each make one concrete point that delivers on the angle — a real headline, never a label like "Point 1". Slide 5 is the CTA, using the brand's CTA phrase if one is given.
-
-Return this exact JSON (exactly 5 slides):
-{"angle":"the one angle you picked","title":"carousel title","hook":"cover headline, per HOOK rules","slides":[{"slide_number":1,"headline":"cover headline (same as hook)","body":"one line that sets up what the next slides pay off"},{"slide_number":2,"headline":"first concrete point, stated as a headline","kicker":"optional label, 4 words or fewer, or null","highlight":"optional 1-4 words copied exactly from this headline, or null","body":"1-2 sentences backing it with a specific detail"},{"slide_number":3,"headline":"second concrete point, stated as a headline","body":"1-2 sentences backing it with a specific detail"},{"slide_number":4,"headline":"third concrete point, stated as a headline","body":"1-2 sentences backing it with a specific detail"},{"slide_number":5,"headline":"closing CTA headline","body":"one line telling the reader exactly what to do next"}],"hashtags":["hashtag1","hashtag2","hashtag3","hashtag4","hashtag5"],"visual_direction":"visual style for the carousel","audio_suggestion":"background music mood","call_to_action":"the closing action, matching slide 5"}`
 }
 
 export async function generateContentStrategy(brand: BrandRow, products: ProductRow[], params?: AutopilotParams, tracker?: AutopilotUsageTracker): Promise<ContentStrategy> {
@@ -512,6 +523,12 @@ function sanitizeSlotContent(content: SlotContent): SlotContent {
   }
 }
 
+/**
+ * One Autopilot slot's copy. Posts and carousels go through the same shared
+ * generators the manual flows use -- plan, visual brief, fact guard and the
+ * pre-image quality gate -- and are mapped into this worker-facing shape;
+ * reels (REELS_ENABLED is false) keep the single-shot path below.
+ */
 export async function generateSlotContent(
   brand: BrandRow,
   slot: ContentSlot,
@@ -521,31 +538,158 @@ export async function generateSlotContent(
   factGuardDeadline?: number,
   /** Brand lessons for this slot's scope (lib/ai/brand-brain.ts), fetched by the worker. */
   lessons?: BrandLesson[],
+  /** Posts only: "hook"-scope lessons for the hook generator. */
+  hookLessons?: BrandLesson[],
 ): Promise<SlotContent> {
-  const isCarousel = slot.content_type === "carousel"
-  const isReel = slot.content_type === "reel_script"
+  if (slot.content_type === "reel_script") return generateReelSlotContent(brand, slot, product, totalSlots, tracker, factGuardDeadline, lessons)
+  if (slot.content_type === "carousel") return generateCarouselSlot(brand, slot, product, totalSlots, tracker, factGuardDeadline, lessons)
+  // hooks / caption / ad_copy are all a full post with an image.
+  return generatePostSlot(brand, slot, product, totalSlots, tracker, factGuardDeadline, lessons, hookLessons)
+}
 
+// Same opener the post pipeline uses for an abstract_mood brief.
+const POST_BRIEF_ABSTRACT_OPENER = "abstract atmospheric background image for a social media post"
+
+/** The image prompt a post's visual brief makes -- what the brief says to show, where. */
+function briefImagePrompt(brief: VisualBrief): string {
+  return `${briefScene(brief, POST_BRIEF_ABSTRACT_OPENER)}${brief.composition ? `, composition: ${brief.composition}` : ""}`
+}
+
+// Post slot: the calendar-regenerate / Full Post pair -- one hook from the
+// hook generator, and the Full Post caption (post_plan, visual brief, image
+// prompt, quality gate) from generateContent, in parallel.
+async function generatePostSlot(
+  brand: BrandRow,
+  slot: ContentSlot,
+  product: ProductRow | null,
+  totalSlots: number,
+  tracker: AutopilotUsageTracker | undefined,
+  factGuardDeadline: number | undefined,
+  lessons: BrandLesson[] | undefined,
+  hookLessons: BrandLesson[] | undefined,
+): Promise<SlotContent> {
+  const brief = buildSlotBrief(slot, product, totalSlots)
+  const [hookResult, contentResult] = await Promise.all([
+    generateHooks(brand, { hookTypes: ["bold_statement", "question", "story"], count: 1, platform: slot.platform, additionalContext: brief, product, factGuardDeadline, lessons: hookLessons }),
+    generateContent(brand, "social_post", { product, platform: slot.platform, additionalContext: brief, includeImagePrompt: true, factGuardDeadline, lessons }),
+  ])
+  trackUsage(tracker, hookResult.usage, hookResult.costUsd)
+  trackUsage(tracker, contentResult.usage, contentResult.costUsd)
+
+  const hook = hookResult.hooks[0]?.hook_text?.trim()
+  if (!hook) throw new Error("Hook generation returned no results")
+  const caption = contentResult.data as GeneratedCaption
+  const visual = caption.visual ?? undefined
+  const imagePrompt = visual ? briefImagePrompt(visual) : caption.image_prompt?.trim() || undefined
+  return {
+    title: slot.theme,
+    hook,
+    caption: caption.caption_text,
+    hashtags: caption.hashtags ?? [],
+    visual_direction: imagePrompt ?? "",
+    audio_suggestion: "",
+    call_to_action: caption.cta ?? "",
+    kicker: caption.kicker ?? null,
+    highlight: caption.highlight ?? null,
+    model: contentResult.model,
+    gate: contentResult.gate,
+    visual,
+    imagePrompt,
+  }
+}
+
+const AUTOPILOT_CAROUSEL_SLIDES = 5
+
+/**
+ * The carousel's caption, built from its own (guarded, gated) copy: the
+ * plan's takeaway and each content slide's headline. The shared generator
+ * writes no caption (the manual builder has the user write one), and an
+ * entry with no caption can't publish. The worker merges the hook and CTA in.
+ */
+function carouselCaption(d: Record<string, unknown>, slides: Record<string, unknown>[]): string {
+  const plan = d.narrative_plan as { takeaway?: unknown } | undefined
+  const takeaway = typeof plan?.takeaway === "string" ? plan.takeaway.trim() : ""
+  const points = slides
+    .filter((s) => s.type === "content" && typeof s.headline === "string" && s.headline.trim())
+    .map((s) => `→ ${(s.headline as string).trim()}`)
+  return [takeaway, points.join("\n")].filter(Boolean).join("\n\n")
+}
+
+// Carousel slot: the manual carousel generator + the manual route's
+// post-processing (CTA merge, vibe backgrounds, typography, layouts). The
+// worker makes each slide's background from its visual brief.
+async function generateCarouselSlot(
+  brand: BrandRow,
+  slot: ContentSlot,
+  product: ProductRow | null,
+  totalSlots: number,
+  tracker: AutopilotUsageTracker | undefined,
+  factGuardDeadline: number | undefined,
+  lessons: BrandLesson[] | undefined,
+): Promise<SlotContent> {
+  let gen: Awaited<ReturnType<typeof generateCarouselWithRetry>>
+  try {
+    gen = await generateCarouselWithRetry(brand, buildSlotBrief(slot, product, totalSlots), AUTOPILOT_CAROUSEL_SLIDES, slot.platform, undefined, [], lessons, factGuardDeadline)
+  } catch (err) {
+    // Billed calls that still failed are tracked before the slot fails.
+    if (err instanceof UsageCarryingError) trackUsage(tracker, err.usage, err.costUsd)
+    throw err
+  }
+  trackUsage(tracker, gen.usage, gen.costUsd)
+
+  const d = gen.data as Record<string, unknown>
+  if (!Array.isArray(d.slides) || d.slides.length === 0) throw new Error("AI returned no carousel slides")
+  const realHandle = brand.instagram_handle ? `@${brand.instagram_handle}` : undefined
+  const finished = finishGeneratedCarousel(d, brand, { realHandle })
+  const slides = finished.slides
+  const cta = slides.find((s) => s.type === "cta")
+  const hook = (typeof finished.coverHook === "string" && finished.coverHook.trim()) || (typeof slides[0]?.headline === "string" ? slides[0].headline : "") || slot.theme
+  const text = (v: unknown) => (typeof v === "string" ? v : "")
+
+  return {
+    title: (typeof finished.title === "string" && finished.title.trim()) || slot.theme,
+    hook,
+    caption: carouselCaption(d, slides),
+    hashtags: Array.isArray(d.hashtags) ? d.hashtags.filter((h): h is string => typeof h === "string").map((h) => h.replace(/^#+/, "")) : [],
+    visual_direction: text((slides[0]?.visual as { must_show?: unknown } | undefined)?.must_show),
+    audio_suggestion: "",
+    call_to_action: text(cta?.cta),
+    slides: slides.map((s, i) => ({
+      slide_number: i + 1,
+      headline: text(s.headline),
+      body: text(s.subtext) || (Array.isArray(s.points) ? s.points.filter((p): p is string => typeof p === "string").join(" · ") : "") || text(s.cta),
+      kicker: typeof s.kicker === "string" ? s.kicker : null,
+      highlight: typeof s.highlight === "string" ? s.highlight : null,
+    })),
+    model: gen.model,
+    gate: gen.gate,
+    carousel: { slides, typography: finished.typography },
+  }
+}
+
+// Reel slot (REELS_ENABLED is false): the original single-shot generation,
+// unchanged -- one creative call, the fact guard, a regex fallback.
+async function generateReelSlotContent(
+  brand: BrandRow,
+  slot: ContentSlot,
+  product: ProductRow | null,
+  totalSlots: number,
+  tracker?: AutopilotUsageTracker,
+  factGuardDeadline?: number,
+  lessons?: BrandLesson[],
+): Promise<SlotContent> {
   // Moved from Groq to OpenAI (MODELS.creative) in the Phase 1b migration.
-  // Final single-post content generation, similar scale/purpose to the
-  // captions/social_post call sites -- "low", same effort and budget as on
-  // Groq. Runs once per slot (up to 30 per run, 3 concurrently per batch
-  // in executeFastlane below -- already parallel, nothing further to fan
-  // out here).
   const stage = `autopilot_slot_${slot.content_type}`
   const callParams = {
     stage,
     logPrefix: "fastlane",
     system: SLOT_CONTENT_SYSTEM_PROMPT,
-    user: withLessons(isCarousel
-      ? buildCarouselSlotContentPrompt(brand, slot, product)
-      : isReel
-        ? buildReelScriptSlotContentPrompt(brand, slot, product, totalSlots)
-        : buildSlotContentPrompt(brand, slot, product, totalSlots), lessons),
+    user: withLessons(buildReelScriptSlotContentPrompt(brand, slot, product, totalSlots), lessons),
     reasoningEffort: "low" as const,
-    maxCompletionTokens: isCarousel || isReel ? 1800 : 1200,
+    maxCompletionTokens: 1800,
     // ESTIMATE, not measured (no OPENAI_API_KEY where this was written) --
-    // see scripts/test-creative-stages.ts. Kept tight: up to 10 sequential
-    // batches share the route's maxDuration=300 with image generation.
+    // see scripts/test-creative-stages.ts. Kept tight: the slot shares its
+    // lease with the rest of the worker's steps.
     timeoutMs: 30_000,
   }
   const { content, usage, costUsd } = await createCreativeCompletion(callParams)
@@ -557,7 +701,7 @@ export async function generateSlotContent(
 
   let parsed: SlotContent
   try {
-    parsed = parseSlotJson(raw, isCarousel, isReel)
+    parsed = parseSlotJson(raw, false, true)
   } catch {
     parsed = slotContentFromRegex(cleaned, brand, slot)
     // No corrective retry on this path (the model's JSON was already
@@ -576,7 +720,7 @@ export async function generateSlotContent(
     retry: async (correction, timeoutMs) => {
       const retry = await createCreativeCompletion({ ...callParams, timeoutMs, followUp: { previous: raw, correction } })
       trackUsage(tracker, retry.usage, retry.costUsd)
-      return parseSlotJson(retry.content ?? "", isCarousel, isReel)
+      return parseSlotJson(retry.content ?? "", false, true)
     },
   })
 }

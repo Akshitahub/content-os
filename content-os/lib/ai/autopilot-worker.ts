@@ -12,7 +12,14 @@ import { DEFAULT_POST_TEMPLATE_ID } from "@/lib/design/post-templates"
 import { resolveColorThemes, type ColorTheme } from "@/lib/design/color-themes"
 import { mergeCaptionWithHookAndCta } from "@/lib/utils/caption-merge"
 import { MUSIC_OPTIONS, resolveMusicTrackId } from "@/lib/video/music-options"
-import { renderCarouselSlidesToPng } from "@/lib/image/carousel-compositor"
+import { renderCarouselSlidesToPng, renderRichCarouselSlides, type CarouselCompositeSlide } from "@/lib/image/carousel-compositor"
+import { generateCarouselSlideBackground } from "./carousel-slide-background"
+import { sanitizeVisualBrief } from "./visual-brief"
+import { gateEventMeta } from "./quality-gate"
+import { computeTextStyleSafe } from "@/lib/image/text-contrast"
+import { carouselTextRegion, isTextStyle } from "@/lib/design/text-style"
+import { isTextLayoutId } from "@/lib/design/text-layouts"
+import { isFontId } from "@/lib/design/fonts"
 import { uploadMediaToStorage } from "@/lib/storage/upload-media"
 import { refundGenerationUsage } from "@/lib/usage/check-and-increment-usage"
 import { resolveGenerationLimit } from "@/lib/usage/trial-status"
@@ -96,6 +103,10 @@ type PreparedSlot = {
   imageUrl: string | null
   carouselHtml: string | null
   carouselSlides: { slide_number: number; headline: string; body: string; kicker?: string | null; highlight?: string | null }[]
+  /** The shared generator's typed slides, with their background image_url and
+   * text_style once made -- saved as the carousels row (same shape the manual
+   * builder saves). Null when the plain renderer fallback was used. */
+  carouselRichSlides: Record<string, unknown>[] | null
   carouselImageUrls: string[]
   reelScenes: ReelScene[]
   reelMusicUrl: string | null
@@ -270,8 +281,12 @@ async function prepareSlot(admin: Admin, job: SlotJobRow, ctx: RunContext, track
   // Fact-guard retry only if it can still finish well inside the lease.
   // Learned brand lessons for this slot's content: carousels read
   // "carousel", posts/reel captions read "caption". Fail-soft.
-  const lessons = await getActiveLessons(admin, brand.id, isCarousel ? "carousel" : "caption")
-  const generated = await generateSlotContent(brand, slot, product, params.totalSlots, tracker, workDeadline - 60_000, lessons)
+  // Posts also read "hook"-scope lessons, for the hook generator.
+  const [lessons, hookLessons] = await Promise.all([
+    getActiveLessons(admin, brand.id, isCarousel ? "carousel" : "caption"),
+    isCarousel || isReel ? Promise.resolve(undefined) : getActiveLessons(admin, brand.id, "hook"),
+  ])
+  const generated = await generateSlotContent(brand, slot, product, params.totalSlots, tracker, workDeadline - 60_000, lessons, hookLessons)
   tracker.captionMs += Date.now() - captionStartedAt
 
   // The per-slot prompt has no structural guarantee that `caption` opens
@@ -287,8 +302,11 @@ async function prepareSlot(admin: Admin, job: SlotJobRow, ctx: RunContext, track
   if (!isReel && !isCarousel) {
     try {
       const imageStartedAt = Date.now()
+      // The caption's visual brief drives the image: its scene is the prompt
+      // and the brief itself goes along (product-reference and split rules).
       const imageResult = await generatePostImage({
-        imagePrompt: generated.visual_direction || "professional product photography",
+        imagePrompt: generated.imagePrompt || generated.visual_direction || "professional product photography",
+        visualBrief: generated.visual,
         brandNiche: brand.niche,
         targetAudience: brand.target_audience,
         template: DEFAULT_POST_TEMPLATE_ID,
@@ -330,7 +348,35 @@ async function prepareSlot(admin: Admin, job: SlotJobRow, ctx: RunContext, track
       // non-fatal
     }
   }
-  if (isCarousel && carouselSlides.length >= MIN_CAROUSEL_SLIDES) {
+  // Carousel slots: each slide's background from its visual brief, then the
+  // same rich compositor the manual builder exports with. Falls back to the
+  // plain branded renderer below if that fails.
+  let carouselRichSlides: Record<string, unknown>[] | null = null
+  if (isCarousel && generated.carousel && generated.carousel.slides.length >= MIN_CAROUSEL_SLIDES) {
+    try {
+      const imageStartedAt = Date.now()
+      carouselRichSlides = await withCarouselBackgrounds(job, ctx, generated.carousel.slides, tracker)
+      tracker.imageMs += Date.now() - imageStartedAt
+      await rememberBrandTypography(admin, brand, generated.carousel.typography)
+      const rendered = await renderRichCarouselSlides(brand.name, carouselRichSlides.map(toCompositeSlide))
+      const uploaded: string[] = []
+      for (let idx = 0; idx < rendered.length; idx++) {
+        const uploadResult = await uploadMediaToStorage(
+          { kind: "buffer", buffer: rendered[idx]!.png, mimeType: "image/png" },
+          `${job.brand_id}/carousel/${Date.now()}-${idx}`,
+          { generatedImage: true }
+        )
+        if ("publicUrl" in uploadResult) uploaded.push(uploadResult.publicUrl)
+        else console.error(`[autopilot-worker] slot ${job.id}: carousel slide ${idx} upload failed:`, uploadResult.error)
+      }
+      if (uploaded.length >= MIN_CAROUSEL_SLIDES) carouselImageUrls = uploaded
+      else carouselRichSlides = null
+    } catch (err) {
+      console.error(`[autopilot-worker] slot ${job.id}: rich carousel rendering failed, using the plain renderer:`, err instanceof Error ? err.message : err)
+      carouselRichSlides = null
+    }
+  }
+  if (isCarousel && carouselImageUrls.length === 0 && carouselSlides.length >= MIN_CAROUSEL_SLIDES) {
     try {
       // Brand-level typography (lib/design/fonts.ts); carousels are list-heavy.
       const typography = resolveTypography(brand, { density: "dense" })
@@ -363,7 +409,79 @@ async function prepareSlot(admin: Admin, job: SlotJobRow, ctx: RunContext, track
   return {
     generated, mergedCaption, product,
     scheduledDate: slotScheduledDate(params.baseDate, slot.day),
-    isCarousel, isReel, imageUrl, carouselHtml, carouselSlides, carouselImageUrls, reelScenes, reelMusicUrl,
+    isCarousel, isReel, imageUrl, carouselHtml, carouselSlides, carouselRichSlides, carouselImageUrls, reelScenes, reelMusicUrl,
+  }
+}
+
+// Carousel slide roles, as the manual builder assigns them: first = hook,
+// last = cta, everything between = body.
+function carouselBgRole(index: number, count: number): "hook" | "cta" | "body" {
+  if (index === 0) return "hook"
+  if (count > 1 && index === count - 1) return "cta"
+  return "body"
+}
+
+/**
+ * Each slide's background from its own visual brief -- the slide-image
+ * route's call (generateCarouselSlideBackground, "low" quality, text is
+ * composited on top), all slides at once. Each success is uploaded and gets
+ * its text_style; a failed slide keeps its flat background_style. Image
+ * cost is tracked like the post image's.
+ */
+async function withCarouselBackgrounds(job: SlotJobRow, ctx: RunContext, slides: Record<string, unknown>[], tracker: AutopilotUsageTracker): Promise<Record<string, unknown>[]> {
+  const { brand, params } = ctx
+  return Promise.all(slides.map(async (slide, i) => {
+    const visualBrief = sanitizeVisualBrief(slide.visual)
+    if (!visualBrief) return slide
+    try {
+      const result = await generateCarouselSlideBackground({
+        brand,
+        plan: params.plan,
+        isInternalUnlimitedUser: params.isInternalUnlimitedUser,
+        role: carouselBgRole(i, slides.length),
+        visualBrief,
+        quality: "low",
+      })
+      trackUsage(tracker, undefined, attemptsCostUsd(result.attempts))
+      if (!result.success) {
+        console.error(`[autopilot-worker] slot ${job.id}: slide ${i + 1} background failed, keeping its flat style:`, result.error)
+        return slide
+      }
+      const upload = await uploadMediaToStorage({ kind: "buffer", buffer: result.buffer, mimeType: result.mimeType }, `${job.brand_id}/carousel-slides`, { generatedImage: true })
+      if ("error" in upload) {
+        console.error(`[autopilot-worker] slot ${job.id}: slide ${i + 1} background upload failed:`, upload.error)
+        return slide
+      }
+      const textStyle = await computeTextStyleSafe(result.buffer, carouselTextRegion({ x: slide.text_position_x as number | undefined, y: slide.text_position_y as number | undefined }))
+      return { ...slide, image_url: upload.publicUrl, background_image_provider: result.provider, text_style: textStyle }
+    } catch (err) {
+      console.error(`[autopilot-worker] slot ${job.id}: slide ${i + 1} background error, keeping its flat style:`, err instanceof Error ? err.message : err)
+      return slide
+    }
+  }))
+}
+
+// A saved carousel slide -> the rich compositor's slide (the same mapping
+// CarouselBuilder's toExportSlide does).
+function toCompositeSlide(s: Record<string, unknown>): CarouselCompositeSlide {
+  const type = (s.type === "cover" || s.type === "cta" ? s.type : "content") as CarouselCompositeSlide["type"]
+  const str = (v: unknown) => (typeof v === "string" ? v : null)
+  return {
+    type,
+    headline: str(s.headline) ?? "",
+    subtext: type === "cover" ? str(s.subtext) : null,
+    points: type === "content" && Array.isArray(s.points) ? s.points.filter((p): p is string => typeof p === "string") : null,
+    ctaText: type === "cta" ? str(s.cta) : null,
+    ctaHandle: type === "cta" ? str(s.handle) : null,
+    background_style: str(s.background_style),
+    image_url: str(s.image_url),
+    font_id: isFontId(s.font_id) ? s.font_id : null,
+    body_font_id: isFontId(s.body_font_id) ? s.body_font_id : null,
+    text_style: s.image_url && isTextStyle(s.text_style) ? s.text_style : null,
+    text_layout: isTextLayoutId(s.text_layout) ? s.text_layout : null,
+    kicker: str(s.kicker),
+    highlight: str(s.highlight),
+    accent_color: str(s.accent_color),
   }
 }
 
@@ -397,7 +515,7 @@ async function persistSlot(admin: Admin, job: SlotJobRow, ctx: RunContext, p: Pr
     if (p.isCarousel && p.carouselImageUrls.length > 0) {
       const { data } = await db("carousels").insert({
         brand_id: brandId, product_id: p.product?.id ?? null, platform: slot.platform, title: g.title || slot.theme,
-        slides: p.carouselSlides as unknown as Json, hashtags: g.hashtags ?? [], is_saved: true,
+        slides: (p.carouselRichSlides ?? p.carouselSlides) as unknown as Json, hashtags: g.hashtags ?? [], is_saved: true,
       }).select("id").single() as { data: { id: string } | null }
       written.carouselId = data?.id
     }
@@ -471,7 +589,9 @@ async function persistSlot(admin: Admin, job: SlotJobRow, ctx: RunContext, p: Pr
     written.entryId = entry.id
 
     // Autopilot generated these rows and put them on the calendar in one go.
-    const source = { userId: job.user_id, brandId, meta: { source: "autopilot", model: MODELS.creative } }
+    // Same gate metadata the manual routes record (lib/ai/quality-gate.ts), so
+    // admin metrics cover Autopilot too -- on the "generated" events.
+    const source = { userId: job.user_id, brandId, meta: { source: "autopilot", model: g.model ?? MODELS.creative, ...gateEventMeta(g.gate) } }
     recordContentEvent(admin, [
       ...(written.hookId ? [{ ...source, contentType: "hook" as const, contentId: written.hookId, event: "generated" as const }] : []),
       ...(written.captionId ? [{ ...source, contentType: "caption" as const, contentId: written.captionId, event: "generated" as const }] : []),
