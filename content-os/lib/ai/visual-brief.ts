@@ -148,12 +148,37 @@ const TEXT_BEARING_TERMS: { pattern: RegExp; packaging?: boolean }[] = [
 // A qualifier that keeps the object from showing readable text.
 const NO_TEXT_QUALIFIER = /\bface[- ]?down\b|\bturned over\b|\bupside down\b|\bscreen (?:is )?(?:dark|off|black|blank)\b|\b(?:dark|black|blank|switched[- ]off|turned[- ]off) screen\b|\bswitched off\b|\bturned off\b|\bout of focus\b|\bunfocused\b|\bblurr?(?:ed|y)\b|\bsoft[- ]focus\b|\bbokeh\b|\billegible\b|\bunreadable\b|\bblank\b|\bclosed\b|\bno (?:visible |readable )?(?:text|writing|words|lettering)\b|\bwithout (?:any )?(?:text|writing|words|lettering)\b/
 
+// The object is showing something on it -- then only a qualifier in that
+// same clause clears it ("a phone displaying a checkout page, its screen
+// blurred" still renders the page).
+const DISPLAYING = /\b(?:showing|shows|displaying|displays|open (?:to|on)|lit up with|playing|on (?:the |its )?screen)\b/
+// The next clause opens by referring back to the object ("…a phone, its screen dark").
+const REFERS_BACK = /^(?:its|it's|it is|the screen|screen|their screen|whose screen)\b/
+// Within 3 words before "tablet(s)": a medicine / supplement tablet, not a device.
+const MEDICINE_CONTEXT = /\b(?:vitamins?|supplements?|medicines?|medicinal|pills?|capsules?|ayurvedic|herbal|dissolving|effervescent|calcium|iron)\b/
+
+/** A word match that isn't the text-bearing object: "signs of aging", "vitamin tablets", "a tablet of soap". */
+function isOtherSense(word: string, clause: string, index: number): boolean {
+  const after = clause.slice(index + word.length)
+  if (/^signs?$/.test(word)) return /^\s+of\b/.test(after)
+  if (/^tablets?$/.test(word)) {
+    const before = clause.slice(0, index).trim().split(/\s+/).slice(-3).join(" ")
+    return /^\s+of\b/.test(after) || MEDICINE_CONTEXT.test(before)
+  }
+  return false
+}
+
 /**
  * The text-bearing object a brief shows without a qualifier ("face-down",
- * "screen dark", "out of focus", ...), or null. Checked clause by clause:
- * a qualifier counts in the object's clause or the next two ("a phone on
- * the desk beside a coffee, its screen blurred"). Deterministic, no model call -- the
- * quality gate turns a hit into a visual_mismatch for its targeted repair.
+ * "screen dark", "out of focus", ...), or null. Checked clause by clause.
+ * A qualifier counts only in the object's own clause, or in the next clause
+ * when that one opens by referring back to the object ("a person smiling at
+ * their phone, screen out of focus") -- never a qualifier about something
+ * else ("…, a blurred plant in the background"). An object shown displaying
+ * something ("showing", "displaying", "open to", "on screen") needs the
+ * qualifier in its own clause. Deterministic, no model call -- the quality
+ * gate turns a hit into a visual_mismatch for its targeted repair.
+ * scripts/test-text-bearing.ts holds the verified cases.
  */
 export function findTextBearingSubject(brief: VisualBrief | null | undefined, opts: { productReference?: boolean } = {}): string | null {
   if (!brief) return null
@@ -161,12 +186,16 @@ export function findTextBearingSubject(brief: VisualBrief | null | undefined, op
     if (!field) continue
     const clauses = field.toLowerCase().split(/[,;:.]|\s(?:and|with|while|beside|next to|on top of)\s/).map((c) => c.trim()).filter(Boolean)
     for (let i = 0; i < clauses.length; i++) {
+      const clause = clauses[i]!
       for (const term of TEXT_BEARING_TERMS) {
         if (term.packaging && opts.productReference) continue
-        const m = term.pattern.exec(clauses[i]!)
-        if (!m) continue
-        if (clauses.slice(i, i + 3).some((c) => NO_TEXT_QUALIFIER.test(c))) continue
-        return m[0]
+        for (const m of clause.matchAll(new RegExp(term.pattern.source, "g"))) {
+          if (isOtherSense(m[0], clause, m.index ?? 0)) continue
+          if (NO_TEXT_QUALIFIER.test(clause)) continue
+          const next = clauses[i + 1] ?? ""
+          if (!DISPLAYING.test(clause) && REFERS_BACK.test(next) && NO_TEXT_QUALIFIER.test(next)) continue
+          return m[0]
+        }
       }
     }
   }

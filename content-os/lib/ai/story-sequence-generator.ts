@@ -41,7 +41,7 @@ const EXAMPLE_SLIDE_BY_TYPE: Record<string, { text: string; subtext: string; bac
     background: "gradient_violet",
     text_position: "top",
     has_poll: false,
-    visual: { kind: "detail_closeup", must_show: "A phone lying face up on a cluttered desk beside a cold cup of coffee, its screen glowing but blurred, shot from directly above", composition: "phone and cup stacked in the lower half, top third calm for text" },
+    visual: { kind: "detail_closeup", must_show: "A phone lying face up on a cluttered desk, its screen glowing but blurred, beside a cold cup of coffee, shot from directly above", composition: "phone and cup stacked in the lower half, top third calm for text" },
   },
   reveal: {
     text: "Your mornings, back to yourself",
