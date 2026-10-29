@@ -1,5 +1,5 @@
 import type { BrandRow } from "@/types/database"
-import { findContentQualityIssues, sanitizeLeakedArtifacts } from "./content-quality-check"
+import { findContentQualityIssues, normalizeHashtags, sanitizeLeakedArtifacts } from "./content-quality-check"
 import { createCreativeCompletion } from "./creative-completion"
 import { UsageCarryingError, addTextUsage, sumCostUsd, type TextUsage } from "./pricing"
 import { buildFactSource, guardCopy } from "./fact-guard"
@@ -110,7 +110,7 @@ function parseOccasionContent(raw: string): OccasionContent {
   return {
     hook: fix(aiParsed.hook ?? "", "hook"),
     caption: fix(aiParsed.caption ?? "", "caption"),
-    hashtags: Array.isArray(aiParsed.hashtags) ? aiParsed.hashtags : [],
+    hashtags: normalizeHashtags(aiParsed.hashtags),
     visual_direction: aiParsed.visual_direction ?? "",
   }
 }

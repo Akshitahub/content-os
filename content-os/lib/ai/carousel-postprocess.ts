@@ -4,7 +4,7 @@
 // same generator's output instead of a second, drifting copy.
 import type { BrandRow } from "@/types/database"
 import type { CarouselBackgroundStyle } from "@/lib/design/carousel-slide-styles"
-import { findContentQualityIssues, sanitizeLeakedArtifacts } from "@/lib/ai/content-quality-check"
+import { findContentQualityIssues, normalizeHashtags, sanitizeLeakedArtifacts } from "@/lib/ai/content-quality-check"
 import { resolveTypography, type BrandTypography } from "@/lib/design/fonts"
 import { stampSequenceLayouts } from "@/lib/design/text-layouts"
 import { getPrimaryColor } from "@/lib/design/post-card-generator"
@@ -152,7 +152,7 @@ export function finishGeneratedCarousel(
   d: Record<string, unknown>,
   brand: BrandRow,
   opts: { vibe?: string; realHandle?: string },
-): { slides: Record<string, unknown>[]; typography: BrandTypography; title: unknown; coverHook: unknown } {
+): { slides: Record<string, unknown>[]; typography: BrandTypography; title: unknown; coverHook: unknown; hashtags: string[] } {
   let slides = mergeCtaSlideIntoSlides(d.slides as unknown[], d.cta_slide, opts.realHandle)
 
   // Override every slide's background_style with one deterministic,
@@ -188,5 +188,6 @@ export function finishGeneratedCarousel(
     typography,
     title: typeof d.title === "string" ? sanitizeCarouselText(d.title) : d.title,
     coverHook: typeof d.cover_hook === "string" ? sanitizeCarouselText(d.cover_hook) : d.cover_hook,
+    hashtags: normalizeHashtags(d.hashtags),
   }
 }

@@ -5,7 +5,7 @@ import { MODELS, classifyOpenAIError } from "@/lib/ai/models"
 import { checkAndIncrementUsage, refundGenerationUsage, logGenerationOutcome } from "@/lib/usage/check-and-increment-usage"
 import { STORY } from "@/lib/usage/credit-costs"
 import { requestStorySequence } from "@/lib/ai/story-sequence-generator"
-import { findContentQualityIssues, sanitizeLeakedArtifacts } from "@/lib/ai/content-quality-check"
+import { findContentQualityIssues, normalizeHashtags, sanitizeLeakedArtifacts } from "@/lib/ai/content-quality-check"
 import { z } from "zod"
 import type { BrandRow } from "@/types/database"
 import { resolveTypography, type FontId } from "@/lib/design/fonts"
@@ -380,7 +380,7 @@ async function handlePost(request: Request, timer: GenerationTimer) {
     })
     const caption = d.caption as { caption_text?: unknown; hashtags?: unknown } | undefined
     if (caption && typeof caption.caption_text === "string") {
-      d.caption = { ...caption, caption_text: sanitizeStoryText(caption.caption_text) }
+      d.caption = { ...caption, caption_text: sanitizeStoryText(caption.caption_text), hashtags: normalizeHashtags(caption.hashtags) }
     }
 
     // Persist (non-fatal) — matches the pattern used by every other

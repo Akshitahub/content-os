@@ -20,7 +20,7 @@ import {
   buildAdCopyUserPrompt,
 } from "./prompts"
 import { generateValidatedCaption, type CaptionChatMessage } from "./caption-validation"
-import { findContentQualityIssues, sanitizeLeakedArtifacts } from "./content-quality-check"
+import { findContentQualityIssues, normalizeHashtags, sanitizeLeakedArtifacts } from "./content-quality-check"
 import { sanitizeVisualBrief } from "./visual-brief"
 import type { BrandLesson } from "./brand-brain"
 
@@ -175,7 +175,7 @@ function sanitizeContent(
   switch (format) {
     case "reel_script": {
       const d = data as ContentFormatOutputMap["reel_script"]
-      return { ...d, hook: fixText(d.hook, "hook"), caption: fixText(d.caption, "caption"), scenes: d.scenes.map((s) => ({ ...s, visual_direction: fixText(s.visual_direction, "scene visual_direction"), voiceover_or_text_overlay: fixText(s.voiceover_or_text_overlay, "scene voiceover_or_text_overlay") })) }
+      return { ...d, hook: fixText(d.hook, "hook"), caption: fixText(d.caption, "caption"), hashtags: normalizeHashtags(d.hashtags), scenes: d.scenes.map((s) => ({ ...s, visual_direction: fixText(s.visual_direction, "scene visual_direction"), voiceover_or_text_overlay: fixText(s.voiceover_or_text_overlay, "scene voiceover_or_text_overlay") })) }
     }
     case "story": {
       const d = data as ContentFormatOutputMap["story"]
@@ -183,7 +183,7 @@ function sanitizeContent(
     }
     case "carousel": {
       const d = data as ContentFormatOutputMap["carousel"]
-      return { ...d, caption: fixText(d.caption, "caption"), slides: d.slides.map((s) => ({ ...s, headline: fixText(s.headline, "slide headline"), body: fixText(s.body, "slide body") })) }
+      return { ...d, caption: fixText(d.caption, "caption"), hashtags: normalizeHashtags(d.hashtags), slides: d.slides.map((s) => ({ ...s, headline: fixText(s.headline, "slide headline"), body: fixText(s.body, "slide body") })) }
     }
     case "blog_post": {
       const d = data as ContentFormatOutputMap["blog_post"]

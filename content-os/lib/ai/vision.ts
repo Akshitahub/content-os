@@ -4,6 +4,7 @@ import { textCostUsd, toTextUsage, type TextUsage } from "./pricing"
 import type { BrandRow } from "@/types/database"
 import type { GeneratedCaption, GeneratedHook } from "@/types/app"
 import { sanitizeHighlight, sanitizeKicker } from "@/lib/design/text-layouts"
+import { normalizeHashtags } from "./content-quality-check"
 
 function sanitizeJsonString(raw: string): string {
   return raw
@@ -126,7 +127,7 @@ Respond with valid JSON only, no markdown, in exactly this shape:
     },
     caption: {
       caption_text,
-      hashtags: Array.isArray(parsed.hashtags) ? parsed.hashtags.slice(0, 10) : [],
+      hashtags: normalizeHashtags(parsed.hashtags).slice(0, 10),
       cta: parsed.cta?.trim() || "",
       character_count: caption_text.length,
       // On-image extras for the hook (lib/design/text-layouts.ts); the route picks the layout.

@@ -149,7 +149,7 @@ async function handlePost(request: Request, timer: GenerationTimer) {
           platform,
           title: typeof cleanTitle === "string" ? cleanTitle : null,
           slides: mergedSlides,
-          hashtags: Array.isArray(d.hashtags) ? d.hashtags : [],
+          hashtags: finished.hashtags,
           is_saved: true,
         })
         .select("id")
@@ -177,7 +177,7 @@ async function handlePost(request: Request, timer: GenerationTimer) {
     // the client renders and what's in the database consistent from the
     // very first response.
     await recordOutcome(true)
-    return NextResponse.json({ data: { ...d, title: cleanTitle, cover_hook: cleanCoverHook, slides: mergedSlides, id: carouselId } }, { status: 200 })
+    return NextResponse.json({ data: { ...d, title: cleanTitle, cover_hook: cleanCoverHook, slides: mergedSlides, hashtags: finished.hashtags, id: carouselId } }, { status: 200 })
   } catch (err) {
     console.error("[ai/carousel/generate] error:", err)
     await recordOutcome(false, err instanceof Error ? err.message : "Unknown error", err instanceof UsageCarryingError ? err : undefined)

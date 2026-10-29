@@ -6,7 +6,7 @@ import { submitSceneAssetJobs } from "@/lib/video/reel-scene-assets"
 import type { KlingWebhookConfig } from "@/lib/video/kling-client"
 import { createAdminClient } from "@/lib/supabase/server"
 import { CONTENT_MIX, buildContentMix } from "@/lib/ai/autopilot-content-mix"
-import { findContentQualityIssues, sanitizeLeakedArtifacts } from "@/lib/ai/content-quality-check"
+import { findContentQualityIssues, normalizeHashtags, sanitizeLeakedArtifacts } from "@/lib/ai/content-quality-check"
 import type { BrandRow, ProductRow } from "@/types/database"
 import type { ContentStrategy, ContentSlot, GeneratedCaption, Platform, ReelScene, UserPlan } from "@/types/app"
 import { withLessons, type BrandLesson } from "./brand-brain"
@@ -518,6 +518,7 @@ function sanitizeSlotContent(content: SlotContent): SlotContent {
     visual_direction: fix(content.visual_direction),
     audio_suggestion: fix(content.audio_suggestion),
     call_to_action: fix(content.call_to_action),
+    hashtags: normalizeHashtags(content.hashtags),
     slides: content.slides?.map((s) => ({ ...s, headline: fix(s.headline), body: fix(s.body) })),
   }
 }
@@ -648,7 +649,7 @@ async function generateCarouselSlot(
     title: (typeof finished.title === "string" && finished.title.trim()) || slot.theme,
     hook,
     caption: carouselCaption(d, slides),
-    hashtags: Array.isArray(d.hashtags) ? d.hashtags.filter((h): h is string => typeof h === "string").map((h) => h.replace(/^#+/, "")) : [],
+    hashtags: finished.hashtags,
     visual_direction: text((slides[0]?.visual as { must_show?: unknown } | undefined)?.must_show),
     audio_suggestion: "",
     call_to_action: text(cta?.cta),

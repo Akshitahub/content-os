@@ -1,7 +1,7 @@
 import type { BrandRow } from "@/types/database"
 import type { GeneratedCaption, Platform } from "@/types/app"
 import { PLATFORM_CHAR_LIMITS } from "./prompts"
-import { findContentQualityIssues, sanitizeLeakedArtifacts } from "./content-quality-check"
+import { findContentQualityIssues, normalizeHashtags, sanitizeLeakedArtifacts } from "./content-quality-check"
 import { FACT_CORRECTION_PREFIX, buildFactCorrection, factRetryTimeoutMs, findUnsupportedClaimsIn, logFactGuard, stripGuard, type FactSource } from "./fact-guard"
 import { addTextUsage, type TextUsage } from "./pricing"
 
@@ -139,7 +139,7 @@ export function applyLastResortFixes(parsed: GeneratedCaption, brand: BrandRow, 
   // the text that will actually ship.
   if (facts) parsed = stripGuard("caption", parsed, facts)
   let captionText = parsed.caption_text
-  let hashtags = Array.isArray(parsed.hashtags) ? [...new Set(parsed.hashtags.map((h) => h.replace(/^#/, "")))] : []
+  let hashtags = normalizeHashtags(parsed.hashtags)
 
   if (!endsWithCtaAndHandle(captionText, ctaPhrase, handle)) {
     const ending = handle ? `${ctaPhrase} 👇\n${handle}` : `${ctaPhrase} 👇`
@@ -267,6 +267,8 @@ export async function generateValidatedCaption(params: {
   // Final backstop -- covers a skipped retry and any guard error above.
   if (facts) parsed = stripGuard("caption", parsed, facts)
   parsed.character_count = parsed.caption_text.length
+  // Generated hashtags, finalised (no hex codes, numbers or junk; deduped).
+  parsed.hashtags = normalizeHashtags(parsed.hashtags)
 
   return { caption: parsed, usage }
 }
