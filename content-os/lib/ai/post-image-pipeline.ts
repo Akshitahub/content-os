@@ -5,6 +5,7 @@ import { compositePostImageWithWarnings, compositeHardTruthChecklistWithWarnings
 import { computeTextStyleSafe } from "@/lib/image/text-contrast"
 import { generateWithSplitLayer, type SplitLayerInfo } from "./split-layer"
 import { postTextRegion, type TextStyle } from "@/lib/design/text-style"
+import type { TextLayoutId } from "@/lib/design/text-layouts"
 import type { SlideWarning } from "@/lib/design/slide-text-layout"
 import type { PostTemplateId } from "@/lib/design/post-templates"
 import type { ColorTheme } from "@/lib/design/color-themes"
@@ -570,6 +571,12 @@ export interface GeneratePostImageOptions {
    * "the product in a setting" (sketch, swatches, a sequence, a side-by-side
    * comparison) drops the product reference photo for this image. */
   visualBrief?: VisualBrief
+  /** Content-matched layout for captionText (lib/design/text-layouts.ts) --
+   * replaces the template's text treatment when set. */
+  textLayout?: TextLayoutId | null
+  kicker?: string | null
+  highlight?: string | null
+  bodyFontId?: string | null
 }
 
 /**
@@ -737,6 +744,10 @@ export async function generatePostImage(rawOptions: GeneratePostImageOptions): P
       fontId: options.fontId,
       textSizeScale: options.textSizeScale ?? undefined,
       textStyle,
+      textLayout: options.textLayout ?? null,
+      kicker: options.kicker ?? null,
+      highlight: options.highlight ?? null,
+      bodyFontId: options.bodyFontId ?? null,
     })
     console.log(`[post-image-pipeline] composited successfully: ${composited.length} bytes${warnings.length ? ` warnings=${warnings.join(",")}` : ""}`)
     return { success: true, buffer: composited, mimeType: "image/png", fullPrompt, provider: result.provider, attempts: result.attempts, textComposited: true, textStyle, warnings, split }

@@ -269,6 +269,10 @@ type SlideRecord = {
   warnings?: string[]
   /** Split layer (lib/ai/split-layer.ts): whether the two-half composite ran, and both half prompts. */
   split?: { used: boolean; halfPrompts: { left: string; right: string }; fallbackReason?: string } | null
+  /** Content-matched layout (lib/design/text-layouts.ts) the final was rendered with. */
+  textLayout?: string | null
+  kicker?: string | null
+  highlight?: string | null
   latencyMs: number
   costUsd: number | null
   provider: string | null
@@ -289,7 +293,9 @@ async function main(): Promise<void> {
   const { IMAGE_PROVIDER_CONFIG } = await import("@/lib/ai/image-provider")
   const { MODELS } = await import("@/lib/ai/models")
   const { sumCostUsd } = await import("@/lib/ai/pricing")
-  const { resolveSuggestedFont } = await import("@/lib/design/fonts")
+  const { resolveTypography } = await import("@/lib/design/fonts")
+  const { stampSequenceLayouts } = await import("@/lib/design/text-layouts")
+  const { getPrimaryColor } = await import("@/lib/design/post-card-generator")
   const { findContentQualityIssues, sanitizeLeakedArtifacts } = await import("@/lib/ai/content-quality-check")
   const { isInternalUnlimited } = await import("@/lib/usage/is-internal-unlimited")
   const { PLAN_LIMITS } = await import("@/types/app")
@@ -371,9 +377,18 @@ async function main(): Promise<void> {
   const effectiveVibe = vibe || (d.suggested_vibe as string | undefined)
   const vibeBackground = effectiveVibe ? VIBE_TO_CAROUSEL_BACKGROUND[effectiveVibe] : undefined
   if (vibeBackground) slides = slides.map((s) => (s && typeof s === "object" ? { ...s, background_style: vibeBackground } : s))
-  const fontId = resolveSuggestedFont(d.suggested_font_id, brand.vibe, effectiveVibe)
-  slides = slides.map((s) => (s && typeof s === "object" ? { ...s, font_id: fontId } : s))
+  // Brand typography + content-matched layouts, as the route stamps them.
+  const typography = resolveTypography(brand, {
+    density: slides.some((s) => s && typeof s === "object" && Array.isArray((s as { points?: unknown }).points) && ((s as { points: unknown[] }).points.length > 0)) ? "dense" : "normal",
+    suggested: d.suggested_font_id,
+  })
+  const fontId = typography.heading
+  slides = slides.map((s) => (s && typeof s === "object" ? { ...s, font_id: fontId, body_font_id: typography.body } : s))
   slides = sanitizeSlides(slides)
+  slides = stampSequenceLayouts(slides as Record<string, unknown>[], {
+    format: "carousel", brand, headingFont: fontId, accentColor: getPrimaryColor(brand), headlineKey: "headline",
+    toPick: (s) => ({ role: typeof s.role === "string" ? s.role : null, slideType: s.type as "cover" | "content" | "cta", visualKind: (s.visual as { kind?: string } | undefined)?.kind ?? null }),
+  })
 
   // 3. One visual prompt for the whole carousel, as CarouselBuilder's
   // writeVisualPrompt() sends it to /api/v1/ai/image-prompt/write on a first
@@ -451,6 +466,9 @@ async function main(): Promise<void> {
       attempts: result.attempts,
       imageRequests: captured.slice(firstCall),
       split: result.split ?? null,
+      textLayout: typeof s.text_layout === "string" ? s.text_layout : null,
+      kicker: typeof s.kicker === "string" ? s.kicker : null,
+      highlight: typeof s.highlight === "string" ? s.highlight : null,
     }
     const firstImageRequest = record.imageRequests[0]?.request as { prompt?: unknown } | undefined
     record.finalImagePrompt = typeof firstImageRequest?.prompt === "string" ? firstImageRequest.prompt : null
@@ -508,6 +526,10 @@ async function main(): Promise<void> {
         body_font_id: s.body_font_id,
         text_size_scale: s.text_size_scale,
         text_style: file ? (slideRecords[i]?.textStyle as import("@/lib/design/text-style").TextStyle | null | undefined) ?? null : null,
+        text_layout: s.text_layout,
+        kicker: s.kicker,
+        highlight: s.highlight,
+        accent_color: s.accent_color,
       }
     })
     const finals = await renderRichCarouselSlides(brand.name, exportSlides)

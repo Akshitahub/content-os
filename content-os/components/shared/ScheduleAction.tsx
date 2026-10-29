@@ -11,6 +11,7 @@ import { renderStorySlides, type StoryExportSlide } from "@/lib/utils/story-expo
 import { renderCarouselSlides, type CarouselExportSlide } from "@/lib/utils/carousel-export"
 import Link from "next/link"
 import { readJsonResponse } from "@/lib/utils/read-json-response"
+import type { SavedOverlayLayout } from "@/lib/utils/post-overlay-export"
 
 // Extracted from five copy-pasted definitions (AdMaker.tsx,
 // FullPostGenerator.tsx, CarouselBuilder.tsx, StorySequence.tsx, and
@@ -80,6 +81,9 @@ type ScheduleActionProps =
       /** The headline's typeface, saved with the entry so the calendar's
        * re-edit draws it in the same font. */
       overlayFontId?: FontId
+      /** The overlay's text layout + extras (lib/design/text-layouts.ts),
+       * saved with the entry so the calendar's re-edit draws the same layout. */
+      overlayLayout?: SavedOverlayLayout | null
       carouselSlides?: undefined
       storySlides?: undefined
       imageUrls?: undefined
@@ -94,6 +98,7 @@ type ScheduleActionProps =
       baseImageUrl?: undefined
       overlayText?: undefined
       overlayFontId?: undefined
+      overlayLayout?: undefined
       /** Real slide data, rendered server-side via
        * lib/image/carousel-compositor.ts right before scheduling — a
        * clean full-bleed 1080x1350 raster (background + headline/points/
@@ -118,6 +123,7 @@ type ScheduleActionProps =
       baseImageUrl?: undefined
       overlayText?: undefined
       overlayFontId?: undefined
+      overlayLayout?: undefined
       carouselSlides?: undefined
       /** Real slide data, rendered server-side via
        * lib/image/story-compositor.ts right before scheduling — a clean
@@ -136,6 +142,7 @@ type ScheduleActionProps =
       baseImageUrl?: undefined
       overlayText?: undefined
       overlayFontId?: undefined
+      overlayLayout?: undefined
       carouselSlides?: undefined
       storySlides?: undefined
       /** Already-hosted slide image URLs — scheduled directly, no render
@@ -159,6 +166,7 @@ export function ScheduleAction(props: ScheduleActionProps) {
   const baseImageUrl = props.baseImageUrl
   const overlayText = props.overlayText
   const overlayFontId = props.overlayFontId
+  const overlayLayout = props.overlayLayout
   const carouselSlides = props.carouselSlides
   const brandName = props.carouselSlides ? props.brandName : undefined
   const storySlides = props.storySlides
@@ -267,7 +275,7 @@ export function ScheduleAction(props: ScheduleActionProps) {
         brandId, platform, imageUrl, caption, hashtags: hashtags.map((h) => h.replace(/^#+/, "")), scheduledDate: date, scheduledTime: time,
         // Only a real hosted base is re-editable later (a data: URL would
         // bloat the entry and can't be re-fetched reliably).
-        ...(baseImageUrl && /^https?:\/\//.test(baseImageUrl) ? { baseImageUrl, overlayText: overlayText ?? "", overlayFontId } : {}),
+        ...(baseImageUrl && /^https?:\/\//.test(baseImageUrl) ? { baseImageUrl, overlayText: overlayText ?? "", overlayFontId, ...(overlayLayout?.text_layout ? { overlayLayout } : {}) } : {}),
       }
     }
 
@@ -291,7 +299,7 @@ export function ScheduleAction(props: ScheduleActionProps) {
       setErrorMsg("Network error. Please try again.")
       setSubmitState("error")
     }
-  }, [brandId, isMultiSlide, imageUrl, baseImageUrl, overlayText, overlayFontId, carouselSlides, brandName, storySlides, preHostedImageUrls, contentFormat, itemLabel, platform, caption, hashtags, date, time])
+  }, [brandId, isMultiSlide, imageUrl, baseImageUrl, overlayText, overlayFontId, overlayLayout, carouselSlides, brandName, storySlides, preHostedImageUrls, contentFormat, itemLabel, platform, caption, hashtags, date, time])
 
   const isBusy = submitState === "capturing" || submitState === "loading"
 

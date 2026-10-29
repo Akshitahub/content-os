@@ -17,13 +17,16 @@ import { useGenerationStore } from "@/stores/generationStore"
 import { usePromptWriter } from "@/hooks/usePromptWriter"
 import { PromptWriterField } from "@/components/generate/PromptWriterField"
 import { useBrand } from "@/hooks/useBrand"
-import { flattenOverlayImage, overlayScrimStops } from "@/lib/utils/post-overlay-export"
+import { flattenOverlayImage, overlayScrimStops, type OverlayLayout } from "@/lib/utils/post-overlay-export"
 import type { TextStyle } from "@/lib/design/text-style"
 import { resolveFonts, resolveSuggestedFont, DEFAULT_FONT_ID, type FontId } from "@/lib/design/fonts"
 import { PREVIEW_FONT_CLASS } from "@/lib/design/preview-fonts"
 import type { FullPostResult, ContentResult } from "@/hooks/useGeneration"
 import type { ProductRow } from "@/types/database"
 import type { GeneratedHook, GeneratedCaption, ReelScript, CarouselContent, BlogPost, AdCopy } from "@/types/app"
+import { pickTextLayout, type TextLayoutId } from "@/lib/design/text-layouts"
+import { TextLayoutPicker } from "@/components/shared/TextLayoutPicker"
+import { defaultBodyFont } from "@/lib/design/fonts"
 
 type ContentAngle = "auto" | "problem_solution" | "quick_tip" | "myth_contrarian" | "launch_offer"
 
@@ -107,6 +110,9 @@ export function FullPostGenerator({ brandId, products }: Props) {
   // From the post-image response: scrim/backing for the overlay headline
   // (preview and flattenOverlayImage use the same values).
   const [postTextStyle, setPostTextStyle] = useState<TextStyle | null>(null)
+  // Content-matched layout for the overlay headline (lib/design/text-layouts.ts),
+  // from the caption; the user's pick (source "user") wins over the auto-pick.
+  const [overlayLayout, setOverlayLayout] = useState<OverlayLayout | null>(null)
   const [imageSource, setImageSource] = useState<"ai" | null>(null)
   // Commit 3 (overlay decoupling): for the "ai" path, postImageUrl is now
   // ALWAYS the clean, text-free background — runImageGeneration below no
@@ -219,6 +225,16 @@ export function FullPostGenerator({ brandId, products }: Props) {
         onSuccess: (imgData) => {
           setPostImageUrl(imgData.public_url)
           setPostTextStyle(imgData.text_style ?? null)
+          // A busy image moves an auto layout to one with its own backing.
+          setOverlayLayout(caption.text_layout ? {
+            text_layout: caption.text_layout_source === "user" || !imgData.text_style
+              ? caption.text_layout
+              : pickTextLayout({ format: "post", brand: { vibe: brand?.vibe }, headingFont: initialOverlayFont, visualKind: caption.visual?.kind ?? null, textStyle: imgData.text_style }),
+            kicker: caption.kicker ?? null,
+            highlight: caption.highlight ?? null,
+            text_layout_source: caption.text_layout_source ?? "auto",
+            brand_color: caption.accent_color ?? null,
+          } : null)
           setImageSource("ai")
           setOverlayText(initialOverlayText)
           setOverlayFontId(initialOverlayFont)
@@ -234,7 +250,7 @@ export function FullPostGenerator({ brandId, products }: Props) {
         },
       }
     )
-  }, [brandId, selectedProductId, selectedLayout, effectiveColorThemeId, aspectRatio, visualStyle, headlineOverlay, generatePostImageMutate, promptWriter])
+  }, [brandId, selectedProductId, selectedLayout, effectiveColorThemeId, aspectRatio, visualStyle, headlineOverlay, generatePostImageMutate, promptWriter, brand?.vibe])
 
   // Kicks off the prompt-writing stage instead of generating the image
   // immediately -- fired both right after a fresh caption generation
@@ -398,13 +414,13 @@ export function FullPostGenerator({ brandId, products }: Props) {
     let cancelled = false
     setFlattening(true)
     const timer = setTimeout(() => {
-      flattenOverlayImage(postImageUrl, overlayText, undefined, overlayFontId, postTextStyle)
+      flattenOverlayImage(postImageUrl, overlayText, undefined, overlayFontId, postTextStyle, overlayLayout ? { ...overlayLayout, body_font_id: defaultBodyFont(overlayFontId) } : null)
         .then((dataUrl) => { if (!cancelled) setFlattenedImageUrl(dataUrl) })
         .catch(() => { if (!cancelled) setFlattenedImageUrl(null) })
         .finally(() => { if (!cancelled) setFlattening(false) })
     }, 400)
     return () => { cancelled = true; clearTimeout(timer) }
-  }, [imageSource, postImageUrl, overlayText, overlayFontId, postTextStyle])
+  }, [imageSource, postImageUrl, overlayText, overlayFontId, postTextStyle, overlayLayout])
 
   const copy = useCallback((text: string, key: string) => {
     navigator.clipboard.writeText(text)
@@ -691,6 +707,8 @@ export function FullPostGenerator({ brandId, products }: Props) {
             overlayFontId={overlayFontId}
             onOverlayFontChange={setOverlayFontId}
             overlayTextStyle={postTextStyle}
+            overlayLayout={overlayLayout}
+            onOverlayLayoutChange={(layout) => setOverlayLayout((prev) => (prev ? { ...prev, text_layout: layout, text_layout_source: "user" } : prev))}
             flattenedImageUrl={flattenedImageUrl}
             flattening={flattening}
             previewMode={previewMode}
@@ -978,6 +996,8 @@ function PostImagePreview({
   overlayFontId,
   onOverlayFontChange,
   overlayTextStyle,
+  overlayLayout,
+  onOverlayLayoutChange,
   downloadUrl,
   flattening,
   previewMode,
@@ -1001,6 +1021,8 @@ function PostImagePreview({
   overlayFontId: FontId
   onOverlayFontChange: (fontId: FontId) => void
   overlayTextStyle: TextStyle | null
+  overlayLayout: OverlayLayout | null
+  onOverlayLayoutChange: (layout: TextLayoutId) => void
   /** What Download/Schedule should actually use — the flattened (headline
    * baked in) PNG when there's overlay text, otherwise the clean
    * background itself. Never re-generates anything; this is client-canvas
@@ -1067,7 +1089,16 @@ function PostImagePreview({
   // The bare graphic + editable headline layer — identical markup whether
   // shown standalone (canvas mode) or nested inside the IG chrome shell
   // (feed mode) below, so what you edit is always the same element.
-  const graphicWithOverlay = (
+  // With a layout, the preview IS the flattened export (flattenOverlayImage
+  // draws the shared plan) -- preview = download = scheduled image; the
+  // headline is edited in the field below instead of on the image.
+  const layoutPreview = !!overlayLayout?.text_layout && showHeadlineEditor
+  const graphicWithOverlay = layoutPreview ? (
+    <div className="relative w-full overflow-hidden">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={downloadUrl || postImageUrl} alt={alt} className={`w-full object-contain ${flattening ? "opacity-80" : ""}`} />
+    </div>
+  ) : (
     <div className="relative w-full overflow-hidden">
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img src={postImageUrl} alt={alt} className="w-full object-contain" />
@@ -1189,6 +1220,19 @@ function PostImagePreview({
       {/* Headline typeface -- starts at the model's pick for this post
           (suggested_font_id); changing it only redraws the canvas, no
           credits. Only shown while there's a headline to apply it to. */}
+      {showOverlayEditor && layoutPreview && (
+        <div className="space-y-2">
+          <textarea
+            value={overlayText}
+            onChange={(e) => onOverlayTextChange(e.target.value)}
+            rows={2}
+            placeholder="Headline on the image"
+            className="w-full resize-none rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+          />
+          <TextLayoutPicker value={overlayLayout?.text_layout} onChange={onOverlayLayoutChange} />
+        </div>
+      )}
+
       {showOverlayEditor && showHeadlineEditor && (
         <div className="flex flex-wrap items-center gap-1.5">
           <span className="text-[11px] text-muted-foreground">Font</span>
@@ -1227,6 +1271,8 @@ function FullPostResults({
   overlayFontId,
   onOverlayFontChange,
   overlayTextStyle,
+  overlayLayout,
+  onOverlayLayoutChange,
   flattenedImageUrl,
   flattening,
   previewMode,
@@ -1249,6 +1295,8 @@ function FullPostResults({
   overlayFontId: FontId
   onOverlayFontChange: (fontId: FontId) => void
   overlayTextStyle: TextStyle | null
+  overlayLayout: OverlayLayout | null
+  onOverlayLayoutChange: (layout: TextLayoutId) => void
   flattenedImageUrl: string | null
   flattening: boolean
   previewMode: "canvas" | "feed"
@@ -1297,6 +1345,8 @@ function FullPostResults({
         overlayFontId={overlayFontId}
         onOverlayFontChange={onOverlayFontChange}
         overlayTextStyle={overlayTextStyle}
+        overlayLayout={overlayLayout}
+        onOverlayLayoutChange={onOverlayLayoutChange}
         downloadUrl={shareableImageUrl ?? postImageUrl ?? ""}
         flattening={flattening}
         previewMode={previewMode}
@@ -1318,6 +1368,7 @@ function FullPostResults({
           baseImageUrl={imageSource === "ai" ? postImageUrl : null}
           overlayText={overlayText}
           overlayFontId={overlayFontId}
+          overlayLayout={overlayLayout ? { ...overlayLayout, body_font_id: defaultBodyFont(overlayFontId), text_style: overlayTextStyle } : null}
           caption={scheduleCaption.text}
           hashtags={scheduleCaption.hashtags}
         />

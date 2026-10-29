@@ -9,6 +9,9 @@ import { checkAndIncrementUsage, refundGenerationUsage, logGenerationOutcome } f
 import { PHOTO_CAPTION } from "@/lib/usage/credit-costs"
 import type { BrandRow } from "@/types/database"
 import { timedGenerationRoute, type GenerationTimer } from "@/lib/utils/generation-timing"
+import { stampPostLayout } from "@/lib/design/text-layouts"
+import { getPrimaryColor } from "@/lib/design/post-card-generator"
+import { resolveTypography } from "@/lib/design/fonts"
 
 const FEATURE = "fullpost_photo_upload"
 
@@ -84,6 +87,8 @@ async function handlePost(request: Request, timer: GenerationTimer) {
 
   try {
     const { hook, caption, model, usage, costUsd } = await timer.step("caption", analyzePhotoForPost(brand, photoUrl, additionalContext))
+    // Layout for the hook if it's put on the photo (lib/design/text-layouts.ts).
+    Object.assign(caption, stampPostLayout(caption, hook.hook_text, { brand, headingFont: resolveTypography(brand).heading, accentColor: getPrimaryColor(brand) }))
 
     // Same content_projects linking pattern as fullpost/generate — lets the
     // Library find this caption and its image as one post instead of two

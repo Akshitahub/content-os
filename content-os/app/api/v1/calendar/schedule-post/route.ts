@@ -5,6 +5,7 @@ import { uploadMediaToStorage } from "@/lib/storage/upload-media"
 import { checkAndIncrementScheduleUsage } from "@/lib/usage/check-and-increment-abuse-limits"
 import type { CalendarEntryInsert, CalendarEntryRow, Json } from "@/types/database"
 import { z } from "zod"
+import { savedOverlayLayoutSchema } from "@/lib/design/text-layouts"
 
 // Re-hosting a carousel/story's images (now usually just a fast
 // server-to-server copy of an already-hosted URL — see ScheduleAction.tsx —
@@ -28,6 +29,9 @@ const schedulePostSchema = z.object({
   baseImageUrl: z.string().url().max(2000).regex(/^https?:\/\//).optional(),
   overlayText: z.string().max(300).optional(),
   overlayFontId: z.enum(["anton", "inter", "playfair", "quicksand", "caveat"]).optional(),
+  // The overlay's content-matched layout (lib/design/text-layouts.ts), kept so
+  // the calendar's "Edit text on image" redraws the same layout.
+  overlayLayout: savedOverlayLayoutSchema.optional(),
   imageUrls: z.array(z.string().min(1)).optional(),
   videoUrl: z.string().min(1).optional(),
   contentFormat: z.enum(["single", "carousel", "story", "video"]).default("single"),
@@ -80,7 +84,7 @@ export async function POST(request: Request) {
   const parsed = schedulePostSchema.safeParse(body)
   if (!parsed.success) return NextResponse.json(buildError(ErrorCodes.VALIDATION_ERROR, "Validation failed.", parsed.error.message), { status: 400 })
 
-  const { brandId, platform, imageUrl, imageUrls, videoUrl, contentFormat, caption, hashtags, scheduledDate, scheduledTime, baseImageUrl, overlayText, overlayFontId } = parsed.data
+  const { brandId, platform, imageUrl, imageUrls, videoUrl, contentFormat, caption, hashtags, scheduledDate, scheduledTime, baseImageUrl, overlayText, overlayFontId, overlayLayout } = parsed.data
 
   const { data: brand } = await supabase.from("brands").select("user_id").eq("id", brandId).single<{ user_id: string }>()
   if (!brand) return NextResponse.json(buildError(ErrorCodes.BRAND_NOT_FOUND, "Brand not found."), { status: 404 })
@@ -157,7 +161,7 @@ export async function POST(request: Request) {
     platformSpecificData = {
       image_url: imageUrl,
       hosted_image_url: uploadResult.publicUrl,
-      ...(baseImageUrl ? { base_image_url: baseImageUrl, overlay_text: overlayText ?? "", ...(overlayFontId ? { overlay_font_id: overlayFontId } : {}) } : {}),
+      ...(baseImageUrl ? { base_image_url: baseImageUrl, overlay_text: overlayText ?? "", ...(overlayFontId ? { overlay_font_id: overlayFontId } : {}), ...(overlayLayout ? { overlay_layout: overlayLayout } : {}) } : {}),
     }
   }
 

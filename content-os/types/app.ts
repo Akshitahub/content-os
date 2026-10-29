@@ -2,6 +2,7 @@ import type { BrandRow, ProductRow, CalendarEntryRow } from "./database"
 import type { PostTemplateId } from "@/lib/design/post-templates"
 import type { FontId } from "@/lib/design/fonts"
 import type { VisualBrief } from "@/lib/ai/visual-brief"
+import type { TextLayoutId } from "@/lib/design/text-layouts"
 
 /**
  * App-level types — these are what components and hooks work with.
@@ -94,6 +95,14 @@ export type GeneratedCaption = {
    * (lib/ai/visual-brief.ts). Sent to the image-prompt writer and the
    * post-image route as visualBrief. */
   visual?: VisualBrief | null
+  /** Content-matched text layout for the on-image text (lib/design/
+   * text-layouts.ts) + its kicker / highlight, already sanitized. */
+  text_layout?: TextLayoutId | null
+  kicker?: string | null
+  highlight?: string | null
+  text_layout_source?: "auto" | "user" | null
+  /** The brand colour the layout uses for accents / the split panel. */
+  accent_color?: string | null
 }
 
 export type PostPlan = {
@@ -269,6 +278,9 @@ export type AdVariant = {
   primary_text: string
   cta_button: string
   visual?: VisualBrief
+  /** On-image extras (lib/design/text-layouts.ts), already sanitized. */
+  kicker?: string | null
+  highlight?: string | null
 }
 
 // Maps each ContentFormat to its output type.

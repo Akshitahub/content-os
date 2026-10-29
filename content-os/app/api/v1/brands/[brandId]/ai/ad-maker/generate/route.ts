@@ -24,6 +24,8 @@ import { resolveTypography } from "@/lib/design/fonts"
 import { rememberBrandTypography } from "@/lib/design/brand-typography"
 import { computeTextStyleSafe } from "@/lib/image/text-contrast"
 import { adTextRegion } from "@/lib/design/text-style"
+import { pickTextLayout } from "@/lib/design/text-layouts"
+import { getPrimaryColor } from "@/lib/design/post-card-generator"
 
 const BUCKET = "brand-images"
 
@@ -277,12 +279,22 @@ async function handlePost(request: Request, { params }: RouteParams, timer: Gene
 
   // url/provider stay where older clients read them; variant (the copy for
   // this image) and ad_brief are new and null when the strategy step failed.
+  // Content-matched layout per variation (lib/design/text-layouts.ts):
+  // offer badge only with a real offer from the brief, else the angle decides.
+  const layoutTypography = resolveTypography(brand)
   const variations = uploaded.map((u) => ({
     url: admin.storage.from(BUCKET).getPublicUrl(u.storagePath).data.publicUrl,
     provider: u.provider,
     variant: u.variant,
     text_style: u.textStyles[textPosition ?? "top"],
     text_styles: u.textStyles,
+    text_layout: pickTextLayout({
+      format: "ad", brand, headingFont: layoutTypography.heading, angle: u.variant?.angle ?? null,
+      offer: strategy?.brief.offer ?? null, proof: strategy?.brief.proof ?? null, textStyle: u.textStyles[textPosition ?? "top"],
+    }),
+    text_layout_source: "auto" as const,
+    kicker: u.variant?.kicker ?? null,
+    highlight: u.variant?.highlight ?? null,
   }))
 
   // No content row exists for Ad Maker, so no id -- and "Generate again"
@@ -301,5 +313,5 @@ async function handlePost(request: Request, { params }: RouteParams, timer: Gene
   const typography = resolveTypography(brand)
   await rememberBrandTypography(supabase, brand, typography)
 
-  return NextResponse.json({ data: { variations, ad_brief: strategy?.brief ?? null, typography: { heading: typography.heading, body: typography.body } } }, { status: 200 })
+  return NextResponse.json({ data: { variations, ad_brief: strategy?.brief ?? null, typography: { heading: typography.heading, body: typography.body }, layout: { offer: strategy?.brief.offer ?? null, accent_color: getPrimaryColor(brand) } } }, { status: 200 })
 }

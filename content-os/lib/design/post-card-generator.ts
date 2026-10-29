@@ -470,6 +470,9 @@ export interface CarouselSlide {
   slide_number: number
   headline: string
   body: string
+  /** On-image extras (lib/design/text-layouts.ts) -- optional, raw from the model. */
+  kicker?: string | null
+  highlight?: string | null
 }
 
 export function generateCarouselHtml(

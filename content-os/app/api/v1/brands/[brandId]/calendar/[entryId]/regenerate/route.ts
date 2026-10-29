@@ -22,6 +22,8 @@ import { prepareGeneratedImage } from "@/lib/storage/generated-image"
 import { getActiveLessons } from "@/lib/ai/brand-brain"
 import { resolveTypography } from "@/lib/design/fonts"
 import { rememberBrandTypography } from "@/lib/design/brand-typography"
+import { stampPostLayout } from "@/lib/design/text-layouts"
+import { getPrimaryColor } from "@/lib/design/post-card-generator"
 
 const IMAGE_BUCKET = "brand-images"
 const FEATURE = "calendar_regenerate"
@@ -143,7 +145,8 @@ async function handlePost(request: Request, { params }: RouteParams, timer: Gene
         try {
           const typography = resolveTypography(brand, { density: "dense" })
           await rememberBrandTypography(supabase, brand, typography)
-          const slidePngs = await renderCarouselSlidesToPng({ brand, coverHook, slides: carousel.slides, fontId: typography.heading })
+          // Content-matched layouts from each slide's kicker / highlight (lib/design/text-layouts.ts).
+          const slidePngs = await renderCarouselSlidesToPng({ brand, coverHook, slides: carousel.slides, fontId: typography.heading, autoLayouts: true })
           const uploaded: string[] = []
           for (let idx = 0; idx < slidePngs.length; idx++) {
             const uploadResult = await uploadMediaToStorage(
@@ -216,6 +219,9 @@ async function handlePost(request: Request, { params }: RouteParams, timer: Gene
     // by merging the old separate headline/CTA into the pipeline's new
     // single captionText field, same reasoning as lib/ai/fastlane.ts.
     const regenCaptionText = [hook.hook_text, caption.cta || brand.cta_phrase || "Shop now"].filter(Boolean).join(" — ")
+    // Content-matched layout for the composited text (lib/design/text-layouts.ts).
+    const regenTypography = resolveTypography(brand)
+    const regenLayout = stampPostLayout(caption, regenCaptionText, { brand, headingFont: regenTypography.heading, visualKind: caption.visual?.kind, accentColor: getPrimaryColor(brand) })
     const imageResult = await timer.step("image", withDeadline(generatePostImage({
       imagePrompt: caption.image_prompt || entry.visual_direction || "professional product photography",
       brandNiche: brand.niche,
@@ -224,7 +230,11 @@ async function handlePost(request: Request, { params }: RouteParams, timer: Gene
       colorTheme: resolveColorThemes(brand)[0]!,
       captionText: regenCaptionText,
       // Brand-level typography for the composited caption (lib/design/fonts.ts).
-      fontId: resolveTypography(brand).heading,
+      fontId: regenTypography.heading,
+      bodyFontId: regenTypography.body,
+      textLayout: regenLayout.text_layout,
+      kicker: regenLayout.kicker,
+      highlight: regenLayout.highlight,
       logoUrl: brand.logo_url,
       plan,
       isInternalUnlimitedUser,

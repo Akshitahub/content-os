@@ -3,6 +3,7 @@ import { buildBrandContext } from "./prompts"
 import { textCostUsd, toTextUsage, type TextUsage } from "./pricing"
 import type { BrandRow } from "@/types/database"
 import type { GeneratedCaption, GeneratedHook } from "@/types/app"
+import { sanitizeHighlight, sanitizeKicker } from "@/lib/design/text-layouts"
 
 function sanitizeJsonString(raw: string): string {
   return raw
@@ -51,7 +52,9 @@ Respond with valid JSON only, no markdown, in exactly this shape:
   "hook_text": string (a short, scroll-stopping opening line, max 8 words, grounded in the photo),
   "caption_text": string (2-4 sentences, in the brand's voice, describing/celebrating what's actually in the photo),
   "hashtags": string[] (5-8 relevant hashtags, no # symbol),
-  "cta": string (a short call to action, using the brand's CTA phrase if one was given above, otherwise a natural one)
+  "cta": string (a short call to action, using the brand's CTA phrase if one was given above, otherwise a natural one),
+  "kicker": string | null (optional label shown above the hook on the image, 4 words or fewer),
+  "highlight": string | null (optional 1-4 words copied exactly from hook_text to show in the accent colour)
 }`
 
   const userPromptText = additionalContext
@@ -108,6 +111,8 @@ Respond with valid JSON only, no markdown, in exactly this shape:
     caption_text?: string
     hashtags?: string[]
     cta?: string
+    kicker?: unknown
+    highlight?: unknown
   }
 
   const caption_text = parsed.caption_text?.trim() || "Check this out!"
@@ -124,6 +129,9 @@ Respond with valid JSON only, no markdown, in exactly this shape:
       hashtags: Array.isArray(parsed.hashtags) ? parsed.hashtags.slice(0, 10) : [],
       cta: parsed.cta?.trim() || "",
       character_count: caption_text.length,
+      // On-image extras for the hook (lib/design/text-layouts.ts); the route picks the layout.
+      kicker: sanitizeKicker(parsed.kicker),
+      highlight: sanitizeHighlight(parsed.highlight, hook_text),
     },
     model: MODELS.vision,
     usage: toTextUsage(res.usage),

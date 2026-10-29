@@ -6,11 +6,15 @@ import { Resvg } from "@resvg/resvg-js"
 import { decompress } from "wawoff2"
 import { getPrimaryColor, getSecondaryColor } from "@/lib/design/post-card-generator"
 import type { CarouselSlide } from "@/lib/design/post-card-generator"
-import { CURATED_FONTS, DEFAULT_FONT_ID, FONT_FAMILY_NAME, findFont } from "@/lib/design/fonts"
+import { CURATED_FONTS, DEFAULT_FONT_ID, FONT_FAMILY_NAME, defaultBodyFont, findFont } from "@/lib/design/fonts"
 import type { FontId } from "@/lib/design/fonts"
 import type { BrandRow } from "@/types/database"
 import { sanitizeTextForCompositing } from "@/lib/image/sanitize-text-for-compositing"
 import { TEXT_STYLE_PALETTE, backingRgba, type TextStyle } from "@/lib/design/text-style"
+import {
+  carouselBrandPrim, carouselSlidePlan, carouselStepNumbers, planTextLayout, stampSequenceLayouts, svgFamilies, type TextLayoutFields,
+} from "@/lib/design/text-layouts"
+import { layoutPrimsToSvg } from "@/lib/design/text-layout-render"
 import {
   CAROUSEL_BRAND_BASELINE, SAFE_EDGE_RATIO, TEXT_OVERFLOW_WARNING, clampBlockTop, estimateBlockWidth, fitTextStack,
   layoutCarouselText, type FittedBlock, type SlideWarning,
@@ -117,12 +121,50 @@ function buildSlideSvg(params: SlideRenderParams): { svg: string; overflow: bool
   return { svg: `<svg width="${CANVAS_SIZE}" height="${CANVAS_SIZE}" xmlns="http://www.w3.org/2000/svg">${bg}${isCover ? swipeSvg : numSvg}${seriesSvg}${headlineSvg}${bodySvg}${brandSvg}</svg>`, overflow: stack.overflow }
 }
 
+// The plain (Autopilot) slide with a content-matched layout: same brand
+// gradient / white background and corner labels, text from the shared plan.
+function buildLayoutSlideSvg(params: SlideRenderParams, stamped: TextLayoutFields & { headline: string }, heading: FontId): { svg: string; overflow: boolean } {
+  const { index, total, isCover, isLast, primary, secondary } = params
+  const useGradient = isCover || isLast
+  const bg = useGradient
+    ? `<defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="${primary}"/><stop offset="100%" stop-color="${secondary}"/></linearGradient></defs><rect width="${CANVAS_SIZE}" height="${CANVAS_SIZE}" fill="url(#bg)"/>`
+    : `<rect width="${CANVAS_SIZE}" height="${CANVAS_SIZE}" fill="#ffffff"/>`
+  const body = defaultBodyFont(heading)
+  const content = index > 0 && !isLast ? index : null
+  const plan = planTextLayout({
+    layout: stamped.text_layout!,
+    width: CANVAS_SIZE,
+    height: CANVAS_SIZE,
+    content: { headline: stamped.headline, kicker: stamped.kicker, highlight: stamped.highlight, subtext: params.body || null, number: content },
+    fonts: { heading, body },
+    baseColors: useGradient ? { text: "#ffffff", sub: "rgba(255,255,255,0.85)" } : { text: primary, sub: "#555555" },
+    // The split panel / accents use the colour the slide isn't already filled with.
+    brandColor: useGradient ? secondary : primary,
+    reserveBottom: 50,
+  })
+  const edge = Math.round(CANVAS_SIZE * SAFE_EDGE_RATIO)
+  const labelColor = useGradient ? "rgba(255,255,255,0.6)" : "#bbbbbb"
+  const corner = isCover
+    // The arrow is drawn, not a glyph -- the body face's Latin subset has no U+2192.
+    ? `<text x="${CANVAS_SIZE - edge - 34}" y="${edge + 6}" text-anchor="end" font-family="${familyAttr(body)}" font-weight="400" font-size="20" fill="${labelColor}">SWIPE</text><path d="M ${CANVAS_SIZE - edge - 26} ${edge} h 24 m -8 -7 l 8 7 l -8 7" fill="none" stroke="${labelColor}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>`
+    : `<text x="${CANVAS_SIZE - edge}" y="${edge + 6}" text-anchor="end" font-family="${familyAttr(body)}" font-weight="400" font-size="22" fill="${labelColor}">${index + 1} / ${total}</text>`
+  const brandName = sanitizeTextForCompositing(params.brandName)
+  const brandSvg = `<text x="50%" y="${CANVAS_SIZE - edge}" text-anchor="middle" font-family="${familyAttr(body)}" font-weight="400" font-size="22" fill="${labelColor}">${escapeXml(brandName.toUpperCase())}</text>`
+  return {
+    svg: `<svg width="${CANVAS_SIZE}" height="${CANVAS_SIZE}" xmlns="http://www.w3.org/2000/svg">${bg}${corner}${layoutPrimsToSvg(plan.prims, svgFamilies(FONT_FAMILY_NAME, { heading, body }))}${brandSvg}</svg>`,
+    overflow: plan.overflow,
+  }
+}
+
 export interface RenderCarouselSlidesOptions {
   brand: BrandRow
   coverHook: string
   slides: CarouselSlide[]
   /** The brand's heading font (lib/design/fonts.ts resolveTypography); omitted = DEFAULT_FONT_ID. */
   fontId?: FontId
+  /** Content-matched layouts (lib/design/text-layouts.ts), auto-picked per
+   * slide with the slides' kicker / highlight. Omitted = the original layout. */
+  autoLayouts?: boolean
 }
 
 /**
@@ -150,11 +192,28 @@ export async function renderCarouselSlides(options: RenderCarouselSlidesOptions)
   // only exist on CarouselBuilder.tsx's rich manual flow below) -- always
   // DEFAULT_FONT_ID, unchanged from this renderer's pre-existing behavior.
   const fontPath = await getFontPath(options.fontId ?? DEFAULT_FONT_ID)
+  const heading = options.fontId ?? DEFAULT_FONT_ID
+  const layouts = options.autoLayouts
+    ? stampSequenceLayouts(slides.map((s, i) => ({
+        type: i === 0 ? "cover" : i === slides.length - 1 ? "cta" : "content",
+        headline: i === 0 ? coverHook : s.headline,
+        kicker: s.kicker,
+        highlight: s.highlight,
+      })), {
+        format: "carousel", brand, headingFont: heading, accentColor: primary, headlineKey: "headline",
+        toPick: (s) => ({ slideType: s.type as "cover" | "content" | "cta", role: s.type === "cover" ? "hook" : s.type === "cta" ? "cta" : null }),
+      })
+    : null
 
   return Promise.all(
-    slides.map((slide, i) => {
+    slides.map(async (slide, i) => {
       const isCover = i === 0
       const isLast = i === slides.length - 1
+      const stamped = layouts?.[i]
+      if (stamped?.text_layout) {
+        const svg = buildLayoutSlideSvg({ index: i, total, isCover, isLast, headline: stamped.headline, body: isCover ? "" : slide.body, brandName, primary, secondary }, stamped, heading)
+        return { png: await svgToRichPngBuffer(svg.svg, heading, defaultBodyFont(heading)), warnings: svg.overflow ? [TEXT_OVERFLOW_WARNING] : [] }
+      }
 
       const { svg, overflow } = buildSlideSvg({
         index: i,
@@ -306,6 +365,13 @@ export interface CarouselCompositeSlide {
   /** Computed once from image_url where it was generated (lib/image/
    * text-contrast.ts). Absent = the old fixed gradient scrim + white text. */
   text_style?: TextStyle | null
+  /** Content-matched layout (lib/design/text-layouts.ts) + its kicker /
+   * highlight. Absent = this file's original centered layout, unchanged. */
+  text_layout?: TextLayoutFields["text_layout"]
+  kicker?: string | null
+  highlight?: string | null
+  /** The brand colour layouts use for accents and the split panel. */
+  accent_color?: string | null
 }
 
 /** Priority matches SlidePreview exactly: an AI photo beats a custom
@@ -313,7 +379,7 @@ export interface CarouselCompositeSlide {
  * custom-color both get a scrim; presets never do. A photo with a
  * text_style gets that style's uniform scrim and text color instead of the
  * fixed gradient (`styled` tells the overlay to honour needs_backing). */
-async function buildRichBackgroundLayer(slide: CarouselCompositeSlide): Promise<{ buffer: Buffer; textColor: string; subtextColor: string; styled: TextStyle | null }> {
+async function buildRichBackgroundLayer(slide: CarouselCompositeSlide, scrimmed = true): Promise<{ buffer: Buffer; textColor: string; subtextColor: string; styled: TextStyle | null }> {
   const preset = RICH_BG_PRESETS[slide.background_style ?? ""] ?? RICH_BG_PRESETS[RICH_DEFAULT_PRESET]!
   const customColors = (slide.custom_background_colors ?? []).filter(Boolean)
 
@@ -329,7 +395,8 @@ async function buildRichBackgroundLayer(slide: CarouselCompositeSlide): Promise<
       const scrim = style && palette
         ? `<rect width="${RICH_CANVAS_WIDTH}" height="${RICH_CANVAS_HEIGHT}" fill="rgb(${palette.scrimRgb})" fill-opacity="${style.scrim_opacity}"/>`
         : RICH_SCRIM_SVG
-      const scrimPng = await svgToRichPngBuffer(`<svg width="${RICH_CANVAS_WIDTH}" height="${RICH_CANVAS_HEIGHT}" xmlns="http://www.w3.org/2000/svg">${scrim}</svg>`, DEFAULT_FONT_ID)
+      // A layout with its own card/panel backing (scrimmed = false) keeps the photo clean.
+      const scrimPng = await svgToRichPngBuffer(`<svg width="${RICH_CANVAS_WIDTH}" height="${RICH_CANVAS_HEIGHT}" xmlns="http://www.w3.org/2000/svg">${scrimmed ? scrim : ""}</svg>`, DEFAULT_FONT_ID)
       const buffer = await sharp(base).composite([{ input: scrimPng, top: 0, left: 0 }]).png().toBuffer()
       if (style && palette) return { buffer, textColor: palette.text, subtextColor: palette.sub, styled: style }
       return { buffer, textColor: "#ffffff", subtextColor: "rgba(255,255,255,0.7)", styled: null }
@@ -339,7 +406,7 @@ async function buildRichBackgroundLayer(slide: CarouselCompositeSlide): Promise<
   }
 
   if (customColors.length > 0) {
-    const svg = `<svg width="${RICH_CANVAS_WIDTH}" height="${RICH_CANVAS_HEIGHT}" xmlns="http://www.w3.org/2000/svg">${richCustomBackgroundFill(customColors)}${RICH_SCRIM_SVG}</svg>`
+    const svg = `<svg width="${RICH_CANVAS_WIDTH}" height="${RICH_CANVAS_HEIGHT}" xmlns="http://www.w3.org/2000/svg">${richCustomBackgroundFill(customColors)}${scrimmed ? RICH_SCRIM_SVG : ""}</svg>`
     const buffer = await svgToRichPngBuffer(svg, DEFAULT_FONT_ID)
     return { buffer, textColor: "#ffffff", subtextColor: "rgba(255,255,255,0.7)", styled: null }
   }
@@ -495,8 +562,10 @@ export async function renderRichCarouselSlidesToPng(brandName: string, slides: C
 export async function renderRichCarouselSlides(brandName: string, slides: CarouselCompositeSlide[]): Promise<{ png: Buffer; warnings: SlideWarning[] }[]> {
   if (slides.length === 0) return []
 
+  const steps = carouselStepNumbers(slides)
   return Promise.all(
-    slides.map(async (slide) => {
+    slides.map(async (slide, i) => {
+      if (slide.text_layout) return renderLayoutSlide(brandName, slide, steps[i] ?? null)
       const { buffer: backgroundLayer, textColor, subtextColor, styled } = await buildRichBackgroundLayer(slide)
 
       const layers: { input: Buffer; top: number; left: number }[] = []
@@ -512,4 +581,22 @@ export async function renderRichCarouselSlides(brandName: string, slides: Carous
       return { png, warnings: overlay.overflow ? [TEXT_OVERFLOW_WARNING] : [] }
     })
   )
+}
+
+// A slide with a text_layout: the shared layout plan drawn over the same
+// background layers (lib/design/text-layouts.ts).
+async function renderLayoutSlide(brandName: string, slide: CarouselCompositeSlide, stepNumber: number | null): Promise<{ png: Buffer; warnings: SlideWarning[] }> {
+  const photo = slide.image_url ? await fetchRichImageBuffer(slide.image_url) : null
+  const plan = carouselSlidePlan(slide, stepNumber, !!photo)
+  const { buffer: backgroundLayer } = await buildRichBackgroundLayer(photo ? slide : { ...slide, image_url: null }, plan.fullScrim)
+  const layers: { input: Buffer; top: number; left: number }[] = []
+  const productLayer = await buildRichProductLayer(slide)
+  if (productLayer) layers.push(productLayer)
+  const heading = slide.font_id ?? DEFAULT_FONT_ID
+  const body = slide.body_font_id ?? heading
+  const brandPrim = carouselBrandPrim(brandName, plan)
+  const svg = `<svg width="${RICH_CANVAS_WIDTH}" height="${RICH_CANVAS_HEIGHT}" xmlns="http://www.w3.org/2000/svg">${layoutPrimsToSvg(brandPrim ? [...plan.prims, brandPrim] : plan.prims, svgFamilies(FONT_FAMILY_NAME, { heading, body }))}</svg>`
+  layers.push({ input: await svgToRichPngBuffer(svg, heading, body), top: 0, left: 0 })
+  const png = await sharp(backgroundLayer).composite(layers).png().toBuffer()
+  return { png, warnings: plan.overflow ? [TEXT_OVERFLOW_WARNING] : [] }
 }

@@ -188,6 +188,10 @@ type VariationRecord = {
   textStyles?: Record<"top" | "center" | "bottom", unknown>
   /** Ads keep product-led kinds -- the split layer never runs here (always null). */
   split?: null
+  /** Content-matched layout picked as the ad-maker route picks it (Ad Maker's canvas draws it). */
+  textLayout?: string | null
+  kicker?: string | null
+  highlight?: string | null
   /** Ad text is drawn client-side (AdMaker compositeAd), which never drops words -- always empty here. */
   warnings?: string[]
   error?: string
@@ -312,6 +316,12 @@ async function main(): Promise<void> {
       const { adTextRegion } = await import("@/lib/design/text-style")
       const [top, center, bottom] = await Promise.all((["top", "center", "bottom"] as const).map((p) => computeTextStyleSafe(result.buffer, adTextRegion(p))))
       record.textStyles = { top, center, bottom }
+      const { pickTextLayout } = await import("@/lib/design/text-layouts")
+      const { resolveTypography } = await import("@/lib/design/fonts")
+      const variant = strategy?.variants[i]
+      record.textLayout = pickTextLayout({ format: "ad", brand, headingFont: resolveTypography(brand).heading, angle: variant?.angle ?? null, offer: strategy?.brief.offer ?? null, proof: strategy?.brief.proof ?? null, textStyle: top })
+      record.kicker = variant?.kicker ?? null
+      record.highlight = variant?.highlight ?? null
       record.split = null
       record.warnings = []
     } else {

@@ -29,3 +29,14 @@ export const PREVIEW_FONT_FAMILY: Record<FontId, { family: string; weight: numbe
   quicksand: { family: quicksand.style.fontFamily, weight: 700 },
   caveat: { family: caveat.style.fontFamily, weight: 700 },
 }
+
+/** Browser font-family values for a layout's heading/body roles (text-layout-render.ts). */
+export function previewFamilies(fonts: { heading: FontId; body: FontId }): { heading: string; body: string } {
+  return { heading: PREVIEW_FONT_FAMILY[fonts.heading].family, body: PREVIEW_FONT_FAMILY[fonts.body].family }
+}
+
+/** Canvas draws with whatever is loaded right now -- load both faces first. */
+export async function loadLayoutFonts(fonts: { heading: FontId; body: FontId }): Promise<void> {
+  const fams = previewFamilies(fonts)
+  await Promise.all([fams.heading, fams.body].map((f) => document.fonts.load(`700 48px ${f}`).catch(() => undefined)))
+}

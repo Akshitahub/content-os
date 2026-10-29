@@ -8,6 +8,7 @@ import { runQualityGate, type GateReport } from "./quality-gate"
 import { addTextUsage, sumCostUsd, type TextUsage } from "./pricing"
 import { sanitizeVisualBrief, type VisualBrief, type VisualKind } from "./visual-brief"
 import { withLessons, type BrandLesson } from "./brand-brain"
+import { kickerHighlightRule, sanitizeHighlight, sanitizeKicker } from "@/lib/design/text-layouts"
 
 // Ad Maker's strategy step: before any image is generated, decide WHO the ad
 // is for, WHAT they should do and the ONE value proposition, then write three
@@ -39,6 +40,8 @@ const strategySchema = z.object({
     primary_text: z.string().min(1),
     cta_button: z.string().min(1),
     visual: z.unknown(),
+    kicker: z.unknown().optional(),
+    highlight: z.unknown().optional(),
   })).min(AD_VARIANT_COUNT),
 })
 
@@ -62,6 +65,7 @@ STEP 2 — exactly ${AD_VARIANT_COUNT} VARIANTS, each a different creative hypot
 - "angle": one of ${AD_ANGLES.join(" | ")}. Every variant uses a DIFFERENT angle. Use "proof" only if ad_brief.proof is not null.
 - "hypothesis": one line — why this angle might work for this audience.
 - "headline": 40 characters or fewer. It is also the text placed on the image.
+${kickerHighlightRule()}
 - "primary_text": 125 characters or fewer.
 - "cta_button": a standard Meta CTA matching desired_action (Shop Now, Learn More, Order Now, Get Offer, Book Now, Sign Up, Contact Us, See More).
 - "visual": what the image must show, with the product clearly the hero:
@@ -79,7 +83,7 @@ Respond with ONLY this JSON:
 {
   "ad_brief": { "audience": "...", "desired_action": "...", "funnel_stage": "consideration", "value_proposition": "...", "offer": null, "proof": null },
   "variants": [
-    { "angle": "...", "hypothesis": "...", "headline": "...", "primary_text": "...", "cta_button": "Shop Now", "visual": { "kind": "product_scene", "must_show": "...", "composition": "..." } }
+    { "angle": "...", "hypothesis": "...", "headline": "...", "kicker": null, "highlight": null, "primary_text": "...", "cta_button": "Shop Now", "visual": { "kind": "product_scene", "must_show": "...", "composition": "..." } }
   ]
 }`
 }
@@ -166,6 +170,8 @@ export async function generateAdStrategy(params: {
     primary_text: v.primary_text,
     cta_button: v.cta_button,
     visual: adVisual(v.visual),
+    kicker: sanitizeKicker(v.kicker),
+    highlight: sanitizeHighlight(v.highlight, v.headline),
   }))
 
   // Quality gate (lib/ai/quality-gate.ts): the variants' copy + visual

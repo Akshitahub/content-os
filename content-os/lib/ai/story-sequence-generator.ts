@@ -6,6 +6,7 @@ import { buildFactSource, guardCopy, stripGuard } from "./fact-guard"
 import { runQualityGate, type GateReport } from "./quality-gate"
 import { addTextUsage, sumCostUsd, type TextUsage } from "./pricing"
 import { VISUAL_KINDS, sanitizeVisualBrief, type VisualBrief } from "./visual-brief"
+import { kickerHighlightRule } from "@/lib/design/text-layouts"
 import { withLessons, type BrandLesson } from "./brand-brain"
 import { buildBrandBrainLines, parseBrandBrain } from "@/lib/brand-brain-profile"
 
@@ -261,6 +262,9 @@ INFORMATION DEPTH — the most common failure is frames that only name a topic a
 - The frame's "visual" must show what that frame's text says: if the text is a comparison, its kind is side_by_side or before_after.
 
 TEXT RULES: No exclamation marks, no hashtags, no emojis in "text" or "subtext" — plain, punchy text only.
+
+ON-IMAGE EXTRAS — every story object may add:
+${kickerHighlightRule("text")}
 
 VISUAL DIRECTION — every story object gets a "visual" brief for its full-screen 9:16 background image:
 - "kind": one of ${VISUAL_KINDS.join(" | ")}.

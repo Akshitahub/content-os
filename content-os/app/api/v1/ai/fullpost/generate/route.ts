@@ -21,6 +21,8 @@ import { timedGenerationRoute, type GenerationTimer } from "@/lib/utils/generati
 import { getActiveLessons, LESSON_SCOPE_FOR_FORMAT } from "@/lib/ai/brand-brain"
 import { recordContentEvent, type ContentEventType } from "@/lib/usage/content-events"
 import { gateEventMeta } from "@/lib/ai/quality-gate"
+import { stampPostLayout } from "@/lib/design/text-layouts"
+import { getPrimaryColor } from "@/lib/design/post-card-generator"
 
 // Mirrors components/generate/FullPostGenerator.tsx's former client-side
 // ANGLE_HINT map verbatim -- moved server-side so the angle is a real,
@@ -202,6 +204,8 @@ async function handlePost(request: Request, timer: GenerationTimer) {
       const typography = resolveTypography(brand, { suggested: caption.suggested_font_id })
       caption.suggested_font_id = typography.heading
       await rememberBrandTypography(supabase, brand, typography)
+      // Content-matched layout for the overlay text (lib/design/text-layouts.ts).
+      Object.assign(caption, stampPostLayout(caption, caption.suggested_overlay_text, { brand, headingFont: typography.heading, visualKind: caption.visual?.kind, accentColor: getPrimaryColor(brand) }))
     } else if (format === "reel_script") {
       const script = contentResult.data as ReelScript
       if (script.caption) {

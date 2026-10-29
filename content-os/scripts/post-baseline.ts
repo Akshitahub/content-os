@@ -153,7 +153,9 @@ async function main(): Promise<void> {
   const { IMAGE_PROVIDER_CONFIG } = await import("@/lib/ai/image-provider")
   const { MODELS } = await import("@/lib/ai/models")
   const { sumCostUsd } = await import("@/lib/ai/pricing")
-  const { resolveSuggestedFont } = await import("@/lib/design/fonts")
+  const { resolveTypography } = await import("@/lib/design/fonts")
+  const { stampPostLayout } = await import("@/lib/design/text-layouts")
+  const { getPrimaryColor } = await import("@/lib/design/post-card-generator")
   const { resolveColorThemes, findColorTheme } = await import("@/lib/design/color-themes")
   const { DEFAULT_POST_TEMPLATE_ID } = await import("@/lib/design/post-templates")
   const { mergeCaptionWithHookAndCta } = await import("@/lib/utils/caption-merge")
@@ -226,7 +228,10 @@ async function main(): Promise<void> {
   // Route post-processing.
   caption.caption_text = mergeCaptionWithHookAndCta(caption.caption_text, hook.hook_text, caption.cta)
   caption.character_count = caption.caption_text.length
-  caption.suggested_font_id = resolveSuggestedFont(caption.suggested_font_id, brand.vibe)
+  // Brand typography + the overlay's content-matched layout, as the route stamps them.
+  const typography = resolveTypography(brand, { suggested: caption.suggested_font_id })
+  caption.suggested_font_id = typography.heading
+  Object.assign(caption, stampPostLayout(caption, caption.suggested_overlay_text, { brand, headingFont: typography.heading, visualKind: caption.visual?.kind, accentColor: getPrimaryColor(brand) }))
 
   // FullPostGenerator's runImageGeneration choices.
   const template = caption.suggested_template || DEFAULT_POST_TEMPLATE_ID
@@ -339,7 +344,7 @@ async function main(): Promise<void> {
   // the closest server equivalent is compositePostImage (what
   // generatePostImage uses when captionText is set), so that's rendered
   // here -- layout can differ slightly from the client canvas.
-  let finalOutput: { rendered: boolean; renderer?: string; reason?: string; file?: string; textStyle?: unknown; warnings?: string[] } = { rendered: false }
+  let finalOutput: { rendered: boolean; renderer?: string; reason?: string; file?: string; textStyle?: unknown; warnings?: string[]; textLayout?: string | null; kicker?: string | null; highlight?: string | null } = { rendered: false }
   if (!imageRecord.file) {
     finalOutput = { rendered: false, reason: imageRecord.skipped ?? "no background image" }
   } else if (!overlayText) {
@@ -360,10 +365,14 @@ async function main(): Promise<void> {
         captionText: overlayText,
         logoUrl: brand.logo_url,
         fontId: caption.suggested_font_id ?? undefined,
+        bodyFontId: typography.body,
         textStyle,
+        textLayout: caption.text_layout ?? null,
+        kicker: caption.kicker ?? null,
+        highlight: caption.highlight ?? null,
       })
       writeFileSync(join(outDir, "final.png"), buf)
-      finalOutput = { rendered: true, file: "final.png", renderer: "compositePostImageWithWarnings (lib/image/post-compositor.ts) -- Full Post's own overlay is a client-side canvas, so this is an approximation of it", textStyle, warnings }
+      finalOutput = { rendered: true, file: "final.png", renderer: "compositePostImageWithWarnings (lib/image/post-compositor.ts) -- with a text_layout it draws the same plan Full Post's canvas overlay does", textStyle, warnings, textLayout: caption.text_layout ?? null, kicker: caption.kicker ?? null, highlight: caption.highlight ?? null }
     } catch (err) {
       errors.push(`final render: ${err instanceof Error ? err.message : String(err)}`)
       finalOutput = { rendered: false, reason: "compositor threw -- see errors" }

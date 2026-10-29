@@ -18,6 +18,8 @@ import { recordContentEvent } from "@/lib/usage/content-events"
 import { gateEventMeta } from "@/lib/ai/quality-gate"
 import type { TextStyle } from "@/lib/design/text-style"
 import { overflowingSlides, storySlideOverflows } from "@/lib/design/slide-text-layout"
+import { stampSequenceLayouts, type TextLayoutId } from "@/lib/design/text-layouts"
+import { getPrimaryColor } from "@/lib/design/post-card-generator"
 
 const schema = z.object({
   brandId: z.string().uuid(),
@@ -56,6 +58,13 @@ export type StorySlide = {
   /** Client-only, from the slide-image response alongside
    * background_image_url: how text is drawn over it (lib/design/text-style.ts). */
   text_style?: TextStyle | null
+  /** Content-matched text layout (lib/design/text-layouts.ts) + extras,
+   * stamped here; absent on older stories = the original layout. */
+  text_layout?: TextLayoutId | null
+  kicker?: string | null
+  highlight?: string | null
+  text_layout_source?: "auto" | "user" | null
+  accent_color?: string | null
   /** Client-only enrichment — never set by this route. Filled in by
    * StorySequence.tsx as a best-effort follow-up (hook/cta slides only)
    * after generation succeeds; falls back to the flat `background` gradient
@@ -362,6 +371,13 @@ async function handlePost(request: Request, timer: GenerationTimer) {
     await rememberBrandTypography(supabase, brand, typography)
 
     d.stories = sanitizeStorySlides(d.stories as Record<string, unknown>[])
+    // Content-matched text layouts (lib/design/text-layouts.ts): one family
+    // per story, max two layouts. Checklist frames keep their own design.
+    d.stories = stampSequenceLayouts(d.stories as Record<string, unknown>[], {
+      format: "story", brand, headingFont: fontId, accentColor: getPrimaryColor(brand), headlineKey: "text",
+      toPick: (s) => ({ role: typeof s.type === "string" ? s.type : null, visualKind: (s.visual as { kind?: string } | undefined)?.kind ?? null }),
+      skip: (s) => !!s.checklist_highlighted_phrase || (!!s.checklist_wrong_item && !!s.checklist_right_item),
+    })
     const caption = d.caption as { caption_text?: unknown; hashtags?: unknown } | undefined
     if (caption && typeof caption.caption_text === "string") {
       d.caption = { ...caption, caption_text: sanitizeStoryText(caption.caption_text) }

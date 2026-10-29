@@ -8,6 +8,8 @@ import { CURATED_FONTS, DEFAULT_FONT_ID, FONT_FAMILY_NAME, findFont } from "@/li
 import type { FontId } from "@/lib/design/fonts"
 import { sanitizeTextForCompositing } from "@/lib/image/sanitize-text-for-compositing"
 import { TEXT_STYLE_PALETTE, backingRgba, type TextStyle } from "@/lib/design/text-style"
+import { storyFramePlan, storyStepNumbers, svgFamilies, type TextLayoutFields } from "@/lib/design/text-layouts"
+import { layoutPrimsToSvg } from "@/lib/design/text-layout-render"
 import {
   STORY_SAFE_ZONE, STORY_TEXT_AREA, TEXT_OVERFLOW_WARNING, clampBlockTop, clampCenterX, estimateBlockWidth,
   layoutStoryChecklistHook, layoutStoryChecklistPair, layoutStoryText, type FittedBlock, type SlideWarning,
@@ -151,7 +153,7 @@ async function fetchImageBuffer(source: string): Promise<Buffer | null> {
  * named preset. Photo and custom-color both get a scrim; presets never
  * do. A photo with a text_style gets that style's uniform scrim and text
  * color instead of the fixed gradient. */
-async function buildBackgroundLayer(slide: StoryCompositeSlide): Promise<{ buffer: Buffer; textColor: string; subColor: string; styled: TextStyle | null }> {
+async function buildBackgroundLayer(slide: StoryCompositeSlide, scrimmed = true): Promise<{ buffer: Buffer; textColor: string; subColor: string; styled: TextStyle | null }> {
   const preset = STORY_BG_PRESETS[slide.background] ?? STORY_BG_PRESETS[DEFAULT_PRESET]!
   const customColors = (slide.custom_background_colors ?? []).filter(Boolean)
 
@@ -167,7 +169,8 @@ async function buildBackgroundLayer(slide: StoryCompositeSlide): Promise<{ buffe
       const scrim = style && palette
         ? `<rect width="${CANVAS_WIDTH}" height="${CANVAS_HEIGHT}" fill="rgb(${palette.scrimRgb})" fill-opacity="${style.scrim_opacity}"/>`
         : SCRIM_SVG
-      const scrimPng = await svgToPngBuffer(`<svg width="${CANVAS_WIDTH}" height="${CANVAS_HEIGHT}" xmlns="http://www.w3.org/2000/svg">${scrim}</svg>`, DEFAULT_FONT_ID)
+      // A layout with its own card/panel backing (scrimmed = false) keeps the photo clean.
+      const scrimPng = await svgToPngBuffer(`<svg width="${CANVAS_WIDTH}" height="${CANVAS_HEIGHT}" xmlns="http://www.w3.org/2000/svg">${scrimmed ? scrim : ""}</svg>`, DEFAULT_FONT_ID)
       const buffer = await sharp(base).composite([{ input: scrimPng, top: 0, left: 0 }]).png().toBuffer()
       if (style && palette) return { buffer, textColor: palette.text, subColor: palette.sub, styled: style }
       return { buffer, textColor: "#ffffff", subColor: "rgba(255,255,255,0.7)", styled: null }
@@ -177,7 +180,7 @@ async function buildBackgroundLayer(slide: StoryCompositeSlide): Promise<{ buffe
   }
 
   if (customColors.length > 0) {
-    const svg = `<svg width="${CANVAS_WIDTH}" height="${CANVAS_HEIGHT}" xmlns="http://www.w3.org/2000/svg">${customBackgroundFill(customColors)}${SCRIM_SVG}</svg>`
+    const svg = `<svg width="${CANVAS_WIDTH}" height="${CANVAS_HEIGHT}" xmlns="http://www.w3.org/2000/svg">${customBackgroundFill(customColors)}${scrimmed ? SCRIM_SVG : ""}</svg>`
     const buffer = await svgToPngBuffer(svg, DEFAULT_FONT_ID)
     return { buffer, textColor: "#ffffff", subColor: "rgba(255,255,255,0.7)", styled: null }
   }
@@ -558,6 +561,13 @@ export interface StoryCompositeSlide {
   /** Computed once from background_image_url where it was generated
    * (lib/image/text-contrast.ts). Absent = the old fixed gradient scrim. */
   text_style?: TextStyle | null
+  /** Content-matched layout (lib/design/text-layouts.ts) + kicker / highlight.
+   * Absent = this file's original layout. Checklist frames ignore it. */
+  text_layout?: TextLayoutFields["text_layout"]
+  kicker?: string | null
+  highlight?: string | null
+  /** The brand colour layouts use for accents and the split panel. */
+  accent_color?: string | null
 }
 
 /**
@@ -579,10 +589,14 @@ export async function renderStorySlidesToPng(slides: StoryCompositeSlide[]): Pro
 export async function renderStorySlides(slides: StoryCompositeSlide[]): Promise<{ png: Buffer; warnings: SlideWarning[] }[]> {
   const total = slides.length
   if (total === 0) return []
+  const steps = storyStepNumbers(slides)
 
   return Promise.all(
-    slides.map(async (slide) => {
-      const { buffer: backgroundLayer, textColor: bgTextColor, subColor: bgSubColor, styled } = await buildBackgroundLayer(slide)
+    slides.map(async (slide, i) => {
+      // Layout frames draw the shared plan; checklist frames keep their own design.
+      const photo = slide.text_layout && !isChecklistFlaggedSlide(slide) && slide.background_image_url ? await fetchImageBuffer(slide.background_image_url) : null
+      const plan = slide.text_layout && !isChecklistFlaggedSlide(slide) ? storyFramePlan(slide, steps[i] ?? null, !!photo) : null
+      const { buffer: backgroundLayer, textColor: bgTextColor, subColor: bgSubColor, styled } = await buildBackgroundLayer(plan && !photo ? { ...slide, background_image_url: null } : slide, plan ? plan.fullScrim : true)
       // Exact user-picked hex overrides the background-derived pairing for
       // headline, subtext, AND poll text (buildTextOverlaySvg applies
       // textColor to the headline and subColor to both subtext and poll) --
@@ -619,7 +633,10 @@ export async function renderStorySlides(slides: StoryCompositeSlide[]): Promise<
         }
       }
 
-      const overlay = buildTextOverlaySvg(slide, textColor, subColor, styled)
+      const heading = slide.font_id ?? DEFAULT_FONT_ID
+      const overlay = plan
+        ? { svg: `<svg width="${CANVAS_WIDTH}" height="${CANVAS_HEIGHT}" xmlns="http://www.w3.org/2000/svg">${layoutPrimsToSvg(plan.prims, svgFamilies(FONT_FAMILY_NAME, { heading, body: slide.body_font_id ?? heading }))}</svg>`, overflow: plan.overflow }
+        : buildTextOverlaySvg(slide, textColor, subColor, styled)
       const textOverlayPng = await svgToPngBuffer(overlay.svg, slide.font_id ?? DEFAULT_FONT_ID, slide.body_font_id ?? undefined)
       layers.push({ input: textOverlayPng, top: 0, left: 0 })
 

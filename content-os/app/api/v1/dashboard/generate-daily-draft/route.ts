@@ -19,6 +19,9 @@ import { timedGenerationRoute, type GenerationTimer } from "@/lib/utils/generati
 import { withDeadline, DeadlineExceededError, GENERATION_TIMED_OUT_MESSAGE } from "@/lib/utils/with-deadline"
 import { prepareGeneratedImage } from "@/lib/storage/generated-image"
 import { getActiveLessons } from "@/lib/ai/brand-brain"
+import { stampPostLayout } from "@/lib/design/text-layouts"
+import { getPrimaryColor } from "@/lib/design/post-card-generator"
+import { resolveTypography } from "@/lib/design/fonts"
 
 const BUCKET = "brand-images"
 
@@ -187,6 +190,8 @@ async function handlePost(request: Request, timer: GenerationTimer) {
     // a real Create Post caption does.
     caption.caption_text = mergeCaptionWithHookAndCta(caption.caption_text, hook.hook_text, caption.cta)
     caption.character_count = caption.caption_text.length
+    // Content-matched layout + extras for the overlay text, same as Full Post (lib/design/text-layouts.ts).
+    Object.assign(caption, stampPostLayout(caption, caption.suggested_overlay_text, { brand, headingFont: resolveTypography(brand).heading, visualKind: caption.visual?.kind, accentColor: getPrimaryColor(brand) }))
 
     // Best-effort content_projects row, mirroring fullpost/generate/route.ts --
     // non-fatal if it fails, the draft still generates fine without it.

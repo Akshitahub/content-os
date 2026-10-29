@@ -12,6 +12,7 @@
 // lib/utils/story-export.ts exactly.
 
 import type { TextStyle } from "@/lib/design/text-style"
+import type { TextLayoutId } from "@/lib/design/text-layouts"
 
 export interface CarouselExportSlide {
   type: "cover" | "content" | "cta"
@@ -35,6 +36,11 @@ export interface CarouselExportSlide {
   body_font_id?: string | null
   /** How to draw text over image_url -- see the compositor's text_style. */
   text_style?: TextStyle | null
+  /** Content-matched layout + extras (lib/design/text-layouts.ts); absent = the original layout. */
+  text_layout?: TextLayoutId | null
+  kicker?: string | null
+  highlight?: string | null
+  accent_color?: string | null
   /** Uniform font-size multiplier for this slide -- see
    * CarouselSlideRich.text_size_scale's own comment. */
   text_size_scale?: number | null

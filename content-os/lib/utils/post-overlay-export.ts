@@ -1,6 +1,8 @@
 // Browser-only (DOM canvas) -- import from client components only.
 import type { FontId } from "@/lib/design/fonts"
-import { PREVIEW_FONT_FAMILY } from "@/lib/design/preview-fonts"
+import { PREVIEW_FONT_FAMILY, loadLayoutFonts, previewFamilies } from "@/lib/design/preview-fonts"
+import { singleImagePlan, type TextLayoutFields } from "@/lib/design/text-layouts"
+import { drawLayoutPrims } from "@/lib/design/text-layout-render"
 import { BACKING_OPACITY, type TextStyle } from "@/lib/design/text-style"
 //
 // The Post tool's client-side text overlay: flattens the clean, text-free
@@ -40,6 +42,16 @@ function wrapTextLines(ctx: CanvasRenderingContext2D, text: string, maxWidth: nu
   return lines
 }
 
+/** A post overlay's layout fields (stored with the post / calendar entry). */
+export interface OverlayLayout extends TextLayoutFields {
+  offer?: string | null
+  body_font_id?: FontId | null
+  brand_color?: string | null
+}
+
+/** What a scheduled entry saves (platform_specific_data.overlay_layout) -- the layout plus the image's text_style. */
+export type SavedOverlayLayout = OverlayLayout & { text_style?: TextStyle | null }
+
 // Headline budget: 3 lines, stepping the size down to a 24px-at-1080 floor
 // before going past it (then every line is kept anyway).
 const OVERLAY_MAX_LINES = 3
@@ -66,7 +78,10 @@ export async function flattenOverlayImage(
   fontId?: FontId,
   /** From the post-image response (lib/design/text-style.ts): scrim strength
    * and backing panel for this image. Omitted = the fixed bottom scrim. */
-  textStyle?: TextStyle | null
+  textStyle?: TextStyle | null,
+  /** Content-matched layout (lib/design/text-layouts.ts). Absent = the
+   * bottom-third headline below, unchanged. */
+  layout?: OverlayLayout | null
 ): Promise<string> {
   const encode = (c: HTMLCanvasElement) => (output.type === "image/jpeg" ? c.toDataURL("image/jpeg", output.quality) : c.toDataURL("image/png"))
   const img = await loadImage(imageUrl)
@@ -78,6 +93,19 @@ export async function flattenOverlayImage(
 
   const trimmed = headlineText.trim()
   if (!trimmed) return encode(canvas)
+
+  if (layout?.text_layout) {
+    const heading = fontId ?? "inter"
+    const fonts = { heading, body: layout.body_font_id ?? heading }
+    await loadLayoutFonts(fonts)
+    const plan = singleImagePlan({ ...layout, headline: trimmed, fonts, textStyle, brandColor: layout.brand_color ?? null }, canvas.width, canvas.height)
+    if (plan.fullScrim) {
+      ctx.fillStyle = textStyle ? `rgba(${textStyle.text_color === "light" ? "0,0,0" : "255,255,255"},${textStyle.scrim_opacity})` : "rgba(0,0,0,0.35)"
+      ctx.fillRect(0, 0, canvas.width, canvas.height)
+    }
+    drawLayoutPrims(ctx, plan.prims, previewFamilies(fonts))
+    return encode(canvas)
+  }
 
   const w = canvas.width
   const h = canvas.height

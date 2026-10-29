@@ -29,6 +29,9 @@ import Link from "next/link"
 import { readJsonResponse } from "@/lib/utils/read-json-response"
 import { backingRgba, scrimRgba, type TextStyle } from "@/lib/design/text-style"
 import { layoutCarouselText, overflowingSlides } from "@/lib/design/slide-text-layout"
+import { carouselBrandPrim, carouselSlidePlan, carouselStepNumbers, repickSequenceLayouts, type CarouselLayoutSlide, type TextLayoutId } from "@/lib/design/text-layouts"
+import { TextLayoutOverlay } from "@/components/shared/TextLayoutOverlay"
+import { TextLayoutPicker } from "@/components/shared/TextLayoutPicker"
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -116,6 +119,13 @@ interface CarouselSlideRich {
    * from the slide-image response -- see lib/design/text-style.ts. Absent
    * = the old fixed scrim + white text. */
   text_style?: TextStyle | null
+  /** Content-matched text layout (lib/design/text-layouts.ts) + its extras,
+   * stamped by the generate route; absent = the original centered layout. */
+  text_layout?: TextLayoutId | null
+  kicker?: string | null
+  highlight?: string | null
+  text_layout_source?: "auto" | "user" | null
+  accent_color?: string | null
 }
 
 interface CtaSlide {
@@ -167,6 +177,31 @@ function toExportSlide(slide: CarouselSlideRich, ctaSlide: CtaSlide | undefined,
     body_font_id: slide.body_font_id,
     text_size_scale: slide.text_size_scale,
     text_style: slide.image_url ? slide.text_style : null,
+    text_layout: slide.text_layout ?? null,
+    kicker: slide.kicker ?? null,
+    highlight: slide.highlight ?? null,
+    accent_color: slide.accent_color ?? null,
+  }
+}
+
+// Once backgrounds (and their text_style) exist, auto layouts are re-picked
+// so a busy background gets a layout with its own backing; user picks stay.
+function repickCarouselLayouts(slides: CarouselSlideRich[], vibe: string | null | undefined): CarouselSlideRich[] {
+  return repickSequenceLayouts(slides, {
+    format: "carousel",
+    brand: { vibe },
+    headingFont: slides[0]?.font_id ?? DEFAULT_FONT_ID,
+    toPick: (sl) => ({ role: sl.role ?? null, slideType: sl.type, visualKind: sl.visual?.kind ?? null, textStyle: sl.image_url ? sl.text_style ?? null : null }),
+  })
+}
+
+// The layout plan this slide's preview draws -- the same carouselSlidePlan
+// the compositor renders from, so preview = export.
+function previewLayoutSlide(slide: CarouselSlideRich, ctaSlide: CtaSlide | undefined): CarouselLayoutSlide {
+  return {
+    ...slide,
+    ctaText: slide.type === "cta" ? (slide.cta ?? ctaSlide?.cta) : undefined,
+    ctaHandle: slide.type === "cta" ? (slide.handle ?? ctaSlide?.handle) : undefined,
   }
 }
 
@@ -286,7 +321,10 @@ function SlidePreview({
   productImage,
   backgroundImageUrl,
   onPositionCommit,
+  stepNumber = null,
 }: {
+  /** numbered layout: this content slide's step (carouselStepNumbers). */
+  stepNumber?: number | null
   slide: CarouselSlideRich
   ctaSlide?: CtaSlide
   brandName: string
@@ -345,6 +383,10 @@ function SlidePreview({
   const textStyle = hasBg ? slide.text_style ?? null : null
   const textColor = textStyle ? (textStyle.text_color === "light" ? "text-white" : "text-gray-900") : hasBg || customBg ? "text-white" : s.text
   const subtextColor = textStyle ? (textStyle.text_color === "light" ? "text-white/85" : "text-gray-900/85") : hasBg || customBg ? "text-white/70" : s.subtext
+  // A slide with a text_layout draws the shared plan instead of the blocks below.
+  const layoutPlan = slide.text_layout ? carouselSlidePlan(previewLayoutSlide(slide, ctaSlide), stepNumber, hasBg) : null
+  const layoutFonts = { heading: slide.font_id ?? DEFAULT_FONT_ID, body: slide.body_font_id ?? slide.font_id ?? DEFAULT_FONT_ID }
+  const brandPrim = layoutPlan ? carouselBrandPrim(brandName, layoutPlan) : null
 
   return (
     <div
@@ -365,10 +407,14 @@ function SlidePreview({
        * color/gradient background -- same treatment for both, since a
        * light custom pick (e.g. a pastel gradient) needs it just as much
        * as a photo does for the white text both use. */}
-      {textStyle ? (
+      {layoutPlan && !layoutPlan.fullScrim ? null : textStyle ? (
         <div className="absolute inset-0 z-0" style={{ background: scrimRgba(textStyle) }} />
       ) : (hasBg || customBg) && (
         <div className="absolute inset-0 z-0 bg-gradient-to-t from-black/75 via-black/25 to-black/45" />
+      )}
+
+      {layoutPlan && (
+        <TextLayoutOverlay prims={brandPrim && !isThumb ? [...layoutPlan.prims, brandPrim] : layoutPlan.prims} width={1080} height={1350} fonts={layoutFonts} />
       )}
 
       {/* Product image — cover: right side; content: top-right badge; cta: centered top.
@@ -418,7 +464,7 @@ function SlidePreview({
           (frameRef) -- the same box html-to-image captures for
           download/schedule -- so textPos renders correctly both here and
           in the real exported PNG. */}
-      <div
+      {!layoutPlan && <div
         ref={textBlockRef}
         className={isThumb ? "relative z-10 flex h-full flex-col justify-center p-1.5" : "absolute z-10 flex flex-col"}
         style={isThumb ? undefined : {
@@ -493,10 +539,10 @@ function SlidePreview({
             )}
           </>
         )}
-      </div>
+      </div>}
 
-      {/* Brand name bottom right */}
-      {!isThumb && (
+      {/* Brand name bottom right (a layout slide draws it inside its plan) */}
+      {!isThumb && !layoutPlan && (
         <div className={`absolute z-10 text-xs font-medium ${subtextColor}`} style={{ bottom: "6%", right: "6%" }}>
           {brandName}
         </div>
@@ -763,6 +809,7 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
   const extraBgCredits =
     ((allSlidesAiBg ? Math.max(0, slideCount - 2) : 0) + (productImage ? 2 : 0)) * CAROUSEL_SLIDE_AI_BACKGROUND
   const currentSlide = allSlides[activeSlide]
+  const stepNumbers = carouselStepNumbers(allSlides)
   // Same layout math the compositor uses (lib/design/slide-text-layout.ts):
   // slides whose text only fits at the smallest size, or not at all.
   const overflowSlides = useMemo(
@@ -929,7 +976,7 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
     }
     if (succeeded.size > 0) {
       setCarousel((prev) => (prev && prev.id === carouselId
-        ? { ...prev, slides: prev.slides.map((s, i) => { const bg = succeeded.get(i); return bg ? { ...s, image_url: bg.url, background_image_provider: bg.provider, text_style: bg.text_style ?? null } : s }) }
+        ? { ...prev, slides: repickCarouselLayouts(prev.slides.map((s, i) => { const bg = succeeded.get(i); return bg ? { ...s, image_url: bg.url, background_image_provider: bg.provider, text_style: bg.text_style ?? null } : s }), brand?.vibe) }
         : prev))
     }
     return true
@@ -1317,6 +1364,7 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
                     ctaSlide={carousel.cta_slide}
                     brandName={brand?.name ?? ""}
                     isLastSlide={i === allSlides.length - 1}
+                    stepNumber={stepNumbers[i] ?? null}
                     elementId={`carousel-slide-${i}`}
                     productImage={productImage ?? undefined}
                     backgroundImageUrl={backgroundUrlForSlide(i)}
@@ -1362,6 +1410,7 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
                   ctaSlide={carousel.cta_slide}
                   brandName={brand?.name ?? ""}
                   isLastSlide={isLastSlide}
+                  stepNumber={stepNumbers[activeSlide] ?? null}
                   elementId={`carousel-slide-${activeSlide}`}
                   productImage={productImage ?? undefined}
                   backgroundImageUrl={backgroundUrlForSlide(activeSlide)}
@@ -1383,6 +1432,7 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
                       brandName={brand?.name ?? ""}
                       size="thumb"
                       isLastSlide={i === allSlides.length - 1}
+                      stepNumber={stepNumbers[i] ?? null}
                       backgroundImageUrl={backgroundUrlForSlide(i)}
                     />
                   </button>
@@ -1410,6 +1460,15 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
                   <span className="text-xs text-destructive">Couldn&apos;t save — check your connection</span>
                 )}
               </div>
+
+              {/* Text layout -- the user's pick always wins over the auto-pick. */}
+              {currentSlide.text_layout && (
+                <TextLayoutPicker
+                  value={currentSlide.text_layout}
+                  onChange={(layout) => updateSlide(activeSlide, { ...currentSlide, text_layout: layout, text_layout_source: "user" })}
+                  onApplyAll={() => setCarousel((prev) => prev ? { ...prev, slides: prev.slides.map((sl) => ({ ...sl, text_layout: currentSlide.text_layout, text_layout_source: "user" as const })) } : prev)}
+                />
+              )}
 
               {/* Non-blocking: the export keeps every word at a smaller size. */}
               {overflowSlides.length > 0 && (

@@ -27,6 +27,9 @@ import { readJsonResponse } from "@/lib/utils/read-json-response"
 import { runSlideBackgroundJobs, slideBackgroundErrorForStatus, type SlideBackgroundOutcome } from "@/lib/utils/slide-backgrounds"
 import { backingRgba, scrimRgba, type TextStyle } from "@/lib/design/text-style"
 import { overflowingSlides, storySlideOverflows } from "@/lib/design/slide-text-layout"
+import { repickSequenceLayouts, storyFramePlan, storyStepNumbers, type TextLayoutId } from "@/lib/design/text-layouts"
+import { TextLayoutOverlay } from "@/components/shared/TextLayoutOverlay"
+import { TextLayoutPicker } from "@/components/shared/TextLayoutPicker"
 
 // ─── Story background gradients ────────────────────────────────────────────────
 
@@ -103,6 +106,10 @@ function toExportSlide(story: StorySlide, productImageSource: string | null | un
     checklist_wrong_item: story.checklist_wrong_item,
     checklist_right_item: story.checklist_right_item,
     text_style: story.background_image_url ? story.text_style : null,
+    text_layout: story.text_layout ?? null,
+    kicker: story.kicker ?? null,
+    highlight: story.highlight ?? null,
+    accent_color: story.accent_color ?? null,
   }
 }
 
@@ -247,7 +254,12 @@ function PhoneStory({
   uploadedImage,
   brandColors,
   onUpdateSlide,
+  stepNumber = null,
+  onApplyLayoutToAll,
 }: {
+  /** numbered layout: this frame's step (storyStepNumbers). */
+  stepNumber?: number | null
+  onApplyLayoutToAll?: (layout: TextLayoutId) => void
   story: StorySlide
   index: number
   total: number
@@ -302,6 +314,12 @@ function PhoneStory({
   const textStyle = hasBg ? story.text_style ?? null : null
   const textColor = textStyle ? (textStyle.text_color === "light" ? "text-white" : "text-gray-900") : hasBg || customBg ? "text-white" : s.text
   const subColor = textStyle ? (textStyle.text_color === "light" ? "text-white/85" : "text-gray-900/85") : hasBg || customBg ? "text-white/70" : s.sub
+  // A frame with a text_layout draws the shared plan (storyFramePlan, the
+  // same one the compositor renders) instead of the editable block below;
+  // checklist frames keep their own design.
+  const isChecklist = !!story.checklist_highlighted_phrase || (!!story.checklist_wrong_item && !!story.checklist_right_item)
+  const layoutPlan = story.text_layout && !isChecklist ? storyFramePlan(story, stepNumber, hasBg) : null
+  const layoutFonts = { heading: story.font_id ?? DEFAULT_FONT_ID, body: story.body_font_id ?? story.font_id ?? DEFAULT_FONT_ID }
   // Exact user-picked hex, applied as an inline style (not a Tailwind
   // class -- it's an arbitrary value) so it overrides textColor/subColor
   // above via normal CSS cascade rather than replacing them outright.
@@ -392,11 +410,12 @@ function PhoneStory({
         >
           {/* Dark scrim so text stays readable over an AI-generated or
            * custom color/gradient background. */}
-          {textStyle ? (
+          {layoutPlan && !layoutPlan.fullScrim ? null : textStyle ? (
             <div className="absolute inset-0 z-0" style={{ background: scrimRgba(textStyle) }} />
           ) : (hasBg || customBg) && (
             <div className="absolute inset-0 z-0 bg-gradient-to-t from-black/75 via-black/25 to-black/45" />
           )}
+          {layoutPlan && <TextLayoutOverlay prims={layoutPlan.prims} width={1080} height={1920} fonts={layoutFonts} />}
 
           {/* buildStoryTypeSequence() only produces a "reveal" slide when
               storyCount >= 3, so gating solely on "reveal" silently drops
@@ -453,7 +472,7 @@ function PhoneStory({
               anchored at the block's own center via the translate, so the
               same textPos renders correctly at this small preview size and
               at the compositor's real 1080x1920 canvas alike. */}
-          <div
+          {!layoutPlan && <div
             ref={textBlockRef}
             className="absolute z-10 flex flex-col items-center px-2"
             style={{
@@ -518,9 +537,29 @@ function PhoneStory({
                 {story.poll_options.join("  ·  ")}
               </p>
             )}
-          </div>
+          </div>}
         </div>
       </div>
+
+      {/* Layout frames are edited here (their text is drawn by the plan, not inline). */}
+      {layoutPlan && (
+        <div className="w-[220px] space-y-2">
+          <TextLayoutPicker
+            value={story.text_layout}
+            onChange={(layout) => onUpdateSlide({ text_layout: layout, text_layout_source: "user" })}
+            onApplyAll={onApplyLayoutToAll && story.text_layout ? () => onApplyLayoutToAll(story.text_layout!) : undefined}
+          />
+          <input value={story.kicker ?? ""} placeholder="Kicker (optional)" maxLength={40}
+            onChange={(e) => onUpdateSlide({ kicker: e.target.value || null })}
+            className="w-full rounded-md border border-input bg-background px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-ring" />
+          <textarea value={story.text} rows={2} placeholder="Headline"
+            onChange={(e) => onUpdateSlide({ text: e.target.value })}
+            className="w-full resize-none rounded-md border border-input bg-background px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-ring" />
+          <textarea value={story.subtext} rows={2} placeholder="Subtext"
+            onChange={(e) => onUpdateSlide({ subtext: e.target.value })}
+            className="w-full resize-none rounded-md border border-input bg-background px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-ring" />
+        </div>
+      )}
 
       {/* Actions */}
       <div className="flex gap-2 flex-wrap justify-center">
@@ -723,7 +762,9 @@ export function StorySequence({ brandId }: { brandId: string }) {
   const [error, setError] = useState("")
   const [apiError, setApiError] = useState<unknown>(null)
   const [stories, setStories] = useState<StorySlide[]>([])
-  const overflowStories = useMemo(() => overflowingSlides(stories, storySlideOverflows), [stories])
+  // A layout frame's overflow comes from its plan; others from the original layout math.
+  const overflowStories = useMemo(() => overflowingSlides(stories, (st) => (st.text_layout && !st.checklist_highlighted_phrase && !(st.checklist_wrong_item && st.checklist_right_item) ? storyFramePlan(st, null, !!st.background_image_url).overflow : storySlideOverflows(st))), [stories])
+  const storySteps = storyStepNumbers(stories)
   const [storyCaption, setStoryCaption] = useState<StoryCaption | null>(null)
   const [showCaptionEditor, setShowCaptionEditor] = useState(false)
   const [allCopied, setAllCopied] = useState(false)
@@ -959,9 +1000,13 @@ export function StorySequence({ brandId }: { brandId: string }) {
       setBodyBgWarning(`Ran out of credits — ${outOfCredits.length} slide background${outOfCredits.length === 1 ? "" : "s"} weren't generated and kept their flat color.`)
     }
     if (succeeded.size > 0) {
-      setStories((prev) => prev.map((s, i) => {
+      // Then re-pick auto layouts now that each background's text_style is known.
+      setStories((prev) => repickSequenceLayouts(prev.map((s, i) => {
         const bg = succeeded.get(i)
         return bg ? { ...s, background_image_url: bg.url, background_image_provider: bg.provider, text_style: bg.text_style ?? null } : s
+      }), {
+        format: "story", brand: { vibe: brand?.vibe }, headingFont: prev[0]?.font_id ?? DEFAULT_FONT_ID,
+        toPick: (st) => ({ role: st.type, visualKind: st.visual?.kind ?? null, textStyle: st.background_image_url ? st.text_style ?? null : null }),
       }))
     }
     return true
@@ -1476,6 +1521,8 @@ export function StorySequence({ brandId }: { brandId: string }) {
                     uploadedImage={selectedProduct?.imageUrl ?? uploadedImages[i]?.preview}
                     brandColors={brandTextColorPresets}
                     onUpdateSlide={(updates) => updateSlide(i, updates)}
+                    stepNumber={storySteps[i] ?? null}
+                    onApplyLayoutToAll={(layout) => setStories((prev) => prev.map((st) => (st.text_layout ? { ...st, text_layout: layout, text_layout_source: "user" as const } : st)))}
                   />
                 ))}
               </div>

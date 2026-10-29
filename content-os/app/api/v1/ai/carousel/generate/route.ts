@@ -18,6 +18,8 @@ import { getActiveLessons } from "@/lib/ai/brand-brain"
 import { recordContentEvent } from "@/lib/usage/content-events"
 import { gateEventMeta } from "@/lib/ai/quality-gate"
 import { layoutCarouselText, overflowingSlides } from "@/lib/design/slide-text-layout"
+import { stampSequenceLayouts } from "@/lib/design/text-layouts"
+import { getPrimaryColor } from "@/lib/design/post-card-generator"
 
 const schema = z.object({
   brandId: z.string().uuid(),
@@ -296,6 +298,12 @@ async function handlePost(request: Request, timer: GenerationTimer) {
     await rememberBrandTypography(supabase, brand, typography)
 
     mergedSlides = sanitizeCarouselSlides(mergedSlides)
+    // Content-matched text layouts (lib/design/text-layouts.ts): one family
+    // per carousel, max two layouts, stamped with the kicker / highlight.
+    mergedSlides = stampSequenceLayouts(mergedSlides as Record<string, unknown>[], {
+      format: "carousel", brand, headingFont: fontId, accentColor: getPrimaryColor(brand), headlineKey: "headline",
+      toPick: (s) => ({ role: typeof s.role === "string" ? s.role : null, slideType: s.type as "cover" | "content" | "cta", visualKind: (s.visual as { kind?: string } | undefined)?.kind ?? null }),
+    })
     const cleanTitle = typeof d.title === "string" ? sanitizeCarouselText(d.title) : d.title
     const cleanCoverHook = typeof d.cover_hook === "string" ? sanitizeCarouselText(d.cover_hook) : d.cover_hook
 

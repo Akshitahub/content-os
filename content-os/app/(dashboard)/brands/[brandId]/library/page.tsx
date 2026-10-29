@@ -23,6 +23,9 @@ import { useGenerateContent } from "@/hooks/useGeneration"
 import { useCopyPreviewLink } from "@/hooks/useCopyPreviewLink"
 import { CopyLinkToast } from "@/components/shared/CopyLinkToast"
 import type { GenerateContentInput } from "@/lib/validations/ai"
+import type { FontId } from "@/lib/design/fonts"
+import type { TextStyle } from "@/lib/design/text-style"
+import type { TextLayoutId } from "@/lib/design/text-layouts"
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -661,6 +664,17 @@ interface SlideShape {
   custom_background_colors?: string[] | null
   text_position_x?: number | null
   text_position_y?: number | null
+  /** Typography, text treatment and content-matched layout as saved on the
+   * slide -- passed through so a Library export renders exactly what the
+   * editor showed (lib/design/text-layouts.ts). */
+  font_id?: FontId | null
+  body_font_id?: FontId | null
+  text_size_scale?: number | null
+  text_style?: TextStyle | null
+  text_layout?: TextLayoutId | null
+  kicker?: string | null
+  highlight?: string | null
+  accent_color?: string | null
 }
 
 // Reuses CarouselBuilder.tsx's own render pipeline (lib/utils/carousel-export.ts)
@@ -680,6 +694,14 @@ function toCarouselExportSlide(s: SlideShape): CarouselExportSlide {
     custom_background_colors: s.custom_background_colors,
     text_position_x: s.text_position_x,
     text_position_y: s.text_position_y,
+    font_id: s.font_id,
+    body_font_id: s.body_font_id,
+    text_size_scale: s.text_size_scale,
+    text_style: s.image_url ? s.text_style : null,
+    text_layout: s.text_layout ?? null,
+    kicker: s.kicker ?? null,
+    highlight: s.highlight ?? null,
+    accent_color: s.accent_color ?? null,
   }
 }
 
@@ -873,6 +895,21 @@ function CarouselCard({ carousel, brandId, onOpenDetail }: { carousel: CarouselR
 // ─── Story card ───────────────────────────────────────────────────────────────
 
 interface StorySlideShape {
+  /** Typography, text treatment and content-matched layout as saved on the
+   * slide -- passed through so a Library export renders exactly what the
+   * editor showed (lib/design/text-layouts.ts). */
+  font_id?: FontId | null
+  body_font_id?: FontId | null
+  text_size_scale?: number | null
+  text_style?: TextStyle | null
+  text_layout?: TextLayoutId | null
+  kicker?: string | null
+  highlight?: string | null
+  accent_color?: string | null
+  custom_text_color?: string | null
+  checklist_highlighted_phrase?: string | null
+  checklist_wrong_item?: string | null
+  checklist_right_item?: string | null
   text?: string
   subtext?: string
   type?: "hook" | "reveal" | "buildup" | "cta"
@@ -949,6 +986,18 @@ function StoryCard({ story, brandId, onOpenDetail }: { story: StoryRow; brandId:
       // dragged.
       text_position_x: s.text_position_x ?? undefined,
       text_position_y: s.text_position_y ?? undefined,
+      custom_text_color: s.custom_text_color,
+      font_id: s.font_id,
+      body_font_id: s.body_font_id,
+      text_size_scale: s.text_size_scale,
+      checklist_highlighted_phrase: s.checklist_highlighted_phrase,
+      checklist_wrong_item: s.checklist_wrong_item,
+      checklist_right_item: s.checklist_right_item,
+      text_style: s.background_image_url ? s.text_style : null,
+      text_layout: s.text_layout ?? null,
+      kicker: s.kicker ?? null,
+      highlight: s.highlight ?? null,
+      accent_color: s.accent_color ?? null,
     }))
 
   function openDetail() {

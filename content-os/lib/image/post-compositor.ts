@@ -11,6 +11,9 @@ import { CURATED_FONTS, DEFAULT_FONT_ID, findFont } from "@/lib/design/fonts"
 import { sanitizeTextForCompositing } from "@/lib/image/sanitize-text-for-compositing"
 import { BACKING_OPACITY, type TextStyle } from "@/lib/design/text-style"
 import { TEXT_OVERFLOW_WARNING, type SlideWarning } from "@/lib/design/slide-text-layout"
+import { singleImagePlan, svgFamilies, type TextLayoutId } from "@/lib/design/text-layouts"
+import { layoutPrimsToSvg } from "@/lib/design/text-layout-render"
+import { FONT_FAMILY_NAME, isFontId } from "@/lib/design/fonts"
 
 // Matches lib/ai/post-image-pipeline.ts's PORTRAIT_DIMENSIONS (4:5, the
 // current Instagram feed default) — width unchanged from the old square
@@ -573,6 +576,14 @@ export interface CompositePostImageOptions {
    * each template's scrim strength and backing panel. Absent = the fixed
    * per-template scrims. */
   textStyle?: TextStyle | null
+  /** Content-matched layout (lib/design/text-layouts.ts) -- replaces the
+   * template's text treatment when set; absent = the template, unchanged. */
+  textLayout?: TextLayoutId | null
+  kicker?: string | null
+  highlight?: string | null
+  /** offer_badge only: the real offer text. */
+  offer?: string | null
+  bodyFontId?: string | null
 }
 
 /**
@@ -600,6 +611,7 @@ export async function compositePostImageWithWarnings(
   baseImageBuffer: Buffer,
   options: CompositePostImageOptions
 ): Promise<{ buffer: Buffer; warnings: SlideWarning[] }> {
+  if (options.textLayout) return compositeLayoutPost(baseImageBuffer, options)
   if (options.template === "blank") {
     return { buffer: await sharp(baseImageBuffer).png().toBuffer(), warnings: [] }
   }
@@ -741,4 +753,39 @@ export async function compositeHardTruthChecklistWithWarnings(options: Composite
     // composite over a decorative element.
     return { buffer: await sharp(rendered).png().toBuffer(), warnings }
   }
+}
+
+// A post with a text_layout: the shared plan (lib/design/text-layouts.ts)
+// over the base image -- the same plan FullPost's overlay export draws.
+async function compositeLayoutPost(baseImageBuffer: Buffer, options: CompositePostImageOptions): Promise<{ buffer: Buffer; warnings: SlideWarning[] }> {
+  const heading = isFontId(options.fontId) ? options.fontId : DEFAULT_FONT_ID
+  const body = isFontId(options.bodyFontId) ? options.bodyFontId : heading
+  const style = options.textStyle ?? null
+  const plan = singleImagePlan({
+    text_layout: options.textLayout, kicker: options.kicker, highlight: options.highlight, offer: options.offer,
+    headline: options.captionText.trim(), fonts: { heading, body }, textStyle: style, brandColor: options.colorTheme.primary, scale: options.textSizeScale ?? 1,
+  }, CANVAS_WIDTH, CANVAS_HEIGHT)
+  const scrim = plan.fullScrim
+    ? style ? `<rect width="${CANVAS_WIDTH}" height="${CANVAS_HEIGHT}" fill="${style.text_color === "light" ? "#000000" : "#ffffff"}" fill-opacity="${style.scrim_opacity}"/>` : `<rect width="${CANVAS_WIDTH}" height="${CANVAS_HEIGHT}" fill="#000000" fill-opacity="0.35"/>`
+    : ""
+  const hasLogo = !!options.logoUrl
+  const logoBox = hasLogo ? { x: CANVAS_WIDTH - SAFE_X - 62, y: SAFE_X + 8, size: 54 } : null
+  const svg = `<svg width="${CANVAS_WIDTH}" height="${CANVAS_HEIGHT}" xmlns="http://www.w3.org/2000/svg">${scrim}${layoutPrimsToSvg(plan.prims, svgFamilies(FONT_FAMILY_NAME, { heading, body }))}${hasLogo ? `<rect x="${CANVAS_WIDTH - SAFE_X - 70}" y="${SAFE_X}" width="70" height="70" rx="12" fill="#ffffff" fill-opacity="0.9"/>` : ""}</svg>`
+  const fontFiles = [...new Set([await getFontPath(heading), await getFontPath(body)])]
+  const overlayPng = new Resvg(svg, { font: { fontFiles, loadSystemFonts: false, defaultFontFamily: FONT_FAMILY_NAME[heading] } }).render().asPng()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const layers: any[] = [{ input: overlayPng, top: 0, left: 0 }]
+  if (options.logoUrl && logoBox) {
+    const logoBuffer = await fetchLogoBuffer(options.logoUrl)
+    if (logoBuffer) {
+      try {
+        const resizedLogo = await sharp(logoBuffer).resize(logoBox.size, logoBox.size, { fit: "contain", background: { r: 0, g: 0, b: 0, alpha: 0 } }).png().toBuffer()
+        layers.push({ input: resizedLogo, top: Math.round(logoBox.y), left: Math.round(logoBox.x) })
+      } catch {
+        // Unreadable logo -- skip it, same as the template path.
+      }
+    }
+  }
+  const buffer = await sharp(baseImageBuffer).resize(CANVAS_WIDTH, CANVAS_HEIGHT, { fit: "cover" }).composite(layers).png().toBuffer()
+  return { buffer, warnings: plan.overflow ? [TEXT_OVERFLOW_WARNING] : [] }
 }

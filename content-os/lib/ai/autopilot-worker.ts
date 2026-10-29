@@ -25,6 +25,8 @@ import { getActiveLessons } from "@/lib/ai/brand-brain"
 import { recordContentEvent } from "@/lib/usage/content-events"
 import { resolveTypography } from "@/lib/design/fonts"
 import { rememberBrandTypography } from "@/lib/design/brand-typography"
+import { stampPostLayout } from "@/lib/design/text-layouts"
+import { getPrimaryColor } from "@/lib/design/post-card-generator"
 
 // Background Autopilot worker (supabase/migrations/057_autopilot_slot_jobs.sql).
 // A Supabase Cron job calls app/api/v1/cron/autopilot-drain every 20s while
@@ -93,7 +95,7 @@ type PreparedSlot = {
   isReel: boolean
   imageUrl: string | null
   carouselHtml: string | null
-  carouselSlides: { slide_number: number; headline: string; body: string }[]
+  carouselSlides: { slide_number: number; headline: string; body: string; kicker?: string | null; highlight?: string | null }[]
   carouselImageUrls: string[]
   reelScenes: ReelScene[]
   reelMusicUrl: string | null
@@ -333,7 +335,8 @@ async function prepareSlot(admin: Admin, job: SlotJobRow, ctx: RunContext, track
       // Brand-level typography (lib/design/fonts.ts); carousels are list-heavy.
       const typography = resolveTypography(brand, { density: "dense" })
       await rememberBrandTypography(admin, brand, typography)
-      const slidePngs = await renderCarouselSlidesToPng({ brand, coverHook: generated.hook || slot.theme, slides: carouselSlides, fontId: typography.heading })
+      // Content-matched layouts from each slide's kicker / highlight (lib/design/text-layouts.ts).
+      const slidePngs = await renderCarouselSlidesToPng({ brand, coverHook: generated.hook || slot.theme, slides: carouselSlides, fontId: typography.heading, autoLayouts: true })
       const uploaded: string[] = []
       for (let idx = 0; idx < slidePngs.length; idx++) {
         const uploadResult = await uploadMediaToStorage(
@@ -399,8 +402,20 @@ async function persistSlot(admin: Admin, job: SlotJobRow, ctx: RunContext, p: Pr
       written.carouselId = data?.id
     }
 
-    const platformData: Record<string, string | string[]> = {}
+    const platformData: Record<string, unknown> = {}
     if (p.imageUrl) platformData.image_url = p.imageUrl
+    // A post's clean image + the hook's content-matched layout (lib/design/
+    // text-layouts.ts): the calendar's "Edit text on image" can then put the
+    // hook on it in that layout. Carousels/reels have their own visuals.
+    if (p.imageUrl && !p.isCarousel && !p.isReel) {
+      const brand = ctx.brand
+      const typography = resolveTypography(brand)
+      platformData.base_image_url = p.imageUrl
+      platformData.overlay_text = ""
+      platformData.overlay_font_id = typography.heading
+      const stamped = stampPostLayout(g as { kicker?: unknown; highlight?: unknown }, g.hook, { brand, headingFont: typography.heading, accentColor: getPrimaryColor(brand) })
+      platformData.overlay_layout = { text_layout: stamped.text_layout, kicker: stamped.kicker, highlight: stamped.highlight, text_layout_source: "auto", body_font_id: typography.body, brand_color: stamped.accent_color }
+    }
     if (p.carouselHtml) platformData.carousel_html = p.carouselHtml
     if (p.carouselImageUrls.length > 0) {
       // Same shape schedule-post/route.ts produces for a manual carousel.

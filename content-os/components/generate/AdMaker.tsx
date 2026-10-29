@@ -20,6 +20,10 @@ import { readJsonResponse } from "@/lib/utils/read-json-response"
 import { PREVIEW_FONT_FAMILY } from "@/lib/design/preview-fonts"
 import type { FontId } from "@/lib/design/fonts"
 import { TEXT_STYLE_PALETTE, backingRgba, scrimRgba, type TextStyle } from "@/lib/design/text-style"
+import { singleImagePlan, type TextLayoutFields, type TextLayoutId } from "@/lib/design/text-layouts"
+import { drawLayoutPrims } from "@/lib/design/text-layout-render"
+import { loadLayoutFonts, previewFamilies } from "@/lib/design/preview-fonts"
+import { TextLayoutPicker } from "@/components/shared/TextLayoutPicker"
 
 // ─── Scene definitions ─────────────────────────────────────────────────────
 
@@ -63,7 +67,7 @@ function loadImage(src: string): Promise<HTMLImageElement> {
   })
 }
 
-interface AdVariation {
+interface AdVariation extends TextLayoutFields {
   url: string
   provider: string
   /** text_style per text position (lib/design/text-style.ts); absent on an older response. */
@@ -82,9 +86,12 @@ async function compositeAd(
   format: ImageFormat,
   brandName: string,
   instagramHandle: string,
-  /** The brand's heading face (route's typography) -- system sans when absent. */
-  fontFamily?: string
+  /** The brand's typography (route's typography) -- system sans when absent. */
+  fonts?: { heading: FontId; body: FontId },
+  /** Layout extras: the brief's real offer (offer_badge) and the brand colour. */
+  layoutExtras: { offer?: string | null; brandColor?: string | null } = {}
 ): Promise<string[]> {
+  const fontFamily = fonts ? PREVIEW_FONT_FAMILY[fonts.heading]?.family : undefined
   const sizes: Record<ImageFormat, { w: number; h: number }> = {
     square: { w: 1080, h: 1080 },
     portrait: { w: 1080, h: 1350 },
@@ -115,6 +122,31 @@ async function compositeAd(
     // Auto: this variation's measured text_style at the chosen position.
     // Without one (older response, or an explicit color) the old light scrim.
     const style = textColor === "auto" ? (variation.text_styles?.[textPosition] ?? variation.text_style ?? null) : null
+    const handle = instagramHandle ? `@${instagramHandle.replace("@", "")}` : brandName
+
+    // Content-matched layout (lib/design/text-layouts.ts): the shared plan
+    // replaces the fixed text block below; the handle line stays.
+    if (showText && hookText && variation.text_layout) {
+      const layoutFonts = fonts ?? { heading: "inter" as FontId, body: "inter" as FontId }
+      await loadLayoutFonts(layoutFonts)
+      const explicit: Record<Exclude<TextColor, "auto">, string> = { white: "#ffffff", dark: "#111111", violet: "#818cf8" }
+      const plan = singleImagePlan({
+        text_layout: variation.text_layout, kicker: variation.kicker, highlight: variation.highlight, offer: layoutExtras.offer,
+        headline: hookText, fonts: layoutFonts, textStyle: style, brandColor: layoutExtras.brandColor ?? null, position: textPosition,
+        textColorOverride: textColor === "auto" ? null : explicit[textColor],
+        // Clear of the handle line on the bottom safe edge.
+        reserveBottom: h * 0.04,
+      }, w, h)
+      if (plan.fullScrim) {
+        ctx.fillStyle = style ? scrimRgba(style) : "rgba(0,0,0,0.2)"
+        ctx.fillRect(0, 0, w, h)
+      }
+      drawLayoutPrims(ctx, plan.prims, previewFamilies(layoutFonts))
+      drawHandle(ctx, handle, w, h)
+      results.push(canvas.toDataURL("image/png", 0.95))
+      continue
+    }
+
     if (showText && hookText) {
       ctx.fillStyle = style ? scrimRgba(style) : "rgba(0,0,0,0.2)"
       ctx.fillRect(0, 0, w, h)
@@ -190,17 +222,21 @@ async function compositeAd(
       ctx.shadowBlur = 0
     }
 
-    ctx.fillStyle = "rgba(255,255,255,0.85)"
-    ctx.font = `500 ${w * 0.022}px -apple-system, sans-serif`
-    ctx.textAlign = "left"
-    ctx.shadowBlur = 0
-    const handle = instagramHandle ? `@${instagramHandle.replace("@", "")}` : brandName
-    ctx.fillText(handle, w * 0.06, h - (h * 0.06))
+    drawHandle(ctx, handle, w, h)
 
     results.push(canvas.toDataURL("image/png", 0.95))
   }
 
   return results
+}
+
+// The handle / brand line on the bottom-left safe edge.
+function drawHandle(ctx: CanvasRenderingContext2D, handle: string, w: number, h: number) {
+  ctx.fillStyle = "rgba(255,255,255,0.85)"
+  ctx.font = `500 ${w * 0.022}px -apple-system, sans-serif`
+  ctx.textAlign = "left"
+  ctx.shadowBlur = 0
+  ctx.fillText(handle, w * 0.06, h - (h * 0.06))
 }
 
 // ─── Step indicator ────────────────────────────────────────────────────────
@@ -302,6 +338,22 @@ export function AdMaker({ brandId, products }: AdMakerProps) {
   const [generating, setGenerating] = useState(false)
   const [genError, setGenError] = useState<unknown>(null)
   const [results, setResults] = useState<string[]>([])
+  // What the current results were composited from (this session only) --
+  // lets the per-variation layout picker re-draw one variation.
+  const [adSources, setAdSources] = useState<{
+    variations: AdVariation[]; texts: string[]; showText: boolean; textPosition: TextPosition; textColor: TextColor; format: ImageFormat
+    brandName: string; handle: string; fonts?: { heading: FontId; body: FontId }; extras: { offer?: string | null; brandColor?: string | null }
+  } | null>(null)
+
+  // The user's layout pick for one variation always wins over the auto-pick.
+  async function changeVariationLayout(index: number, layout: TextLayoutId) {
+    if (!adSources) return
+    const variations = adSources.variations.map((v, i) => (i === index ? { ...v, text_layout: layout, text_layout_source: "user" as const } : v))
+    const src = { ...adSources, variations }
+    setAdSources(src)
+    const [image] = await compositeAd([variations[index]!], [src.texts[index] ?? ""], src.showText, src.textPosition, src.textColor, src.format, src.brandName, src.handle, src.fonts, src.extras)
+    if (image) setResults((prev) => prev.map((r, i) => (i === index ? image : r)))
+  }
   // Per-result copy from the strategy step (lib/ai/ad-strategy.ts), same
   // index as results -- null where the strategy step didn't run/failed.
   const [resultVariants, setResultVariants] = useState<(AdVariant | null)[]>([])
@@ -599,14 +651,19 @@ export function AdMaker({ brandId, products }: AdMakerProps) {
 
       const brandName = brand?.name ?? "Brand"
       const handle = brand?.instagram_handle ?? ""
-      const chargeData = (chargeJson as { data: { variations: (AdVariation & { variant?: AdVariant | null })[]; typography?: { heading?: FontId } } }).data
+      const chargeData = (chargeJson as { data: { variations: (AdVariation & { variant?: AdVariant | null })[]; typography?: { heading?: FontId; body?: FontId }; layout?: { offer?: string | null; accent_color?: string | null } } }).data
       const variations = chargeData.variations
-      const headingFont = chargeData.typography?.heading
+      const fonts = chargeData.typography?.heading ? { heading: chargeData.typography.heading, body: chargeData.typography.body ?? chargeData.typography.heading } : undefined
       const variants = variations.map((v) => v.variant ?? null)
       // The user's typed headline wins; otherwise each variation carries its
-      // own strategy headline. showText still turns text off entirely.
+      // own strategy headline. showText still turns text off entirely. A
+      // highlight only applies to the strategy headline it was written for.
       const texts = variations.map((v) => hookText.trim() || v.variant?.headline || "")
-      const composited = await compositeAd(variations, texts, showText, textPosition, textColor, format, brandName, handle, headingFont ? PREVIEW_FONT_FAMILY[headingFont]?.family : undefined)
+      const laidOut = variations.map((v) => (hookText.trim() ? { ...v, highlight: null } : v))
+      const extras = { offer: chargeData.layout?.offer ?? null, brandColor: chargeData.layout?.accent_color ?? null }
+      const composited = await compositeAd(laidOut, texts, showText, textPosition, textColor, format, brandName, handle, fonts, extras)
+      // Kept so a layout change can recomposite one variation without a new generation.
+      setAdSources({ variations: laidOut, texts, showText, textPosition, textColor, format, brandName, handle, fonts, extras })
       setResults(composited)
       setResultVariants(variants)
       setExpandedIdx(0)
@@ -979,6 +1036,13 @@ export function AdMaker({ brandId, products }: AdMakerProps) {
             <div className="rounded-xl border bg-card p-4 space-y-3">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={results[expandedIdx]} alt="Selected variation" className="w-full max-w-xs mx-auto rounded-xl shadow-md" />
+              {adSources?.showText && adSources.variations[expandedIdx] && (
+                <TextLayoutPicker
+                  value={adSources.variations[expandedIdx]!.text_layout}
+                  hasOffer={!!adSources.extras.offer}
+                  onChange={(layout) => void changeVariationLayout(expandedIdx, layout)}
+                />
+              )}
               {resultVariants[expandedIdx] && (() => {
                 const v = resultVariants[expandedIdx]!
                 return (

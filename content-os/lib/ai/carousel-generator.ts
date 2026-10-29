@@ -7,6 +7,7 @@ import { runQualityGate, type GateReport } from "./quality-gate"
 import { UsageCarryingError, addTextUsage, sumCostUsd, type TextUsage } from "./pricing"
 import { withLessons, type BrandLesson } from "./brand-brain"
 import { buildBrandBrainLines, parseBrandBrain } from "@/lib/brand-brain-profile"
+import { kickerHighlightRule } from "@/lib/design/text-layouts"
 
 // Carousel prompt building + the model call, moved verbatim out of
 // app/api/v1/ai/carousel/generate/route.ts during the Phase 1b Groq ->
@@ -72,6 +73,9 @@ INFORMATION DEPTH — the most common failure is slides that only name a topic (
 - No empty adjectives ("premium", "refined", "elevated", "seamless", "luxurious") unless the same slide states the specific detail that justifies them.
 - Only use facts from the brand context or topic above. When a specific isn't known, teach the general principle instead of inventing one (the number and placeholder rules above still apply).
 - The CTA slide's headline summarises the takeaway — never just "follow us" or "save this".
+
+ON-IMAGE EXTRAS — every slide object (and cta_slide) may add:
+${kickerHighlightRule()}
 
 VISUAL DIRECTION — every slide object (and cta_slide) gets a "visual" brief for its image:
 - "kind": one of ${VISUAL_KINDS.join(" | ")}.
@@ -155,6 +159,8 @@ Respond with ONLY this JSON (no markdown, no explanation). The values below are 
       "type": "cover",
       "role": "hook",
       "headline": "Your checkout is losing the sale",
+      "kicker": "Checkout audit",
+      "highlight": "losing the sale",
       "subtext": "Where shoppers drop off, and what to fix first",
       "background_style": "gradient_dark",
       "visual": { "kind": "detail_closeup", "must_show": "A hand holding a phone over a cafe table, the screen glowing but out of focus, thumb paused mid-scroll, shot over the shoulder", "composition": "phone and hand in the right two-thirds, left third soft and empty for text" }

@@ -5,6 +5,7 @@ import { renderRichCarouselSlides, type CarouselCompositeSlide } from "@/lib/ima
 import { uploadMediaToStorage } from "@/lib/storage/upload-media"
 import { z } from "zod"
 import { textStyleSchema } from "@/lib/design/text-style"
+import { textLayoutIdSchema } from "@/lib/design/text-layouts"
 
 // Real, high-resolution carousel export -- mirrors
 // app/api/v1/ai/stories/render/route.ts exactly, for the identical reason:
@@ -59,6 +60,10 @@ const slideSchema = z.object({
   font_id: fontIdEnum.nullish(),
   body_font_id: fontIdEnum.nullish(),
   text_style: textStyleSchema.nullish(),
+  text_layout: textLayoutIdSchema.nullish(),
+  kicker: z.string().max(60).nullish(),
+  highlight: z.string().max(120).nullish(),
+  accent_color: z.string().max(32).nullish(),
   // Uniform font-size multiplier for this slide -- see
   // CarouselCompositeSlide.text_size_scale's own comment.
   text_size_scale: z.number().min(0.7).max(1.5).nullish(),

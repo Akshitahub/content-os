@@ -227,6 +227,10 @@ type SlideRecord = {
   warnings?: string[]
   /** Split layer (lib/ai/split-layer.ts): whether the two-half composite ran, and both half prompts. */
   split?: { used: boolean; halfPrompts: { left: string; right: string }; fallbackReason?: string } | null
+  /** Content-matched layout (lib/design/text-layouts.ts) the final was rendered with. */
+  textLayout?: string | null
+  kicker?: string | null
+  highlight?: string | null
   latencyMs: number
   costUsd: number | null
   provider: string | null
@@ -254,7 +258,9 @@ async function main(): Promise<void> {
   const { IMAGE_PROVIDER_CONFIG } = await import("@/lib/ai/image-provider")
   const { MODELS } = await import("@/lib/ai/models")
   const { sumCostUsd } = await import("@/lib/ai/pricing")
-  const { resolveSuggestedFont } = await import("@/lib/design/fonts")
+  const { resolveTypography } = await import("@/lib/design/fonts")
+  const { stampSequenceLayouts } = await import("@/lib/design/text-layouts")
+  const { getPrimaryColor } = await import("@/lib/design/post-card-generator")
   const { findContentQualityIssues, sanitizeLeakedArtifacts } = await import("@/lib/ai/content-quality-check")
   const { isInternalUnlimited } = await import("@/lib/usage/is-internal-unlimited")
 
@@ -331,9 +337,19 @@ async function main(): Promise<void> {
   const effectiveVibe = vibe || (d.suggested_vibe as string | undefined)
   const vibeBackground = effectiveVibe ? VIBE_TO_STORY_BACKGROUND[effectiveVibe] : undefined
   if (vibeBackground) stories = stories.map((s) => ({ ...s, background: vibeBackground }))
-  const fontId = resolveSuggestedFont(d.suggested_font_id, brand.vibe, effectiveVibe)
-  stories = stories.map((s) => ({ ...s, font_id: fontId }))
+  // Brand typography + content-matched layouts, as the route stamps them.
+  const typography = resolveTypography(brand, {
+    density: effectiveVibe === "hard_truth_checklist" || stories.some((s) => typeof s.subtext === "string" && s.subtext.length > 120) ? "dense" : "normal",
+    suggested: d.suggested_font_id,
+  })
+  const fontId = typography.heading
+  stories = stories.map((s) => ({ ...s, font_id: fontId, body_font_id: typography.body }))
   stories = sanitizeSlides(stories)
+  stories = stampSequenceLayouts(stories, {
+    format: "story", brand, headingFont: fontId, accentColor: getPrimaryColor(brand), headlineKey: "text",
+    toPick: (s) => ({ role: typeof s.type === "string" ? s.type : null, visualKind: (s.visual as { kind?: string } | undefined)?.kind ?? null }),
+    skip: (s) => !!s.checklist_highlighted_phrase || (!!s.checklist_wrong_item && !!s.checklist_right_item),
+  })
 
   // 3. One visual prompt for the whole sequence, as StorySequence's
   // writeVisualPrompt() sends it on a first write with an empty field:
@@ -416,6 +432,9 @@ async function main(): Promise<void> {
       attempts: result.attempts,
       imageRequests,
       split: result.split ?? null,
+      textLayout: typeof s.text_layout === "string" ? s.text_layout : null,
+      kicker: typeof s.kicker === "string" ? s.kicker : null,
+      highlight: typeof s.highlight === "string" ? s.highlight : null,
     }
     if (result.success) {
       const ext = result.mimeType.includes("jpeg") ? "jpg" : "png"
@@ -475,6 +494,10 @@ async function main(): Promise<void> {
         checklist_wrong_item: s.checklist_wrong_item,
         checklist_right_item: s.checklist_right_item,
         text_style: file ? (slideRecords[i]?.textStyle as import("@/lib/design/text-style").TextStyle | null | undefined) ?? null : null,
+        text_layout: s.text_layout,
+        kicker: s.kicker,
+        highlight: s.highlight,
+        accent_color: s.accent_color,
       }
     })
     const finals = await renderStorySlides(exportSlides)

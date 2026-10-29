@@ -127,7 +127,7 @@ export function resolveTypography(
   else if (isFontId(options.suggested)) { heading = options.suggested; source = "model" }
   else { heading = DEFAULT_FONT_ID; source = "default" }
 
-  let body: FontId = savedBody ?? (HEADLINE_ONLY_FONTS.has(heading) ? "inter" : heading)
+  let body: FontId = savedBody ?? defaultBodyFont(heading)
   if (options.density === "dense" && NEVER_DENSE_BODY.has(body)) body = "inter"
   return { heading, body, source }
 }
@@ -166,3 +166,8 @@ export const TEXT_SIZE_OPTIONS: TextSizeOption[] = [
   { scale: 1.15, label: "Large" },
   { scale: 1.3, label: "XL" },
 ]
+
+/** The body face that goes with a heading when nothing else is saved: Inter under a headline-only face. */
+export function defaultBodyFont(heading: FontId): FontId {
+  return HEADLINE_ONLY_FONTS.has(heading) ? "inter" : heading
+}

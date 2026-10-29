@@ -9,6 +9,7 @@ import { isApiError } from "@/types/api"
 import { flattenOverlayImage } from "@/lib/utils/post-overlay-export"
 import { isFontId } from "@/lib/design/fonts"
 import { readJsonResponse } from "@/lib/utils/read-json-response"
+import { savedOverlayLayoutSchema } from "@/lib/design/text-layouts"
 
 // Matches what app/api/v1/brands/[brandId]/calendar/[entryId]/regenerate/route.ts
 // actually supports — routing "reel" (or any other content_type) there
@@ -235,7 +236,10 @@ export function CalendarEntryPanel({ entry, onClose, onUpdate, brandId }: Calend
       // Same typeface the post was scheduled with; entries from before fonts
       // were saved have none and keep the original system font.
       const fontId = isFontId(data?.overlay_font_id) ? data.overlay_font_id : undefined
-      const imageDataUrl = await flattenOverlayImage(baseImageUrl, imageTextDraft, { type: "image/jpeg", quality: 0.92 }, fontId)
+      // And the same layout (with its text_style) when one was saved.
+      const saved = savedOverlayLayoutSchema.safeParse(data?.overlay_layout)
+      const layout = saved.success ? saved.data : null
+      const imageDataUrl = await flattenOverlayImage(baseImageUrl, imageTextDraft, { type: "image/jpeg", quality: 0.92 }, fontId, layout?.text_style ?? null, layout)
       const res = await fetch(`/api/v1/brands/${brandId}/calendar/${entry.id}/image-text`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
