@@ -138,6 +138,22 @@ ${QUALITY_BAR}
 Always respond with valid JSON only. No markdown, no explanation.`
 }
 
+/** The caption's one core message and its opening, for a hook written after the caption. */
+export interface HookPostPlan {
+  message: string
+  /** The caption's opening line, as written. */
+  opening?: string | null
+}
+
+function buildPostPlanBlock(plan: HookPostPlan | null | undefined): string {
+  if (!plan) return ""
+  return `THIS POST'S MESSAGE — the caption is already written around it:
+Message: ${plan.message}${plan.opening ? `\nCaption opens with: ${plan.opening}` : ""}
+The hook must set up this exact message. Do not introduce a different claim, promise, number or benefit than the message and the caption make.
+
+`
+}
+
 function buildHookUserPromptBase(
   brand: BrandRow,
   options: {
@@ -146,6 +162,8 @@ function buildHookUserPromptBase(
     platform?: Platform
     additionalContext?: string
     product?: ProductRow | null
+    /** The already-written caption's plan (lib/ai/post-copy.ts) -- the hook sets it up. */
+    postPlan?: HookPostPlan | null
   }
 ): string {
   const b = brand as BrandRow & {
@@ -186,7 +204,7 @@ function buildHookUserPromptBase(
 ${contentAngle}
 ${platformNote}
 
-Generate ${options.count} scroll-stopping hooks${options.additionalContext?.trim() ? " about the POST TOPIC above" : ""}. Remember: MAX 8 WORDS EACH. NEVER mention the product name or brand name.
+${buildPostPlanBlock(options.postPlan)}Generate ${options.count} scroll-stopping hooks${options.postPlan ? " that set up THIS POST'S MESSAGE" : options.additionalContext?.trim() ? " about the POST TOPIC above" : ""}. Remember: MAX 8 WORDS EACH. NEVER mention the product name or brand name.
 
 Hook types to vary across:
 ${hookTypeInstruction(options.hookTypes)}

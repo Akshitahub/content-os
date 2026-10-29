@@ -10,8 +10,7 @@ import { findContentQualityIssues, sanitizeLeakedArtifacts } from "@/lib/ai/cont
 import type { BrandRow, ProductRow } from "@/types/database"
 import type { ContentStrategy, ContentSlot, GeneratedCaption, Platform, ReelScene, UserPlan } from "@/types/app"
 import { withLessons, type BrandLesson } from "./brand-brain"
-import { generateContent } from "./content-generator"
-import { generateHooks } from "./hooks-generator"
+import { generatePostCopy } from "./post-copy"
 import { generateCarouselWithRetry } from "./carousel-generator"
 import { finishGeneratedCarousel } from "./carousel-postprocess"
 import { briefScene, type VisualBrief } from "./visual-brief"
@@ -555,9 +554,8 @@ function briefImagePrompt(brief: VisualBrief): string {
   return `${briefScene(brief, POST_BRIEF_ABSTRACT_OPENER)}${brief.composition ? `, composition: ${brief.composition}` : ""}`
 }
 
-// Post slot: the calendar-regenerate / Full Post pair -- one hook from the
-// hook generator, and the Full Post caption (post_plan, visual brief, image
-// prompt, quality gate) from generateContent, in parallel.
+// Post slot: the Full Post caption (post_plan, visual brief, image prompt,
+// quality gate), then the hook written from its plan (lib/ai/post-copy.ts).
 async function generatePostSlot(
   brand: BrandRow,
   slot: ContentSlot,
@@ -569,12 +567,12 @@ async function generatePostSlot(
   hookLessons: BrandLesson[] | undefined,
 ): Promise<SlotContent> {
   const brief = buildSlotBrief(slot, product, totalSlots)
-  const [hookResult, contentResult] = await Promise.all([
-    generateHooks(brand, { hookTypes: ["bold_statement", "question", "story"], count: 1, platform: slot.platform, additionalContext: brief, product, factGuardDeadline, lessons: hookLessons }),
-    generateContent(brand, "social_post", { product, platform: slot.platform, additionalContext: brief, includeImagePrompt: true, factGuardDeadline, lessons }),
-  ])
-  trackUsage(tracker, hookResult.usage, hookResult.costUsd)
-  trackUsage(tracker, contentResult.usage, contentResult.costUsd)
+  // Each call's usage is tracked as it completes (onUsage).
+  const { caption: contentResult, hook: hookResult } = await generatePostCopy(brand, {
+    product, platform: slot.platform, additionalContext: brief, factGuardDeadline,
+    captionLessons: lessons, hookLessons,
+    onUsage: (_step, usage, costUsd) => trackUsage(tracker, usage, costUsd),
+  })
 
   const hook = hookResult.hooks[0]?.hook_text?.trim()
   if (!hook) throw new Error("Hook generation returned no results")

@@ -3,8 +3,6 @@ import { createClient, createAdminClient } from "@/lib/supabase/server"
 import { getISTDateString } from "@/lib/utils/ist"
 import { checkAndIncrementUsage, refundGenerationUsage, logGenerationOutcome } from "@/lib/usage/check-and-increment-usage"
 import { POST as POST_CREDIT_COST } from "@/lib/usage/credit-costs"
-import { generateHooks } from "@/lib/ai/hooks-generator"
-import { generateContent } from "@/lib/ai/content-generator"
 import { generatePostImage, attemptsCostUsd } from "@/lib/ai/post-image-pipeline"
 import { UsageCarryingError, addTextUsage, sumCostUsd, type TextUsage } from "@/lib/ai/pricing"
 import { resolveColorThemes, findColorTheme } from "@/lib/design/color-themes"
@@ -22,6 +20,7 @@ import { getActiveLessons } from "@/lib/ai/brand-brain"
 import { stampPostLayout } from "@/lib/design/text-layouts"
 import { getPrimaryColor } from "@/lib/design/post-card-generator"
 import { resolveTypography } from "@/lib/design/fonts"
+import { generatePostCopy } from "@/lib/ai/post-copy"
 
 const BUCKET = "brand-images"
 
@@ -158,32 +157,24 @@ async function handlePost(request: Request, timer: GenerationTimer) {
     // productId, no additionalContext (a generic on-brand post, not tied
     // to anything the user typed), and no contentAngle (omitted entirely
     // so it stays equivalent to that route's own "auto" default).
-    const hookResult = await timer.step("caption", withDeadline(generateHooks(brand, {
-      hookTypes: ["bold_statement", "question", "story"],
-      count: 1,
-      platform: "instagram",
-      product: null,
-      factGuardDeadline: requestStartedAt + TEXT_DEADLINE_MS,
-      lessons: hookLessons,
-    }), requestStartedAt + ROUTE_DEADLINE_MS - Date.now(), "daily draft hook"))
-    textModel = hookResult.model
-    textUsage = addTextUsage(textUsage, hookResult.usage)
-    costUsd = sumCostUsd(costUsd, hookResult.costUsd)
-    const hook = hookResult.hooks[0]
-    if (!hook) throw new Error("Hook generation returned no results")
-
+    // Caption first, then the hook from its plan (lib/ai/post-copy.ts); each
+    // call's usage is added as it completes, so neither is lost to the other.
     const colorThemes = resolveColorThemes(brand)
-    const contentResult = await timer.step("caption", withDeadline(generateContent(brand, "social_post", {
+    const { hook: hookResult, caption: contentResult } = await timer.step("caption", withDeadline(generatePostCopy(brand, {
       product: null,
       platform: "instagram",
-      hookText: hook.hook_text,
-      includeImagePrompt: true,
       availableColorThemes: colorThemes.map((t) => ({ id: t.id, label: t.label })),
       factGuardDeadline: requestStartedAt + TEXT_DEADLINE_MS,
-      lessons: captionLessons,
-    }), requestStartedAt + ROUTE_DEADLINE_MS - Date.now(), "daily draft caption"))
-    textUsage = addTextUsage(textUsage, contentResult.usage)
-    costUsd = sumCostUsd(costUsd, contentResult.costUsd)
+      captionLessons,
+      hookLessons,
+      onUsage: (_step, usage, cost) => {
+        textUsage = addTextUsage(textUsage, usage)
+        costUsd = sumCostUsd(costUsd, cost)
+      },
+    }), requestStartedAt + ROUTE_DEADLINE_MS - Date.now(), "daily draft copy"))
+    textModel = contentResult.model
+    const hook = hookResult.hooks[0]
+    if (!hook) throw new Error("Hook generation returned no results")
     const caption = contentResult.data as GeneratedCaption
     // Same post-generation merge fullpost/generate/route.ts applies, so
     // this cached draft's caption carries the hook and CTA the same way

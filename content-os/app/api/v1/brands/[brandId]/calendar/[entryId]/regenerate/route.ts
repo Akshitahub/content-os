@@ -3,7 +3,6 @@ import { createClient, createAdminClient } from "@/lib/supabase/server"
 import { buildError, ErrorCodes } from "@/types/api"
 import { checkAndIncrementUsage, refundGenerationUsage } from "@/lib/usage/check-and-increment-usage"
 import { POST as POST_CREDIT_COST, CAROUSEL as CAROUSEL_CREDIT_COST } from "@/lib/usage/credit-costs"
-import { generateHooks } from "@/lib/ai/hooks-generator"
 import { generateContent } from "@/lib/ai/content-generator"
 import { generatePostImage } from "@/lib/ai/post-image-pipeline"
 import { DEFAULT_POST_TEMPLATE_ID } from "@/lib/design/post-templates"
@@ -24,6 +23,7 @@ import { resolveTypography } from "@/lib/design/fonts"
 import { rememberBrandTypography } from "@/lib/design/brand-typography"
 import { stampPostLayout } from "@/lib/design/text-layouts"
 import { getPrimaryColor } from "@/lib/design/post-card-generator"
+import { generatePostCopy } from "@/lib/ai/post-copy"
 
 const IMAGE_BUCKET = "brand-images"
 const FEATURE = "calendar_regenerate"
@@ -198,10 +198,11 @@ async function handlePost(request: Request, { params }: RouteParams, timer: Gene
       getActiveLessons(supabase, brandId, "hook"),
       getActiveLessons(supabase, brandId, "caption"),
     ])
-    const [hookResult, contentResult] = await timer.step("caption", withDeadline(Promise.all([
-      generateHooks(brand, { hookTypes: ["bold_statement", "question", "story"], count: 1, platform, additionalContext, factGuardDeadline: requestStartedAt + POST_TEXT_DEADLINE_MS, lessons: hookLessons }),
-      generateContent(brand, "social_post", { platform, additionalContext, pastExamples, includeImagePrompt: true, factGuardDeadline: requestStartedAt + POST_TEXT_DEADLINE_MS, lessons: captionLessons }),
-    ]), requestStartedAt + ROUTE_DEADLINE_MS - Date.now(), "regenerate post copy"))
+    // Caption first, then the hook from its plan (lib/ai/post-copy.ts).
+    const { hook: hookResult, caption: contentResult } = await timer.step("caption", withDeadline(generatePostCopy(brand, {
+      platform, additionalContext, pastExamples, factGuardDeadline: requestStartedAt + POST_TEXT_DEADLINE_MS,
+      captionLessons, hookLessons,
+    }), requestStartedAt + ROUTE_DEADLINE_MS - Date.now(), "regenerate post copy"))
 
     const hook = hookResult.hooks[0]
     if (!hook) throw new Error("Hook generation returned no results")

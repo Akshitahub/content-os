@@ -1,6 +1,6 @@
 import type { BrandRow, ProductRow } from "@/types/database"
 import type { GeneratedHook, HookType, Platform } from "@/types/app"
-import { buildHookSystemPrompt, buildHookUserPrompt } from "./prompts"
+import { buildHookSystemPrompt, buildHookUserPrompt, type HookPostPlan } from "./prompts"
 import { MODELS, getTextClientFor, textProviderFor } from "./models"
 import { findContentQualityIssues, sanitizeLeakedArtifacts } from "./content-quality-check"
 import { buildFactSource, guardCopy } from "./fact-guard"
@@ -25,6 +25,9 @@ export async function generateHooks(
     factGuardDeadline?: number
     /** "hook"-scope brand lessons (lib/ai/brand-brain.ts), fetched by the route. */
     lessons?: BrandLesson[]
+    /** The already-written caption's message + opening (lib/ai/post-copy.ts):
+     * the hook must set up that message, not a different claim. */
+    postPlan?: HookPostPlan | null
   }
 ): Promise<{ hooks: GeneratedHook[]; model: string; usage: TextUsage | undefined; costUsd: number | null }> {
   const openai = getTextClientFor(MODELS.creative)
@@ -38,7 +41,7 @@ export async function generateHooks(
 
   const messages: ChatCompletionMessageParam[] = [
     { role: "system", content: buildHookSystemPrompt() },
-    { role: "user", content: buildHookUserPrompt(brand, { hookTypes, count, platform: options.platform, additionalContext: options.additionalContext, product: options.product, lessons: options.lessons }) },
+    { role: "user", content: buildHookUserPrompt(brand, { hookTypes, count, platform: options.platform, additionalContext: options.additionalContext, product: options.product, lessons: options.lessons, postPlan: options.postPlan }) },
   ]
   const callModel = async (msgs: ChatCompletionMessageParam[], timeoutMs = 20_000): Promise<{ raw: string; usage: TextUsage | undefined }> => {
     const startTime = Date.now()
@@ -84,7 +87,9 @@ export async function generateHooks(
   const guarded = await guardCopy({
     stage: "hooks",
     data: hooks,
-    facts: buildFactSource({ brand, product: options.product, brief: [options.additionalContext] }),
+    // The caption's message/opening already passed its own fact guard, so
+    // the hook may restate what they say.
+    facts: buildFactSource({ brand, product: options.product, brief: [options.additionalContext, options.postPlan?.message, options.postPlan?.opening] }),
     normalTimeoutMs: 20_000,
     deadline: options.factGuardDeadline,
     retry: async (correction, timeoutMs) => {

@@ -23,6 +23,7 @@ import { recordContentEvent, type ContentEventType } from "@/lib/usage/content-e
 import { gateEventMeta } from "@/lib/ai/quality-gate"
 import { stampPostLayout } from "@/lib/design/text-layouts"
 import { getPrimaryColor } from "@/lib/design/post-card-generator"
+import { generatePostCopy } from "@/lib/ai/post-copy"
 
 // Mirrors components/generate/FullPostGenerator.tsx's former client-side
 // ANGLE_HINT map verbatim -- moved server-side so the angle is a real,
@@ -122,39 +123,24 @@ async function handlePost(request: Request, timer: GenerationTimer) {
     let sessionResult: { sessionId: string } | { error: string } | null = null
 
     if (format === "social_post") {
-      // social_post's caption prompt is built from the hook's own text, so
-      // content generation genuinely can't start until the hook exists —
-      // this stays sequential.
-      hookResult = await timer.step("caption", withDeadline(generateHooks(brand, {
-        hookTypes: ["bold_statement", "question", "story"],
-        count: 1,
-        platform,
-        additionalContext: combinedContext,
-        product,
-        factGuardDeadline: deadlineAt - 30_000,
-        lessons: hookLessons,
-      }), remainingMs(), "fullpost hooks"))
-      const firstHook = hookResult.hooks[0]
-      if (!firstHook) throw new Error("Hook generation returned no results")
-
-      // createPostImageSession only depends on user.id, not on
-      // contentResult — run it alongside content generation instead of
-      // after it.
-      const [contentRes, sessRes] = await timer.step("caption", withDeadline(Promise.all([
-        generateContent(brand, format, {
+      // The caption (and its post_plan) first, then the hook written from
+      // that plan, so the two say the same thing (lib/ai/post-copy.ts).
+      // createPostImageSession only depends on user.id -- run it alongside.
+      const [copy, sessRes] = await timer.step("caption", withDeadline(Promise.all([
+        generatePostCopy(brand, {
           product,
           platform,
-          hookText: firstHook.hook_text,
           additionalContext: combinedContext,
           pastExamples,
-          includeImagePrompt: true,
           availableColorThemes: resolveColorThemes(brand).map(t => ({ id: t.id, label: t.label })),
           factGuardDeadline: deadlineAt - 30_000,
-          lessons: contentLessons,
+          captionLessons: contentLessons,
+          hookLessons,
         }),
         createPostImageSession(user.id),
       ]), remainingMs(), "fullpost caption"))
-      contentResult = contentRes
+      hookResult = copy.hook
+      contentResult = copy.caption
       sessionResult = sessRes
     } else {
       // Every other format ignores hookText entirely, so hook generation

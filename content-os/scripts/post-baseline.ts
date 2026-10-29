@@ -146,8 +146,7 @@ globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
 // ─── Run ────────────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
-  const { generateHooks } = await import("@/lib/ai/hooks-generator")
-  const { generateContent } = await import("@/lib/ai/content-generator")
+  const { generatePostCopy } = await import("@/lib/ai/post-copy")
   const { requestImagePromptStream } = await import("@/lib/ai/image-prompt-writer")
   const { generatePostImage, attemptsCostUsd } = await import("@/lib/ai/post-image-pipeline")
   const { IMAGE_PROVIDER_CONFIG } = await import("@/lib/ai/image-provider")
@@ -193,36 +192,30 @@ async function main(): Promise<void> {
   const pastExamples = await fetchPastExamples(supabase, brand.id, "social_post")
   const colorThemes = resolveColorThemes(brand)
 
-  // 1. Hook, then caption -- exactly the route's social_post calls.
-  currentStage = "hook"
-  console.log("Generating hook…")
-  let started = Date.now()
-  const hookResult = await generateHooks(brand, {
-    hookTypes: ["bold_statement", "question", "story"],
-    count: 1,
-    platform: PLATFORM,
-    additionalContext: combinedContext,
-    product: null,
-    lessons: hookLessons,
-  })
-  const hookLatencyMs = Date.now() - started
-  const hook = hookResult.hooks[0]
-  if (!hook) throw new Error("Hook generation returned no results")
-
+  // 1. Caption, then the hook written from its plan -- exactly the route's
+  // social_post call (lib/ai/post-copy.ts generatePostCopy). Latency is split
+  // by when each step's usage arrives.
   currentStage = "caption"
-  console.log("Generating caption…")
-  started = Date.now()
-  const contentResult = await generateContent(brand, "social_post", {
+  console.log("Generating caption, then hook…")
+  let started = Date.now()
+  let captionDoneAt = started
+  const copy = await generatePostCopy(brand, {
     product: null,
     platform: PLATFORM,
-    hookText: hook.hook_text,
     additionalContext: combinedContext,
     pastExamples,
-    includeImagePrompt: true,
     availableColorThemes: colorThemes.map((t) => ({ id: t.id, label: t.label })),
-    lessons: captionLessons,
+    captionLessons,
+    hookLessons,
+    onUsage: (step) => { if (step === "caption") { captionDoneAt = Date.now(); currentStage = "hook" } },
   })
-  const captionLatencyMs = Date.now() - started
+  const captionLatencyMs = captionDoneAt - started
+  const hookLatencyMs = Date.now() - captionDoneAt
+  const hookResult = copy.hook
+  const contentResult = copy.caption
+  const hookSource = copy.hookSource
+  const hook = hookResult.hooks[0]
+  if (!hook) throw new Error("Hook generation returned no results")
   const caption = contentResult.data as GeneratedCaption
   const rawCaption = JSON.parse(JSON.stringify(caption)) as GeneratedCaption
   // Route post-processing.
@@ -387,6 +380,8 @@ async function main(): Promise<void> {
     startedAt: runStartedAt.toISOString(),
     plan,
     isInternalUnlimitedUser: isUnlimited,
+    // "plan" = written from the caption's post_plan; "caption_first_line" = the fallback.
+    hookSource,
     models: { hook: hookResult.model, caption: contentResult.model, imagePromptWriter: MODELS.creative, image: IMAGE_PROVIDER_CONFIG.model },
     lessons: { hook: hookLessons, caption: captionLessons, image: imageLessons },
     pastExamples,
