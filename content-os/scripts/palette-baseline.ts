@@ -15,6 +15,7 @@
 // cut out by remove.bg (cached per product) and once framed (the fallback),
 // plus an accent-match variant -- the brand's accent set to the product's own
 // colour -- for the arch's separation fallback. The copy is fixture text.
+// Always: a wide drawn jar (~1.35:1) for annotated_product's rows layout.
 //
 // Output: scripts/output/palette-runs/<label>-<brand>-<timestamp>/
 // (palette.json, post-*.png, checklist.png, carousel-*.png, story-*.png).
@@ -159,6 +160,36 @@ async function main() {
       console.error("[palette-baseline] remove.bg failed -- only the framed fallback is rendered:", err instanceof Error ? err.message : err)
     }
     save("post-annotated_product-framed.png", (await compositeAnnotatedProduct({ ...annotated, callouts: annotated.callouts.slice(0, 3), productImage: productPhoto, cutout: false })).buffer)
+  }
+
+  // ── annotated_product, wide product: a drawn jar (~1.35:1, transparent,
+  // like a cut-out) -- callouts go in rows above and below instead of columns.
+  {
+    const { compositeAnnotatedProduct } = await import("@/lib/image/post-compositor")
+    const jarSvg = `<svg width="1350" height="1000" xmlns="http://www.w3.org/2000/svg">
+      <rect x="235" y="40" width="880" height="130" rx="30" fill="#5b3a1e"/>
+      <rect x="215" y="150" width="920" height="40" rx="14" fill="#3f2814"/>
+      <rect x="140" y="190" width="1070" height="790" rx="140" fill="#d9921f"/>
+      <rect x="190" y="230" width="90" height="680" rx="45" fill="#ffffff" fill-opacity="0.28"/>
+      <rect x="380" y="400" width="590" height="380" rx="36" fill="#f6ead2"/>
+      <rect x="430" y="470" width="490" height="34" rx="17" fill="#5b3a1e"/>
+      <rect x="480" y="540" width="390" height="22" rx="11" fill="#5b3a1e" fill-opacity="0.6"/>
+      <rect x="520" y="600" width="310" height="22" rx="11" fill="#5b3a1e" fill-opacity="0.6"/>
+    </svg>`
+    const jar = await sharp(Buffer.from(jarSvg)).png().toBuffer()
+    const { buffer } = await compositeAnnotatedProduct({
+      palette,
+      productImage: jar,
+      cutout: true,
+      headline: "Raw honey from the hills",
+      keyword: "hills",
+      callouts: ["Raw forest honey", "No added sugar", "Reusable glass jar", "Small-batch harvest"],
+      brandName: brand.name,
+      ctaText: (brand as BrandRow & { cta_phrase?: string | null }).cta_phrase ?? null,
+      fontId: typography.heading,
+      motifs: ["petals"],
+    })
+    save("post-annotated_product-wide.png", buffer)
   }
 
   // ── Carousel: the plain (Autopilot) renderer, with and without auto layouts.
