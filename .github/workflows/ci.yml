@@ -1,0 +1,64 @@
+name: CI
+
+# Typecheck + client-import guard + a real production build on every push
+# and PR to main. tsc alone missed a bundler error (sharp pulled into the
+# client bundle) that failed every Vercel deploy from c0bd043 to cef3240
+# for ~6 hours without anyone noticing -- `next build` catches that class.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: content-os
+    env:
+      # Dummy values: lib/env.ts (called from next.config.ts) requires these
+      # at config load. The build never talks to these services.
+      NEXT_PUBLIC_SUPABASE_URL: https://ci-dummy.supabase.co
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-dummy-anon-key
+      SUPABASE_SERVICE_ROLE_KEY: ci-dummy-service-role-key
+      GROQ_API_KEY: ci-dummy-groq-key
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: content-os/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      # `npm run lint` is not run yet: it fails on 23 existing errors
+      # (mostly react-hooks/set-state-in-effect). Add it here once they're fixed.
+
+      - name: Client import guard
+        run: npx --yes tsx@4.19.2 scripts/check-client-imports.ts
+
+      - name: Cache Next.js build
+        uses: actions/cache@v4
+        with:
+          path: content-os/.next/cache
+          # Saved per commit; restores the latest cache for the same lockfile.
+          key: ${{ runner.os }}-nextjs-${{ hashFiles('content-os/package-lock.json') }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-nextjs-${{ hashFiles('content-os/package-lock.json') }}-
+
+      - name: Production build
+        run: npx next build
