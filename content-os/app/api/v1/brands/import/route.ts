@@ -7,6 +7,7 @@ import type { BrandRow } from "@/types/database"
 import { z } from "zod"
 import { isMissingBrandBrainColumn, parseBrandBrain } from "@/lib/brand-brain-profile"
 import { scheduleArtDirection } from "@/lib/ai/art-direction"
+import { scheduleBrandPhotoSync } from "@/lib/brand-photos"
 
 const importSchema = z.object({
   url: z.string().url("Enter a valid URL (include https://)"),
@@ -95,6 +96,8 @@ export async function POST(request: Request) {
 
     // Its art direction (lib/ai/art-direction.ts), derived after the response.
     if (brand?.id) scheduleArtDirection(brand.id)
+    // Its real photos (the site's images saved below + Instagram), copied and classified after the response.
+    if (brand?.id) scheduleBrandPhotoSync(brand.id)
 
     // Extract and save brand images (non-blocking, non-fatal)
     if (brand?.id) {

@@ -7,6 +7,7 @@ import { PLAN_LIMITS } from "@/types/app"
 import type { UserPlan } from "@/types/app"
 import { isInternalUnlimited } from "@/lib/usage/is-internal-unlimited"
 import { scheduleArtDirection } from "@/lib/ai/art-direction"
+import { scheduleBrandPhotoSync } from "@/lib/brand-photos"
 
 export async function GET() {
   console.log("[brands] GET called")
@@ -122,6 +123,8 @@ export async function POST(request: Request) {
 
     // Its art direction (lib/ai/art-direction.ts), derived after the response.
     if (brand?.id) scheduleArtDirection(brand.id)
+    // Its real photos (website + Instagram, lib/brand-photos.ts), collected after the response.
+    if (brand?.id) scheduleBrandPhotoSync(brand.id)
     return NextResponse.json({ data: brand }, { status: 201 })
   } catch (err) {
     console.error("[brands] POST unexpected error:", err)

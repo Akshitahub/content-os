@@ -7,6 +7,7 @@ import type { SupabaseClient } from "@supabase/supabase-js"
 import type { Database } from "@/types/database"
 import { isMissingBrandBrainColumn } from "@/lib/brand-brain-profile"
 import { scheduleArtDirection } from "@/lib/ai/art-direction"
+import { scheduleBrandPhotoSync } from "@/lib/brand-photos"
 
 type RouteParams = { params: Promise<{ brandId: string }> }
 
@@ -121,6 +122,10 @@ export async function PUT(request: Request, { params }: RouteParams) {
     const artInputs = ["name", "niche", "description", "primary_color", "color_palette", "logo_url"] as const
     if (artInputs.some((k) => k in parsed.data && JSON.stringify((parsed.data as Record<string, unknown>)[k] ?? null) !== JSON.stringify(before?.[k] ?? null))) {
       scheduleArtDirection(brandId)
+    }
+    // A new website: collect its photos after the response (lib/brand-photos.ts).
+    if ("website_url" in parsed.data && parsed.data.website_url && parsed.data.website_url !== before?.website_url) {
+      scheduleBrandPhotoSync(brandId, { website: true, instagram: false })
     }
 
     return NextResponse.json({ data: updated })

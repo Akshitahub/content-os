@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { createAdminClient } from "@/lib/supabase/server"
+import { refreshStaleBrandPhotos } from "@/lib/brand-photos"
 import type { SupabaseClient } from "@supabase/supabase-js"
 import type { Database } from "@/types/database"
 
@@ -164,6 +165,15 @@ export async function GET(request: Request) {
     console.error("[cron/cleanup-abandoned-drafts] ad-maker variations unexpected error:", err instanceof Error ? err.message : err)
   }
 
-  console.log("[cron/cleanup-abandoned-drafts] done:", { deleted, storageFilesRemoved, perTable })
-  return NextResponse.json({ data: { deleted, storageFilesRemoved, perTable } })
+  // Weekly brand-photo refresh (lib/brand-photos.ts): brands not synced for 7
+  // days get their new website / Instagram media, a few per run. Fail-soft.
+  let photoBrands = 0
+  try {
+    photoBrands = (await refreshStaleBrandPhotos(admin, { limit: 5 })).brands
+  } catch (err) {
+    console.error("[cron/cleanup-abandoned-drafts] brand photo refresh error (non-fatal):", err instanceof Error ? err.message : err)
+  }
+
+  console.log("[cron/cleanup-abandoned-drafts] done:", { deleted, storageFilesRemoved, perTable, photoBrands })
+  return NextResponse.json({ data: { deleted, storageFilesRemoved, perTable, photoBrands } })
 }
