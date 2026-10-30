@@ -5,9 +5,9 @@ import { createCreativeCompletion } from "./creative-completion"
 import { buildFactSource, guardCopy, stripGuard } from "./fact-guard"
 import { runQualityGate, type GateReport } from "./quality-gate"
 import { addTextUsage, sumCostUsd, type TextUsage } from "./pricing"
-import { NO_TEXT_BEARING_SUBJECTS_RULE, VISUAL_KINDS, sanitizeVisualBrief, type VisualBrief } from "./visual-brief"
+import { NO_TEXT_BEARING_SUBJECTS_RULE, VISUAL_KINDS, sanitizeVisualBrief, type VisualBrief, artDirectionBriefRules } from "./visual-brief"
 import { kickerHighlightRule } from "@/lib/design/text-layouts"
-import { withLessons, type BrandLesson } from "./brand-brain"
+import { withLessons, type BrandLesson, artDirectionFrom } from "./brand-brain"
 import { buildBrandBrainLines, parseBrandBrain } from "@/lib/brand-brain-profile"
 
 // Story-sequence prompt building + the model call, moved verbatim out of
@@ -280,6 +280,7 @@ Rules:
 - must_show describes ONLY visible things. Never put words, labels, headlines, quotes, numbers, logos or captions in it — the image model renders those as garbled text.
 - Only depict what's plausible for this brand's actual products or services in the brand context above.
 ${NO_TEXT_BEARING_SUBJECTS_RULE}
+${artDirectionBriefRules(artDirectionFrom(brand))}
 
 SLIDE TEXT FORMATS — confirmed live (2026-08-29): every slide defaulting
 to the same "punchy claim + supporting detail" shape for "text"/"subtext"

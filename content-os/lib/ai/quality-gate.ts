@@ -4,7 +4,8 @@ import { MODELS, getGroqClient } from "./models"
 import { buildBrandContext } from "./prompts"
 import { factRetryTimeoutMs } from "./fact-guard"
 import { textCostUsd, toTextUsage, type TextUsage } from "./pricing"
-import { findTextBearingSubject, type VisualBrief } from "./visual-brief"
+import { artDirectionGateLines, findTextBearingSubject, type VisualBrief } from "./visual-brief"
+import { artDirectionFrom } from "./brand-brain"
 
 // Pre-image quality gate (spec §8): before any image is made, one cheap
 // MODELS.scoring call checks the generated copy + visual briefs against the
@@ -119,13 +120,14 @@ function buildPrompt(items: GateItem[], brand: BrandRow, product: ProductRow | n
   return `FACTS -- the ONLY allowed source of truth:
 ${buildBrandContext(brand, product ?? null)}
 ${brief.length ? `\nUser brief (also allowed): ${brief.join(" | ")}` : ""}
+${artDirectionGateLines(artDirectionFrom(brand))}
 
 ITEMS:
 ${lines.join("\n")}
 
 Report problems with these checks:
 - unsupported_claim: a factual claim about the brand, product, a client project, materials, features, specifications, results or guarantees that the FACTS do not state. Words count, not just numbers (e.g. "breathable leather suited for Delhi's climate" when the facts say nothing about leather or climate). General advice, opinions and tone are NOT claims.
-- visual_mismatch: the visual brief doesn't show what that item's copy says, or its kind contradicts its must_show, or it centres on something that carries readable text (a screen, document, sign, calendar, chart).
+- visual_mismatch: the visual brief doesn't show what that item's copy says, or its kind contradicts its must_show, or it centres on something that carries readable text (a screen, document, sign, calendar, chart), or (when a brand art direction is given) it ignores the brand palette or uses a scene from its never-list.
 - generic: a line with no concrete information -- a slogan that says nothing specific.
 - duplicate: two items with the same angle, subject or visual (report it on the later item).
 

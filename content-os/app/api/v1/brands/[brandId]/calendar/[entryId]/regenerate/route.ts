@@ -24,6 +24,7 @@ import { rememberBrandTypography } from "@/lib/design/brand-typography"
 import { stampPostLayout } from "@/lib/design/text-layouts"
 import { getPrimaryColor } from "@/lib/design/post-card-generator"
 import { generatePostCopy } from "@/lib/ai/post-copy"
+import { ensureArtDirection } from "@/lib/ai/art-direction"
 
 const IMAGE_BUCKET = "brand-images"
 const FEATURE = "calendar_regenerate"
@@ -193,6 +194,9 @@ async function handlePost(request: Request, { params }: RouteParams, timer: Gene
     }
 
     // content_type === "post"
+    // Brand art direction (lib/ai/art-direction.ts): derived once, cached in
+    // brand_brain; every brief and image prompt below reads it. Fail-soft.
+    const artDirection = await ensureArtDirection(supabase, brand)
     const pastExamples = await fetchPastExamples(supabase, brandId, "social_post")
     const [hookLessons, captionLessons] = await Promise.all([
       getActiveLessons(supabase, brandId, "hook"),
@@ -224,6 +228,7 @@ async function handlePost(request: Request, { params }: RouteParams, timer: Gene
     const regenTypography = resolveTypography(brand)
     const regenLayout = stampPostLayout(caption, regenCaptionText, { brand, headingFont: regenTypography.heading, visualKind: caption.visual?.kind, accentColor: getPrimaryColor(brand) })
     const imageResult = await timer.step("image", withDeadline(generatePostImage({
+      artDirection,
       imagePrompt: caption.image_prompt || entry.visual_direction || "professional product photography",
       brandNiche: brand.niche,
       targetAudience: brand.target_audience,

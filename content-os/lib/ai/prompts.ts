@@ -1,7 +1,7 @@
 import type { BrandRow, ProductRow } from "@/types/database"
 import type { HookType, Platform } from "@/types/app"
-import { VISUAL_KINDS, NO_TEXT_BEARING_SUBJECTS_RULE } from "./visual-brief"
-import { withLessons, type BrandLesson } from "./brand-brain"
+import { VISUAL_KINDS, NO_TEXT_BEARING_SUBJECTS_RULE, artDirectionBriefRules } from "./visual-brief"
+import { withLessons, type BrandLesson, artDirectionFrom } from "./brand-brain"
 import { buildBrandBrainLines, parseBrandBrain } from "@/lib/brand-brain-profile"
 import { kickerHighlightRule } from "@/lib/design/text-layouts"
 
@@ -449,7 +449,9 @@ export function buildCaptionUserPrompt(
   brand: BrandRow,
   options: Parameters<typeof buildCaptionUserPromptBase>[1] & { lessons?: BrandLesson[] }
 ): string {
-  return withLessons(buildCaptionUserPromptBase(brand, options), options.lessons)
+  // The brand's art direction, for the caption's visual brief (Full Post only).
+  const art = options.includeImagePrompt ? artDirectionBriefRules(artDirectionFrom(brand)) : ""
+  return withLessons(art ? `${buildCaptionUserPromptBase(brand, options)}\n\n${art}` : buildCaptionUserPromptBase(brand, options), options.lessons)
 }
 
 // ─── Reel script ──────────────────────────────────────────────────────────

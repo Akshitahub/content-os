@@ -329,6 +329,11 @@ async function main(): Promise<void> {
 
   const { data: brand, error: brandError } = await supabase.from("brands").select("*").eq("id", brandId!).single<BrandRow>()
   if (!brand) throw new Error(`Brand ${brandId} not found${brandError ? `: ${brandError.message}` : ""}`)
+  // Brand art direction, as the generate routes derive it (lib/ai/art-direction.ts)
+  // -- persist: false, so a harness run never writes to the brand.
+  const { ensureArtDirection } = await import("@/lib/ai/art-direction")
+  const artDirection = await ensureArtDirection(supabase, brand, { persist: false })
+  console.log("Art direction:", JSON.stringify(artDirection))
   const { data: owner } = await supabase.from("users").select("plan").eq("id", brand.user_id).single<{ plan: UserPlan }>()
   const plan: UserPlan = owner?.plan ?? "starter"
   const isUnlimited = isInternalUnlimited(brand.user_id)
@@ -407,7 +412,7 @@ async function main(): Promise<void> {
       isRewrite: false,
       brand: { name: brand.name, niche: brand.niche, target_audience: brand.target_audience, tone_of_voice: brand.tone_of_voice, vibe: brand.vibe },
       product: null,
-      constraints: { styleLabel: vibe, hasProductReference: false, lessons: imageLessons, ...brandBrainImageConstraints(parseBrandBrain(brand.brand_brain)) },
+      constraints: { styleLabel: vibe, hasProductReference: false, lessons: imageLessons, ...brandBrainImageConstraints(parseBrandBrain(brand.brand_brain)), artDirection },
     })
     for await (const chunk of stream) visualPrompt += chunk.choices[0]?.delta?.content ?? ""
   } catch (err) {
@@ -557,6 +562,7 @@ async function main(): Promise<void> {
     isInternalUnlimitedUser: isUnlimited,
     models: { carouselCopy: gen.model, imagePromptWriter: MODELS.creative, image: IMAGE_PROVIDER_CONFIG.model, imageQuality: "low" },
     lessons: { carousel: carouselLessons, image: imageLessons },
+    artDirection,
     pastExamples,
     carouselPrompt: copyCalls[0]?.request ?? null,
     carouselCalls: copyCalls,

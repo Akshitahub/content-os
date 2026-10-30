@@ -246,3 +246,41 @@ export async function distillLesson(
     console.error(`[brand-brain] distillLesson failed for brand ${input.brandId} (non-fatal):`, err instanceof Error ? err.message : err)
   }
 }
+
+// ─── Brand art direction (brands.brand_brain.art_direction) ──────────────────
+// One brand-level visual identity every image and visual brief follows --
+// derived once by lib/ai/art-direction.ts and cached inside the existing
+// brand_brain JSONB (no migration). Absent = today's behaviour.
+
+const HEX = /^#[0-9a-fA-F]{6}$/
+
+export const artDirectionSchema = z.object({
+  /** deep = darkest (text, strips); base = background / light; accent = the
+   * brand's signature colour; pop = a contrasting highlight. */
+  palette: z.object({ deep: z.string().regex(HEX), base: z.string().regex(HEX), accent: z.string().regex(HEX), pop: z.string().regex(HEX) }),
+  /** 3-5 words. */
+  mood: z.string().min(1).max(80),
+  /** 3-6 concrete props / textures from this brand's world. */
+  motifs: z.array(z.string().min(1).max(80)).min(1).max(6),
+  /** One line: the Indian setting and audience it lives in. */
+  cultural_context: z.string().min(1).max(300),
+  /** One line: lighting, saturation, framing. */
+  photo_style: z.string().min(1).max(300),
+  /** Visual clichés never to use (always includes the generic beige desk / lamp / chai-mug scene). */
+  avoid: z.array(z.string().min(1).max(160)).min(1).max(10),
+  /** Hash of the brand fields it was derived from -- a change means re-derive. */
+  source_hash: z.string().optional(),
+  /** "brand_colors" = palette built from the brand's own colours; "invented" = it had none. */
+  palette_source: z.enum(["brand_colors", "invented"]).optional(),
+  derived_at: z.string().optional(),
+})
+
+export type ArtDirection = z.infer<typeof artDirectionSchema>
+
+/** The brand's cached art direction, or null (none yet, or invalid). Never throws. */
+export function artDirectionFrom(brand: { brand_brain?: unknown } | null | undefined): ArtDirection | null {
+  const raw = brand?.brand_brain && typeof brand.brand_brain === "object" ? (brand.brand_brain as { art_direction?: unknown }).art_direction : undefined
+  if (!raw) return null
+  const parsed = artDirectionSchema.safeParse(raw)
+  return parsed.success ? parsed.data : null
+}

@@ -10,7 +10,8 @@ import type { SlideWarning } from "@/lib/design/slide-text-layout"
 import type { PostTemplateId } from "@/lib/design/post-templates"
 import type { ColorTheme } from "@/lib/design/color-themes"
 import type { UserPlan } from "@/types/app"
-import { briefUsesProductReference, halfUsesProductReference, type VisualBrief } from "./visual-brief"
+import { artDirectionImageClause, briefUsesProductReference, halfUsesProductReference, type VisualBrief } from "./visual-brief"
+import type { ArtDirection } from "./brand-brain"
 
 export type { ImageDimensions }
 
@@ -571,6 +572,9 @@ export interface GeneratePostImageOptions {
    * "the product in a setting" (sketch, swatches, a sequence, a side-by-side
    * comparison) drops the product reference photo for this image. */
   visualBrief?: VisualBrief
+  /** The brand's art direction (lib/ai/brand-brain.ts) -- palette, props,
+   * setting, photo style and never-show list for every scene. Omitted = unchanged. */
+  artDirection?: ArtDirection | null
   /** Content-matched layout for captionText (lib/design/text-layouts.ts) --
    * replaces the template's text treatment when set. */
   textLayout?: TextLayoutId | null
@@ -669,6 +673,7 @@ export async function generatePostImage(rawOptions: GeneratePostImageOptions): P
     willCompositeText ? "leave the lower third of the frame visually simpler and less busy for a text overlay" : "",
     CENTERED_COMPOSITION_GUARD,
     POST_IMAGE_QUALITY_AND_NEGATIVE_GUARD,
+    artDirectionImageClause(options.artDirection),
   ].filter(Boolean).join(", ")
   const sceneDescription = sceneFor(cappedImagePrompt, hasReferenceImage)
   const fullPrompt = hasReferenceImage ? wrapForReferenceImage(sceneDescription) : sceneDescription

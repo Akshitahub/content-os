@@ -1,6 +1,7 @@
 import { getTextClientFor, MODELS } from "./models"
 import type { BrandRow, ProductRow } from "@/types/database"
-import { briefScene, type VisualBrief } from "./visual-brief"
+import { briefScene, type VisualBrief, artDirectionBriefRules } from "./visual-brief"
+import type { ArtDirection } from "./brand-brain"
 
 // Shared "prompt-authoring" stage inserted in front of every image
 // generation call in this app (Full Post, Story, Carousel, Ad Maker, and
@@ -71,6 +72,8 @@ export interface ImagePromptConstraints {
    * writer only; every code-side guard still applies. */
   photographyStyle?: string
   avoidVisuals?: string[]
+  /** The brand's art direction (lib/ai/brand-brain.ts), fetched server-side. */
+  artDirection?: ArtDirection | null
 }
 
 export interface WriteImagePromptInput {
@@ -143,6 +146,7 @@ function buildConstraintsLine(constraints: ImagePromptConstraints): string {
   if (constraints.allowTextInImage) lines.push("The user has explicitly allowed on-image text this time, but still only describe the scene -- do not write out literal words to render.")
   if (constraints.photographyStyle) lines.push(`This brand's photography style: ${constraints.photographyStyle}`)
   if (constraints.avoidVisuals?.length) lines.push(`Never show: ${constraints.avoidVisuals.join("; ")}`)
+  if (constraints.artDirection) lines.push(artDirectionBriefRules(constraints.artDirection).replace("every visual brief must follow it", "the scene must follow it"))
   if (constraints.lessons?.length) {
     lines.push(`Avoid/Do for this brand's images (learned from its own feedback): ${constraints.lessons.join("; ")}`)
   }

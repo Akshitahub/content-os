@@ -24,6 +24,7 @@ import { gateEventMeta } from "@/lib/ai/quality-gate"
 import { stampPostLayout } from "@/lib/design/text-layouts"
 import { getPrimaryColor } from "@/lib/design/post-card-generator"
 import { generatePostCopy } from "@/lib/ai/post-copy"
+import { ensureArtDirection } from "@/lib/ai/art-direction"
 
 // Mirrors components/generate/FullPostGenerator.tsx's former client-side
 // ANGLE_HINT map verbatim -- moved server-side so the angle is a real,
@@ -123,6 +124,9 @@ async function handlePost(request: Request, timer: GenerationTimer) {
     let sessionResult: { sessionId: string } | { error: string } | null = null
 
     if (format === "social_post") {
+      // Brand art direction (lib/ai/art-direction.ts): derived once, cached in
+      // brand_brain; every brief and image prompt below reads it. Fail-soft.
+      await ensureArtDirection(supabase, brand)
       // The caption (and its post_plan) first, then the hook written from
       // that plan, so the two say the same thing (lib/ai/post-copy.ts).
       // createPostImageSession only depends on user.id -- run it alongside.

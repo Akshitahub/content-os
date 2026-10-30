@@ -8,6 +8,7 @@ import { visualBriefInputSchema } from "@/lib/validations/ai"
 import type { BrandRow, ProductRow } from "@/types/database"
 import { getActiveLessons, imageLessonRules } from "@/lib/ai/brand-brain"
 import { brandBrainImageConstraints, parseBrandBrain } from "@/lib/brand-brain-profile"
+import { artDirectionFrom } from "@/lib/ai/brand-brain"
 
 const flowEnum = z.enum(["post", "story", "carousel", "ad_maker", "image_tool"])
 
@@ -117,7 +118,7 @@ export async function POST(request: Request) {
       brand,
       product,
       // The client's brief is re-sanitized, never trusted as sent.
-      constraints: { ...constraints, visualBrief: sanitizeVisualBrief(constraints.visualBrief), lessons: imageLessons, ...brandVisual } as ImagePromptConstraints,
+      constraints: { ...constraints, visualBrief: sanitizeVisualBrief(constraints.visualBrief), lessons: imageLessons, ...brandVisual, artDirection: artDirectionFrom(brainRow) } as ImagePromptConstraints,
     })
   } catch (err) {
     // Logged as explicit fields (not just a bare `console.error(err)`) so

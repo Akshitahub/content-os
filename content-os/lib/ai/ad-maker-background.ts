@@ -10,7 +10,8 @@ import {
   type ImageDimensions,
 } from "./post-image-pipeline"
 import type { UserPlan } from "@/types/app"
-import { briefScene, type VisualBrief } from "./visual-brief"
+import { briefScene, type VisualBrief, artDirectionImageClause, artDirectionShortClause } from "./visual-brief"
+import type { ArtDirection } from "./brand-brain"
 
 // Kept in sync with the SCENE_PROMPTS dict in components/generate/AdMaker.tsx
 // (that file stays "use client" for its own preset picker UI, so this
@@ -74,6 +75,8 @@ export interface GenerateAdMakerBackgroundOptions {
    * nothing) -- appended as "user direction: ..." on a brief-driven image.
    * The AI-expanded customPrompt is never used once a brief exists. */
   userDirection?: string | null
+  /** The brand's art direction (lib/ai/brand-brain.ts). Omitted = unchanged. */
+  artDirection?: ArtDirection | null
 }
 
 /**
@@ -113,6 +116,7 @@ export async function generateAdMakerBackground(
     hasReferenceImage ? REFERENCE_IMAGE_PEOPLE_GUARD : NO_PEOPLE_BY_DEFAULT_GUARD,
     CENTERED_COMPOSITION_GUARD,
     POST_IMAGE_QUALITY_AND_NEGATIVE_GUARD,
+    artDirectionImageClause(options.artDirection),
   ].filter(Boolean).join(", ")
   const prompt = hasReferenceImage ? wrapForReferenceImage(sceneDescription) : sceneDescription
 
@@ -127,6 +131,7 @@ export async function generateAdMakerBackground(
     hasReferenceImage ? REFERENCE_IMAGE_PEOPLE_GUARD : NO_PEOPLE_BY_DEFAULT_GUARD,
     CENTERED_COMPOSITION_GUARD,
     POST_IMAGE_QUALITY_AND_NEGATIVE_GUARD,
+    artDirectionShortClause(options.artDirection),
   ].filter(Boolean).join(", ")
   const fallbackPrompt = hasReferenceImage ? wrapForReferenceImage(fallbackSceneDescription) : fallbackSceneDescription
 

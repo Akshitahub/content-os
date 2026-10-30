@@ -8,9 +8,10 @@ import {
 import type { ImageQuality } from "./image-provider"
 import { type Vibe, DEFAULT_VIBE, VIBE_BACKGROUND_STYLES, VIBE_FALLBACK_COLORS, ABSTRACT_SAFETY_BOILERPLATE, describeColor } from "./vibe-background-styles"
 import type { UserPlan } from "@/types/app"
-import { SPLIT_LABEL_GUARD, briefScene as sharedBriefScene, briefUsesProductReference, halfBrief, halfUsesProductReference, type VisualBrief } from "./visual-brief"
+import { SPLIT_LABEL_GUARD, briefScene as sharedBriefScene, briefUsesProductReference, halfBrief, halfUsesProductReference, type VisualBrief, artDirectionColors, artDirectionImageClause, artDirectionShortClause } from "./visual-brief"
 import { generateWithSplitLayer, type SplitBackgroundResult } from "./split-layer"
 import type { BrandRow } from "@/types/database"
+import { artDirectionFrom } from "./brand-brain"
 
 // Preserves the pre-existing export name for callers (e.g.
 // app/api/v1/ai/carousel/slide-image/generate/route.ts) — the type itself
@@ -288,7 +289,13 @@ export async function generateCarouselSlideBackground(
 ): Promise<SplitBackgroundResult> {
   const vibe = options.vibe ?? DEFAULT_VIBE
   const brandColors = resolveBrandColors(options.brand)
-  const colors = brandColors.length > 0 ? brandColors : VIBE_FALLBACK_COLORS[vibe]
+  // Brand art direction (lib/ai/visual-brief.ts): its palette replaces the
+  // generic vibe palette for a brand with no colours, and every prompt --
+  // halves of a split included -- carries its clause. None = unchanged.
+  const art = artDirectionFrom(options.brand)
+  const withArt = (p: string) => [p, artDirectionImageClause(art)].filter(Boolean).join(", ")
+  const withArtShort = (p: string) => [p, artDirectionShortClause(art)].filter(Boolean).join(", ")
+  const colors = brandColors.length > 0 ? brandColors : art ? artDirectionColors(art) : VIBE_FALLBACK_COLORS[vibe]
 
   // Any slide with a brief -- the cover included -- gets its scene from it;
   // the AI-expanded customPrompt is then not used at all, only the user's own
@@ -296,8 +303,8 @@ export async function generateCarouselSlideBackground(
   const brief = options.visualBrief
   if (brief) {
     const productImageUrl = briefUsesProductReference(brief) ? options.productImageUrl : undefined
-    const prompt = buildBriefSlidePrompt(brief, options.brand.niche, vibe, colors, options.role, productImageUrl, options.slideType, options.userDirection)
-    const fallbackPrompt = simplifyBriefSlidePrompt(brief, vibe, productImageUrl)
+    const prompt = withArt(buildBriefSlidePrompt(brief, options.brand.niche, vibe, colors, options.role, productImageUrl, options.slideType, options.userDirection))
+    const fallbackPrompt = withArtShort(simplifyBriefSlidePrompt(brief, vibe, productImageUrl))
     // A split brief with both halves becomes two images composited side by
     // side (lib/ai/split-layer.ts); anything else is the single prompt.
     return generateWithSplitLayer({
@@ -306,8 +313,8 @@ export async function generateCarouselSlideBackground(
         const half = halfBrief(text)
         const ref = halfUsesProductReference(brief, side) ? options.productImageUrl : undefined
         return {
-          prompt: buildBriefSlidePrompt(half, options.brand.niche, vibe, colors, options.role, ref, options.slideType, options.userDirection),
-          fallbackPrompt: simplifyBriefSlidePrompt(half, vibe, ref),
+          prompt: withArt(buildBriefSlidePrompt(half, options.brand.niche, vibe, colors, options.role, ref, options.slideType, options.userDirection)),
+          fallbackPrompt: withArtShort(simplifyBriefSlidePrompt(half, vibe, ref)),
           productImageUrl: ref,
         }
       },
@@ -316,8 +323,8 @@ export async function generateCarouselSlideBackground(
     })
   }
 
-  const prompt = buildSlidePrompt(options.brand.niche, vibe, colors, options.role, options.productImageUrl, options.slideType, options.customPrompt)
-  const fallbackPrompt = simplifySlidePrompt(vibe, options.productImageUrl, options.customPrompt)
+  const prompt = withArt(buildSlidePrompt(options.brand.niche, vibe, colors, options.role, options.productImageUrl, options.slideType, options.customPrompt))
+  const fallbackPrompt = withArtShort(simplifySlidePrompt(vibe, options.productImageUrl, options.customPrompt))
 
   return fetchBackgroundImage(prompt, fallbackPrompt, options.plan, options.isInternalUnlimitedUser, undefined, options.productImageUrl, options.quality)
 }

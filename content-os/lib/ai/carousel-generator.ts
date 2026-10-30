@@ -1,11 +1,11 @@
 import type { BrandRow } from "@/types/database"
-import { NO_TEXT_BEARING_SUBJECTS_RULE, VISUAL_KINDS, sanitizeVisualBrief } from "./visual-brief"
+import { NO_TEXT_BEARING_SUBJECTS_RULE, VISUAL_KINDS, sanitizeVisualBrief, artDirectionBriefRules } from "./visual-brief"
 import { buildPastExamplesBlock, buildSuggestedFontField, QUALITY_BAR } from "./prompts"
 import { createCreativeCompletion } from "./creative-completion"
 import { buildFactSource, guardCopy, stripGuard } from "./fact-guard"
 import { runQualityGate, type GateReport } from "./quality-gate"
 import { UsageCarryingError, addTextUsage, sumCostUsd, type TextUsage } from "./pricing"
-import { withLessons, type BrandLesson } from "./brand-brain"
+import { withLessons, type BrandLesson, artDirectionFrom } from "./brand-brain"
 import { buildBrandBrainLines, parseBrandBrain } from "@/lib/brand-brain-profile"
 import { kickerHighlightRule } from "@/lib/design/text-layouts"
 
@@ -89,6 +89,7 @@ Rules:
 - must_show describes ONLY visible things. Never put words, labels, headlines, quotes, numbers, logos or captions in it — the image model renders those as garbled text. Comparison labels like "before/after" are overlaid by the app, not drawn.
 - Only depict what's plausible for this brand's actual products or services in the brand context above — don't invent products, rooms or features that aren't there.
 ${NO_TEXT_BEARING_SUBJECTS_RULE}
+${artDirectionBriefRules(artDirectionFrom(brand))}
 
 CONTENT SLIDE FORMATS — confirmed live (2026-08-29): every content slide
 defaulting to the same "title + 3 bullet points" shape reads as

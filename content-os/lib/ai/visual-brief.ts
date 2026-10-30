@@ -3,6 +3,9 @@
 // lib/ai/carousel-generator.ts and lib/ai/carousel-slide-background.ts).
 // Pure: no server-only imports, so client code can use the types and kinds.
 
+import type { ArtDirection } from "./brand-brain"
+import { describeColor } from "./vibe-background-styles"
+
 export const VISUAL_KINDS = [
   "product_scene", "side_by_side", "material_swatches", "process_sequence",
   "sketch_or_drawing", "detail_closeup", "before_after", "abstract_mood",
@@ -200,4 +203,57 @@ export function findTextBearingSubject(brief: VisualBrief | null | undefined, op
     }
   }
   return null
+}
+
+// ─── Brand art direction in briefs and image prompts ───────────────────────
+// The brand's art direction (lib/ai/brand-brain.ts, derived by
+// lib/ai/art-direction.ts) reaches every format from here: the visual-brief
+// prompts (carousel, story, post, ad) and every image prompt builder use
+// these, so one brand's images share a palette, props, light and setting.
+// Pure formatting; every function returns "" / [] without one, so prompts
+// are unchanged for brands that have none.
+
+// Image models ignore hex codes (and can render them as text) -- the palette
+// always reaches a prompt as colour words (vibe-background-styles describeColor).
+const colourName = (hex: string) => describeColor(hex) ?? "a neutral tone"
+
+/** Rules for a prompt that WRITES visual briefs. */
+export function artDirectionBriefRules(ad: ArtDirection | null | undefined): string {
+  if (!ad) return ""
+  return `BRAND ART DIRECTION — every visual brief must follow it:
+- Palette (the image's dominant colours, described in words -- never write colour codes): ${colourName(ad.palette.accent)} as the signature accent, ${colourName(ad.palette.base)} as the base, ${colourName(ad.palette.deep)} for deep tones, ${colourName(ad.palette.pop)} as a small pop. Mood: ${ad.mood}.
+- Props, materials and textures come from this brand's world: ${ad.motifs.join(", ")}.
+- Setting: ${ad.cultural_context}
+- Photography: ${ad.photo_style}
+- Never: ${ad.avoid.join("; ")}.`
+}
+
+/** The clause an image prompt carries (comma-joined like the rest of the prompt). */
+export function artDirectionImageClause(ad: ArtDirection | null | undefined): string {
+  if (!ad) return ""
+  return [
+    `dominant colours from the brand palette: ${colourName(ad.palette.accent)} accent, ${colourName(ad.palette.base)} base, ${colourName(ad.palette.deep)} deep tones, ${colourName(ad.palette.pop)} as a small pop`,
+    `${ad.mood} mood`,
+    `props and textures drawn from: ${ad.motifs.join(", ")}`,
+    `set in ${ad.cultural_context.replace(/[.]+$/, "")}`,
+    `photography: ${ad.photo_style.replace(/[.]+$/, "")}`,
+    `never show: ${ad.avoid.join("; ")}`,
+  ].join(", ")
+}
+
+/** A short version for the simplified fallback prompts. */
+export function artDirectionShortClause(ad: ArtDirection | null | undefined): string {
+  if (!ad) return ""
+  return `brand palette of ${colourName(ad.palette.accent)}, ${colourName(ad.palette.base)} and ${colourName(ad.palette.deep)}, never show: ${ad.avoid.slice(0, 3).join("; ")}`
+}
+
+/** The palette as image-prompt colours (accent first) -- in place of a generic vibe palette. */
+export function artDirectionColors(ad: ArtDirection | null | undefined): string[] {
+  return ad ? [ad.palette.accent, ad.palette.base, ad.palette.deep] : []
+}
+
+/** Lines for the quality gate's context. */
+export function artDirectionGateLines(ad: ArtDirection | null | undefined): string {
+  if (!ad) return ""
+  return `Brand art direction (visual briefs must follow it): palette accent ${colourName(ad.palette.accent)} / base ${colourName(ad.palette.base)} / deep ${colourName(ad.palette.deep)} / pop ${colourName(ad.palette.pop)}; mood ${ad.mood}; motifs ${ad.motifs.join(", ")}; setting ${ad.cultural_context}; never: ${ad.avoid.join("; ")}`
 }

@@ -16,6 +16,7 @@ import { prepareGeneratedImage } from "@/lib/storage/generated-image"
 import { sanitizeVisualBrief } from "@/lib/ai/visual-brief"
 import { recordContentEvent } from "@/lib/usage/content-events"
 import { sampleImageAlignment } from "@/lib/ai/image-alignment"
+import { artDirectionFrom } from "@/lib/ai/brand-brain"
 
 const BUCKET = "brand-images"
 const FEATURE = "post_image"
@@ -154,6 +155,8 @@ async function handlePost(request: Request, timer: GenerationTimer) {
   // clean, text-free image.
   let timedOut = false
   const result = await timer.step("image", withDeadline(generatePostImage({
+    // Brand art direction (cached by the generate step, lib/ai/art-direction.ts).
+    artDirection: artDirectionFrom(brand),
     imagePrompt,
     brandNiche: brand.niche,
     targetAudience: brand.target_audience,

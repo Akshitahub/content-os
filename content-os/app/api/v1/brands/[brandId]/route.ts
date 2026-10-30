@@ -87,7 +87,14 @@ export async function PUT(request: Request, { params }: RouteParams) {
       .eq("id", brandId)
       .select()
       .single() as Promise<{ data: BrandRow | null; error: { code?: string; message: string } | null }>
-    let { data: updated, error } = await runUpdate(parsed.data)
+    // The Brand Brain editor sends only the profile -- keep the derived
+    // art direction (lib/ai/art-direction.ts) it doesn't know about.
+    const existingBrain = result.brand?.brand_brain && typeof result.brand.brand_brain === "object" ? (result.brand.brand_brain as Record<string, unknown>) : null
+    const fields: Record<string, unknown> = { ...parsed.data }
+    if (fields.brand_brain && typeof fields.brand_brain === "object" && existingBrain?.art_direction) {
+      fields.brand_brain = { ...(fields.brand_brain as Record<string, unknown>), art_direction: existingBrain.art_direction }
+    }
+    let { data: updated, error } = await runUpdate(fields)
 
     // Migration 060 not run yet: save everything else, but say so plainly if
     // the Brand Brain was all that was being saved.

@@ -16,6 +16,7 @@ import { getActiveLessons } from "@/lib/ai/brand-brain"
 import { recordContentEvent } from "@/lib/usage/content-events"
 import { gateEventMeta } from "@/lib/ai/quality-gate"
 import { layoutCarouselText, overflowingSlides } from "@/lib/design/slide-text-layout"
+import { ensureArtDirection } from "@/lib/ai/art-direction"
 
 const schema = z.object({
   brandId: z.string().uuid(),
@@ -111,6 +112,9 @@ async function handlePost(request: Request, timer: GenerationTimer) {
   try {
     // Moved from Groq to OpenAI (MODELS.creative) in the Phase 1b
     // migration -- prompt + call now live in lib/ai/carousel-generator.ts.
+    // Brand art direction (lib/ai/art-direction.ts): derived once, cached in
+    // brand_brain; every brief and image prompt below reads it. Fail-soft.
+    await ensureArtDirection(supabase, brand)
     const lessons = await getActiveLessons(supabase, brandId, "carousel")
     gen = await timer.step("caption", withDeadline(generateCarouselWithRetry(brand, topic, slideCount, platform, vibe, pastExamples, lessons, deadlineAt), deadlineAt - Date.now(), "carousel copy"))
     const data = gen.data

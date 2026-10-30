@@ -34,6 +34,8 @@ import { resolveTypography } from "@/lib/design/fonts"
 import { rememberBrandTypography } from "@/lib/design/brand-typography"
 import { stampPostLayout } from "@/lib/design/text-layouts"
 import { getPrimaryColor } from "@/lib/design/post-card-generator"
+import { ensureArtDirection } from "./art-direction"
+import { artDirectionFrom } from "./brand-brain"
 
 // Background Autopilot worker (supabase/migrations/057_autopilot_slot_jobs.sql).
 // A Supabase Cron job calls app/api/v1/cron/autopilot-drain every 20s while
@@ -240,6 +242,9 @@ async function loadRunContext(admin: Admin, job: SlotJobRow): Promise<RunContext
   if (!brand) return null
 
   const { data: products } = await admin.from("products").select("*").eq("brand_id", job.brand_id).eq("is_active", true).returns<ProductRow[]>()
+  // Brand art direction (lib/ai/art-direction.ts): derived once and cached in
+  // brand_brain -- every slot's briefs and images read it from `brand`. Fail-soft.
+  await ensureArtDirection(admin, brand)
 
   // Same limit checkAndIncrementUsage would use, from the user's CURRENT
   // plan/trial (they may have upgraded mid-run).
@@ -305,6 +310,7 @@ async function prepareSlot(admin: Admin, job: SlotJobRow, ctx: RunContext, track
       // The caption's visual brief drives the image: its scene is the prompt
       // and the brief itself goes along (product-reference and split rules).
       const imageResult = await generatePostImage({
+        artDirection: artDirectionFrom(brand),
         imagePrompt: generated.imagePrompt || generated.visual_direction || "professional product photography",
         visualBrief: generated.visual,
         brandNiche: brand.niche,
