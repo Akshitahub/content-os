@@ -1,7 +1,7 @@
 import type { BrandRow } from "@/types/database"
 import {
   AA_BODY, AA_GRAPHIC, bestContrast, darkenTo, ensureContrast, hexContrast, hexLuminance, lightenTo, mixHex, parseHex, tintedScrimOpacity, toHex,
-} from "@/lib/image/text-contrast"
+} from "@/lib/design/contrast-math"
 
 // ─── The brand's 4-role palette ──────────────────────────────────────────────
 

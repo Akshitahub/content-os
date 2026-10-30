@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { useArtDirection, useRefreshArtDirection, useSaveArtDirection } from "@/hooks/useArtDirection"
 import { paletteRoles, type BrandPalette } from "@/lib/design/color-themes"
-import { AA_BODY, AA_GRAPHIC, bestContrast, hexContrast } from "@/lib/image/text-contrast"
+import { AA_BODY, AA_GRAPHIC, bestContrast, hexContrast } from "@/lib/design/contrast-math"
 import type { ArtDirection } from "@/lib/ai/brand-brain"
 
 // "Brand look": the art direction the AI derived for this brand

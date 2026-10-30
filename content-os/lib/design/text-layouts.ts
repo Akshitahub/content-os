@@ -18,7 +18,7 @@ import { z } from "zod"
 import { DEFAULT_FONT_ID, type FontId } from "./fonts"
 import { TEXT_STYLE_PALETTE, BACKING_OPACITY, backingRgba, type TextStyle } from "./text-style"
 import { NEUTRAL_PALETTE, paletteFromColors, paletteRoles, resolvePresetForPalette, type BrandPalette } from "./color-themes"
-import { AA_BODY, AA_GRAPHIC, bestContrast, ensureContrast, hexContrast, mixHex, parseHex, tintedScrimOpacity } from "@/lib/image/text-contrast"
+import { AA_BODY, AA_GRAPHIC, bestContrast, ensureContrast, hexContrast, mixHex, parseHex, tintedScrimOpacity } from "@/lib/design/contrast-math"
 import { wrapWords } from "./slide-text-layout"
 import { sanitizeTextForCompositing } from "@/lib/image/sanitize-text-for-compositing"
 
