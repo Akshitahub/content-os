@@ -1,11 +1,13 @@
 /**
  * annotated_product copy rules (lib/ai/annotated-product.ts): offered only
  * with a product photo, keyword verbatim from the headline, 3-4 callouts
- * each grounded in the product / brand facts. Pure -- no model calls.
+ * each grounded in the product / brand facts; and the headline's keyword
+ * keeping its word gaps (placeHeadlineRuns). Pure -- no model calls.
  *
  *   npx tsx scripts/test-annotated-product.ts
  */
 import { annotatedContext, annotatedIssues, calloutGrounded, finishAnnotatedCaption } from "@/lib/ai/annotated-product"
+import { placeHeadlineRuns } from "@/lib/image/post-compositor"
 import type { GeneratedCaption } from "@/types/app"
 
 const brand = {
@@ -70,6 +72,31 @@ const otherTemplate = { ...good, suggested_template: "bold_statement" as const }
 const otherFinal = finishAnnotatedCaption(otherTemplate, withPhoto)
 check("other template: stray annotated fields stripped", otherFinal.annotated_callouts === undefined && otherFinal.suggested_template === "bold_statement")
 check("other template: no issues", annotatedIssues(otherTemplate, noPhoto).length === 0)
+
+// The keyword (script font) keeps a word gap on each side that has a word:
+// a space carried inside a tspan used to vanish at the font switch
+// ("nani made" -> "nanimade"). Widths: 10px a character, script 12px.
+const SPACE = 10
+// The script run's ink overhangs its advance by 6px on the right, like Caveat's.
+const widthOf = (r: { text: string; script: boolean }) => {
+  const width = r.text.length * (r.script ? 12 : 10)
+  return r.script ? { width, inkLeft: 0, inkRight: width + 6 } : { width }
+}
+const inkRight = (r: { text: string; script: boolean; x: number; width: number }) => r.x + r.width + (r.script ? 6 : 0)
+const tokens = (headline: string, keyword: string) => headline.split(" ").map((w) => ({ text: w, script: w === keyword }))
+for (const [where, keyword, expected] of [
+  ["start", "Achaar", ["Achaar", "like nani made"]],
+  ["middle", "nani", ["Achaar like", "nani", "made"]],
+  ["end", "made", ["Achaar like nani", "made"]],
+] as const) {
+  const runs = placeHeadlineRuns(tokens("Achaar like nani made", keyword), widthOf, SPACE, 540)
+  check(`keyword at the ${where}: runs split around it`, JSON.stringify(runs.map((r) => r.text)) === JSON.stringify(expected), runs.map((r) => r.text))
+  const gaps = runs.slice(1).map((r, i) => r.x - inkRight(runs[i]!))
+  check(`keyword at the ${where}: a word space of clear ink before and/or after it`, gaps.length === expected.length - 1 && gaps.every((g) => Math.abs(g - SPACE) < 1e-9), gaps)
+  const left = runs[0]!.x
+  const right = inkRight(runs[runs.length - 1]!)
+  check(`keyword at the ${where}: line still centred`, Math.abs((left + right) / 2 - 540) < 1e-9, { left, right })
+}
 
 console.log(failures ? `\n${failures} FAILED` : "\nall pass")
 process.exit(failures ? 1 : 0)

@@ -975,6 +975,56 @@ function layoutAnnotatedHeadline(headline: string, keyword: string | null, headi
   }
 }
 
+/** A run's advance width and where its ink starts / ends relative to its origin. */
+export interface RunMetrics { width: number; inkLeft?: number; inkRight?: number }
+
+/**
+ * One headline line as positioned runs, centred on `centerX`: consecutive
+ * heading-font words merge into one run (their own spaces kept), the
+ * script keyword is a run of its own, and exactly a heading-font space of
+ * clear gap separates the INK of every pair of runs (a script face's
+ * glyphs overhang their advance, so advance-based gaps look lopsided) --
+ * the keyword keeps a word gap on whichever side has a word, at the start,
+ * middle or end of the line.
+ */
+export function placeHeadlineRuns(
+  line: { text: string; script: boolean }[],
+  measure: (run: { text: string; script: boolean }) => RunMetrics,
+  space: number,
+  centerX: number,
+): { text: string; script: boolean; x: number; width: number }[] {
+  const runs: { text: string; script: boolean }[] = []
+  for (const t of line) {
+    const last = runs[runs.length - 1]
+    if (last && !last.script && !t.script) last.text += ` ${t.text}`
+    else runs.push({ text: t.text, script: t.script })
+  }
+  const metrics = runs.map((r) => {
+    const m = measure(r)
+    return { width: m.width, inkLeft: m.inkLeft ?? 0, inkRight: m.inkRight ?? m.width }
+  })
+  // Lay out from x = 0, then shift so the line's ink is centred.
+  const xs: number[] = []
+  let x = 0
+  metrics.forEach((m, i) => {
+    if (i > 0) x = xs[i - 1]! + metrics[i - 1]!.inkRight + space - m.inkLeft
+    xs.push(x)
+  })
+  const inkStart = xs[0]! + metrics[0]!.inkLeft
+  const inkEnd = xs[xs.length - 1]! + metrics[metrics.length - 1]!.inkRight
+  const shift = centerX - (inkStart + inkEnd) / 2
+  return runs.map((r, i) => ({ ...r, x: xs[i]! + shift, width: metrics[i]!.width }))
+}
+
+/** A run's metrics in `font` at `size`: advance plus its ink extents (glyph bounding box). */
+function runMetrics(font: fontkit.Font, text: string, size: number): RunMetrics {
+  const run = font.layout(text)
+  const scale = size / font.unitsPerEm
+  const width = run.positions.reduce((sum, p) => sum + p.xAdvance, 0) * scale
+  const box = run.bbox
+  return Number.isFinite(box.minX) && Number.isFinite(box.maxX) ? { width, inkLeft: box.minX * scale, inkRight: box.maxX * scale } : { width }
+}
+
 /** A hand-drawn-looking arrow: a quadratic curve bowing away from the straight line, with an open head. */
 function handArrow(x1: number, y1: number, x2: number, y2: number, bow: number, color: string): string {
   const mx = (x1 + x2) / 2
@@ -1036,10 +1086,16 @@ export async function compositeAnnotatedProduct(options: CompositeAnnotatedProdu
   const hl = layoutAnnotatedHeadline(headline, keyword, heading, script, maxTextW)
   overflow ||= hl.overflow
   const headTop = ANNOTATED_SAFE_Y + 10
+  // Each run at its own measured x: a space carried inside a tspan is lost
+  // where the font family switches ("nani" + "made" -> "nanimade"), so the
+  // gaps either side of the keyword are placed explicitly instead.
+  const runWidth = (r: { text: string; script: boolean }) => runMetrics(r.script ? script : heading, r.text, r.script ? hl.scriptSize : hl.size)
+  const headlineSpace = measureTextWidth(heading, " ", hl.size)
   const headlineSvg = hl.lines.map((line, i) => {
     const y = headTop + hl.size * 0.85 + i * hl.lineHeight
-    const runs = line.map((t, j) => `<tspan font-family="${t.script ? scriptFamily : headFamily}" font-size="${t.script ? hl.scriptSize : hl.size}" font-weight="700" fill="${t.script ? keywordColor : ink}">${j ? " " : ""}${escapeXml(t.text)}</tspan>`).join("")
-    return `<text x="${CANVAS_WIDTH / 2}" y="${y}" text-anchor="middle" xml:space="preserve">${runs}</text>`
+    return placeHeadlineRuns(line, runWidth, headlineSpace, CANVAS_WIDTH / 2)
+      .map((r) => `<text x="${r.x.toFixed(1)}" y="${y}" text-anchor="start" font-family="${r.script ? scriptFamily : headFamily}" font-size="${r.script ? hl.scriptSize : hl.size}" font-weight="700" fill="${r.script ? keywordColor : ink}" xml:space="preserve">${escapeXml(r.text)}</text>`)
+      .join("")
   }).join("")
   const headlineBox: Box = { x: SAFE_X, y: headTop - 6, w: maxTextW, h: hl.lines.length * hl.lineHeight + 16 }
 
