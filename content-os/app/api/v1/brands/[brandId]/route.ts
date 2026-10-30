@@ -6,6 +6,7 @@ import type { BrandRow } from "@/types/database"
 import type { SupabaseClient } from "@supabase/supabase-js"
 import type { Database } from "@/types/database"
 import { isMissingBrandBrainColumn } from "@/lib/brand-brain-profile"
+import { scheduleArtDirection } from "@/lib/ai/art-direction"
 
 type RouteParams = { params: Promise<{ brandId: string }> }
 
@@ -87,12 +88,15 @@ export async function PUT(request: Request, { params }: RouteParams) {
       .eq("id", brandId)
       .select()
       .single() as Promise<{ data: BrandRow | null; error: { code?: string; message: string } | null }>
-    // The Brand Brain editor sends only the profile -- keep the derived
-    // art direction (lib/ai/art-direction.ts) it doesn't know about.
-    const existingBrain = result.brand?.brand_brain && typeof result.brand.brand_brain === "object" ? (result.brand.brand_brain as Record<string, unknown>) : null
+    // The Brand Brain editor sends only the profile -- keep the derived art
+    // direction (lib/ai/art-direction.ts) it doesn't know about, from a fresh
+    // read: a background derivation may have saved a newer one since this
+    // request started.
     const fields: Record<string, unknown> = { ...parsed.data }
-    if (fields.brand_brain && typeof fields.brand_brain === "object" && existingBrain?.art_direction) {
-      fields.brand_brain = { ...(fields.brand_brain as Record<string, unknown>), art_direction: existingBrain.art_direction }
+    if (fields.brand_brain && typeof fields.brand_brain === "object") {
+      const { data: fresh } = await brandsTable(result.supabase!).select("brand_brain").eq("id", brandId).single() as { data: { brand_brain: unknown } | null }
+      const freshBrain = fresh?.brand_brain && typeof fresh.brand_brain === "object" ? (fresh.brand_brain as Record<string, unknown>) : null
+      if (freshBrain?.art_direction) fields.brand_brain = { ...(fields.brand_brain as Record<string, unknown>), art_direction: freshBrain.art_direction }
     }
     let { data: updated, error } = await runUpdate(fields)
 
@@ -109,6 +113,14 @@ export async function PUT(request: Request, { params }: RouteParams) {
     if (error) {
       console.error(`[brands/${brandId}] PUT update error:`, error)
       return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Failed to update brand.", error.message), { status: 500 })
+    }
+
+    // What the art direction is derived from changed: re-derive after the
+    // response (a no-op if its source hash still matches).
+    const before = result.brand as Record<string, unknown> | undefined
+    const artInputs = ["name", "niche", "description", "primary_color", "color_palette", "logo_url"] as const
+    if (artInputs.some((k) => k in parsed.data && JSON.stringify((parsed.data as Record<string, unknown>)[k] ?? null) !== JSON.stringify(before?.[k] ?? null))) {
+      scheduleArtDirection(brandId)
     }
 
     return NextResponse.json({ data: updated })

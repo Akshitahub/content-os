@@ -6,6 +6,7 @@ import type { BrandRow } from "@/types/database"
 import { PLAN_LIMITS } from "@/types/app"
 import type { UserPlan } from "@/types/app"
 import { isInternalUnlimited } from "@/lib/usage/is-internal-unlimited"
+import { scheduleArtDirection } from "@/lib/ai/art-direction"
 
 export async function GET() {
   console.log("[brands] GET called")
@@ -119,6 +120,8 @@ export async function POST(request: Request) {
       return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Failed to create brand.", error.message), { status: 500 })
     }
 
+    // Its art direction (lib/ai/art-direction.ts), derived after the response.
+    if (brand?.id) scheduleArtDirection(brand.id)
     return NextResponse.json({ data: brand }, { status: 201 })
   } catch (err) {
     console.error("[brands] POST unexpected error:", err)

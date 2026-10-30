@@ -1,4 +1,5 @@
 import { createHash } from "crypto"
+import { after } from "next/server"
 import type { ChatCompletionContentPart } from "openai/resources/chat/completions"
 import type { BrandRow, ProductRow } from "@/types/database"
 import { MODELS, getGroqClient, getOpenAIClient } from "./models"
@@ -11,8 +12,12 @@ import { buildBrandBrainLines, isMissingBrandBrainColumn, parseBrandBrain } from
  * logo, product photos via vision when there are any; MODELS.creative
  * otherwise) and cached in
  * brands.brand_brain.art_direction. Re-derived only when the brand's colours /
- * description change (source_hash) or on an explicit refresh. Fail-soft
- * everywhere: no art direction = today's behaviour.
+ * description / logo / product photos change (source_hash) or on an explicit
+ * refresh. Fail-soft everywhere: no art direction = today's behaviour.
+ *
+ * User-facing routes never wait on a derivation: artDirectionForRequest uses
+ * whatever is cached (stale or none) and derives in the background (after()).
+ * Only Autopilot and the explicit refresh endpoint await ensureArtDirection.
  */
 
 // Always on the avoid list -- the default "AI lifestyle" scene.
@@ -20,6 +25,9 @@ const GENERIC_SCENE_AVOID = "the generic warm-beige desk / table-lamp / chai-mug
 const DERIVE_TIMEOUT_MS = 30_000
 
 type Brandish = Pick<BrandRow, "id" | "name" | "niche" | "description" | "primary_color" | "color_palette" | "logo_url" | "brand_brain"> & Partial<BrandRow>
+type ProductLite = Pick<ProductRow, "name" | "description" | "image_urls">
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type Db = any
 
 /** The brand's own colours, as #rrggbb, primary first. */
 export function brandColors(brand: Pick<BrandRow, "primary_color" | "color_palette">): string[] {
@@ -38,11 +46,51 @@ export function brandColors(brand: Pick<BrandRow, "primary_color" | "color_palet
 }
 
 /** What the art direction depends on -- a change in any of these means re-derive. */
-export function artDirectionSourceHash(brand: Brandish): string {
+export function artDirectionSourceHash(brand: Brandish, products: ProductLite[] = []): string {
+  const photos = [...new Set(products.flatMap((p) => p.image_urls ?? []).filter((u) => typeof u === "string" && !!u))].sort()
   return createHash("sha1")
-    .update(JSON.stringify([brand.name, brand.niche, brand.description, brandColors(brand)]))
+    .update(JSON.stringify([brand.name, brand.niche, brand.description, brandColors(brand), brand.logo_url ?? null, photos]))
     .digest("hex")
     .slice(0, 16)
+}
+
+/** The brand's products, ones with a photo first (the derivation looks at the first few). */
+async function loadProducts(db: Db, brandId: string): Promise<ProductLite[]> {
+  const { data } = await db
+    .from("products")
+    .select("name, description, image_urls")
+    .eq("brand_id", brandId)
+    .order("created_at", { ascending: true })
+    .limit(50) as { data: ProductLite[] | null }
+  return [...(data ?? [])].sort((a, b) => Number(!!b.image_urls?.[0]) - Number(!!a.image_urls?.[0]))
+}
+
+/** The function from migration 063 isn't there yet. */
+function isMissingSetFunction(error: { code?: string; message?: string } | null): boolean {
+  if (!error) return false
+  return error.code === "PGRST202" || error.code === "42883" || /set_brand_art_direction/.test(error.message ?? "")
+}
+
+/**
+ * Saves only brand_brain.art_direction, atomically (migration 063), so a
+ * Brand Brain save made while the derivation ran isn't overwritten. Until 063
+ * is run: the old whole-column update, merged onto a fresh read of brand_brain.
+ */
+async function persistArtDirection(db: Db, brandId: string, artDirection: ArtDirection): Promise<void> {
+  const { error } = await db.rpc("set_brand_art_direction", { p_brand_id: brandId, p_art_direction: artDirection })
+  if (!error) return
+  if (!isMissingSetFunction(error)) {
+    console.error("[art-direction] couldn't save (non-fatal):", error.message)
+    return
+  }
+  const { data: fresh, error: readError } = await db.from("brands").select("brand_brain").eq("id", brandId).single() as { data: { brand_brain: unknown } | null; error: { message: string } | null }
+  if (readError) {
+    if (!isMissingBrandBrainColumn(readError)) console.error("[art-direction] couldn't save (non-fatal):", readError.message)
+    return
+  }
+  const raw = fresh?.brand_brain && typeof fresh.brand_brain === "object" ? (fresh.brand_brain as Record<string, unknown>) : {}
+  const { error: updateError } = await db.from("brands").update({ brand_brain: { ...raw, art_direction: artDirection } }).eq("id", brandId)
+  if (updateError && !isMissingBrandBrainColumn(updateError)) console.error("[art-direction] couldn't save (non-fatal):", updateError.message)
 }
 
 function buildPrompt(brand: Brandish, colors: string[], products: Pick<ProductRow, "name" | "description">[]): string {
@@ -107,11 +155,11 @@ function finalize(raw: unknown, colors: string[], sourceHash: string): ArtDirect
 }
 
 /** One model call -> art direction (vision when there are photos or a logo). Null on any failure. */
-export async function deriveArtDirection(brand: Brandish, products: Pick<ProductRow, "name" | "description" | "image_urls">[] = []): Promise<{ artDirection: ArtDirection | null; model: string }> {
+export async function deriveArtDirection(brand: Brandish, products: ProductLite[] = []): Promise<{ artDirection: ArtDirection | null; model: string }> {
   const colors = brandColors(brand)
-  const prompt = buildPrompt(brand, colors, products)
+  const prompt = buildPrompt(brand, colors, products.slice(0, 3))
   const images = [...products.map((p) => p.image_urls?.[0]).filter((u): u is string => !!u).slice(0, 2), ...(brand.logo_url ? [brand.logo_url] : [])]
-  const sourceHash = artDirectionSourceHash(brand)
+  const sourceHash = artDirectionSourceHash(brand, products)
   try {
     let content: string
     let model: string
@@ -148,22 +196,16 @@ export async function deriveArtDirection(brand: Brandish, products: Pick<Product
  * Never throws; falls back to whatever was cached, else null.
  */
 export async function ensureArtDirection(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  db: any,
+  db: Db,
   brand: Brandish,
   opts: { refresh?: boolean; persist?: boolean } = {},
 ): Promise<ArtDirection | null> {
   const cached = artDirectionFrom(brand)
   try {
-    if (cached && !opts.refresh && cached.source_hash === artDirectionSourceHash(brand)) return cached
+    const products = await loadProducts(db, brand.id)
+    if (cached && !opts.refresh && cached.source_hash === artDirectionSourceHash(brand, products)) return cached
 
-    const { data: products } = await db
-      .from("products")
-      .select("name, description, image_urls")
-      .eq("brand_id", brand.id)
-      .limit(3) as { data: Pick<ProductRow, "name" | "description" | "image_urls">[] | null }
-    const withPhotoFirst = [...(products ?? [])].sort((a, b) => Number(!!b.image_urls?.[0]) - Number(!!a.image_urls?.[0]))
-    const { artDirection, model } = await deriveArtDirection(brand, withPhotoFirst)
+    const { artDirection, model } = await deriveArtDirection(brand, products)
     if (!artDirection) return cached
 
     const rawBrain = brand.brand_brain && typeof brand.brand_brain === "object" ? (brand.brand_brain as Record<string, unknown>) : {}
@@ -171,13 +213,57 @@ export async function ensureArtDirection(
     ;(brand as { brand_brain: unknown }).brand_brain = nextBrain
     console.log(`[art-direction] ${cached ? "re-derived" : "derived"} for brand ${brand.id} with ${model} (palette ${artDirection.palette_source})`)
 
-    if (opts.persist !== false) {
-      const { error } = await db.from("brands").update({ brand_brain: nextBrain }).eq("id", brand.id)
-      if (error && !isMissingBrandBrainColumn(error)) console.error("[art-direction] couldn't save (non-fatal):", error.message)
-    }
+    if (opts.persist !== false) await persistArtDirection(db, brand.id, artDirection)
     return artDirection
   } catch (err) {
     console.error("[art-direction] ensure failed (non-fatal):", err instanceof Error ? err.message : err)
     return cached
   }
+}
+
+// Brands with a background derivation already queued in this instance.
+const inFlight = new Set<string>()
+
+/**
+ * Derive (or re-derive) the brand's art direction after the response is
+ * sent, re-reading the brand then so it sees the latest colours / profile.
+ * Call from a route handler (after() needs the request scope). Never throws.
+ */
+export function scheduleArtDirection(brandId: string): void {
+  if (inFlight.has(brandId)) return
+  inFlight.add(brandId)
+  try {
+    after(async () => {
+      try {
+        // The admin client: the request's cookies are gone by now.
+        const { createAdminClient } = await import("@/lib/supabase/server")
+        const admin = await createAdminClient()
+        const { data: brand } = await admin.from("brands").select("*").eq("id", brandId).single<BrandRow>()
+        if (brand) await ensureArtDirection(admin, brand)
+      } catch (err) {
+        console.error("[art-direction] background derivation failed (non-fatal):", err instanceof Error ? err.message : err)
+      } finally {
+        inFlight.delete(brandId)
+      }
+    })
+  } catch (err) {
+    inFlight.delete(brandId)
+    console.error("[art-direction] couldn't schedule a derivation (non-fatal):", err instanceof Error ? err.message : err)
+  }
+}
+
+/**
+ * For user-facing routes: the cached art direction as it is (stale or null)
+ * for THIS request -- never waits on a model call. When it's missing or stale
+ * a derivation runs in the background so the next generation gets it.
+ */
+export async function artDirectionForRequest(db: Db, brand: Brandish): Promise<ArtDirection | null> {
+  const cached = artDirectionFrom(brand)
+  try {
+    const products = await loadProducts(db, brand.id)
+    if (!cached || cached.source_hash !== artDirectionSourceHash(brand, products)) scheduleArtDirection(brand.id)
+  } catch (err) {
+    console.error("[art-direction] freshness check failed (non-fatal):", err instanceof Error ? err.message : err)
+  }
+  return cached
 }

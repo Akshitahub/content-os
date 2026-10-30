@@ -24,7 +24,7 @@ import { rememberBrandTypography } from "@/lib/design/brand-typography"
 import { stampPostLayout } from "@/lib/design/text-layouts"
 import { getPrimaryColor } from "@/lib/design/post-card-generator"
 import { generatePostCopy } from "@/lib/ai/post-copy"
-import { ensureArtDirection } from "@/lib/ai/art-direction"
+import { artDirectionForRequest } from "@/lib/ai/art-direction"
 
 const IMAGE_BUCKET = "brand-images"
 const FEATURE = "calendar_regenerate"
@@ -194,9 +194,10 @@ async function handlePost(request: Request, { params }: RouteParams, timer: Gene
     }
 
     // content_type === "post"
-    // Brand art direction (lib/ai/art-direction.ts): derived once, cached in
+    // Brand art direction (lib/ai/art-direction.ts): the cached one (stale or none;
+    // a missing / stale one is re-derived in the background, never awaited) in
     // brand_brain; every brief and image prompt below reads it. Fail-soft.
-    const artDirection = await ensureArtDirection(supabase, brand)
+    const artDirection = await artDirectionForRequest(supabase, brand)
     const pastExamples = await fetchPastExamples(supabase, brandId, "social_post")
     const [hookLessons, captionLessons] = await Promise.all([
       getActiveLessons(supabase, brandId, "hook"),

@@ -20,8 +20,11 @@ export async function rememberBrandTypography(
     const brain = parseBrandBrain(brand.brand_brain)
     if (brain.visual?.heading_font) return
     // Spread the raw JSON first so fields the profile parser doesn't know
-    // (the derived art_direction) survive.
-    const raw = brand.brand_brain && typeof brand.brand_brain === "object" ? (brand.brand_brain as Record<string, unknown>) : {}
+    // (the derived art_direction) survive -- from a fresh read, so a newer
+    // art direction saved by a background derivation isn't overwritten.
+    const { data: fresh } = await supabase.from("brands").select("brand_brain").eq("id", brand.id).single()
+    const latest = fresh?.brand_brain ?? brand.brand_brain
+    const raw = latest && typeof latest === "object" ? (latest as Record<string, unknown>) : {}
     const next = { ...raw, ...brain, visual: { ...brain.visual, heading_font: typography.heading, body_font: typography.body } }
     const { error } = await supabase.from("brands").update({ brand_brain: next }).eq("id", brand.id)
     if (error && !isMissingBrandBrainColumn(error)) console.error("[brand-typography] couldn't save brand fonts (non-fatal):", error.message)

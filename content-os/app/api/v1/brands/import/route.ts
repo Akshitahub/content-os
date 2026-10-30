@@ -6,6 +6,7 @@ import { extractBrandFromPage, extractImagesFromPage, ExtractionError } from "@/
 import type { BrandRow } from "@/types/database"
 import { z } from "zod"
 import { isMissingBrandBrainColumn, parseBrandBrain } from "@/lib/brand-brain-profile"
+import { scheduleArtDirection } from "@/lib/ai/art-direction"
 
 const importSchema = z.object({
   url: z.string().url("Enter a valid URL (include https://)"),
@@ -91,6 +92,9 @@ export async function POST(request: Request) {
       console.error("[brands/import] insert error:", insertError)
       return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Failed to save brand.", insertError.message), { status: 500 })
     }
+
+    // Its art direction (lib/ai/art-direction.ts), derived after the response.
+    if (brand?.id) scheduleArtDirection(brand.id)
 
     // Extract and save brand images (non-blocking, non-fatal)
     if (brand?.id) {

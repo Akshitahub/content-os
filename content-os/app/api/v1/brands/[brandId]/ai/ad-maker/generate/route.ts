@@ -26,7 +26,7 @@ import { computeTextStyleSafe } from "@/lib/image/text-contrast"
 import { adTextRegion } from "@/lib/design/text-style"
 import { pickTextLayout } from "@/lib/design/text-layouts"
 import { getPrimaryColor } from "@/lib/design/post-card-generator"
-import { ensureArtDirection } from "@/lib/ai/art-direction"
+import { artDirectionForRequest } from "@/lib/ai/art-direction"
 
 const BUCKET = "brand-images"
 
@@ -171,9 +171,10 @@ async function handlePost(request: Request, { params }: RouteParams, timer: Gene
   // for now -- no price change. Any failure or timeout falls back to exactly
   // the old behaviour (3 variations from the same scene, no briefs); it
   // never fails the ad.
-  // Brand art direction (lib/ai/art-direction.ts): derived once, cached in
+  // Brand art direction (lib/ai/art-direction.ts): the cached one (stale or none;
+  // a missing / stale one is re-derived in the background, never awaited) in
   // brand_brain; the strategy's briefs and every background use it. Fail-soft.
-  const artDirection = await ensureArtDirection(supabase, brand)
+  const artDirection = await artDirectionForRequest(supabase, brand)
   let strategy: AdStrategyResult | null = null
   try {
     let product: ProductRow | null = null

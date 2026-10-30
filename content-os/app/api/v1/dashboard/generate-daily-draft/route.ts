@@ -21,7 +21,7 @@ import { stampPostLayout } from "@/lib/design/text-layouts"
 import { getPrimaryColor } from "@/lib/design/post-card-generator"
 import { resolveTypography } from "@/lib/design/fonts"
 import { generatePostCopy } from "@/lib/ai/post-copy"
-import { ensureArtDirection } from "@/lib/ai/art-direction"
+import { artDirectionForRequest } from "@/lib/ai/art-direction"
 
 const BUCKET = "brand-images"
 
@@ -160,9 +160,10 @@ async function handlePost(request: Request, timer: GenerationTimer) {
     // so it stays equivalent to that route's own "auto" default).
     // Caption first, then the hook from its plan (lib/ai/post-copy.ts); each
     // call's usage is added as it completes, so neither is lost to the other.
-    // Brand art direction (lib/ai/art-direction.ts): derived once, cached in
+    // Brand art direction (lib/ai/art-direction.ts): the cached one (stale or none;
+    // a missing / stale one is re-derived in the background, never awaited) in
     // brand_brain; every brief and image prompt below reads it. Fail-soft.
-    const artDirection = await ensureArtDirection(supabase, brand)
+    const artDirection = await artDirectionForRequest(supabase, brand)
     const colorThemes = resolveColorThemes(brand)
     const { hook: hookResult, caption: contentResult } = await timer.step("caption", withDeadline(generatePostCopy(brand, {
       product: null,
