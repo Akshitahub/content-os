@@ -250,6 +250,18 @@ export async function deriveBrandBrain(db: Db, brand: BrandRow): Promise<Derivat
   }
 }
 
+/**
+ * A Brand Brain value with nothing in it -- missing, null, [], "" or {}.
+ * Such a value isn't the user's own even without field_meta: the Brand
+ * Brain card saves an empty box as [], so auto-fill must still fill it.
+ * Same rule as set_brand_brain_fields (migration 065).
+ */
+export function isEmptyBrainValue(value: unknown): boolean {
+  if (value === undefined || value === null || value === "") return true
+  if (Array.isArray(value)) return value.length === 0
+  return typeof value === "object" && Object.keys(value as object).length === 0
+}
+
 function missingFunction(error: { code?: string; message?: string } | null): boolean {
   return !!error && (error.code === "PGRST202" || error.code === "42883" || /set_brand_brain_fields/.test(error.message ?? ""))
 }
@@ -279,7 +291,9 @@ export async function writeBrainFields(db: Db, brandId: string, fields: Partial<
   const fieldMeta = { ...((brain.field_meta ?? {}) as Record<string, Record<string, unknown>>) }
   for (const [sec, section] of Object.entries(fields)) {
     for (const [f, value] of Object.entries(section ?? {})) {
-      const owned = fieldMeta[f]?.auto === false || (!(f in fieldMeta) && brain[sec] && f in brain[sec]!)
+      // The user's own: edited (auto: false), or a non-empty value from
+      // before field_meta existed. An empty one is filled.
+      const owned = fieldMeta[f]?.auto === false || (!(f in fieldMeta) && !isEmptyBrainValue(brain[sec]?.[f]))
       if (auto && owned) continue
       brain[sec] = { ...(brain[sec] ?? {}), [f]: value }
       fieldMeta[f] = { ...(meta[f] as Record<string, unknown>), auto }

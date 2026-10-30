@@ -10,8 +10,11 @@
 -- only the fields given are touched, inside their section.
 -- p_auto = true (a derivation): a field whose brand_brain.field_meta says
 -- auto: false (the user edited it) is skipped, and so is a field that
--- already has a value but no field_meta entry (typed in before this
--- existed -- treated as the user's own). Written fields get
+-- already has a NON-EMPTY value but no field_meta entry (typed in before
+-- this existed -- treated as the user's own). An empty value (null, [],
+-- "", {}) is not the user's: BrandBrainSection saves an empty box as [],
+-- so most brands have those, and they must still be auto-filled. The app
+-- fallback uses the same rule (isEmptyBrainValue). Written fields get
 -- field_meta.<field> = p_meta.<field> (auto: true, derived_at, ...).
 -- p_auto = false (a user edit): always written, field_meta.<field> =
 -- {"auto": false, ...}.
@@ -37,6 +40,7 @@ DECLARE
   meta jsonb;
   sec text;
   fld text;
+  cur jsonb;
 BEGIN
   SELECT COALESCE(brand_brain, '{}'::jsonb) INTO brain FROM public.brands WHERE id = p_brand_id FOR UPDATE;
   IF NOT FOUND THEN
@@ -46,9 +50,10 @@ BEGIN
 
   FOR sec IN SELECT jsonb_object_keys(COALESCE(p_fields, '{}'::jsonb)) LOOP
     FOR fld IN SELECT jsonb_object_keys(p_fields->sec) LOOP
+      cur := brain->sec->fld;
       IF p_auto AND (
         (meta->fld->>'auto') = 'false'
-        OR (NOT (meta ? fld) AND (brain->sec) ? fld)
+        OR (NOT (meta ? fld) AND cur IS NOT NULL AND cur NOT IN ('null'::jsonb, '[]'::jsonb, '""'::jsonb, '{}'::jsonb))
       ) THEN
         CONTINUE;
       END IF;
