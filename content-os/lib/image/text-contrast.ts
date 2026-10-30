@@ -228,3 +228,21 @@ export function tintedScrimOpacity(opacity: number, tint: string, textColor: "li
     : (1 - DARK_TEXT_MIN_BG) / Math.max(0.01, L - DARK_TEXT_MIN_BG)
   return Math.round(Math.min(1, opacity * factor) * 100) / 100
 }
+
+function hexToLab(hex: string): [number, number, number] {
+  const rgb = parseHex(hex) ?? [0, 0, 0]
+  const [r, g, b] = rgb.map(channelToLinear) as [number, number, number]
+  // sRGB (D65) -> XYZ -> CIELAB.
+  const x = (0.4124 * r + 0.3576 * g + 0.1805 * b) / 0.95047
+  const y = 0.2126 * r + 0.7152 * g + 0.0722 * b
+  const z = (0.0193 * r + 0.1192 * g + 0.9505 * b) / 1.08883
+  const f = (t: number) => (t > 216 / 24389 ? Math.cbrt(t) : (24389 / 27 * t + 16) / 116)
+  return [116 * f(y) - 16, 500 * (f(x) - f(y)), 200 * (f(y) - f(z))]
+}
+
+/** CIE76 colour difference between two hex colours (~2.3 = just noticeable; under ~20 reads as "the same colour" at a glance). */
+export function deltaE(a: string, b: string): number {
+  const [l1, a1, b1] = hexToLab(a)
+  const [l2, a2, b2] = hexToLab(b)
+  return Math.hypot(l1 - l2, a1 - a2, b1 - b2)
+}

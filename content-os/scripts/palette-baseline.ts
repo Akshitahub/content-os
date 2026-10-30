@@ -12,8 +12,9 @@
 // mid-grey stand-in.
 // --product: also renders annotated_product from that product's photo (any
 // brand's product -- its photo and benefits, this brand's palette): once
-// cut out by remove.bg (one remove.bg call) and once framed (the fallback).
-// The copy is fixture text, not model output.
+// cut out by remove.bg (cached per product) and once framed (the fallback),
+// plus an accent-match variant -- the brand's accent set to the product's own
+// colour -- for the arch's separation fallback. The copy is fixture text.
 //
 // Output: scripts/output/palette-runs/<label>-<brand>-<timestamp>/
 // (palette.json, post-*.png, checklist.png, carousel-*.png, story-*.png).
@@ -50,7 +51,7 @@ function arg(name: string): string | undefined {
 
 const brandId = arg("brand")
 if (!brandId) {
-  console.error("usage: npx tsx scripts/palette-baseline.ts --brand <brandId> [--photo <path.png>] [--label palette]")
+  console.error("usage: npx tsx scripts/palette-baseline.ts --brand <brandId> [--photo <path.png>] [--product <productId>] [--label palette]")
   process.exit(1)
 }
 const label = arg("label") ?? "palette"
@@ -121,7 +122,7 @@ async function main() {
   // ── annotated_product, from a product photo.
   const productId = arg("product")
   if (productId) {
-    const { compositeAnnotatedProduct } = await import("@/lib/image/post-compositor")
+    const { compositeAnnotatedProduct, cutoutDominantColor } = await import("@/lib/image/post-compositor")
     const { removeBackground } = await import("@/lib/image/remove-background")
     const { data: product } = await supabase.from("products").select("*").eq("id", productId).single<ProductRow>()
     const url = product?.image_urls?.[0]
@@ -139,8 +140,21 @@ async function main() {
       motifs: (brand.brand_brain as { art_direction?: { motifs?: string[] } } | null)?.art_direction?.motifs ?? ["petals"],
     }
     try {
-      const cut = await removeBackground(new Blob([new Uint8Array(productPhoto)], { type: "image/png" }), { timeoutMs: 30_000 })
+      // Cut-outs are cached per product (one remove.bg call per product, not per run).
+      const cacheDir = join(process.cwd(), "scripts/output/palette-runs/_cutouts")
+      mkdirSync(cacheDir, { recursive: true })
+      const cachePath = join(cacheDir, `${productId}.png`)
+      const cut = existsSync(cachePath) ? readFileSync(cachePath) : await removeBackground(new Blob([new Uint8Array(productPhoto)], { type: "image/png" }), { timeoutMs: 30_000 })
+      if (!existsSync(cachePath)) writeFileSync(cachePath, cut)
       save("post-annotated_product.png", (await compositeAnnotatedProduct({ ...annotated, productImage: cut, cutout: true })).buffer)
+      // The arch case: a brand whose accent IS the product's colour -- the
+      // arch must switch to pop (or a light accent tint) to stay visible.
+      const productColor = await cutoutDominantColor(cut)
+      if (productColor) {
+        const matched = { ...palette, accent: productColor }
+        console.log(`[palette-baseline] accent-match variant: accent set to the product's colour ${productColor}`)
+        save("post-annotated_product-accent-match.png", (await compositeAnnotatedProduct({ ...annotated, palette: matched, productImage: cut, cutout: true })).buffer)
+      }
     } catch (err) {
       console.error("[palette-baseline] remove.bg failed -- only the framed fallback is rendered:", err instanceof Error ? err.message : err)
     }

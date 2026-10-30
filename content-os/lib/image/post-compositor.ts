@@ -7,7 +7,7 @@ import { decompress } from "wawoff2"
 import * as fontkit from "fontkit"
 import type { PostTemplateId } from "@/lib/design/post-templates"
 import { paletteRoles, type BrandPalette, type ColorTheme, type PaletteRoles } from "@/lib/design/color-themes"
-import { AA_BODY, AA_GRAPHIC, AA_LARGE, bestContrast, ensureContrast, tintedScrimOpacity } from "@/lib/image/text-contrast"
+import { AA_BODY, AA_GRAPHIC, AA_LARGE, bestContrast, deltaE, ensureContrast, mixHex, tintedScrimOpacity, toHex } from "@/lib/image/text-contrast"
 import { CURATED_FONTS, DEFAULT_FONT_ID, findFont } from "@/lib/design/fonts"
 import { sanitizeTextForCompositing } from "@/lib/image/sanitize-text-for-compositing"
 import { BACKING_OPACITY, type TextStyle } from "@/lib/design/text-style"
@@ -473,18 +473,66 @@ function buildMarkedList(
   return { svg: parts.join(""), endY: cursorY }
 }
 
+// The checklist's type grows to fill the card, up to these sizes (1080 canvas).
+const CHECKLIST_HEADLINE_MAX = 96
+const CHECKLIST_ITEM_MAX = 52
+
+/** Height buildMarkedList would take for these items (without its trailing gap). */
+function markedListHeight(items: string[], font: fontkit.Font, fontSize: number, maxWidthPx: number): number {
+  if (!items.length) return 0
+  const lines = items.reduce((n, item) => n + wrapTextByWidth(font, item, fontSize, maxWidthPx - fontSize * 1.5).length, 0)
+  return lines * fontSize * 1.35 + (items.length - 1) * fontSize * 0.4
+}
+
 function buildHardTruthChecklist(content: HardTruthChecklistContent, theme: ColorTheme, font: fontkit.Font, hasLogo: boolean, scale: number): OverlayResult {
   const roles = paletteRoles(theme.palette)
   const padX = 90
   const maxTextWidth = CANVAS_WIDTH - padX * 2
 
-  const { lines: headlineLines, fontSize: headlineFontSize, lineHeight: headlineLineHeight, overflow: headlineOverflow } = fitText(font, content.headline, {
-    startFontSize: 62 * scale,
-    minFontSize: MIN_HEADLINE_FONT_SIZE,
-    lineHeightMultiplier: 1.2,
-    maxWidthPx: maxTextWidth,
-    maxLines: 3,
-  })
+  const wrongItems = content.wrongItems.slice(0, 3)
+  const rightItems = content.rightItems.slice(0, 3)
+
+  // The closing line is pinned near the bottom; everything else fills the
+  // space between the top safe area and it.
+  const closingFontSize = Math.round(30 * scale)
+  const closingText = content.closingLine?.trim() ?? ""
+  const closingFit = closingText
+    ? fitText(font, closingText, { startFontSize: closingFontSize, minFontSize: 22, lineHeightMultiplier: 1.3, maxWidthPx: maxTextWidth, maxLines: 2 })
+    : null
+  const closingBlockY = CANVAS_HEIGHT - 130
+  const dividerY = closingBlockY - closingFontSize * 1.8
+  const spaceTop = Math.round(CANVAS_HEIGHT * 0.06)
+  const spaceBottom = closingText ? dividerY - 24 : CANVAS_HEIGHT - Math.round(CANVAS_HEIGHT * 0.06)
+  const space = spaceBottom - spaceTop
+
+  // Grow the headline and items together from their base sizes until the
+  // block fills ~75% of that space (capped at sane maxima), then spread the
+  // rest evenly: above the headline, between the groups, above the closing line.
+  const layoutAt = (grow: number) => {
+    const headline = fitText(font, content.headline, {
+      startFontSize: Math.min(CHECKLIST_HEADLINE_MAX, 62 * scale * grow),
+      minFontSize: MIN_HEADLINE_FONT_SIZE,
+      lineHeightMultiplier: 1.2,
+      maxWidthPx: maxTextWidth,
+      maxLines: 3,
+    })
+    const listFontSize = Math.round(Math.min(CHECKLIST_ITEM_MAX, 36 * scale * grow))
+    const headlineH = (headline.lines.length - 1) * headline.lineHeight + headline.fontSize * 1.1
+    const wrongH = markedListHeight(wrongItems, font, listFontSize, maxTextWidth)
+    const rightH = markedListHeight(rightItems, font, listFontSize, maxTextWidth)
+    return { headline, listFontSize, headlineH, wrongH, rightH, total: headlineH + wrongH + rightH }
+  }
+  let layout = layoutAt(1)
+  for (let grow = 1.05; grow <= 2.5; grow += 0.05) {
+    const next = layoutAt(grow)
+    if (next.total > space * 0.75) break
+    layout = next
+    if (next.headline.fontSize >= CHECKLIST_HEADLINE_MAX && next.listFontSize >= CHECKLIST_ITEM_MAX) break
+  }
+  const gap = Math.max(24, (space - layout.total) / 4)
+  const { lines: headlineLines, fontSize: headlineFontSize, lineHeight: headlineLineHeight, overflow: headlineOverflow } = layout.headline
+  const headlineTop = spaceTop + gap
+  const headlineStartY = headlineTop + headlineFontSize * 0.85
 
   // Best-effort highlight: only rendered when the phrase is found intact on
   // a single wrapped line -- a phrase split across a line-wrap boundary
@@ -492,9 +540,6 @@ function buildHardTruthChecklist(content: HardTruthChecklistContent, theme: Colo
   const highlightLineIndex = content.highlightedPhrase
     ? headlineLines.findIndex((l) => l.toLowerCase().includes(content.highlightedPhrase!.toLowerCase()))
     : -1
-
-  const headlineTop = 130
-  const headlineStartY = headlineTop + headlineFontSize * 0.85
 
   const highlightRects: string[] = []
   const headlineText = headlineLines.map((line, i) => {
@@ -518,23 +563,11 @@ function buildHardTruthChecklist(content: HardTruthChecklistContent, theme: Colo
     return checklistTextEl(CANVAS_WIDTH / 2, y, "middle", headlineFontSize, line, roles.ink, 800)
   }).join("")
 
-  const headlineBottom = headlineStartY + (headlineLines.length - 1) * headlineLineHeight + headlineFontSize * 0.6
+  const wrongTop = headlineTop + layout.headlineH + gap
+  const rightTop = wrongTop + layout.wrongH + gap
+  const wrongResult = buildMarkedList(wrongItems, (cx, cy, size) => xMarkSvg(cx, cy, size, roles.wrong), font, layout.listFontSize, maxTextWidth, wrongTop, roles.ink)
+  const rightResult = buildMarkedList(rightItems, (cx, cy, size) => checkMarkSvg(cx, cy, size, roles.right), font, layout.listFontSize, maxTextWidth, rightTop, roles.ink)
 
-  const listFontSize = Math.round(36 * scale)
-  const wrongResult = buildMarkedList(content.wrongItems.slice(0, 3), (cx, cy, size) => xMarkSvg(cx, cy, size, roles.wrong), font, listFontSize, maxTextWidth, headlineBottom + 56, roles.ink)
-  const rightResult = buildMarkedList(content.rightItems.slice(0, 3), (cx, cy, size) => checkMarkSvg(cx, cy, size, roles.right), font, listFontSize, maxTextWidth, wrongResult.endY + 44, roles.ink)
-
-  const closingFontSize = Math.round(30 * scale)
-  const closingText = content.closingLine?.trim() ?? ""
-  const closingFit = closingText
-    ? fitText(font, closingText, { startFontSize: closingFontSize, minFontSize: 22, lineHeightMultiplier: 1.3, maxWidthPx: maxTextWidth, maxLines: 2 })
-    : null
-
-  // Pinned near the bottom (not stacked directly under the lists, whose
-  // total height varies with item count/length) so it lands in a
-  // consistent spot instead of drifting per-post.
-  const closingBlockY = CANVAS_HEIGHT - 130
-  const dividerY = closingBlockY - closingFontSize * 1.8
   const closingSvg = closingFit
     ? closingFit.lines.map((line, i) => checklistTextEl(CANVAS_WIDTH / 2, closingBlockY + i * closingFit.lineHeight, "middle", closingFit.fontSize, line, roles.inkMuted, 600)).join("")
     : ""
@@ -815,6 +848,56 @@ async function compositeLayoutPost(baseImageBuffer: Buffer, options: CompositePo
 const ANNOTATED_SCRIPT_FONT = "caveat"
 const ANNOTATED_SAFE_Y = Math.round(CANVAS_HEIGHT * 0.06)
 const ANNOTATED_STRIP_H = 150
+// Callouts: never smaller than this on the 1080 canvas, at most 2 lines.
+const CALLOUT_FONT = 46
+// Arrows read on a phone screen at this width.
+const ARROW_WIDTH = 4
+// The arch is this much wider than the product; the product never shrinks below this share of its cap.
+const ARCH_WIDTH_RATIO = 1.4
+const MIN_PRODUCT_SCALE = 0.55
+// Within this CIE76 distance two colours read as the same at a glance.
+const SAME_COLOR_DELTA_E = 20
+const ANNOTATED_SLOTS: Record<3 | 4, { side: "left" | "right"; at: number }[]> = {
+  4: [{ side: "left", at: 0.2 }, { side: "right", at: 0.2 }, { side: "left", at: 0.68 }, { side: "right", at: 0.68 }],
+  3: [{ side: "left", at: 0.22 }, { side: "right", at: 0.45 }, { side: "left", at: 0.7 }],
+}
+
+/** The cut-out's dominant colour over its opaque pixels (a 16-level-per-channel histogram, like sharp's stats().dominant without the transparent ones). */
+function dominantOpaqueColor(data: Buffer, channels: number): string | null {
+  const bins = new Map<number, { n: number; r: number; g: number; b: number }>()
+  const step = Math.max(1, Math.floor(data.length / channels / 40_000))
+  for (let i = 0; i < data.length; i += channels * step) {
+    if (data[i + 3]! < 200) continue
+    const r = data[i]!
+    const g = data[i + 1]!
+    const b = data[i + 2]!
+    const key = ((r >> 4) << 8) | ((g >> 4) << 4) | (b >> 4)
+    const bin = bins.get(key) ?? { n: 0, r: 0, g: 0, b: 0 }
+    bin.n++
+    bin.r += r
+    bin.g += g
+    bin.b += b
+    bins.set(key, bin)
+  }
+  let best: { n: number; r: number; g: number; b: number } | null = null
+  for (const bin of bins.values()) if (!best || bin.n > best.n) best = bin
+  return best ? toHex([best.r / best.n, best.g / best.n, best.b / best.n]) : null
+}
+
+/** The dominant colour of a background-removed product image (opaque pixels only). */
+export async function cutoutDominantColor(cutout: Buffer): Promise<string | null> {
+  const { data, info } = await sharp(cutout).ensureAlpha().resize(400, 400, { fit: "inside", withoutEnlargement: true }).raw().toBuffer({ resolveWithObject: true })
+  return dominantOpaqueColor(data, info.channels)
+}
+
+/** The arch colour that separates from the product: accent, else pop, else a light accent tint. */
+function archColorFor(p: BrandPalette, productColor: string | null): string {
+  if (!productColor) return p.accent
+  if (deltaE(productColor, p.accent) >= SAME_COLOR_DELTA_E) return p.accent
+  if (deltaE(productColor, p.pop) >= SAME_COLOR_DELTA_E) return p.pop
+  const tint = mixHex(p.accent, "#ffffff", 0.7)
+  return deltaE(productColor, tint) >= SAME_COLOR_DELTA_E ? tint : mixHex(p.deep, p.base, 0.15)
+}
 
 export interface CompositeAnnotatedProductOptions {
   palette: BrandPalette
@@ -895,8 +978,8 @@ function handArrow(x1: number, y1: number, x2: number, y2: number, bow: number, 
   const hx2 = x2 - head * (ux * Math.cos(-spread) - uy * Math.sin(-spread))
   const hy2 = y2 - head * (uy * Math.cos(-spread) + ux * Math.sin(-spread))
   const r = (n: number) => Math.round(n * 10) / 10
-  return `<path d="M ${r(x1)} ${r(y1)} Q ${r(cx)} ${r(cy)} ${r(x2)} ${r(y2)}" fill="none" stroke="${color}" stroke-width="3.5" stroke-linecap="round"/>`
-    + `<path d="M ${r(hx1)} ${r(hy1)} L ${r(x2)} ${r(y2)} L ${r(hx2)} ${r(hy2)}" fill="none" stroke="${color}" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>`
+  return `<path d="M ${r(x1)} ${r(y1)} Q ${r(cx)} ${r(cy)} ${r(x2)} ${r(y2)}" fill="none" stroke="${color}" stroke-width="${ARROW_WIDTH}" stroke-linecap="round"/>`
+    + `<path d="M ${r(hx1)} ${r(hy1)} L ${r(x2)} ${r(y2)} L ${r(hx2)} ${r(hy2)}" fill="none" stroke="${color}" stroke-width="${ARROW_WIDTH}" stroke-linecap="round" stroke-linejoin="round"/>`
 }
 
 /** A small motif mark: a 5-petal flower for floral motifs, else a ring of dots. */
@@ -941,20 +1024,43 @@ export async function compositeAnnotatedProduct(options: CompositeAnnotatedProdu
   }).join("")
   const headlineBox: Box = { x: SAFE_X, y: headTop - 6, w: maxTextW, h: hl.lines.length * hl.lineHeight + 16 }
 
-  // ── Product: centred between the headline and the strip, at most 42% wide.
+  // ── Product + callout columns, sized together. The product is capped at
+  // ~42% of the width and ~50% of the height (never upscaled); the arch
+  // framing it is ~1.4x its width, and the callouts get the columns either
+  // side. Callouts stay >= 46px and <= 2 lines -- when one needs a third
+  // line the product shrinks (down to a floor) before the text would.
   const stripTop = CANVAS_HEIGHT - ANNOTATED_STRIP_H
-  const zoneTop = headlineBox.y + headlineBox.h + 60
-  const zoneBottom = stripTop - 50
-  const maxPW = Math.round(CANVAS_WIDTH * 0.42)
-  const maxPH = Math.round(Math.max(200, zoneBottom - zoneTop - 30))
+  const archLift = Math.round(CANVAS_HEIGHT * 0.08)
+  const archTopMin = headlineBox.y + headlineBox.h + 24
+  const productTopMin = archTopMin + archLift
+  const productBottomMax = stripTop - 60
   // A cut-out is trimmed to its visible pixels so the box is the product itself.
   const source = options.cutout ? await sharp(options.productImage).trim().png().toBuffer() : options.productImage
-  let productPng = await sharp(source).resize(maxPW, maxPH, { fit: "inside" }).png().toBuffer()
+  const srcMeta = await sharp(source).metadata()
+  const aspect = (srcMeta.width ?? 1) / (srcMeta.height ?? 1)
+  const callouts = options.callouts.slice(0, ANNOTATED_SLOTS[options.callouts.length >= 4 ? 4 : 3].length).map((c) => sanitizeTextForCompositing(c.trim())).filter(Boolean)
+  const productSize = (scale: number) => {
+    const maxW = CANVAS_WIDTH * 0.42 * scale
+    const maxH = Math.min(CANVAS_HEIGHT * 0.5, productBottomMax - productTopMin) * scale
+    // Never past the source resolution.
+    const w = Math.min(maxW, maxH * aspect, srcMeta.width ?? maxW)
+    return { w: Math.round(w), h: Math.round(w / aspect) }
+  }
+  const columnFor = (pw: number) => Math.floor((CANVAS_WIDTH - Math.round(pw * ARCH_WIDTH_RATIO)) / 2 - SAFE_X - 24)
+  const linesAt = (text: string, width: number) => wrapTextByWidth(script, text, CALLOUT_FONT, width)
+  const fitsColumn = (width: number) => callouts.every((c) => {
+    const lines = linesAt(c, width)
+    return lines.length <= 2 && lines.every((l) => measureTextWidth(script, l, CALLOUT_FONT) <= width)
+  })
+  let productScale = 1
+  while (!fitsColumn(columnFor(productSize(productScale).w)) && productScale > MIN_PRODUCT_SCALE) productScale = Math.max(MIN_PRODUCT_SCALE, productScale - 0.06)
+  const { w: targetW, h: targetH } = productSize(productScale)
+  let productPng = await sharp(source).resize(Math.max(1, targetW), Math.max(1, targetH), { fit: "inside", withoutEnlargement: true }).png().toBuffer()
   const meta = await sharp(productPng).metadata()
-  const pw = meta.width ?? maxPW
-  const ph = meta.height ?? maxPH
+  const pw = meta.width ?? targetW
+  const ph = meta.height ?? targetH
   const px = Math.round((CANVAS_WIDTH - pw) / 2)
-  const py = Math.round(zoneTop + (zoneBottom - zoneTop - ph) / 2 + 15)
+  const py = Math.round(Math.max(productTopMin, productTopMin + (productBottomMax - productTopMin - ph) / 2))
   if (!options.cutout) {
     // No cut-out: the photo in a rounded frame.
     const radius = Math.round(Math.min(pw, ph) * 0.08)
@@ -964,47 +1070,47 @@ export async function compositeAnnotatedProduct(options: CompositeAnnotatedProdu
   const productBox: Box = { x: px, y: py, w: pw, h: ph }
   // A cut-out's real outline per row (alpha), so arrows land on the product, not the empty corner of its box.
   let edgeAt = (_y: number, left: boolean) => (left ? px : px + pw)
+  let productColor: string | null = null
   if (options.cutout) {
-    const { data, info } = await sharp(productPng).ensureAlpha().extractChannel(3).raw().toBuffer({ resolveWithObject: true })
+    const { data, info } = await sharp(productPng).ensureAlpha().raw().toBuffer({ resolveWithObject: true })
+    const ch = info.channels
     edgeAt = (y: number, left: boolean) => {
       const row = Math.max(0, Math.min(info.height - 1, Math.round(y - py)))
       for (let k = 0; k < info.width; k++) {
         const col = left ? k : info.width - 1 - k
-        if (data[row * info.width + col]! > 96) return px + col
+        if (data[(row * info.width + col) * ch + 3]! > 96) return px + col
       }
       return left ? px : px + pw
     }
+    productColor = dominantOpaqueColor(data, ch)
   }
 
-  // ── Accent arch behind the product (a rounded-top panel), clear of the headline.
-  const archW = pw + 70
+  // ── The arch: a frame behind the product, ~1.4x its width, rising ~8% of
+  // the canvas above it. Its colour must separate from the product: accent,
+  // else pop when the product is accent-coloured, else a light accent tint.
+  const archW = Math.round(pw * ARCH_WIDTH_RATIO)
   const archX = (CANVAS_WIDTH - archW) / 2
   const archR = archW / 2
-  const archTop = Math.max(zoneTop - 20, py - 50)
-  const archBottom = Math.min(stripTop - 30, py + ph + 30)
+  const archTop = Math.max(archTopMin, py - archLift)
+  const archBottom = Math.min(stripTop - 24, py + ph + 40)
   const archBox: Box = { x: archX, y: archTop, w: archW, h: archBottom - archTop }
-  const arch = `<path d="M ${archX} ${archBottom} V ${archTop + archR} A ${archR} ${archR} 0 0 1 ${archX + archW} ${archTop + archR} V ${archBottom} Z" fill="${p.accent}"/>`
+  const archColor = archColorFor(p, productColor)
+  const arch = `<path d="M ${archX} ${archBottom} V ${archTop + archR} A ${archR} ${archR} 0 0 1 ${archX + archW} ${archTop + archR} V ${archBottom} Z" fill="${archColor}"/>`
   const frame = options.cutout ? "" : `<rect x="${px - 8}" y="${py - 8}" width="${pw + 16}" height="${ph + 16}" rx="${Math.round(Math.min(pw, ph) * 0.08) + 8}" fill="${p.base}"/>`
   const shadow = `<ellipse cx="${CANVAS_WIDTH / 2}" cy="${py + ph + 6}" rx="${pw * 0.38}" ry="14" fill="${roles.scrim}" fill-opacity="0.18"/>`
 
-  // ── Callouts in the free space either side of the arch: left/right x upper/lower.
-  const sideW = Math.floor(archX - SAFE_X - 24)
-  const slots = options.callouts.length >= 4
-    ? [{ side: "left", at: 0.2 }, { side: "right", at: 0.2 }, { side: "left", at: 0.68 }, { side: "right", at: 0.68 }]
-    : [{ side: "left", at: 0.22 }, { side: "right", at: 0.45 }, { side: "left", at: 0.7 }]
-  const callouts = options.callouts.slice(0, slots.length).map((c) => sanitizeTextForCompositing(c.trim())).filter(Boolean)
+  // ── Callouts in the columns either side of the arch: left/right x upper/lower.
+  const sideW = columnFor(pw)
+  const slots = ANNOTATED_SLOTS[callouts.length >= 4 ? 4 : 3]
   const placed: { box: Box; svg: string; arrow: string }[] = []
-  const calloutTop = Math.max(zoneTop - 20, headlineBox.y + headlineBox.h + 20)
+  const calloutTop = archTopMin
   const calloutBottom = stripTop - 24
   for (let i = 0; i < callouts.length; i++) {
     const slot = slots[i]!
-    let size = 44
-    let lines = wrapTextByWidth(script, callouts[i]!, size, sideW)
-    while ((lines.length > 3 || lines.some((l) => measureTextWidth(script, l, size) > sideW)) && size > 30) {
-      size -= 2
-      lines = wrapTextByWidth(script, callouts[i]!, size, sideW)
-    }
-    if (lines.some((l) => measureTextWidth(script, l, size) > sideW)) {
+    const size = CALLOUT_FONT
+    let lines = linesAt(callouts[i]!, sideW)
+    // Past the product floor: still 46px -- a long word breaks, and it's reported.
+    if (lines.length > 2 || lines.some((l) => measureTextWidth(script, l, size) > sideW)) {
       lines = lines.flatMap((l) => breakLineToWidth(script, l, size, sideW))
       overflow = true
     }
@@ -1049,7 +1155,7 @@ export async function compositeAnnotatedProduct(options: CompositeAnnotatedProdu
     const taken: Box[] = [headlineBox, productBox, archBox, { x: 0, y: stripTop, w: CANVAS_WIDTH, h: ANNOTATED_STRIP_H }, ...placed.map((c) => c.box)]
     const candidates = [
       { x: SAFE_X + 20, y: stripTop - 60 }, { x: CANVAS_WIDTH - SAFE_X - 40, y: stripTop - 60 },
-      { x: SAFE_X + 30, y: zoneTop + 10 }, { x: CANVAS_WIDTH - SAFE_X - 40, y: zoneTop + 10 },
+      { x: SAFE_X + 30, y: archTopMin + 20 }, { x: CANVAS_WIDTH - SAFE_X - 40, y: archTopMin + 20 },
       { x: archX - 40, y: archTop + 20 }, { x: archX + archW + 30, y: archTop + 20 },
     ]
     const color = ensureContrast(p.pop, p.base, AA_GRAPHIC)
