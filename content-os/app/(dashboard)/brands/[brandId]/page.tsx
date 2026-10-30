@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { BrandDetailTabs } from "@/components/brands/BrandDetailTabs"
 import { BrandBrainSection } from "@/components/brands/BrandBrainSection"
+import { BrandLookSection } from "@/components/brands/BrandLookSection"
 import { parseBrandBrain } from "@/lib/brand-brain-profile"
 import type { Metadata } from "next"
 import type { BrandRow } from "@/types/database"
@@ -162,6 +163,7 @@ export default async function BrandDetailPage({ params }: PageProps) {
             )}
 
             <BrandBrainSection brandId={brandId} brandBrain={parseBrandBrain(brand.brand_brain)} />
+            <BrandLookSection brandId={brandId} />
           </div>
         </>
       </BrandDetailTabs>

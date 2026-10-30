@@ -13,7 +13,8 @@ import { buildBrandBrainLines, isMissingBrandBrainColumn, parseBrandBrain } from
  * otherwise) and cached in
  * brands.brand_brain.art_direction. Re-derived only when the brand's colours /
  * description / logo / product photos change (source_hash) or on an explicit
- * refresh. Fail-soft everywhere: no art direction = today's behaviour.
+ * refresh -- except one the owner edited (edited_by_user), which only the
+ * explicit refresh replaces. Fail-soft everywhere: no art direction = today's behaviour.
  *
  * User-facing routes never wait on a derivation: artDirectionForRequest uses
  * whatever is cached (stale or none) and derives in the background (after()).
@@ -75,22 +76,24 @@ function isMissingSetFunction(error: { code?: string; message?: string } | null)
  * Saves only brand_brain.art_direction, atomically (migration 063), so a
  * Brand Brain save made while the derivation ran isn't overwritten. Until 063
  * is run: the old whole-column update, merged onto a fresh read of brand_brain.
+ * Resolves to whether it was saved (failures are logged, never thrown).
  */
-async function persistArtDirection(db: Db, brandId: string, artDirection: ArtDirection): Promise<void> {
+export async function persistArtDirection(db: Db, brandId: string, artDirection: ArtDirection): Promise<boolean> {
   const { error } = await db.rpc("set_brand_art_direction", { p_brand_id: brandId, p_art_direction: artDirection })
-  if (!error) return
+  if (!error) return true
   if (!isMissingSetFunction(error)) {
     console.error("[art-direction] couldn't save (non-fatal):", error.message)
-    return
+    return false
   }
   const { data: fresh, error: readError } = await db.from("brands").select("brand_brain").eq("id", brandId).single() as { data: { brand_brain: unknown } | null; error: { message: string } | null }
   if (readError) {
     if (!isMissingBrandBrainColumn(readError)) console.error("[art-direction] couldn't save (non-fatal):", readError.message)
-    return
+    return false
   }
   const raw = fresh?.brand_brain && typeof fresh.brand_brain === "object" ? (fresh.brand_brain as Record<string, unknown>) : {}
   const { error: updateError } = await db.from("brands").update({ brand_brain: { ...raw, art_direction: artDirection } }).eq("id", brandId)
   if (updateError && !isMissingBrandBrainColumn(updateError)) console.error("[art-direction] couldn't save (non-fatal):", updateError.message)
+  return !updateError
 }
 
 function buildPrompt(brand: Brandish, colors: string[], products: Pick<ProductRow, "name" | "description">[]): string {
@@ -202,6 +205,8 @@ export async function ensureArtDirection(
 ): Promise<ArtDirection | null> {
   const cached = artDirectionFrom(brand)
   try {
+    // The owner's edits stand until they explicitly refresh.
+    if (cached?.edited_by_user && !opts.refresh) return cached
     const products = await loadProducts(db, brand.id)
     if (cached && !opts.refresh && cached.source_hash === artDirectionSourceHash(brand, products)) return cached
 
@@ -259,6 +264,8 @@ export function scheduleArtDirection(brandId: string): void {
  */
 export async function artDirectionForRequest(db: Db, brand: Brandish): Promise<ArtDirection | null> {
   const cached = artDirectionFrom(brand)
+  // The owner's edits are never re-derived in the background.
+  if (cached?.edited_by_user) return cached
   try {
     const products = await loadProducts(db, brand.id)
     if (!cached || cached.source_hash !== artDirectionSourceHash(brand, products)) scheduleArtDirection(brand.id)

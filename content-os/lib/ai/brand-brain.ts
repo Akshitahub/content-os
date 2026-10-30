@@ -273,6 +273,10 @@ export const artDirectionSchema = z.object({
   /** "brand_colors" = palette built from the brand's own colours; "invented" = it had none. */
   palette_source: z.enum(["brand_colors", "invented"]).optional(),
   derived_at: z.string().optional(),
+  /** Edited on the brand page ("Brand look"): never re-derived automatically,
+   * whatever changes -- only the explicit "Refresh from brand" replaces it. */
+  edited_by_user: z.boolean().optional(),
+  edited_at: z.string().optional(),
 })
 
 export type ArtDirection = z.infer<typeof artDirectionSchema>
