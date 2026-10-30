@@ -222,6 +222,10 @@ export function FullPostGenerator({ brandId, products }: Props) {
         checklistWrongItems: caption.checklist_wrong_items ?? undefined,
         checklistRightItems: caption.checklist_right_items ?? undefined,
         checklistClosingLine: caption.checklist_closing_line ?? undefined,
+        // annotated_product only (a post with a product photo) -- ignored otherwise.
+        annotatedHeadline: caption.annotated_headline ?? undefined,
+        annotatedKeyword: caption.annotated_keyword ?? undefined,
+        annotatedCallouts: caption.annotated_callouts ?? undefined,
         visualBrief: caption.visual ?? undefined,
       },
       {
@@ -285,6 +289,11 @@ export function FullPostGenerator({ brandId, products }: Props) {
     // runImageGeneration/generatePostImage already saves.
     if (caption.suggested_template === "hard_truth_checklist") {
       runImageGeneration(data, sessionId, "hard_truth_checklist template (no photo)")
+      return
+    }
+    // annotated_product uses the product's real photo -- no scene to write either.
+    if (caption.suggested_template === "annotated_product") {
+      runImageGeneration(data, sessionId, "annotated_product template (product photo)")
       return
     }
 

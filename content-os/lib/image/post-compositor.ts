@@ -6,8 +6,8 @@ import { Resvg } from "@resvg/resvg-js"
 import { decompress } from "wawoff2"
 import * as fontkit from "fontkit"
 import type { PostTemplateId } from "@/lib/design/post-templates"
-import { paletteRoles, type ColorTheme, type PaletteRoles } from "@/lib/design/color-themes"
-import { AA_GRAPHIC, ensureContrast, tintedScrimOpacity } from "@/lib/image/text-contrast"
+import { paletteRoles, type BrandPalette, type ColorTheme, type PaletteRoles } from "@/lib/design/color-themes"
+import { AA_BODY, AA_GRAPHIC, AA_LARGE, bestContrast, ensureContrast, tintedScrimOpacity } from "@/lib/image/text-contrast"
 import { CURATED_FONTS, DEFAULT_FONT_ID, findFont } from "@/lib/design/fonts"
 import { sanitizeTextForCompositing } from "@/lib/image/sanitize-text-for-compositing"
 import { BACKING_OPACITY, type TextStyle } from "@/lib/design/text-style"
@@ -801,4 +801,277 @@ async function compositeLayoutPost(baseImageBuffer: Buffer, options: CompositePo
   }
   const buffer = await sharp(baseImageBuffer).resize(CANVAS_WIDTH, CANVAS_HEIGHT, { fit: "cover" }).composite(layers).png().toBuffer()
   return { buffer, warnings: plan.overflow ? [TEXT_OVERFLOW_WARNING] : [] }
+}
+
+// ─── Annotated Product ──────────────────────────────────────────────────
+// The brand's real product photo (background removed) centred on a base
+// card with an accent arch behind it, a heading-font headline with one
+// keyword in Caveat, 3-4 Caveat callouts in the free space around the
+// product with hand-drawn arrows pointing at it, and a deep strip with the
+// brand name and CTA. Every colour from the brand palette (paletteRoles),
+// every text pair contrast-checked (lib/image/text-contrast.ts). No AI
+// scene -- see generatePostImage's annotated_product branch.
+
+const ANNOTATED_SCRIPT_FONT = "caveat"
+const ANNOTATED_SAFE_Y = Math.round(CANVAS_HEIGHT * 0.06)
+const ANNOTATED_STRIP_H = 150
+
+export interface CompositeAnnotatedProductOptions {
+  palette: BrandPalette
+  /** The product photo -- a background-removed PNG when `cutout`, else the original (drawn in a rounded frame). */
+  productImage: Buffer
+  cutout: boolean
+  headline: string
+  /** A verbatim part of the headline, set in Caveat in the accent colour. */
+  keyword?: string | null
+  /** 3-4 short facts, drawn around the product. */
+  callouts: string[]
+  brandName: string
+  ctaText?: string | null
+  /** The brand's heading font (headline, strip). */
+  fontId?: string
+  /** art_direction.motifs -- a few small shapes in the empty space, never over text. */
+  motifs?: string[] | null
+}
+
+interface Box { x: number; y: number; w: number; h: number }
+
+const overlaps = (a: Box, b: Box, pad = 0) =>
+  a.x < b.x + b.w + pad && b.x < a.x + a.w + pad && a.y < b.y + b.h + pad && b.y < a.y + a.h + pad
+
+/** The headline wrapped with the keyword kept as one Caveat token; shrinks until it fits two lines (three at the floor). */
+function layoutAnnotatedHeadline(headline: string, keyword: string | null, heading: fontkit.Font, script: fontkit.Font, maxW: number) {
+  const at = keyword ? headline.toLowerCase().indexOf(keyword.toLowerCase()) : -1
+  const tokens: { text: string; script: boolean }[] = at >= 0
+    ? [
+        ...headline.slice(0, at).trim().split(/\s+/).filter(Boolean).map((t) => ({ text: t, script: false })),
+        { text: headline.slice(at, at + keyword!.length), script: true },
+        ...headline.slice(at + keyword!.length).trim().split(/\s+/).filter(Boolean).map((t) => ({ text: t, script: false })),
+      ]
+    : headline.split(/\s+/).filter(Boolean).map((t) => ({ text: t, script: false }))
+  const SCRIPT_SCALE = 1.25
+  for (let size = 78; ; size = Math.max(40, Math.round(size * 0.92))) {
+    const width = (t: { text: string; script: boolean }) => measureTextWidth(t.script ? script : heading, t.text, t.script ? size * SCRIPT_SCALE : size)
+    const space = measureTextWidth(heading, " ", size)
+    const lines: { text: string; script: boolean }[][] = [[]]
+    let lineW = 0
+    for (const t of tokens) {
+      const w = width(t)
+      const cur = lines[lines.length - 1]!
+      if (cur.length && lineW + space + w > maxW) {
+        lines.push([t])
+        lineW = w
+      } else {
+        lineW += (cur.length ? space : 0) + w
+        cur.push(t)
+      }
+    }
+    const fits = lines.every((l) => l.reduce((s, t, i) => s + width(t) + (i ? space : 0), 0) <= maxW)
+    if ((lines.length <= 2 && fits) || size <= 40) {
+      return { lines, size, scriptSize: size * SCRIPT_SCALE, lineHeight: size * 1.18, overflow: lines.length > 3 || !fits }
+    }
+  }
+}
+
+/** A hand-drawn-looking arrow: a quadratic curve bowing away from the straight line, with an open head. */
+function handArrow(x1: number, y1: number, x2: number, y2: number, bow: number, color: string): string {
+  const mx = (x1 + x2) / 2
+  const my = (y1 + y2) / 2
+  const dx = x2 - x1
+  const dy = y2 - y1
+  const len = Math.hypot(dx, dy) || 1
+  const cx = mx - (dy / len) * bow
+  const cy = my + (dx / len) * bow
+  // Head along the curve's end tangent (end - control).
+  const tx = x2 - cx
+  const ty = y2 - cy
+  const tl = Math.hypot(tx, ty) || 1
+  const ux = tx / tl
+  const uy = ty / tl
+  const head = 16
+  const spread = 0.5
+  const hx1 = x2 - head * (ux * Math.cos(spread) - uy * Math.sin(spread))
+  const hy1 = y2 - head * (uy * Math.cos(spread) + ux * Math.sin(spread))
+  const hx2 = x2 - head * (ux * Math.cos(-spread) - uy * Math.sin(-spread))
+  const hy2 = y2 - head * (uy * Math.cos(-spread) + ux * Math.sin(-spread))
+  const r = (n: number) => Math.round(n * 10) / 10
+  return `<path d="M ${r(x1)} ${r(y1)} Q ${r(cx)} ${r(cy)} ${r(x2)} ${r(y2)}" fill="none" stroke="${color}" stroke-width="3.5" stroke-linecap="round"/>`
+    + `<path d="M ${r(hx1)} ${r(hy1)} L ${r(x2)} ${r(y2)} L ${r(hx2)} ${r(hy2)}" fill="none" stroke="${color}" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>`
+}
+
+/** A small motif mark: a 5-petal flower for floral motifs, else a ring of dots. */
+function motifMark(cx: number, cy: number, motif: string, color: string): string {
+  if (/flower|petal|marigold|rose|jasmine|lotus|bloom|leaf|leaves|floral|blossom/i.test(motif)) {
+    const petals = Array.from({ length: 5 }, (_, i) => {
+      const a = (i / 5) * Math.PI * 2
+      return `<ellipse cx="${(cx + Math.cos(a) * 11).toFixed(1)}" cy="${(cy + Math.sin(a) * 11).toFixed(1)}" rx="9" ry="5.5" transform="rotate(${((a * 180) / Math.PI).toFixed(0)} ${(cx + Math.cos(a) * 11).toFixed(1)} ${(cy + Math.sin(a) * 11).toFixed(1)})" fill="${color}" fill-opacity="0.75"/>`
+    }).join("")
+    return `${petals}<circle cx="${cx}" cy="${cy}" r="5" fill="${color}"/>`
+  }
+  return `<circle cx="${cx}" cy="${cy}" r="9" fill="${color}" fill-opacity="0.8"/><circle cx="${cx + 20}" cy="${cy - 12}" r="5" fill="${color}" fill-opacity="0.6"/><circle cx="${cx + 8}" cy="${cy + 18}" r="4" fill="${color}" fill-opacity="0.5"/>`
+}
+
+/** The annotated_product post: see this section's comment. Throws only on an unreadable product image. */
+export async function compositeAnnotatedProduct(options: CompositeAnnotatedProductOptions): Promise<{ buffer: Buffer; warnings: SlideWarning[] }> {
+  const p = options.palette
+  const roles = paletteRoles(p)
+  const headingId = isFontId(options.fontId) ? options.fontId : DEFAULT_FONT_ID
+  const heading = await getFont(headingId)
+  const script = await getFont(ANNOTATED_SCRIPT_FONT)
+  const headFamily = `'${FONT_FAMILY_NAME[headingId]}', serif`
+  const scriptFamily = `'${FONT_FAMILY_NAME[ANNOTATED_SCRIPT_FONT]}', cursive`
+  let overflow = false
+
+  // Text colours, each checked against what it sits on.
+  const ink = roles.ink
+  const keywordColor = ensureContrast(p.accent, p.base, AA_LARGE)
+  const stripText = ensureContrast(bestContrast(p.deep, [p.base, "#ffffff"]), p.deep, AA_BODY)
+
+  // ── Headline (top safe area).
+  const headline = sanitizeTextForCompositing(options.headline.trim())
+  const keyword = options.keyword?.trim() ? sanitizeTextForCompositing(options.keyword.trim()) : null
+  const maxTextW = CANVAS_WIDTH - SAFE_X * 2
+  const hl = layoutAnnotatedHeadline(headline, keyword, heading, script, maxTextW)
+  overflow ||= hl.overflow
+  const headTop = ANNOTATED_SAFE_Y + 10
+  const headlineSvg = hl.lines.map((line, i) => {
+    const y = headTop + hl.size * 0.85 + i * hl.lineHeight
+    const runs = line.map((t, j) => `<tspan font-family="${t.script ? scriptFamily : headFamily}" font-size="${t.script ? hl.scriptSize : hl.size}" font-weight="700" fill="${t.script ? keywordColor : ink}">${j ? " " : ""}${escapeXml(t.text)}</tspan>`).join("")
+    return `<text x="${CANVAS_WIDTH / 2}" y="${y}" text-anchor="middle" xml:space="preserve">${runs}</text>`
+  }).join("")
+  const headlineBox: Box = { x: SAFE_X, y: headTop - 6, w: maxTextW, h: hl.lines.length * hl.lineHeight + 16 }
+
+  // ── Product: centred between the headline and the strip, at most 42% wide.
+  const stripTop = CANVAS_HEIGHT - ANNOTATED_STRIP_H
+  const zoneTop = headlineBox.y + headlineBox.h + 60
+  const zoneBottom = stripTop - 50
+  const maxPW = Math.round(CANVAS_WIDTH * 0.42)
+  const maxPH = Math.round(Math.max(200, zoneBottom - zoneTop - 30))
+  // A cut-out is trimmed to its visible pixels so the box is the product itself.
+  const source = options.cutout ? await sharp(options.productImage).trim().png().toBuffer() : options.productImage
+  let productPng = await sharp(source).resize(maxPW, maxPH, { fit: "inside" }).png().toBuffer()
+  const meta = await sharp(productPng).metadata()
+  const pw = meta.width ?? maxPW
+  const ph = meta.height ?? maxPH
+  const px = Math.round((CANVAS_WIDTH - pw) / 2)
+  const py = Math.round(zoneTop + (zoneBottom - zoneTop - ph) / 2 + 15)
+  if (!options.cutout) {
+    // No cut-out: the photo in a rounded frame.
+    const radius = Math.round(Math.min(pw, ph) * 0.08)
+    const mask = Buffer.from(`<svg width="${pw}" height="${ph}"><rect width="${pw}" height="${ph}" rx="${radius}" fill="#fff"/></svg>`)
+    productPng = await sharp(productPng).composite([{ input: mask, blend: "dest-in" }]).png().toBuffer()
+  }
+  const productBox: Box = { x: px, y: py, w: pw, h: ph }
+  // A cut-out's real outline per row (alpha), so arrows land on the product, not the empty corner of its box.
+  let edgeAt = (_y: number, left: boolean) => (left ? px : px + pw)
+  if (options.cutout) {
+    const { data, info } = await sharp(productPng).ensureAlpha().extractChannel(3).raw().toBuffer({ resolveWithObject: true })
+    edgeAt = (y: number, left: boolean) => {
+      const row = Math.max(0, Math.min(info.height - 1, Math.round(y - py)))
+      for (let k = 0; k < info.width; k++) {
+        const col = left ? k : info.width - 1 - k
+        if (data[row * info.width + col]! > 96) return px + col
+      }
+      return left ? px : px + pw
+    }
+  }
+
+  // ── Accent arch behind the product (a rounded-top panel), clear of the headline.
+  const archW = pw + 70
+  const archX = (CANVAS_WIDTH - archW) / 2
+  const archR = archW / 2
+  const archTop = Math.max(zoneTop - 20, py - 50)
+  const archBottom = Math.min(stripTop - 30, py + ph + 30)
+  const archBox: Box = { x: archX, y: archTop, w: archW, h: archBottom - archTop }
+  const arch = `<path d="M ${archX} ${archBottom} V ${archTop + archR} A ${archR} ${archR} 0 0 1 ${archX + archW} ${archTop + archR} V ${archBottom} Z" fill="${p.accent}"/>`
+  const frame = options.cutout ? "" : `<rect x="${px - 8}" y="${py - 8}" width="${pw + 16}" height="${ph + 16}" rx="${Math.round(Math.min(pw, ph) * 0.08) + 8}" fill="${p.base}"/>`
+  const shadow = `<ellipse cx="${CANVAS_WIDTH / 2}" cy="${py + ph + 6}" rx="${pw * 0.38}" ry="14" fill="${roles.scrim}" fill-opacity="0.18"/>`
+
+  // ── Callouts in the free space either side of the arch: left/right x upper/lower.
+  const sideW = Math.floor(archX - SAFE_X - 24)
+  const slots = options.callouts.length >= 4
+    ? [{ side: "left", at: 0.2 }, { side: "right", at: 0.2 }, { side: "left", at: 0.68 }, { side: "right", at: 0.68 }]
+    : [{ side: "left", at: 0.22 }, { side: "right", at: 0.45 }, { side: "left", at: 0.7 }]
+  const callouts = options.callouts.slice(0, slots.length).map((c) => sanitizeTextForCompositing(c.trim())).filter(Boolean)
+  const placed: { box: Box; svg: string; arrow: string }[] = []
+  const calloutTop = Math.max(zoneTop - 20, headlineBox.y + headlineBox.h + 20)
+  const calloutBottom = stripTop - 24
+  for (let i = 0; i < callouts.length; i++) {
+    const slot = slots[i]!
+    let size = 44
+    let lines = wrapTextByWidth(script, callouts[i]!, size, sideW)
+    while ((lines.length > 3 || lines.some((l) => measureTextWidth(script, l, size) > sideW)) && size > 30) {
+      size -= 2
+      lines = wrapTextByWidth(script, callouts[i]!, size, sideW)
+    }
+    if (lines.some((l) => measureTextWidth(script, l, size) > sideW)) {
+      lines = lines.flatMap((l) => breakLineToWidth(script, l, size, sideW))
+      overflow = true
+    }
+    const lh = size * 1.05
+    const blockH = lines.length * lh
+    const blockW = Math.max(...lines.map((l) => measureTextWidth(script, l, size)))
+    const left = slot.side === "left"
+    const x = left ? SAFE_X : CANVAS_WIDTH - SAFE_X - blockW
+    let y = Math.round(py + ph * slot.at - blockH / 2)
+    y = Math.max(calloutTop, Math.min(calloutBottom - blockH, y))
+    // Never on another callout: slide down past any it would touch on the same side.
+    for (const other of placed) {
+      if (overlaps({ x, y, w: blockW, h: blockH }, other.box, 18)) y = Math.round(other.box.y + other.box.h + 22)
+    }
+    if (y + blockH > calloutBottom) overflow = true
+    const box: Box = { x, y, w: blockW, h: blockH }
+    const anchor = left ? "start" : "end"
+    const tx = left ? x : x + blockW
+    const svg = lines.map((l, k) => `<text x="${tx}" y="${(y + size * 0.82 + k * lh).toFixed(1)}" text-anchor="${anchor}" font-family="${scriptFamily}" font-weight="700" font-size="${size}" fill="${ink}">${escapeXml(l)}</text>`).join("")
+    // Arrow from the block's inner edge to the product's near edge, aimed at the block's height.
+    const startX = left ? x + blockW + 10 : x - 10
+    const startY = y + Math.min(blockH, lh) * 0.6
+    const endY = Math.max(py + ph * 0.12, Math.min(py + ph * 0.88, startY + (slot.at < 0.5 ? 40 : -30)))
+    const endX = left ? edgeAt(endY, true) - 10 : edgeAt(endY, false) + 10
+    const bow = (left ? -1 : 1) * (slot.at < 0.5 ? 34 : -34)
+    placed.push({ box, svg, arrow: handArrow(startX, startY, endX, endY, bow, ink) })
+  }
+
+  // ── Bottom strip: deep, brand name left, CTA right.
+  const brandName = sanitizeTextForCompositing(options.brandName.trim())
+  const cta = sanitizeTextForCompositing((options.ctaText?.trim() || "Shop now"))
+  const stripMid = stripTop + ANNOTATED_STRIP_H / 2
+  const stripSize = 38
+  const strip = `<rect x="0" y="${stripTop}" width="${CANVAS_WIDTH}" height="${ANNOTATED_STRIP_H}" fill="${p.deep}"/>`
+    + `<text x="${SAFE_X}" y="${stripMid + stripSize * 0.35}" font-family="${headFamily}" font-weight="700" font-size="${stripSize}" fill="${stripText}">${escapeXml(brandName)}</text>`
+    + `<text x="${CANVAS_WIDTH - SAFE_X}" y="${stripMid + stripSize * 0.35}" text-anchor="end" font-family="${scriptFamily}" font-weight="700" font-size="${stripSize + 6}" fill="${stripText}">${escapeXml(cta)}</text>`
+
+  // ── Motifs: up to three small marks in empty space, never over text, product, arch or strip.
+  let motifSvg = ""
+  const motifs = (options.motifs ?? []).filter((m) => m.trim())
+  if (motifs.length) {
+    const taken: Box[] = [headlineBox, productBox, archBox, { x: 0, y: stripTop, w: CANVAS_WIDTH, h: ANNOTATED_STRIP_H }, ...placed.map((c) => c.box)]
+    const candidates = [
+      { x: SAFE_X + 20, y: stripTop - 60 }, { x: CANVAS_WIDTH - SAFE_X - 40, y: stripTop - 60 },
+      { x: SAFE_X + 30, y: zoneTop + 10 }, { x: CANVAS_WIDTH - SAFE_X - 40, y: zoneTop + 10 },
+      { x: archX - 40, y: archTop + 20 }, { x: archX + archW + 30, y: archTop + 20 },
+    ]
+    const color = ensureContrast(p.pop, p.base, AA_GRAPHIC)
+    let n = 0
+    for (const c of candidates) {
+      if (n >= 3) break
+      const mark: Box = { x: c.x - 26, y: c.y - 26, w: 56, h: 52 }
+      if (mark.x < SAFE_X - 10 || mark.x + mark.w > CANVAS_WIDTH - SAFE_X + 10) continue
+      if (taken.some((t) => overlaps(mark, t, 12))) continue
+      motifSvg += motifMark(c.x, c.y, motifs[n % motifs.length]!, color)
+      taken.push(mark)
+      n++
+    }
+  }
+
+  const back = `<svg width="${CANVAS_WIDTH}" height="${CANVAS_HEIGHT}" xmlns="http://www.w3.org/2000/svg"><rect width="${CANVAS_WIDTH}" height="${CANVAS_HEIGHT}" fill="${p.base}"/>${arch}${frame}${options.cutout ? shadow : ""}</svg>`
+  const front = `<svg width="${CANVAS_WIDTH}" height="${CANVAS_HEIGHT}" xmlns="http://www.w3.org/2000/svg">${motifSvg}${headlineSvg}${placed.map((c) => c.svg + c.arrow).join("")}${strip}</svg>`
+  const fontFiles = [...new Set([await getFontPath(headingId), await getFontPath(ANNOTATED_SCRIPT_FONT)])]
+  const render = (svg: string) => new Resvg(svg, { font: { fontFiles, loadSystemFonts: false, defaultFontFamily: FONT_FAMILY_NAME[headingId] } }).render().asPng()
+  const buffer = await sharp(render(back))
+    .composite([{ input: productPng, top: py, left: px }, { input: render(front), top: 0, left: 0 }])
+    .png()
+    .toBuffer()
+  return { buffer, warnings: overflow ? [TEXT_OVERFLOW_WARNING] : [] }
 }

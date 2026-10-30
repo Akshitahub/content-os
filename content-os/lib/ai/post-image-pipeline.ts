@@ -1,7 +1,8 @@
 import sharp from "sharp"
 import { generateOpenAIImage, resolveImageQuality, IMAGE_PROVIDER, type ImageDimensions, type ImageQuality } from "@/lib/ai/image-provider"
 import { sumCostUsd } from "@/lib/ai/pricing"
-import { compositePostImageWithWarnings, compositeHardTruthChecklistWithWarnings } from "@/lib/image/post-compositor"
+import { compositeAnnotatedProduct, compositePostImageWithWarnings, compositeHardTruthChecklistWithWarnings } from "@/lib/image/post-compositor"
+import { removeBackground } from "@/lib/image/remove-background"
 import { computeTextStyleSafe } from "@/lib/image/text-contrast"
 import { generateWithSplitLayer, type SplitLayerInfo } from "./split-layer"
 import { postTextRegion, type TextStyle } from "@/lib/design/text-style"
@@ -568,6 +569,15 @@ export interface GeneratePostImageOptions {
   checklistWrongItems?: string[]
   checklistRightItems?: string[]
   checklistClosingLine?: string | null
+  /** Only meaningful when template is "annotated_product" -- the caption's
+   * annotated_* fields (lib/ai/annotated-product.ts). Needs productImageUrl;
+   * without it (or without the copy) the post renders as product_focus. */
+  annotatedHeadline?: string
+  annotatedKeyword?: string | null
+  annotatedCallouts?: string[]
+  /** annotated_product's bottom strip. */
+  brandName?: string | null
+  ctaText?: string | null
   /** The caption's visual brief (already sanitized). A kind that isn't
    * "the product in a setting" (sketch, swatches, a sequence, a side-by-side
    * comparison) drops the product reference photo for this image. */
@@ -581,6 +591,47 @@ export interface GeneratePostImageOptions {
   kicker?: string | null
   highlight?: string | null
   bodyFontId?: string | null
+}
+
+async function annotatedProductImage(options: GeneratePostImageOptions, photoUrl: string, callouts: string[]): Promise<PostImagePipelineResult> {
+  try {
+    const res = await fetch(photoUrl, { signal: AbortSignal.timeout(20_000) })
+    if (!res.ok) throw new Error(`product photo fetch failed (${res.status})`)
+    const photo = Buffer.from(await res.arrayBuffer())
+    let cutout: Buffer | null = null
+    try {
+      cutout = await removeBackground(new Blob([new Uint8Array(photo)], { type: res.headers.get("content-type") ?? "image/png" }), { timeoutMs: 30_000 })
+    } catch (err) {
+      console.error("[post-image-pipeline] annotated_product background removal failed, using the framed photo:", err instanceof Error ? err.message : err)
+    }
+    const { buffer, warnings } = await compositeAnnotatedProduct({
+      palette: options.colorTheme.palette,
+      productImage: cutout ?? photo,
+      cutout: !!cutout,
+      headline: options.annotatedHeadline!,
+      keyword: options.annotatedKeyword ?? null,
+      callouts,
+      brandName: options.brandName ?? "",
+      ctaText: options.ctaText ?? null,
+      fontId: options.fontId,
+      motifs: options.artDirection?.motifs ?? null,
+    })
+    console.log(`[post-image-pipeline] annotated_product composited: ${buffer.length} bytes (${cutout ? "cut-out" : "framed photo"}, no AI image call made)`)
+    return {
+      success: true,
+      buffer,
+      mimeType: "image/png",
+      fullPrompt: `annotated_product (product photo, ${cutout ? "background removed" : "framed"}, no AI scene)`,
+      provider: "none",
+      attempts: [],
+      textComposited: true,
+      textStyle: null,
+      warnings,
+    }
+  } catch (err) {
+    console.error("[post-image-pipeline] annotated_product compositing failed:", err instanceof Error ? `${err.name}: ${err.message}` : err)
+    return { success: false, error: "Couldn't finish styling the product image. Please try again.", attempts: [] }
+  }
 }
 
 /**
@@ -639,6 +690,21 @@ export async function generatePostImage(rawOptions: GeneratePostImageOptions): P
       console.error("[post-image-pipeline] hard_truth_checklist compositing failed:", err instanceof Error ? `${err.name}: ${err.message}` : err)
       return { success: false, error: "Couldn't finish styling the generated image. Please try again.", attempts: [] }
     }
+  }
+
+  // annotated_product: the real product photo (background removed via
+  // remove.bg, lib/image/remove-background.ts) with handwritten callouts --
+  // no AI scene, no image-model spend. A failed cut-out keeps the template
+  // with the photo in a rounded frame. Without a product photo or the copy
+  // it can't be drawn, so the post renders as product_focus instead.
+  if (options.template === "annotated_product") {
+    const photoUrl = rawOptions.productImageUrl
+    const callouts = (options.annotatedCallouts ?? []).filter((c) => c.trim())
+    if (!photoUrl || !options.annotatedHeadline?.trim() || callouts.length < 3) {
+      console.error(`[post-image-pipeline] annotated_product without ${photoUrl ? "its copy" : "a product photo"} -- rendering product_focus`)
+      return generatePostImage({ ...rawOptions, template: "product_focus" })
+    }
+    return annotatedProductImage(options, photoUrl, callouts)
   }
 
   // Deterministic grounding, independent of how well the LLM-generated

@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server"
 import { buildError, ErrorCodes } from "@/types/api"
 import { checkAndIncrementUsage, refundGenerationUsage } from "@/lib/usage/check-and-increment-usage"
 import { REMOVE_BACKGROUND } from "@/lib/usage/credit-costs"
+import { RemoveBackgroundError, isRemoveBackgroundConfigured, removeBackground } from "@/lib/image/remove-background"
 
 export async function POST(request: Request) {
   let supabase
@@ -24,8 +25,7 @@ export async function POST(request: Request) {
   }
   const logId = usageCheck.logId
 
-  const apiKey = process.env.REMOVE_BG_API_KEY
-  if (!apiKey) {
+  if (!isRemoveBackgroundConfigured()) {
     return NextResponse.json(
       buildError(ErrorCodes.INTERNAL_ERROR, "Background removal is not configured. Add REMOVE_BG_API_KEY to your environment."),
       { status: 500 }
@@ -54,33 +54,17 @@ export async function POST(request: Request) {
   }
 
   try {
-    const removeBgForm = new FormData()
-    removeBgForm.append("image_file", imageFile)
-    removeBgForm.append("size", "auto")
-
-    const response = await fetch("https://api.remove.bg/v1.0/removebg", {
-      method: "POST",
-      headers: { "X-Api-Key": apiKey },
-      body: removeBgForm,
-    })
-
-    if (!response.ok) {
-      const text = await response.text()
-      console.error("[remove-background] remove.bg error:", response.status, text)
-      const errorMsg = response.status === 402
-        ? "Remove.bg free tier limit reached. Get a free API key at remove.bg"
-        : `Background removal failed (${response.status})`
-      await refundGenerationUsage(supabase, user.id, REMOVE_BACKGROUND, logId)
-      return NextResponse.json(buildError(ErrorCodes.AI_GENERATION_FAILED, errorMsg), { status: 500 })
-    }
-
-    const buffer = await response.arrayBuffer()
-    const base64 = Buffer.from(buffer).toString("base64")
+    // The remove.bg call itself lives in lib/image/remove-background.ts (shared with the annotated_product post template).
+    const buffer = await removeBackground(imageFile)
+    const base64 = buffer.toString("base64")
 
     return NextResponse.json({ data: { base64 } }, { status: 200 })
   } catch (err) {
     console.error("[remove-background] error:", err)
     await refundGenerationUsage(supabase, user.id, REMOVE_BACKGROUND, logId)
+    if (err instanceof RemoveBackgroundError && err.status != null) {
+      return NextResponse.json(buildError(ErrorCodes.AI_GENERATION_FAILED, err.message), { status: 500 })
+    }
     return NextResponse.json(
       buildError(ErrorCodes.INTERNAL_ERROR, "Background removal failed. Please try again."),
       { status: 500 }

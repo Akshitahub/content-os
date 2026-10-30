@@ -10,12 +10,14 @@
 // color-theme selector. Layout x color are two independent choices, not
 // preset combos.
 
-export type PostTemplateId = "bold_statement" | "product_focus" | "quote_card" | "minimal" | "blank" | "hard_truth_checklist"
+export type PostTemplateId = "bold_statement" | "product_focus" | "quote_card" | "minimal" | "blank" | "hard_truth_checklist" | "annotated_product"
 
 export interface PostTemplateMeta {
   id: PostTemplateId
   label: string
   description: string
+  /** Only offered for a post with a product that has a photo. */
+  requiresProductPhoto?: boolean
 }
 
 export const POST_TEMPLATES: PostTemplateMeta[] = [
@@ -31,7 +33,16 @@ export const POST_TEMPLATES: PostTemplateMeta[] = [
   // lib/ai/post-image-pipeline.ts's generatePostImage, which skips the
   // AI image call entirely for this one.
   { id: "hard_truth_checklist", label: "Hard Truth Checklist", description: "Flat card: contrarian headline, a wrong-way list, a right-way list — no photo" },
+  // The brand's real product photo (background removed) on a base-coloured
+  // card with handwritten callouts pointing at it -- no AI scene. See
+  // lib/image/post-compositor.ts's compositeAnnotatedProduct.
+  { id: "annotated_product", label: "Annotated Product", description: "Product with handwritten callouts", requiresProductPhoto: true },
 ]
+
+/** The templates a post can use: the photo-only ones need a product with a photo. */
+export function availablePostTemplates(opts: { hasProductPhoto: boolean }): PostTemplateMeta[] {
+  return POST_TEMPLATES.filter((t) => !t.requiresProductPhoto || opts.hasProductPhoto)
+}
 
 export const POST_TEMPLATE_IDS = POST_TEMPLATES.map((t) => t.id) as [PostTemplateId, ...PostTemplateId[]]
 

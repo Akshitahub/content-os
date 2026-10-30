@@ -87,6 +87,13 @@ export type GeneratedCaption = {
   checklist_wrong_items?: string[] | null
   checklist_right_items?: string[] | null
   checklist_closing_line?: string | null
+  /** Only populated when suggested_template is "annotated_product" (a post
+   * with a product photo) -- see lib/ai/annotated-product.ts. The keyword is
+   * a verbatim part of the headline, set in script; callouts are 3-4 facts
+   * from the product / brand, already grounded. */
+  annotated_headline?: string | null
+  annotated_keyword?: string | null
+  annotated_callouts?: string[] | null
   /** Full Post only (includeImagePrompt): the ONE message the post commits
    * to before any copy. Returned with the caption; not persisted (the
    * captions row has no column for it). */

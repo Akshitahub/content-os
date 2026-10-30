@@ -4,6 +4,7 @@ import { PLATFORM_CHAR_LIMITS } from "./prompts"
 import { findContentQualityIssues, normalizeHashtags, sanitizeLeakedArtifacts } from "./content-quality-check"
 import { FACT_CORRECTION_PREFIX, buildFactCorrection, factRetryTimeoutMs, findUnsupportedClaimsIn, logFactGuard, stripGuard, type FactSource } from "./fact-guard"
 import { addTextUsage, type TextUsage } from "./pricing"
+import { annotatedIssues, finishAnnotatedCaption, type AnnotatedContext } from "./annotated-product"
 
 export const MIN_HASHTAGS = 15
 export const MAX_HASHTAGS = 20
@@ -81,8 +82,10 @@ export function endsWithCtaAndHandle(captionText: string, ctaPhrase: string, han
  * despite both being stated multiple times in the prompt. Returns a list
  * of specific, model-facing correction instructions (empty = compliant).
  */
-export function validateCaption(parsed: GeneratedCaption, ctaPhrase: string, handle: string, platform: Platform, facts?: FactSource): string[] {
+export function validateCaption(parsed: GeneratedCaption, ctaPhrase: string, handle: string, platform: Platform, facts?: FactSource, annotated?: AnnotatedContext): string[] {
   const issues: string[] = []
+  // annotated_product: headline / verbatim keyword / 3-4 grounded callouts.
+  issues.push(...annotatedIssues(parsed, annotated))
 
   const hashtagCount = Array.isArray(parsed.hashtags) ? parsed.hashtags.length : 0
   if (hashtagCount < MIN_HASHTAGS || hashtagCount > MAX_HASHTAGS) {
@@ -208,19 +211,21 @@ export async function generateValidatedCaption(params: {
   platform: Platform
   /** Numbers the copy may use (lib/ai/fact-guard.ts) -- omitted = no fact check. */
   facts?: FactSource
+  /** Full Post: whether annotated_product is allowed and what its callouts may draw on. */
+  annotated?: AnnotatedContext
   /** Epoch ms the caption step must finish by (routes with a hard
    * maxDuration). A retry triggered ONLY by unsupported numbers is skipped
    * -- and the claim stripped -- when it can't fit before this. */
   deadline?: number
 }): Promise<{ caption: GeneratedCaption; usage?: CaptionModelUsage }> {
-  const { messages, callModel, brand, ctaPhrase, handle, platform, facts, deadline } = params
+  const { messages, callModel, brand, ctaPhrase, handle, platform, facts, deadline, annotated } = params
 
   const call = await callModel(messages)
   // Summed across the retry too (previously only the last call's usage was
   // returned, under-reporting tokens -- and now cost -- for every retried caption).
   let usage = call.usage
   let parsed = parseCaptionJson(call.content)
-  let issues = validateCaption(parsed, ctaPhrase, handle, platform, facts)
+  let issues = validateCaption(parsed, ctaPhrase, handle, platform, facts, annotated)
 
   // Same 20s ceiling the hooks call uses -- captions have no explicit
   // per-call timeout of their own to compare against.
@@ -249,7 +254,7 @@ export async function generateValidatedCaption(params: {
       usage = addTextUsage(usage, retryCall.usage)
       const retryParsed = parseCaptionJson(retryCall.content)
       parsed = retryParsed
-      issues = validateCaption(retryParsed, ctaPhrase, handle, platform, facts)
+      issues = validateCaption(retryParsed, ctaPhrase, handle, platform, facts, annotated)
     } catch (err) {
       console.error("[caption-validation] retry failed, applying last-resort fixes to the first response:", err instanceof Error ? err.name : typeof err)
     }
@@ -269,6 +274,8 @@ export async function generateValidatedCaption(params: {
   parsed.character_count = parsed.caption_text.length
   // Generated hashtags, finalised (no hex codes, numbers or junk; deduped).
   parsed.hashtags = normalizeHashtags(parsed.hashtags)
+  // annotated_product's fields finalised (or the template dropped) -- after the fact strip.
+  parsed = finishAnnotatedCaption(parsed, annotated)
 
   return { caption: parsed, usage }
 }

@@ -5,18 +5,22 @@
 // and an old preset id mapped onto them. No model calls, nothing charged,
 // nothing written to the DB: it reads the brand row and draws.
 //
-//   npx tsx scripts/palette-baseline.ts --brand <brandId> [--photo <path.png>] [--label palette]
+//   npx tsx scripts/palette-baseline.ts --brand <brandId> [--photo <path.png>] [--product <productId>] [--label palette]
 //
 // --photo: the background for the photo templates / slides; defaults to the
 // brand's most recent scripts/output/post-runs/*/image.png, else a flat
 // mid-grey stand-in.
+// --product: also renders annotated_product from that product's photo (any
+// brand's product -- its photo and benefits, this brand's palette): once
+// cut out by remove.bg (one remove.bg call) and once framed (the fallback).
+// The copy is fixture text, not model output.
 //
 // Output: scripts/output/palette-runs/<label>-<brand>-<timestamp>/
 // (palette.json, post-*.png, checklist.png, carousel-*.png, story-*.png).
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "fs"
 import { join } from "path"
 import { createClient } from "@supabase/supabase-js"
-import type { BrandRow } from "@/types/database"
+import type { BrandRow, ProductRow } from "@/types/database"
 
 function loadEnvLocal(): void {
   const envPath = join(process.cwd(), ".env.local")
@@ -113,6 +117,35 @@ async function main() {
     closingLine: "Dress for the weather you actually get.",
   })
   save("checklist.png", checklist.buffer)
+
+  // ── annotated_product, from a product photo.
+  const productId = arg("product")
+  if (productId) {
+    const { compositeAnnotatedProduct } = await import("@/lib/image/post-compositor")
+    const { removeBackground } = await import("@/lib/image/remove-background")
+    const { data: product } = await supabase.from("products").select("*").eq("id", productId).single<ProductRow>()
+    const url = product?.image_urls?.[0]
+    if (!url) throw new Error(`product ${productId} has no photo`)
+    const productPhoto = Buffer.from(await (await fetch(url)).arrayBuffer())
+    const benefits = (product!.key_benefits ?? []).filter(Boolean).slice(0, 4)
+    const annotated = {
+      palette,
+      headline: "Made for the monsoon commute",
+      keyword: "monsoon",
+      callouts: benefits.length >= 3 ? benefits : ["Breathable stretch cotton", "Straight fit, no fuss", "Office se weekend tak", "Easy-care fabric"],
+      brandName: brand.name,
+      ctaText: (brand as BrandRow & { cta_phrase?: string | null }).cta_phrase ?? null,
+      fontId: typography.heading,
+      motifs: (brand.brand_brain as { art_direction?: { motifs?: string[] } } | null)?.art_direction?.motifs ?? ["petals"],
+    }
+    try {
+      const cut = await removeBackground(new Blob([new Uint8Array(productPhoto)], { type: "image/png" }), { timeoutMs: 30_000 })
+      save("post-annotated_product.png", (await compositeAnnotatedProduct({ ...annotated, productImage: cut, cutout: true })).buffer)
+    } catch (err) {
+      console.error("[palette-baseline] remove.bg failed -- only the framed fallback is rendered:", err instanceof Error ? err.message : err)
+    }
+    save("post-annotated_product-framed.png", (await compositeAnnotatedProduct({ ...annotated, callouts: annotated.callouts.slice(0, 3), productImage: productPhoto, cutout: false })).buffer)
+  }
 
   // ── Carousel: the plain (Autopilot) renderer, with and without auto layouts.
   const plainSlides = [

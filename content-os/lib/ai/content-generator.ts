@@ -23,6 +23,7 @@ import { generateValidatedCaption, type CaptionChatMessage } from "./caption-val
 import { findContentQualityIssues, normalizeHashtags, sanitizeLeakedArtifacts } from "./content-quality-check"
 import { sanitizeVisualBrief } from "./visual-brief"
 import type { BrandLesson } from "./brand-brain"
+import { annotatedContext } from "./annotated-product"
 
 export type GenerateContentOptions = {
   product?: ProductRow | null
@@ -251,6 +252,8 @@ export async function generateContent(
         const res = await openai.chat.completions.create({ ...requestParams, messages: msgs }, { timeout: 40_000, maxRetries: 1 })
         return { content: res.choices[0]?.message?.content ?? "{}", usage: toTextUsage(res.usage) }
     }
+    // Full Post: annotated_product is allowed only with a product photo, its callouts grounded in the product / brand.
+    const annotated = options.includeImagePrompt ? annotatedContext(brand, options.product) : undefined
     const validated = await generateValidatedCaption({
       messages,
       callModel,
@@ -260,6 +263,7 @@ export async function generateContent(
       platform,
       facts,
       deadline: options.factGuardDeadline,
+      annotated,
     })
     let captionUsage = validated.usage
 
@@ -298,6 +302,7 @@ export async function generateContent(
             platform,
             facts,
             deadline: options.factGuardDeadline,
+            annotated,
           })
           captionUsage = addTextUsage(captionUsage, repaired.usage)
           return withCleanVisual(repaired.caption)

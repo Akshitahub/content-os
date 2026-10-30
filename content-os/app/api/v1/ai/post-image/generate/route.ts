@@ -96,6 +96,7 @@ async function handlePost(request: Request, timer: GenerationTimer) {
     brandId, productId, imagePrompt, template, colorThemeId, captionText, fontId, textSizeScale,
     postSessionId, contentProjectId, aspectRatio, visualStyle,
     checklistHeadline, checklistHighlightedPhrase, checklistWrongItems, checklistRightItems, checklistClosingLine,
+    annotatedHeadline, annotatedKeyword, annotatedCallouts,
   } = parsed.data
   // Re-sanitized server-side. Only affects whether the product reference is
   // sent (see generatePostImage); billing is unchanged -- the POST charge is
@@ -178,6 +179,11 @@ async function handlePost(request: Request, timer: GenerationTimer) {
     checklistWrongItems,
     checklistRightItems,
     checklistClosingLine,
+    annotatedHeadline,
+    annotatedKeyword,
+    annotatedCallouts,
+    brandName: brand.name,
+    ctaText: (brand as BrandRow & { cta_phrase?: string | null }).cta_phrase ?? null,
     visualBrief,
   }), deadlineAt - Date.now(), "post image")).catch((err): Awaited<ReturnType<typeof generatePostImage>> => {
     // Deadline hit (or an unexpected throw): treated exactly like a failed

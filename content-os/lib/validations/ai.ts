@@ -145,7 +145,7 @@ export const extractFromUrlSchema = z.object({
 
 export type ExtractFromUrlInput = z.infer<typeof extractFromUrlSchema>
 
-const postTemplateEnum = z.enum(["bold_statement", "product_focus", "quote_card", "minimal", "blank", "hard_truth_checklist"])
+const postTemplateEnum = z.enum(["bold_statement", "product_focus", "quote_card", "minimal", "blank", "hard_truth_checklist", "annotated_product"])
 // Matches lib/design/fonts.ts's CURATED_FONTS ids exactly -- kept as a
 // static literal here rather than importing from lib/design, same
 // convention postTemplateEnum above already follows for lib/design/post-templates.ts.
@@ -231,6 +231,11 @@ export const generatePostImageSchema = z.object({
   checklistWrongItems: z.array(z.string().max(200)).max(5, "Too many wrong-way items").optional(),
   checklistRightItems: z.array(z.string().max(200)).max(5, "Too many right-way items").optional(),
   checklistClosingLine: z.string().max(300, "Closing line is too long").optional().nullable(),
+  // Only meaningful when template is "annotated_product" (needs a product
+  // with a photo) -- see generatePostImage.
+  annotatedHeadline: z.string().max(120, "Headline is too long").optional(),
+  annotatedKeyword: z.string().max(60).optional().nullable(),
+  annotatedCallouts: z.array(z.string().max(80)).max(4, "Too many callouts").optional(),
   // The caption's visual brief -- only used to decide whether this image
   // keeps the product reference photo (see generatePostImage).
   visualBrief: visualBriefInputSchema.optional(),

@@ -5,7 +5,12 @@
 // prompt/pipeline change can be compared against this run side by side.
 // Post counterpart of scripts/carousel-baseline.ts / story-baseline.ts.
 //
-//   npx tsx scripts/post-baseline.ts --brand <brandId> --topic "<topic>" [--label baseline]
+//   npx tsx scripts/post-baseline.ts --brand <brandId> --topic "<topic>" [--product <productId>] [--label baseline]
+//
+// --product: the post's selected product (as FullPostGenerator's picker
+// sends it) -- its photo becomes the image reference, and a product with a
+// photo makes annotated_product available to the caption (which then
+// renders from the real photo, background removed -- no AI scene).
 //
 // Output: scripts/output/post-runs/<label>-<timestamp>/ (run.json,
 // image.png, post.md) -- scripts/output/ is gitignored.
@@ -27,7 +32,7 @@
 import { readFileSync, existsSync, mkdirSync, writeFileSync } from "fs"
 import { join } from "path"
 import { createClient } from "@supabase/supabase-js"
-import type { BrandRow } from "@/types/database"
+import type { BrandRow, ProductRow } from "@/types/database"
 import type { GeneratedCaption, UserPlan } from "@/types/app"
 
 function loadEnvLocal(): void {
@@ -62,6 +67,7 @@ function arg(name: string): string | undefined {
 const brandId = arg("brand")
 const topic = arg("topic")?.trim()
 const label = (arg("label") ?? "baseline").replace(/[^\w.-]+/g, "_")
+const productId = arg("product")
 
 // --vision: score EVERY image against its brief (the app only samples).
 const VISION = process.argv.includes("--vision")
@@ -191,6 +197,15 @@ async function main(): Promise<void> {
   const captionLessons = await getActiveLessons(supabase, brand.id, "caption")
   const imageLessons = imageLessonRules(await getActiveLessons(supabase, brand.id, "image"))
   console.log(`Brand: ${brand.name} (${brand.niche ?? "no niche"}) · owner plan ${plan}${isUnlimited ? " (internal unlimited)" : ""}`)
+  // The selected product, fetched the way the post-image route does (scoped to the brand).
+  let product: ProductRow | null = null
+  if (productId) {
+    const { data } = await supabase.from("products").select("*").eq("id", productId).eq("brand_id", brand.id).single<ProductRow>()
+    if (!data) throw new Error(`Product ${productId} not found for this brand`)
+    product = data
+    console.log(`Product: ${product.name} (${product.image_urls?.[0] ? "has photo" : "no photo"})`)
+  }
+  const productImageUrl = product?.image_urls?.[0] ?? null
 
   // fullpost/generate route: angle "auto" adds no hint, so the context is just the topic.
   const combinedContext = topic!
@@ -205,7 +220,7 @@ async function main(): Promise<void> {
   let started = Date.now()
   let captionDoneAt = started
   const copy = await generatePostCopy(brand, {
-    product: null,
+    product,
     platform: PLATFORM,
     additionalContext: combinedContext,
     pastExamples,
@@ -237,6 +252,7 @@ async function main(): Promise<void> {
   const colorThemeId = autoPickColorTheme(colorThemes, caption.suggested_color_theme_id).id
   const overlayText = caption.suggested_overlay_text?.trim() || ""
   const isChecklist = template === "hard_truth_checklist"
+  const isAnnotated = template === "annotated_product"
   // As FullPostGenerator sends it (caption.visual) and the write / post-image
   // routes re-sanitize it.
   const visualBrief = sanitizeVisualBrief(caption.visual)
@@ -258,6 +274,44 @@ async function main(): Promise<void> {
 
   if (isChecklist) {
     imageRecord.skipped = "hard_truth_checklist template -- no AI photo (generatePostImage composites a flat card)"
+  } else if (isAnnotated) {
+    // annotated_product: the real product photo with callouts -- no prompt to
+    // write (FullPostGenerator skips it too); the pipeline composites it.
+    currentStage = "image"
+    console.log("Compositing the annotated product…")
+    started = Date.now()
+    const result = await generatePostImage({
+      artDirection,
+      imagePrompt: "annotated_product template (product photo)",
+      brandNiche: brand.niche,
+      targetAudience: brand.target_audience,
+      template,
+      colorTheme: findColorTheme(colorThemes, colorThemeId),
+      captionText: undefined,
+      logoUrl: brand.logo_url,
+      plan,
+      isInternalUnlimitedUser: isUnlimited,
+      productImageUrl,
+      aspectRatio: ASPECT_RATIO,
+      visualStyle: VISUAL_STYLE,
+      fontId: typography.heading,
+      annotatedHeadline: caption.annotated_headline ?? undefined,
+      annotatedKeyword: caption.annotated_keyword ?? undefined,
+      annotatedCallouts: caption.annotated_callouts ?? undefined,
+      brandName: brand.name,
+      ctaText: (brand as BrandRow & { cta_phrase?: string | null }).cta_phrase ?? null,
+    })
+    imageRecord = {
+      file: null, latencyMs: Date.now() - started, costUsd: attemptsCostUsd(result.attempts), provider: result.success ? result.provider : null,
+      attempts: result.attempts, finalImagePrompt: result.success ? result.fullPrompt ?? null : null, productReferenceUsed: true,
+    }
+    if (result.success) {
+      imageRecord.file = "image.png"
+      writeFileSync(join(outDir, imageRecord.file), result.buffer)
+    } else {
+      imageRecord.error = result.error
+      errors.push(`image: ${result.error}`)
+    }
   } else {
     currentStage = "image_prompt_write"
     console.log("Writing the image prompt…")
@@ -268,8 +322,8 @@ async function main(): Promise<void> {
         rawInput: seed,
         isRewrite: false,
         brand: { name: brand.name, niche: brand.niche, target_audience: brand.target_audience, tone_of_voice: brand.tone_of_voice, vibe: brand.vibe },
-        product: null,
-        constraints: { aspectRatioLabel: ASPECT_RATIO, styleLabel: VISUAL_STYLE, hasProductReference: false, visualBrief, lessons: imageLessons, ...brandBrainImageConstraints(parseBrandBrain(brand.brand_brain)), artDirection },
+        product,
+        constraints: { aspectRatioLabel: ASPECT_RATIO, styleLabel: VISUAL_STYLE, hasProductReference: !!productImageUrl && briefUsesProductReference(visualBrief), visualBrief, lessons: imageLessons, ...brandBrainImageConstraints(parseBrandBrain(brand.brand_brain)), artDirection },
       })
       for await (const chunk of stream) imagePrompt += chunk.choices[0]?.delta?.content ?? ""
     } catch (err) {
@@ -297,7 +351,7 @@ async function main(): Promise<void> {
         logoUrl: brand.logo_url,
         plan,
         isInternalUnlimitedUser: isUnlimited,
-        productImageUrl: null,
+        productImageUrl,
         aspectRatio: ASPECT_RATIO,
         visualStyle: VISUAL_STYLE,
         checklistHeadline: caption.checklist_headline ?? undefined,
@@ -316,8 +370,7 @@ async function main(): Promise<void> {
         provider: result.success ? result.provider : null,
         attempts: result.attempts,
         finalImagePrompt: typeof first?.prompt === "string" ? first.prompt : null,
-        // No product is selected here, so never; with one it would follow briefUsesProductReference.
-        productReferenceUsed: false && briefUsesProductReference(visualBrief),
+        productReferenceUsed: !!productImageUrl && briefUsesProductReference(visualBrief),
         textStyle: result.success ? result.textStyle ?? null : null,
         split: result.success ? result.split ?? null : null,
       }
@@ -347,6 +400,8 @@ async function main(): Promise<void> {
   let finalOutput: { rendered: boolean; renderer?: string; reason?: string; file?: string; textStyle?: unknown; warnings?: string[]; textLayout?: string | null; kicker?: string | null; highlight?: string | null } = { rendered: false }
   if (!imageRecord.file) {
     finalOutput = { rendered: false, reason: imageRecord.skipped ?? "no background image" }
+  } else if (isAnnotated) {
+    finalOutput = { rendered: false, reason: "annotated_product: image.png is the finished post (headline, callouts and strip already drawn)" }
   } else if (!overlayText) {
     finalOutput = { rendered: false, reason: "no overlay text -- the final post is the background as-is" }
   } else if (template === "blank") {
@@ -383,7 +438,7 @@ async function main(): Promise<void> {
   const textCost = sumCostUsd(hookResult.costUsd, contentResult.costUsd)
   const totalLatencyMs = hookLatencyMs + captionLatencyMs + promptLatencyMs + imageRecord.latencyMs
   const run = {
-    inputs: { brandId, brandName: brand.name, topic, label, platform: PLATFORM, aspectRatio: ASPECT_RATIO, visualStyle: VISUAL_STYLE, contentAngle: "auto", product: null },
+    inputs: { brandId, brandName: brand.name, topic, label, platform: PLATFORM, aspectRatio: ASPECT_RATIO, visualStyle: VISUAL_STYLE, contentAngle: "auto", product: product ? { id: product.id, name: product.name, imageUrl: productImageUrl } : null },
     startedAt: runStartedAt.toISOString(),
     plan,
     isInternalUnlimitedUser: isUnlimited,
