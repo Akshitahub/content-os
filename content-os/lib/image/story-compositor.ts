@@ -7,7 +7,9 @@ import { decompress } from "wawoff2"
 import { CURATED_FONTS, DEFAULT_FONT_ID, FONT_FAMILY_NAME, findFont } from "@/lib/design/fonts"
 import type { FontId } from "@/lib/design/fonts"
 import { sanitizeTextForCompositing } from "@/lib/image/sanitize-text-for-compositing"
-import { TEXT_STYLE_PALETTE, backingRgba, type TextStyle } from "@/lib/design/text-style"
+import { BACKING_OPACITY, TEXT_STYLE_PALETTE, backingRgba, type TextStyle } from "@/lib/design/text-style"
+import { NEUTRAL_PALETTE, paletteRoles, resolvePresetForPalette, type BrandPalette, type PaletteRoles } from "@/lib/design/color-themes"
+import { tintedScrimOpacity } from "@/lib/image/text-contrast"
 import { storyFramePlan, storyStepNumbers, svgFamilies, type TextLayoutFields } from "@/lib/design/text-layouts"
 import { layoutPrimsToSvg } from "@/lib/design/text-layout-render"
 import {
@@ -92,12 +94,12 @@ function defaultTextCenter(pos: StoryCompositeSlide["text_position"]): { x: numb
 
 // ─── Backgrounds ────────────────────────────────────────────────────────────
 
-// Mirrors STORY_BG in components/generate/StorySequence.tsx exactly — same
-// 8 named presets, same top-to-bottom gradient direction
-// (Tailwind's bg-gradient-to-b), real hex stops for the Tailwind shades
-// that CSS used as classes. Text colors match each preset's `text`/`sub`
-// pairing there too ("white" is the one preset with dark text on a light
-// background; every other preset is white text at varying opacity).
+// The OLD generic presets -- only for slides saved before brand palettes
+// that have no palette to map onto (resolvePresetForPalette returns null).
+// New generations use the brand presets (brand_deep / brand_warm /
+// brand_light / brand_bold, lib/design/color-themes.ts), and an old id on a
+// slide with a palette maps to the nearest of those. Mirrors STORY_BG in
+// components/generate/StorySequence.tsx.
 const STORY_BG_PRESETS: Record<string, { stops: [string, string, string]; text: string; sub: string }> = {
   gradient_violet: { stops: ["#7c3aed", "#9333ea", "#4338ca"], text: "#ffffff", sub: "rgba(255,255,255,0.7)" },
   gradient_pink: { stops: ["#ec4899", "#f43f5e", "#ef4444"], text: "#ffffff", sub: "rgba(255,255,255,0.7)" },
@@ -107,21 +109,33 @@ const STORY_BG_PRESETS: Record<string, { stops: [string, string, string]; text: 
   vibe_fun_playful: { stops: ["#fb923c", "#facc15", "#2dd4bf"], text: "#ffffff", sub: "rgba(255,255,255,0.7)" },
   vibe_professional: { stops: ["#1e3a8a", "#1e293b", "#111827"], text: "#ffffff", sub: "rgba(255,255,255,0.7)" },
   vibe_trendy_genz: { stops: ["#8b5cf6", "#d946ef", "#22d3ee"], text: "#ffffff", sub: "rgba(255,255,255,0.8)" },
-  // Hard Truth Checklist vibe -- same exact cream/ink colors as the Post
-  // template's checklist card (lib/image/post-compositor.ts's
-  // CHECKLIST_BG_COLOR/CHECKLIST_INK_COLOR/CHECKLIST_MUTED_COLOR) for
-  // visual consistency between the two. A solid fill, not a gradient (all
-  // 3 stops identical), matching that flat-card look.
+  // Hard Truth Checklist vibe, as saved before palettes (the old cream card).
+  // New checklist frames use brand_light -- the palette's base and deep ink,
+  // same as the Post template's checklist card.
   checklist_cream: { stops: ["#F7F1E7", "#F7F1E7", "#F7F1E7"], text: "#1A1A1A", sub: "#57534E" },
 }
-const DEFAULT_PRESET = "gradient_violet"
+const DEFAULT_PRESET = "gradient_dark"
 
 // Dark scrim so text stays readable over a photo or custom color/gradient
 // background — mirrors the live preview's exact
 // `bg-gradient-to-t from-black/75 via-black/25 to-black/45` (bottom
 // darkest, lighter in the middle, medium at the top). Named presets never
 // get this — they're already curated for contrast, same as the preview.
-const SCRIM_SVG = `<defs><linearGradient id="scrim" x1="0" y1="1" x2="0" y2="0"><stop offset="0%" stop-color="#000000" stop-opacity="0.75"/><stop offset="50%" stop-color="#000000" stop-opacity="0.25"/><stop offset="100%" stop-color="#000000" stop-opacity="0.45"/></linearGradient></defs><rect width="${CANVAS_WIDTH}" height="${CANVAS_HEIGHT}" fill="url(#scrim)"/>`
+// With a palette the scrim is tinted with its deep, at opacities raised just
+// enough to darken as much as the black one did (tintedScrimOpacity).
+function scrimSvg(roles: PaletteRoles | null): string {
+  const c = roles?.scrim ?? "#000000"
+  const o = (a: number) => (roles ? tintedScrimOpacity(a, c, "light") : a)
+  return `<defs><linearGradient id="scrim" x1="0" y1="1" x2="0" y2="0"><stop offset="0%" stop-color="${c}" stop-opacity="${o(0.75)}"/><stop offset="50%" stop-color="${c}" stop-opacity="${o(0.25)}"/><stop offset="100%" stop-color="${c}" stop-opacity="${o(0.45)}"/></linearGradient></defs><rect width="${CANVAS_WIDTH}" height="${CANVAS_HEIGHT}" fill="url(#scrim)"/>`
+}
+
+// text_style's uniform scrim: deep-tinted under light text, base-tinted
+// under dark, black / white without a palette.
+function styleScrimSvg(style: TextStyle, roles: PaletteRoles | null): string {
+  if (!roles) return `<rect width="${CANVAS_WIDTH}" height="${CANVAS_HEIGHT}" fill="rgb(${TEXT_STYLE_PALETTE[style.text_color].scrimRgb})" fill-opacity="${style.scrim_opacity}"/>`
+  const tint = style.text_color === "light" ? roles.scrim : roles.lightScrim
+  return `<rect width="${CANVAS_WIDTH}" height="${CANVAS_HEIGHT}" fill="${tint}" fill-opacity="${tintedScrimOpacity(style.scrim_opacity, tint, style.text_color)}"/>`
+}
 
 // cssBackgroundFromColors' server-side equivalent (components/shared/
 // ColorWheelPicker.tsx): 1 hex = solid fill, 2 = a diagonal gradient. Same
@@ -154,8 +168,10 @@ async function fetchImageBuffer(source: string): Promise<Buffer | null> {
  * do. A photo with a text_style gets that style's uniform scrim and text
  * color instead of the fixed gradient. */
 async function buildBackgroundLayer(slide: StoryCompositeSlide, scrimmed = true): Promise<{ buffer: Buffer; textColor: string; subColor: string; styled: TextStyle | null }> {
-  const preset = STORY_BG_PRESETS[slide.background] ?? STORY_BG_PRESETS[DEFAULT_PRESET]!
+  const preset = resolvePresetForPalette(slide.background, slide.palette) ?? STORY_BG_PRESETS[slide.background] ?? STORY_BG_PRESETS[DEFAULT_PRESET]!
   const customColors = (slide.custom_background_colors ?? []).filter(Boolean)
+  const roles = slide.palette ? paletteRoles(slide.palette) : null
+  const onImage = roles?.onImage ?? "#ffffff"
 
   if (slide.background_image_url) {
     const photo = await fetchImageBuffer(slide.background_image_url)
@@ -166,23 +182,21 @@ async function buildBackgroundLayer(slide: StoryCompositeSlide, scrimmed = true)
       // to point at a font file that's guaranteed to exist.
       const style = slide.text_style ?? null
       const palette = style ? TEXT_STYLE_PALETTE[style.text_color] : null
-      const scrim = style && palette
-        ? `<rect width="${CANVAS_WIDTH}" height="${CANVAS_HEIGHT}" fill="rgb(${palette.scrimRgb})" fill-opacity="${style.scrim_opacity}"/>`
-        : SCRIM_SVG
+      const scrim = style ? styleScrimSvg(style, roles) : scrimSvg(roles)
       // A layout with its own card/panel backing (scrimmed = false) keeps the photo clean.
       const scrimPng = await svgToPngBuffer(`<svg width="${CANVAS_WIDTH}" height="${CANVAS_HEIGHT}" xmlns="http://www.w3.org/2000/svg">${scrimmed ? scrim : ""}</svg>`, DEFAULT_FONT_ID)
       const buffer = await sharp(base).composite([{ input: scrimPng, top: 0, left: 0 }]).png().toBuffer()
       if (style && palette) return { buffer, textColor: palette.text, subColor: palette.sub, styled: style }
-      return { buffer, textColor: "#ffffff", subColor: "rgba(255,255,255,0.7)", styled: null }
+      return { buffer, textColor: onImage, subColor: "rgba(255,255,255,0.7)", styled: null }
     }
     // Photo failed to fetch — fall through to custom color / preset below
     // rather than leaving the slide with no background at all.
   }
 
   if (customColors.length > 0) {
-    const svg = `<svg width="${CANVAS_WIDTH}" height="${CANVAS_HEIGHT}" xmlns="http://www.w3.org/2000/svg">${customBackgroundFill(customColors)}${scrimmed ? SCRIM_SVG : ""}</svg>`
+    const svg = `<svg width="${CANVAS_WIDTH}" height="${CANVAS_HEIGHT}" xmlns="http://www.w3.org/2000/svg">${customBackgroundFill(customColors)}${scrimmed ? scrimSvg(roles) : ""}</svg>`
     const buffer = await svgToPngBuffer(svg, DEFAULT_FONT_ID)
-    return { buffer, textColor: "#ffffff", subColor: "rgba(255,255,255,0.7)", styled: null }
+    return { buffer, textColor: onImage, subColor: "rgba(255,255,255,0.7)", styled: null }
   }
 
   const [c1, c2, c3] = preset.stops
@@ -268,14 +282,12 @@ async function clampLayerForComposite(buffer: Buffer, left: number, top: number)
 // adapted to one slide per beat instead of one flat card -- see
 // buildTextOverlaySvg's own dispatch below for how a slide is detected as
 // checklist-flagged in the first place (purely from field presence, no
-// separate vibe flag reaches this file).
-const CHECKLIST_WRONG_COLOR = "#DC2626"
-const CHECKLIST_RIGHT_COLOR = "#16A34A"
-// SocioPosts' own violet accent (matches buttons/CTAs elsewhere in the
-// app) -- this file has no ColorTheme/brand-accent concept threaded into
-// it the way post-compositor.ts does, so a fixed accent is used for the
-// highlight stripe rather than plumbing one through just for this.
-const CHECKLIST_HIGHLIGHT_COLOR = "#7C3AED"
+// separate vibe flag reaches this file). Colours come from the slide's brand
+// palette (neutral without one): pop highlight stripe, and red / green marks
+// in the tones that sit best with it (paletteRoles).
+function checklistRoles(slide: StoryCompositeSlide): PaletteRoles {
+  return paletteRoles(slide.palette ?? NEUTRAL_PALETTE)
+}
 
 // Vector shapes, not the ✗/✓ Unicode glyphs -- the curated fonts are all
 // @fontsource Latin SUBSETS (see lib/image/sanitize-text-for-compositing.ts's
@@ -285,16 +297,16 @@ const CHECKLIST_HIGHLIGHT_COLOR = "#7C3AED"
 // exported/imported, same small-shared-constant convention this codebase
 // already follows elsewhere (e.g. CalendarEntryCard.tsx's own local copy
 // of PostCard.tsx's PLATFORM_GRADIENT).
-function xMarkSvg(cx: number, cy: number, size: number): string {
+function xMarkSvg(cx: number, cy: number, size: number, color: string): string {
   const r = size / 2
   const strokeWidth = Math.max(3, size * 0.18)
-  return `<line x1="${cx - r}" y1="${cy - r}" x2="${cx + r}" y2="${cy + r}" stroke="${CHECKLIST_WRONG_COLOR}" stroke-width="${strokeWidth}" stroke-linecap="round"/><line x1="${cx + r}" y1="${cy - r}" x2="${cx - r}" y2="${cy + r}" stroke="${CHECKLIST_WRONG_COLOR}" stroke-width="${strokeWidth}" stroke-linecap="round"/>`
+  return `<line x1="${cx - r}" y1="${cy - r}" x2="${cx + r}" y2="${cy + r}" stroke="${color}" stroke-width="${strokeWidth}" stroke-linecap="round"/><line x1="${cx + r}" y1="${cy - r}" x2="${cx - r}" y2="${cy + r}" stroke="${color}" stroke-width="${strokeWidth}" stroke-linecap="round"/>`
 }
 
-function checkMarkSvg(cx: number, cy: number, size: number): string {
+function checkMarkSvg(cx: number, cy: number, size: number, color: string): string {
   const r = size / 2
   const strokeWidth = Math.max(3, size * 0.18)
-  return `<polyline points="${cx - r},${cy} ${cx - r * 0.15},${cy + r * 0.75} ${cx + r},${cy - r * 0.6}" fill="none" stroke="${CHECKLIST_RIGHT_COLOR}" stroke-width="${strokeWidth}" stroke-linecap="round" stroke-linejoin="round"/>`
+  return `<polyline points="${cx - r},${cy} ${cx - r * 0.15},${cy + r * 0.75} ${cx + r},${cy - r * 0.6}" fill="none" stroke="${color}" stroke-width="${strokeWidth}" stroke-linecap="round" stroke-linejoin="round"/>`
 }
 
 // Rough average glyph-width ratio for the curated fonts at their usual
@@ -331,10 +343,11 @@ function buildChecklistHookOverlaySvg(slide: StoryCompositeSlide, textColor: str
   const totalHeight = lines.length * lineHeight
   const startY = clampBlockTop(CANVAS_HEIGHT / 2, totalHeight, STORY_TEXT_AREA.top, STORY_TEXT_AREA.bottom) + fontSize * 0.85
 
+  const roles = checklistRoles(slide)
   const highlightRects: string[] = []
   const textSvg = lines.map((line, i) => {
     const y = startY + i * lineHeight
-    if (i === highlightLineIndex && highlightedPhrase) {
+    if (i === highlightLineIndex && highlightedPhrase && roles.stripeOpacity > 0) {
       const idx = line.toLowerCase().indexOf(highlightedPhrase.toLowerCase())
       const before = line.slice(0, idx)
       const match = line.slice(idx, idx + highlightedPhrase.length)
@@ -344,7 +357,7 @@ function buildChecklistHookOverlaySvg(slide: StoryCompositeSlide, textColor: str
       const lineStartX = CANVAS_WIDTH / 2 - lineWidth / 2
       const boxPad = 8
       highlightRects.push(
-        `<rect x="${lineStartX + beforeWidth - boxPad}" y="${y - fontSize * 0.82}" width="${matchWidth + boxPad * 2}" height="${fontSize * 1.08}" rx="8" fill="${CHECKLIST_HIGHLIGHT_COLOR}" fill-opacity="0.25"/>`
+        `<rect x="${lineStartX + beforeWidth - boxPad}" y="${y - fontSize * 0.82}" width="${matchWidth + boxPad * 2}" height="${fontSize * 1.08}" rx="8" fill="${roles.pop}" fill-opacity="${roles.stripeOpacity}"/>`
       )
     }
     return `<text x="50%" y="${y}" text-anchor="middle" font-family="${familyAttr(slide.font_id ?? DEFAULT_FONT_ID)}" font-weight="900" font-size="${fontSize}" fill="${textColor}">${escapeXml(line)}</text>`
@@ -362,6 +375,7 @@ function buildChecklistPairOverlaySvg(slide: StoryCompositeSlide, textColor: str
   const rightItem = slide.checklist_right_item?.trim() ? sanitizeTextForCompositing(slide.checklist_right_item.trim()) : ""
 
   const fitted = layoutStoryChecklistPair(wrongItem, rightItem, slide.text_size_scale ?? 1.0)
+  const roles = checklistRoles(slide)
   const [wrongBlock, rightBlock] = fitted.blocks as [FittedBlock, FittedBlock]
   const { fontSize, lineHeight } = wrongBlock
   const markSize = fontSize * 0.62
@@ -377,14 +391,14 @@ function buildChecklistPairOverlaySvg(slide: StoryCompositeSlide, textColor: str
 
   const wrongSvg = wrongLines.map((line, i) => {
     const y = cursorY + i * lineHeight + fontSize * 0.8
-    const mark = i === 0 ? xMarkSvg(padX + markSize / 2, y - fontSize * 0.32, markSize) : ""
+    const mark = i === 0 ? xMarkSvg(padX + markSize / 2, y - fontSize * 0.32, markSize, roles.wrong) : ""
     return `${mark}<text x="${padX + markGap}" y="${y}" text-anchor="start" font-family="${familyAttr(slide.body_font_id ?? slide.font_id ?? DEFAULT_FONT_ID)}" font-weight="700" font-size="${fontSize}" fill="${textColor}">${escapeXml(line)}</text>`
   }).join("")
   cursorY += wrongBlockHeight + rowGap
 
   const rightSvg = rightLines.map((line, i) => {
     const y = cursorY + i * lineHeight + fontSize * 0.8
-    const mark = i === 0 ? checkMarkSvg(padX + markSize / 2, y - fontSize * 0.32, markSize) : ""
+    const mark = i === 0 ? checkMarkSvg(padX + markSize / 2, y - fontSize * 0.32, markSize, roles.right) : ""
     return `${mark}<text x="${padX + markGap}" y="${y}" text-anchor="start" font-family="${familyAttr(slide.body_font_id ?? slide.font_id ?? DEFAULT_FONT_ID)}" font-weight="700" font-size="${fontSize}" fill="${textColor}">${escapeXml(line)}</text>`
   }).join("")
 
@@ -466,7 +480,7 @@ function buildTextOverlaySvg(slide: StoryCompositeSlide, textColor: string, subC
   const pollSvg = block(layout.poll, subColor, 700, bodyFamily)
 
   const backingSvg = backing?.needs_backing
-    ? backingRect(centerXPx - blockWidth / 2, blockStartY, blockWidth, layout.height, backing)
+    ? backingRect(centerXPx - blockWidth / 2, blockStartY, blockWidth, layout.height, backing, slide.palette ? paletteRoles(slide.palette) : null)
     : ""
 
   return {
@@ -475,12 +489,15 @@ function buildTextOverlaySvg(slide: StoryCompositeSlide, textColor: string, subC
   }
 }
 
-// Soft panel behind a text block over a busy photo (text_style.needs_backing).
-function backingRect(x: number, y: number, w: number, h: number, style: TextStyle): string {
+// Soft panel behind a text block over a busy photo (text_style.needs_backing):
+// deep-tinted under light text, base-tinted under dark when there's a palette.
+function backingRect(x: number, y: number, w: number, h: number, style: TextStyle, roles: PaletteRoles | null): string {
   const pad = 40
   const left = Math.max(0, x - pad)
   const right = Math.min(CANVAS_WIDTH, x + w + pad)
-  return `<rect x="${left}" y="${y - pad}" width="${right - left}" height="${h + pad * 2}" rx="32" fill="${backingRgba(style)}"/>`
+  const tint = roles ? (style.text_color === "light" ? roles.scrim : roles.lightScrim) : null
+  const fill = tint ? `fill="${tint}" fill-opacity="${tintedScrimOpacity(BACKING_OPACITY, tint, style.text_color)}"` : `fill="${backingRgba(style)}"`
+  return `<rect x="${left}" y="${y - pad}" width="${right - left}" height="${h + pad * 2}" rx="32" ${fill}/>`
 }
 
 // ─── Public API ─────────────────────────────────────────────────────────────
@@ -568,6 +585,10 @@ export interface StoryCompositeSlide {
   highlight?: string | null
   /** The brand colour layouts use for accents and the split panel. */
   accent_color?: string | null
+  /** The brand's 4-role palette (lib/design/color-themes.ts): brand presets,
+   * scrims, highlights and checklist colours. Absent (content exported
+   * before palettes) = the old presets and black scrims. */
+  palette?: BrandPalette | null
 }
 
 /**

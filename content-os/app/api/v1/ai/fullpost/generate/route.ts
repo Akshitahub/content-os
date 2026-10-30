@@ -4,7 +4,7 @@ import { generateFullPostSchema } from "@/lib/validations/ai"
 import { generateHooks } from "@/lib/ai/hooks-generator"
 import { generateContent } from "@/lib/ai/content-generator"
 import { generatePostCardHtml } from "@/lib/design/post-card-generator"
-import { resolveColorThemes } from "@/lib/design/color-themes"
+import { autoPickableThemes, resolveColorThemes } from "@/lib/design/color-themes"
 import { resolveTypography } from "@/lib/design/fonts"
 import { rememberBrandTypography } from "@/lib/design/brand-typography"
 import { mergeCaptionWithHookAndCta } from "@/lib/utils/caption-merge"
@@ -137,7 +137,7 @@ async function handlePost(request: Request, timer: GenerationTimer) {
           platform,
           additionalContext: combinedContext,
           pastExamples,
-          availableColorThemes: resolveColorThemes(brand).map(t => ({ id: t.id, label: t.label })),
+          availableColorThemes: autoPickableThemes(resolveColorThemes(brand)).map(t => ({ id: t.id, label: t.label })),
           factGuardDeadline: deadlineAt - 30_000,
           captionLessons: contentLessons,
           hookLessons,

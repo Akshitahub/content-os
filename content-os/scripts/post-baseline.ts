@@ -155,7 +155,7 @@ async function main(): Promise<void> {
   const { resolveTypography } = await import("@/lib/design/fonts")
   const { stampPostLayout } = await import("@/lib/design/text-layouts")
   const { getPrimaryColor } = await import("@/lib/design/post-card-generator")
-  const { resolveColorThemes, findColorTheme } = await import("@/lib/design/color-themes")
+  const { resolveColorThemes, findColorTheme, autoPickColorTheme, autoPickableThemes } = await import("@/lib/design/color-themes")
   const { DEFAULT_POST_TEMPLATE_ID } = await import("@/lib/design/post-templates")
   const { mergeCaptionWithHookAndCta } = await import("@/lib/utils/caption-merge")
   const { fetchPastExamples } = await import("@/lib/ai/past-examples")
@@ -209,7 +209,7 @@ async function main(): Promise<void> {
     platform: PLATFORM,
     additionalContext: combinedContext,
     pastExamples,
-    availableColorThemes: colorThemes.map((t) => ({ id: t.id, label: t.label })),
+    availableColorThemes: autoPickableThemes(colorThemes).map((t) => ({ id: t.id, label: t.label })),
     captionLessons,
     hookLessons,
     onUsage: (step) => { if (step === "caption") { captionDoneAt = Date.now(); currentStage = "hook" } },
@@ -233,7 +233,8 @@ async function main(): Promise<void> {
 
   // FullPostGenerator's runImageGeneration choices.
   const template = caption.suggested_template || DEFAULT_POST_TEMPLATE_ID
-  const colorThemeId = caption.suggested_color_theme_id || colorThemes[0]?.id || ""
+  // Same auto-pick as FullPostGenerator: the brand palette wins when the brand has one.
+  const colorThemeId = autoPickColorTheme(colorThemes, caption.suggested_color_theme_id).id
   const overlayText = caption.suggested_overlay_text?.trim() || ""
   const isChecklist = template === "hard_truth_checklist"
   // As FullPostGenerator sends it (caption.visual) and the write / post-image

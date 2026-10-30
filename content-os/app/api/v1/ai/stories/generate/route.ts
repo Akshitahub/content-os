@@ -21,6 +21,7 @@ import { overflowingSlides, storySlideOverflows } from "@/lib/design/slide-text-
 import { stampSequenceLayouts, type TextLayoutId } from "@/lib/design/text-layouts"
 import { getPrimaryColor } from "@/lib/design/post-card-generator"
 import { artDirectionForRequest } from "@/lib/ai/art-direction"
+import { toBrandPreset, type BrandPresetId } from "@/lib/design/color-themes"
 
 const schema = z.object({
   brandId: z.string().uuid(),
@@ -34,7 +35,8 @@ export type StorySlide = {
   type: "hook" | "reveal" | "buildup" | "cta"
   text: string
   subtext: string
-  background: "gradient_violet" | "gradient_pink" | "gradient_dark" | "gradient_warm" | "white" | "vibe_fun_playful" | "vibe_professional" | "vibe_trendy_genz" | "checklist_cream"
+  // New generations: a brand preset (lib/design/color-themes.ts); the old ids stay readable for saved stories.
+  background: BrandPresetId | "gradient_violet" | "gradient_pink" | "gradient_dark" | "gradient_warm" | "white" | "vibe_fun_playful" | "vibe_professional" | "vibe_trendy_genz" | "checklist_cream"
   text_position: "top" | "center" | "bottom"
   has_poll: boolean
   poll_options?: [string, string]
@@ -357,9 +359,9 @@ async function handlePost(request: Request, timer: GenerationTimer) {
     // longer has to choose one separately. Still a no-op if neither exists.
     const effectiveVibe = vibe || (d.suggested_vibe as string | undefined)
     const vibeBackground = effectiveVibe ? VIBE_TO_STORY_BACKGROUND[effectiveVibe] : undefined
-    if (vibeBackground) {
-      d.stories = (d.stories as Record<string, unknown>[]).map((s) => ({ ...s, background: vibeBackground }))
-    }
+    // New generations only use brand presets (built from the brand palette):
+    // the vibe's (or the model's) pick mapped to the nearest one.
+    d.stories = (d.stories as Record<string, unknown>[]).map((s) => ({ ...s, background: toBrandPreset(vibeBackground ?? (s.background as string | undefined)) }))
 
     // One font for the whole sequence -- same rule as the carousel route:
     // the model's pick if valid, else the brand / story vibe fallback.

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useCallback, useEffect } from "react"
+import { useState, useCallback, useEffect, useMemo } from "react"
 import { useParams, useSearchParams } from "next/navigation"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { Archive, Copy, Check, Star, Sparkles, BookOpen, ChevronDown, ChevronUp, Film, LayoutGrid, Megaphone, Download, Search, Zap, Timer, Newspaper, MoreVertical, Eye, CalendarClock, Trash2, Link2, Loader2 } from "lucide-react"
@@ -19,6 +19,7 @@ import { cssBackgroundFromColors } from "@/components/shared/ColorWheelPicker"
 import type { StoryExportSlide } from "@/lib/utils/story-export"
 import { downloadCarouselSlidesAsImages, downloadCarouselSlidesAsPdf, type CarouselExportSlide } from "@/lib/utils/carousel-export"
 import { useBrand } from "@/hooks/useBrand"
+import { resolveBrandPalette, type BrandPalette } from "@/lib/design/color-themes"
 import { useGenerateContent } from "@/hooks/useGeneration"
 import { useCopyPreviewLink } from "@/hooks/useCopyPreviewLink"
 import { CopyLinkToast } from "@/components/shared/CopyLinkToast"
@@ -681,7 +682,7 @@ interface SlideShape {
 // rather than duplicating it -- SlideShape has no font_id/text_size_scale/
 // productImageSource fields, left undefined here to match
 // CarouselExportSlide's own optional fields.
-function toCarouselExportSlide(s: SlideShape): CarouselExportSlide {
+function toCarouselExportSlide(s: SlideShape, palette: BrandPalette | null = null): CarouselExportSlide {
   return {
     type: s.type ?? "content",
     headline: s.headline ?? "",
@@ -702,6 +703,7 @@ function toCarouselExportSlide(s: SlideShape): CarouselExportSlide {
     kicker: s.kicker ?? null,
     highlight: s.highlight ?? null,
     accent_color: s.accent_color ?? null,
+    palette,
   }
 }
 
@@ -709,6 +711,8 @@ function CarouselCard({ carousel, brandId, onOpenDetail }: { carousel: CarouselR
   const [deleteConfirming, setDeleteConfirming] = useState(false)
   const qc = useQueryClient()
   const { data: brand } = useBrand(brandId)
+  // The brand's 4-role palette (lib/design/color-themes.ts) for the export.
+  const palette = useMemo(() => (brand ? resolveBrandPalette(brand) : null), [brand])
   const { copyPreviewLink, isPending: copyLinkPending, feedback: copyLinkFeedback } = useCopyPreviewLink()
   const slides = (carousel.slides as Json[] as SlideShape[]) ?? []
   // A saved carousel reopened later in the Library had no download option
@@ -725,7 +729,7 @@ function CarouselCard({ carousel, brandId, onOpenDetail }: { carousel: CarouselR
     e.stopPropagation()
     setDownloadError(null)
     setDownloadingPng(true)
-    const ok = await downloadCarouselSlidesAsImages(brand?.name ?? "", slides.map(toCarouselExportSlide), "carousel")
+    const ok = await downloadCarouselSlidesAsImages(brand?.name ?? "", slides.map((sl) => toCarouselExportSlide(sl, palette)), "carousel")
     setDownloadingPng(false)
     if (ok === false) setDownloadError("Couldn't download slides. Please try again.")
   }
@@ -734,7 +738,7 @@ function CarouselCard({ carousel, brandId, onOpenDetail }: { carousel: CarouselR
     e.stopPropagation()
     setDownloadError(null)
     setDownloadingPdf(true)
-    const ok = await downloadCarouselSlidesAsPdf(brand?.name ?? "", slides.map(toCarouselExportSlide), "carousel")
+    const ok = await downloadCarouselSlidesAsPdf(brand?.name ?? "", slides.map((sl) => toCarouselExportSlide(sl, palette)), "carousel")
     setDownloadingPdf(false)
     if (ok === false) setDownloadError("Couldn't create the PDF. Please try again.")
   }
@@ -775,6 +779,7 @@ function CarouselCard({ carousel, brandId, onOpenDetail }: { carousel: CarouselR
   const scheduleCarouselSlides: CarouselExportSlide[] = slides
     .filter((s): s is SlideShape & { type: NonNullable<SlideShape["type"]>; headline: string } => !!s.type && !!s.headline)
     .map((s) => ({
+      palette,
       type: s.type,
       headline: s.headline,
       subtext: s.subtext,
@@ -931,6 +936,9 @@ interface StorySlideShape {
 }
 
 function StoryCard({ story, brandId, onOpenDetail }: { story: StoryRow; brandId: string; onOpenDetail: (item: DetailItem) => void }) {
+  const { data: brand } = useBrand(brandId)
+  // The brand's 4-role palette (lib/design/color-themes.ts) for the export.
+  const palette = useMemo(() => (brand ? resolveBrandPalette(brand) : null), [brand])
   const [deleteConfirming, setDeleteConfirming] = useState(false)
   const qc = useQueryClient()
   const { copyPreviewLink, isPending: copyLinkPending, feedback: copyLinkFeedback } = useCopyPreviewLink()
@@ -998,6 +1006,7 @@ function StoryCard({ story, brandId, onOpenDetail }: { story: StoryRow; brandId:
       kicker: s.kicker ?? null,
       highlight: s.highlight ?? null,
       accent_color: s.accent_color ?? null,
+    palette,
     }))
 
   function openDetail() {

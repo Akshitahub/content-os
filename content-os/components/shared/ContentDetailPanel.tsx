@@ -1,7 +1,9 @@
 "use client"
 
 import { X, Copy, Check, Link2, Loader2 } from "lucide-react"
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
+import { useBrand } from "@/hooks/useBrand"
+import { resolveBrandPalette, type BrandPalette } from "@/lib/design/color-themes"
 import { ScheduleAction } from "@/components/shared/ScheduleAction"
 import type { StoryExportSlide } from "@/lib/utils/story-export"
 import type { CarouselExportSlide } from "@/lib/utils/carousel-export"
@@ -137,7 +139,10 @@ function CarouselFlatSlidePreview({
   text,
   backgroundStyle,
   customColors,
+  palette,
 }: {
+  /** The brand's 4-role palette -- brand presets render from it. */
+  palette: BrandPalette | null
   text: string
   backgroundStyle: string | null | undefined
   /** "Custom color" mode (see ColorWheelPicker) -- an exact user pick,
@@ -145,13 +150,13 @@ function CarouselFlatSlidePreview({
   customColors?: string[] | null
 }) {
   const customBg = cssBackgroundFromColors(customColors)
-  const s = resolveCarouselBgStyle(backgroundStyle)
+  const s = resolveCarouselBgStyle(backgroundStyle, palette)
   const [headline, ...rest] = text.split("\n")
   const body = rest.join("\n").trim()
   return (
     <div
       className={`flex w-full flex-col justify-center overflow-hidden p-6 ${customBg ? "" : s.bg}`}
-      style={{ height: 320, background: customBg }}
+      style={{ ...(customBg ? {} : s.style), height: 320, ...(customBg ? { background: customBg } : {}) }}
     >
       {headline && <p className={`text-lg font-bold leading-snug line-clamp-3 ${customBg ? "text-white" : s.text}`}>{headline}</p>}
       {body && <p className={`mt-2 text-sm leading-relaxed line-clamp-4 ${customBg ? "text-white/70" : s.subtext}`}>{body}</p>}
@@ -261,6 +266,8 @@ function SharePanelSection({ brandId, shareTarget }: { brandId: string; shareTar
 }
 
 export function ContentDetailPanel({ item, onClose, brandId }: ContentDetailPanelProps) {
+  const { data: brand } = useBrand(brandId)
+  const palette = useMemo(() => (brand ? resolveBrandPalette(brand) : null), [brand])
   async function handleDelete() {
     if (!item?.onDelete) return
     await item.onDelete()
@@ -320,7 +327,7 @@ export function ContentDetailPanel({ item, onClose, brandId }: ContentDetailPane
                     </PlatformPreviewFrame>
                   ) : block.backgroundStyle || (block.customBackgroundColors && block.customBackgroundColors.length > 0) ? (
                     <PlatformPreviewFrame brandId={brandId} platform={item.platform} caption={item.scheduleCaption}>
-                      <CarouselFlatSlidePreview text={block.text} backgroundStyle={block.backgroundStyle} customColors={block.customBackgroundColors} />
+                      <CarouselFlatSlidePreview text={block.text} backgroundStyle={block.backgroundStyle} customColors={block.customBackgroundColors} palette={palette} />
                     </PlatformPreviewFrame>
                   ) : null}
                   <p className="text-sm leading-relaxed whitespace-pre-wrap">{block.text}</p>

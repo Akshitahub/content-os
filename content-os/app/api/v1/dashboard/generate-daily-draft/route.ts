@@ -5,7 +5,7 @@ import { checkAndIncrementUsage, refundGenerationUsage, logGenerationOutcome } f
 import { POST as POST_CREDIT_COST } from "@/lib/usage/credit-costs"
 import { generatePostImage, attemptsCostUsd } from "@/lib/ai/post-image-pipeline"
 import { UsageCarryingError, addTextUsage, sumCostUsd, type TextUsage } from "@/lib/ai/pricing"
-import { resolveColorThemes, findColorTheme } from "@/lib/design/color-themes"
+import { autoPickColorTheme, autoPickableThemes, resolveColorThemes } from "@/lib/design/color-themes"
 import { DEFAULT_POST_TEMPLATE_ID, type PostTemplateId } from "@/lib/design/post-templates"
 import { mergeCaptionWithHookAndCta } from "@/lib/utils/caption-merge"
 import { isInternalUnlimited } from "@/lib/usage/is-internal-unlimited"
@@ -168,7 +168,7 @@ async function handlePost(request: Request, timer: GenerationTimer) {
     const { hook: hookResult, caption: contentResult } = await timer.step("caption", withDeadline(generatePostCopy(brand, {
       product: null,
       platform: "instagram",
-      availableColorThemes: colorThemes.map((t) => ({ id: t.id, label: t.label })),
+      availableColorThemes: autoPickableThemes(colorThemes).map((t) => ({ id: t.id, label: t.label })),
       factGuardDeadline: requestStartedAt + TEXT_DEADLINE_MS,
       captionLessons,
       hookLessons,
@@ -210,7 +210,7 @@ async function handlePost(request: Request, timer: GenerationTimer) {
 
     const { data: userData } = await supabase.from("users").select("plan").eq("id", user.id).single<{ plan: UserPlan }>()
     const plan: UserPlan = userData?.plan ?? "starter"
-    const colorTheme = findColorTheme(colorThemes, caption.suggested_color_theme_id ?? undefined)
+    const colorTheme = autoPickColorTheme(colorThemes, caption.suggested_color_theme_id)
     const imagePrompt = (caption.image_prompt?.trim() || `${hook.hook_text}, ${brand.niche ?? "brand"} product`).slice(0, 500)
 
     // No captionText -- matches Create Post's current decoupled-overlay

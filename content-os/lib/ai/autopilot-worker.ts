@@ -9,7 +9,7 @@ import {
 import { attemptsCostUsd, generatePostImage } from "./post-image-pipeline"
 import { generateCarouselHtml } from "@/lib/design/post-card-generator"
 import { DEFAULT_POST_TEMPLATE_ID } from "@/lib/design/post-templates"
-import { resolveColorThemes, type ColorTheme } from "@/lib/design/color-themes"
+import { resolveBrandPalette, resolveColorThemes, type BrandPalette, type ColorTheme } from "@/lib/design/color-themes"
 import { mergeCaptionWithHookAndCta } from "@/lib/utils/caption-merge"
 import { MUSIC_OPTIONS, resolveMusicTrackId } from "@/lib/video/music-options"
 import { renderCarouselSlidesToPng, renderRichCarouselSlides, type CarouselCompositeSlide } from "@/lib/image/carousel-compositor"
@@ -364,7 +364,7 @@ async function prepareSlot(admin: Admin, job: SlotJobRow, ctx: RunContext, track
       carouselRichSlides = await withCarouselBackgrounds(job, ctx, generated.carousel.slides, tracker)
       tracker.imageMs += Date.now() - imageStartedAt
       await rememberBrandTypography(admin, brand, generated.carousel.typography)
-      const rendered = await renderRichCarouselSlides(brand.name, carouselRichSlides.map(toCompositeSlide))
+      const rendered = await renderRichCarouselSlides(brand.name, carouselRichSlides.map((sl) => toCompositeSlide(sl, resolveBrandPalette(brand))))
       const uploaded: string[] = []
       for (let idx = 0; idx < rendered.length; idx++) {
         const uploadResult = await uploadMediaToStorage(
@@ -469,7 +469,7 @@ async function withCarouselBackgrounds(job: SlotJobRow, ctx: RunContext, slides:
 
 // A saved carousel slide -> the rich compositor's slide (the same mapping
 // CarouselBuilder's toExportSlide does).
-function toCompositeSlide(s: Record<string, unknown>): CarouselCompositeSlide {
+function toCompositeSlide(s: Record<string, unknown>, palette: BrandPalette): CarouselCompositeSlide {
   const type = (s.type === "cover" || s.type === "cta" ? s.type : "content") as CarouselCompositeSlide["type"]
   const str = (v: unknown) => (typeof v === "string" ? v : null)
   return {
@@ -488,6 +488,8 @@ function toCompositeSlide(s: Record<string, unknown>): CarouselCompositeSlide {
     kicker: str(s.kicker),
     highlight: str(s.highlight),
     accent_color: str(s.accent_color),
+    // Presets, scrims and dots from the brand's 4-role palette.
+    palette,
   }
 }
 

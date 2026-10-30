@@ -6,6 +6,7 @@ import {
   Sun, Moon, Gem, Table, Leaf, Palmtree, Building2, Coffee, Flame, TreePine, PartyPopper, Wand2, Copy,
 } from "lucide-react"
 import { useBrand } from "@/hooks/useBrand"
+import { resolveBrandPalette, styleTintCss, type BrandPalette } from "@/lib/design/color-themes"
 import { GenerationWarning } from "@/components/shared/GenerationWarning"
 import { UsageLimitBanner } from "@/components/generate/UsageLimitBanner"
 import { isApiError } from "@/types/api"
@@ -77,6 +78,12 @@ interface AdVariation extends TextLayoutFields {
 
 // texts[i] is variation i's on-image text (the user's typed headline, or
 // that variation's own strategy headline).
+// The text scrim: deep-tinted (base-tinted under dark text) with a palette, else black / white.
+function adScrim(style: TextStyle | null, palette: BrandPalette | null): string {
+  if (palette) return styleTintCss(palette, style?.text_color ?? "light", style ? style.scrim_opacity : 0.2)
+  return style ? scrimRgba(style) : "rgba(0,0,0,0.2)"
+}
+
 async function compositeAd(
   variations: AdVariation[],
   texts: string[],
@@ -88,8 +95,9 @@ async function compositeAd(
   instagramHandle: string,
   /** The brand's typography (route's typography) -- system sans when absent. */
   fonts?: { heading: FontId; body: FontId },
-  /** Layout extras: the brief's real offer (offer_badge) and the brand colour. */
-  layoutExtras: { offer?: string | null; brandColor?: string | null } = {}
+  /** Layout extras: the brief's real offer (offer_badge), the brand colour and
+   * the brand's 4-role palette (deep-tinted scrims, pop accents). */
+  layoutExtras: { offer?: string | null; brandColor?: string | null; palette?: BrandPalette | null } = {}
 ): Promise<string[]> {
   const fontFamily = fonts ? PREVIEW_FONT_FAMILY[fonts.heading]?.family : undefined
   const sizes: Record<ImageFormat, { w: number; h: number }> = {
@@ -132,13 +140,13 @@ async function compositeAd(
       const explicit: Record<Exclude<TextColor, "auto">, string> = { white: "#ffffff", dark: "#111111", violet: "#818cf8" }
       const plan = singleImagePlan({
         text_layout: variation.text_layout, kicker: variation.kicker, highlight: variation.highlight, offer: layoutExtras.offer,
-        headline: hookText, fonts: layoutFonts, textStyle: style, brandColor: layoutExtras.brandColor ?? null, position: textPosition,
+        headline: hookText, fonts: layoutFonts, textStyle: style, brandColor: layoutExtras.brandColor ?? null, palette: layoutExtras.palette ?? null, position: textPosition,
         textColorOverride: textColor === "auto" ? null : explicit[textColor],
         // Clear of the handle line on the bottom safe edge.
         reserveBottom: h * 0.04,
       }, w, h)
       if (plan.fullScrim) {
-        ctx.fillStyle = style ? scrimRgba(style) : "rgba(0,0,0,0.2)"
+        ctx.fillStyle = adScrim(style, layoutExtras.palette ?? null)
         ctx.fillRect(0, 0, w, h)
       }
       drawLayoutPrims(ctx, plan.prims, previewFamilies(layoutFonts))
@@ -148,7 +156,7 @@ async function compositeAd(
     }
 
     if (showText && hookText) {
-      ctx.fillStyle = style ? scrimRgba(style) : "rgba(0,0,0,0.2)"
+      ctx.fillStyle = adScrim(style, layoutExtras.palette ?? null)
       ctx.fillRect(0, 0, w, h)
     }
 
@@ -342,7 +350,7 @@ export function AdMaker({ brandId, products }: AdMakerProps) {
   // lets the per-variation layout picker re-draw one variation.
   const [adSources, setAdSources] = useState<{
     variations: AdVariation[]; texts: string[]; showText: boolean; textPosition: TextPosition; textColor: TextColor; format: ImageFormat
-    brandName: string; handle: string; fonts?: { heading: FontId; body: FontId }; extras: { offer?: string | null; brandColor?: string | null }
+    brandName: string; handle: string; fonts?: { heading: FontId; body: FontId }; extras: { offer?: string | null; brandColor?: string | null; palette?: BrandPalette | null }
   } | null>(null)
 
   // The user's layout pick for one variation always wins over the auto-pick.
@@ -660,7 +668,7 @@ export function AdMaker({ brandId, products }: AdMakerProps) {
       // highlight only applies to the strategy headline it was written for.
       const texts = variations.map((v) => hookText.trim() || v.variant?.headline || "")
       const laidOut = variations.map((v) => (hookText.trim() ? { ...v, highlight: null } : v))
-      const extras = { offer: chargeData.layout?.offer ?? null, brandColor: chargeData.layout?.accent_color ?? null }
+      const extras = { offer: chargeData.layout?.offer ?? null, brandColor: chargeData.layout?.accent_color ?? null, palette: brand ? resolveBrandPalette(brand) : null }
       const composited = await compositeAd(laidOut, texts, showText, textPosition, textColor, format, brandName, handle, fonts, extras)
       // Kept so a layout change can recomposite one variation without a new generation.
       setAdSources({ variations: laidOut, texts, showText, textPosition, textColor, format, brandName, handle, fonts, extras })

@@ -6,7 +6,8 @@ import { Resvg } from "@resvg/resvg-js"
 import { decompress } from "wawoff2"
 import * as fontkit from "fontkit"
 import type { PostTemplateId } from "@/lib/design/post-templates"
-import type { ColorTheme } from "@/lib/design/color-themes"
+import { paletteRoles, type ColorTheme, type PaletteRoles } from "@/lib/design/color-themes"
+import { AA_GRAPHIC, ensureContrast, tintedScrimOpacity } from "@/lib/image/text-contrast"
 import { CURATED_FONTS, DEFAULT_FONT_ID, findFont } from "@/lib/design/fonts"
 import { sanitizeTextForCompositing } from "@/lib/image/sanitize-text-for-compositing"
 import { BACKING_OPACITY, type TextStyle } from "@/lib/design/text-style"
@@ -212,13 +213,20 @@ function fitText(font: fontkit.Font, text: string, opts: FitTextOptions): FitTex
   }
 }
 
-// A thin dark stroke behind white text guarantees legibility regardless of
-// what's directly under it — the scrims below handle the general case, this
-// is the safety net for edge cases (a brand-color band that turns out to be
-// light, a scrim gradient's lighter edge, etc). Much thinner than the meme
-// compositor's thick outline — this reads as "readable," not "meme."
-function textEl(x: string, y: number, anchor: string, fontSize: number, text: string, weight = 900): string {
-  return `<text x="${x}" y="${y}" text-anchor="${anchor}" font-family="PostFont, sans-serif" font-weight="${weight}" font-size="${fontSize}" fill="#ffffff" stroke="#000000" stroke-opacity="0.5" stroke-width="2.5" paint-order="stroke" letter-spacing="0.5">${escapeXml(text)}</text>`
+// A thin deep-tinted stroke behind the light text guarantees legibility
+// regardless of what's directly under it — the scrims below handle the
+// general case, this is the safety net for edge cases (a scrim gradient's
+// lighter edge, etc). Much thinner than the meme compositor's thick outline
+// — this reads as "readable," not "meme." Text is white or the palette's
+// base, whichever reads better over the deep scrim (paletteRoles.onImage).
+function textEl(x: string, y: number, anchor: string, fontSize: number, text: string, roles: PaletteRoles, weight = 900): string {
+  return `<text x="${x}" y="${y}" text-anchor="${anchor}" font-family="PostFont, sans-serif" font-weight="${weight}" font-size="${fontSize}" fill="${roles.onImage}" stroke="${roles.stroke}" stroke-opacity="0.5" stroke-width="2.5" paint-order="stroke" letter-spacing="0.5">${escapeXml(text)}</text>`
+}
+
+// A deep-tinted scrim at the opacity that keeps the light text's contrast
+// exactly what the black one gave (lib/image/text-contrast.ts).
+function scrimOpacity(roles: PaletteRoles, blackOpacity: number): number {
+  return tintedScrimOpacity(blackOpacity, roles.scrim, "light")
 }
 
 interface OverlayResult {
@@ -235,10 +243,10 @@ function scrimStrength(style: TextStyle | null, fixed: number, floor = 0.25): nu
   return style ? Math.max(floor, style.scrim_opacity) : fixed
 }
 
-// Soft panel behind the text lines when the region is busy.
-function backingPanel(style: TextStyle | null, x: number, y: number, w: number, h: number): string {
+// Soft deep-tinted panel behind the text lines when the region is busy.
+function backingPanel(style: TextStyle | null, roles: PaletteRoles, x: number, y: number, w: number, h: number): string {
   if (!style?.needs_backing) return ""
-  return `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="24" fill="#000000" fill-opacity="${BACKING_OPACITY}"/>`
+  return `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="24" fill="${roles.scrim}" fill-opacity="${scrimOpacity(roles, BACKING_OPACITY)}"/>`
 }
 
 // 6% safe edge on the 1080-wide canvas: text and badges stay inside it.
@@ -246,6 +254,7 @@ const SAFE_X = Math.round(CANVAS_WIDTH * 0.06)
 const SAFE_TEXT_WIDTH = CANVAS_WIDTH - SAFE_X * 2
 
 function buildBoldStatement(captionText: string, theme: ColorTheme, font: fontkit.Font, hasLogo: boolean, scale: number, style: TextStyle | null): OverlayResult {
+  const roles = paletteRoles(theme.palette)
   const { lines, fontSize, lineHeight, blockHeight, overflow } = fitText(font, captionText.toUpperCase(), {
     startFontSize: 92 * scale,
     minFontSize: MIN_HEADLINE_FONT_SIZE,
@@ -260,22 +269,22 @@ function buildBoldStatement(captionText: string, theme: ColorTheme, font: fontki
   // "one text box, only what's typed appears" redesign).
   const startY = 950 - blockHeight / 2 + fontSize * 0.8
 
-  const textSvg = lines.map((line, i) => textEl("50%", startY + i * lineHeight, "middle", fontSize, line)).join("")
+  const textSvg = lines.map((line, i) => textEl("50%", startY + i * lineHeight, "middle", fontSize, line, roles)).join("")
 
   // With a text_style the gradient reaches the needed strength by the top
   // of the text instead of only at the bottom edge.
-  const strength = scrimStrength(style, 0.78)
-  const midStop = style ? `<stop offset="45%" stop-color="#000000" stop-opacity="${strength}"/>` : ""
+  const strength = scrimOpacity(roles, scrimStrength(style, 0.78))
+  const midStop = style ? `<stop offset="45%" stop-color="${roles.scrim}" stop-opacity="${strength}"/>` : ""
   const svg = `
     <defs>
       <linearGradient id="scrim" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0%" stop-color="#000000" stop-opacity="0"/>
+        <stop offset="0%" stop-color="${roles.scrim}" stop-opacity="0"/>
         ${midStop}
-        <stop offset="100%" stop-color="#000000" stop-opacity="${strength}"/>
+        <stop offset="100%" stop-color="${roles.scrim}" stop-opacity="${strength}"/>
       </linearGradient>
     </defs>
     <rect x="0" y="575" width="${CANVAS_WIDTH}" height="${CANVAS_HEIGHT - 575}" fill="url(#scrim)"/>
-    ${backingPanel(style, SAFE_X - 20, startY - fontSize * 0.8 - 28, SAFE_TEXT_WIDTH + 40, blockHeight + 56)}
+    ${backingPanel(style, roles, SAFE_X - 20, startY - fontSize * 0.8 - 28, SAFE_TEXT_WIDTH + 40, blockHeight + 56)}
     ${textSvg}
     ${hasLogo ? `<circle cx="106" cy="106" r="50" fill="#ffffff" fill-opacity="0.92"/>` : ""}
   `
@@ -283,6 +292,7 @@ function buildBoldStatement(captionText: string, theme: ColorTheme, font: fontki
 }
 
 function buildProductFocus(captionText: string, theme: ColorTheme, font: fontkit.Font, hasLogo: boolean, scale: number, style: TextStyle | null): OverlayResult {
+  const roles = paletteRoles(theme.palette)
   const { lines, fontSize, lineHeight, blockHeight, overflow } = fitText(font, captionText.toUpperCase(), {
     startFontSize: 62 * scale,
     minFontSize: MIN_HEADLINE_FONT_SIZE,
@@ -295,32 +305,33 @@ function buildProductFocus(captionText: string, theme: ColorTheme, font: fontkit
   const bandTop = 1000
   const textY = bandTop - 40 - (lines.length - 1) * lineHeight
 
-  const textSvg = lines.map((line, i) => textEl("50%", textY + i * lineHeight, "middle", fontSize, line)).join("")
+  const textSvg = lines.map((line, i) => textEl("50%", textY + i * lineHeight, "middle", fontSize, line, roles)).join("")
 
   // The bottom band + logo circle stay as this template's brand-accent
   // chrome regardless of caption text — previously also held CTA text
   // (right-anchored next to the logo), now just the solid color band and
-  // logo, since there's no second text field left to put there.
-  const strength = scrimStrength(style, 0.55)
+  // logo, since there's no second text field left to put there. The band is
+  // the palette's accent (deep when accent can't carry text).
+  const strength = scrimOpacity(roles, scrimStrength(style, 0.55))
   const svg = `
     <defs>
       <linearGradient id="scrim" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0%" stop-color="#000000" stop-opacity="0"/>
-        <stop offset="${style ? 50 : 100}%" stop-color="#000000" stop-opacity="${strength}"/>
-        <stop offset="100%" stop-color="#000000" stop-opacity="${strength}"/>
+        <stop offset="0%" stop-color="${roles.scrim}" stop-opacity="0"/>
+        <stop offset="${style ? 50 : 100}%" stop-color="${roles.scrim}" stop-opacity="${strength}"/>
+        <stop offset="100%" stop-color="${roles.scrim}" stop-opacity="${strength}"/>
       </linearGradient>
     </defs>
     <rect x="0" y="725" width="${CANVAS_WIDTH}" height="${bandTop - 725}" fill="url(#scrim)"/>
-    ${backingPanel(style, SAFE_X - 20, textY - fontSize * 0.8 - 24, SAFE_TEXT_WIDTH + 40, blockHeight + 48)}
+    ${backingPanel(style, roles, SAFE_X - 20, textY - fontSize * 0.8 - 24, SAFE_TEXT_WIDTH + 40, blockHeight + 48)}
     ${textSvg}
-    <rect x="0" y="${bandTop}" width="${CANVAS_WIDTH}" height="${CANVAS_HEIGHT - bandTop}" fill="${theme.primary}"/>
-    <rect x="0" y="${bandTop}" width="${CANVAS_WIDTH}" height="${CANVAS_HEIGHT - bandTop}" fill="#000000" fill-opacity="0.12"/>
+    <rect x="0" y="${bandTop}" width="${CANVAS_WIDTH}" height="${CANVAS_HEIGHT - bandTop}" fill="${roles.band}"/>
     ${hasLogo ? `<circle cx="106" cy="${bandTop + (CANVAS_HEIGHT - bandTop) / 2}" r="42" fill="#ffffff" fill-opacity="0.92"/>` : ""}
   `
   return { svg, logoBox: { x: 71, y: bandTop + (CANVAS_HEIGHT - bandTop) / 2 - 35, size: 70 }, overflow }
 }
 
 function buildQuoteCard(captionText: string, theme: ColorTheme, font: fontkit.Font, hasLogo: boolean, scale: number, style: TextStyle | null): OverlayResult {
+  const roles = paletteRoles(theme.palette)
   const { lines, fontSize, lineHeight, blockHeight, overflow } = fitText(font, captionText, {
     startFontSize: 72 * scale,
     minFontSize: MIN_HEADLINE_FONT_SIZE,
@@ -330,24 +341,25 @@ function buildQuoteCard(captionText: string, theme: ColorTheme, font: fontkit.Fo
   })
   const startY = CANVAS_HEIGHT / 2 - blockHeight / 2 + fontSize * 0.75
 
-  const textSvg = lines.map((line, i) => textEl("50%", startY + i * lineHeight, "middle", fontSize, line, 700)).join("")
+  const textSvg = lines.map((line, i) => textEl("50%", startY + i * lineHeight, "middle", fontSize, line, roles, 700)).join("")
 
   // Bottom bar now only needs to hold the logo circle (no CTA text left to
   // size it against) — a fixed height comfortably fits the r=30 circle.
   const ctaBarHeight = 130
 
   const svg = `
-    <rect x="0" y="0" width="${CANVAS_WIDTH}" height="${CANVAS_HEIGHT}" fill="#000000" fill-opacity="${scrimStrength(style, 0.38)}"/>
-    ${backingPanel(style, SAFE_X - 20, startY - fontSize * 0.75 - 28, SAFE_TEXT_WIDTH + 40, blockHeight + 56)}
-    <text x="90" y="${startY - blockHeight - 20}" font-family="PostFont, sans-serif" font-weight="900" font-size="220" fill="${theme.secondary}" fill-opacity="0.5">&#8220;</text>
+    <rect x="0" y="0" width="${CANVAS_WIDTH}" height="${CANVAS_HEIGHT}" fill="${roles.scrim}" fill-opacity="${scrimOpacity(roles, scrimStrength(style, 0.38))}"/>
+    ${backingPanel(style, roles, SAFE_X - 20, startY - fontSize * 0.75 - 28, SAFE_TEXT_WIDTH + 40, blockHeight + 56)}
+    <text x="90" y="${startY - blockHeight - 20}" font-family="PostFont, sans-serif" font-weight="900" font-size="220" fill="${ensureContrast(roles.pop, roles.scrim, AA_GRAPHIC)}" fill-opacity="0.6">&#8220;</text>
     ${textSvg}
-    <rect x="0" y="${CANVAS_HEIGHT - ctaBarHeight}" width="${CANVAS_WIDTH}" height="${ctaBarHeight}" fill="#000000" fill-opacity="0.3"/>
+    <rect x="0" y="${CANVAS_HEIGHT - ctaBarHeight}" width="${CANVAS_WIDTH}" height="${ctaBarHeight}" fill="${roles.scrim}" fill-opacity="${scrimOpacity(roles, 0.3)}"/>
     ${hasLogo ? `<circle cx="${CANVAS_WIDTH / 2}" cy="${CANVAS_HEIGHT - 65}" r="30" fill="#ffffff" fill-opacity="0.9"/>` : ""}
   `
   return { svg, logoBox: { x: CANVAS_WIDTH / 2 - 30, y: CANVAS_HEIGHT - 95, size: 60 }, overflow }
 }
 
 function buildMinimal(captionText: string, theme: ColorTheme, font: fontkit.Font, hasLogo: boolean, scale: number, style: TextStyle | null): OverlayResult {
+  const roles = paletteRoles(theme.palette)
   const padX = 70
   const { lines, fontSize, lineHeight, blockHeight, overflow } = fitText(font, captionText.toUpperCase(), {
     startFontSize: 54 * scale,
@@ -372,12 +384,12 @@ function buildMinimal(captionText: string, theme: ColorTheme, font: fontkit.Font
   const boxY = CANVAS_HEIGHT - boxHeight
 
   const textSvg = lines
-    .map((line, i) => textEl(`${padX}`, boxY + textFirstBaseline + i * lineHeight, "start", fontSize, line))
+    .map((line, i) => textEl(`${padX}`, boxY + textFirstBaseline + i * lineHeight, "start", fontSize, line, roles))
     .join("")
 
   const svg = `
-    <rect x="0" y="${boxY}" width="${CANVAS_WIDTH}" height="${boxHeight}" fill="#000000" fill-opacity="${style?.needs_backing ? Math.max(BACKING_OPACITY, style.scrim_opacity) : scrimStrength(style, 0.42, 0.42)}"/>
-    <rect x="${padX}" y="${boxY + topPad}" width="52" height="${barHeight}" fill="${theme.primary}"/>
+    <rect x="0" y="${boxY}" width="${CANVAS_WIDTH}" height="${boxHeight}" fill="${roles.scrim}" fill-opacity="${scrimOpacity(roles, style?.needs_backing ? Math.max(BACKING_OPACITY, style.scrim_opacity) : scrimStrength(style, 0.42, 0.42))}"/>
+    <rect x="${padX}" y="${boxY + topPad}" width="52" height="${barHeight}" fill="${ensureContrast(theme.palette.accent, roles.scrim, AA_GRAPHIC)}"/>
     ${textSvg}
     ${hasLogo ? `<rect x="${CANVAS_WIDTH - SAFE_X - 70}" y="${SAFE_X}" width="70" height="70" rx="12" fill="#ffffff" fill-opacity="0.9"/>` : ""}
   `
@@ -393,12 +405,9 @@ function buildMinimal(captionText: string, theme: ColorTheme, font: fontkit.Font
 // closing line. Deliberately does NOT attempt the reference format's
 // decorative illustrated sticky-note graphic -- that's a hand-designed
 // asset, out of scope here. The substance of why this format works is the
-// typography/spacing/list legibility, not the decoration.
-const CHECKLIST_BG_COLOR = "#F7F1E7"
-const CHECKLIST_INK_COLOR = "#1A1A1A"
-const CHECKLIST_WRONG_COLOR = "#DC2626"
-const CHECKLIST_RIGHT_COLOR = "#16A34A"
-const CHECKLIST_MUTED_COLOR = "#57534E"
+// typography/spacing/list legibility, not the decoration. Colours come from
+// the brand palette: base background, deep ink, pop highlight stripe, and
+// red / green marks in the tones that sit best with it (paletteRoles).
 
 interface HardTruthChecklistContent {
   headline: string
@@ -419,16 +428,16 @@ function checklistTextEl(x: number, y: number, anchor: string, fontSize: number,
 // characters themselves risks the identical tofu-box failure that fix
 // exists to prevent. A vector mark renders correctly regardless of what
 // the font supports.
-function xMarkSvg(cx: number, cy: number, size: number): string {
+function xMarkSvg(cx: number, cy: number, size: number, color: string): string {
   const r = size / 2
   const strokeWidth = Math.max(3, size * 0.18)
-  return `<line x1="${cx - r}" y1="${cy - r}" x2="${cx + r}" y2="${cy + r}" stroke="${CHECKLIST_WRONG_COLOR}" stroke-width="${strokeWidth}" stroke-linecap="round"/><line x1="${cx + r}" y1="${cy - r}" x2="${cx - r}" y2="${cy + r}" stroke="${CHECKLIST_WRONG_COLOR}" stroke-width="${strokeWidth}" stroke-linecap="round"/>`
+  return `<line x1="${cx - r}" y1="${cy - r}" x2="${cx + r}" y2="${cy + r}" stroke="${color}" stroke-width="${strokeWidth}" stroke-linecap="round"/><line x1="${cx + r}" y1="${cy - r}" x2="${cx - r}" y2="${cy + r}" stroke="${color}" stroke-width="${strokeWidth}" stroke-linecap="round"/>`
 }
 
-function checkMarkSvg(cx: number, cy: number, size: number): string {
+function checkMarkSvg(cx: number, cy: number, size: number, color: string): string {
   const r = size / 2
   const strokeWidth = Math.max(3, size * 0.18)
-  return `<polyline points="${cx - r},${cy} ${cx - r * 0.15},${cy + r * 0.75} ${cx + r},${cy - r * 0.6}" fill="none" stroke="${CHECKLIST_RIGHT_COLOR}" stroke-width="${strokeWidth}" stroke-linecap="round" stroke-linejoin="round"/>`
+  return `<polyline points="${cx - r},${cy} ${cx - r * 0.15},${cy + r * 0.75} ${cx + r},${cy - r * 0.6}" fill="none" stroke="${color}" stroke-width="${strokeWidth}" stroke-linecap="round" stroke-linejoin="round"/>`
 }
 
 // Renders a ✗/✓ list -- each item wrapped independently (a long item wraps
@@ -441,7 +450,8 @@ function buildMarkedList(
   font: fontkit.Font,
   fontSize: number,
   maxWidthPx: number,
-  startY: number
+  startY: number,
+  ink: string
 ): { svg: string; endY: number } {
   const lineHeight = fontSize * 1.35
   const markerGap = fontSize * 1.5
@@ -455,7 +465,7 @@ function buildMarkedList(
     for (let i = 0; i < wrapped.length; i++) {
       const baselineY = cursorY + fontSize * 0.85
       if (i === 0) parts.push(markSvg(0, baselineY - fontSize * 0.32, markSize))
-      parts.push(checklistTextEl(markerGap, baselineY, "start", fontSize, wrapped[i]!, CHECKLIST_INK_COLOR, 500))
+      parts.push(checklistTextEl(markerGap, baselineY, "start", fontSize, wrapped[i]!, ink, 500))
       cursorY += lineHeight
     }
     cursorY += itemGap
@@ -464,6 +474,7 @@ function buildMarkedList(
 }
 
 function buildHardTruthChecklist(content: HardTruthChecklistContent, theme: ColorTheme, font: fontkit.Font, hasLogo: boolean, scale: number): OverlayResult {
+  const roles = paletteRoles(theme.palette)
   const padX = 90
   const maxTextWidth = CANVAS_WIDTH - padX * 2
 
@@ -497,22 +508,21 @@ function buildHardTruthChecklist(content: HardTruthChecklistContent, theme: Colo
       const matchWidth = measureTextWidth(font, match, headlineFontSize)
       const lineStartX = CANVAS_WIDTH / 2 - lineWidth / 2
       const boxPad = 8
-      // A translucent highlighter-marker stripe behind the text, not a
-      // recolored/re-weighted tspan -- keeps the headline's own text color
-      // uniform and avoids computing contrast against an arbitrary brand
-      // accent color.
-      highlightRects.push(
-        `<rect x="${lineStartX + beforeWidth - boxPad}" y="${y - headlineFontSize * 0.82}" width="${matchWidth + boxPad * 2}" height="${headlineFontSize * 1.08}" rx="8" fill="${theme.primary}" fill-opacity="0.3"/>`
+      // A translucent pop highlighter stripe behind the text, not a
+      // recolored/re-weighted tspan -- keeps the headline's ink uniform; its
+      // opacity is the strongest that keeps the ink >= 4.5:1 over it.
+      if (roles.stripeOpacity > 0) highlightRects.push(
+        `<rect x="${lineStartX + beforeWidth - boxPad}" y="${y - headlineFontSize * 0.82}" width="${matchWidth + boxPad * 2}" height="${headlineFontSize * 1.08}" rx="8" fill="${roles.pop}" fill-opacity="${roles.stripeOpacity}"/>`
       )
     }
-    return checklistTextEl(CANVAS_WIDTH / 2, y, "middle", headlineFontSize, line, CHECKLIST_INK_COLOR, 800)
+    return checklistTextEl(CANVAS_WIDTH / 2, y, "middle", headlineFontSize, line, roles.ink, 800)
   }).join("")
 
   const headlineBottom = headlineStartY + (headlineLines.length - 1) * headlineLineHeight + headlineFontSize * 0.6
 
   const listFontSize = Math.round(36 * scale)
-  const wrongResult = buildMarkedList(content.wrongItems.slice(0, 3), xMarkSvg, font, listFontSize, maxTextWidth, headlineBottom + 56)
-  const rightResult = buildMarkedList(content.rightItems.slice(0, 3), checkMarkSvg, font, listFontSize, maxTextWidth, wrongResult.endY + 44)
+  const wrongResult = buildMarkedList(content.wrongItems.slice(0, 3), (cx, cy, size) => xMarkSvg(cx, cy, size, roles.wrong), font, listFontSize, maxTextWidth, headlineBottom + 56, roles.ink)
+  const rightResult = buildMarkedList(content.rightItems.slice(0, 3), (cx, cy, size) => checkMarkSvg(cx, cy, size, roles.right), font, listFontSize, maxTextWidth, wrongResult.endY + 44, roles.ink)
 
   const closingFontSize = Math.round(30 * scale)
   const closingText = content.closingLine?.trim() ?? ""
@@ -526,17 +536,17 @@ function buildHardTruthChecklist(content: HardTruthChecklistContent, theme: Colo
   const closingBlockY = CANVAS_HEIGHT - 130
   const dividerY = closingBlockY - closingFontSize * 1.8
   const closingSvg = closingFit
-    ? closingFit.lines.map((line, i) => checklistTextEl(CANVAS_WIDTH / 2, closingBlockY + i * closingFit.lineHeight, "middle", closingFit.fontSize, line, CHECKLIST_MUTED_COLOR, 600)).join("")
+    ? closingFit.lines.map((line, i) => checklistTextEl(CANVAS_WIDTH / 2, closingBlockY + i * closingFit.lineHeight, "middle", closingFit.fontSize, line, roles.inkMuted, 600)).join("")
     : ""
 
   const svg = `
-    <rect x="0" y="0" width="${CANVAS_WIDTH}" height="${CANVAS_HEIGHT}" fill="${CHECKLIST_BG_COLOR}"/>
+    <rect x="0" y="0" width="${CANVAS_WIDTH}" height="${CANVAS_HEIGHT}" fill="${theme.palette.base}"/>
     ${highlightRects.join("")}
     ${headlineText}
     <g transform="translate(${padX}, 0)">${wrongResult.svg}${rightResult.svg}</g>
-    ${closingText ? `<line x1="${padX}" y1="${dividerY}" x2="${CANVAS_WIDTH - padX}" y2="${dividerY}" stroke="${CHECKLIST_INK_COLOR}" stroke-opacity="0.15" stroke-width="2"/>` : ""}
+    ${closingText ? `<line x1="${padX}" y1="${dividerY}" x2="${CANVAS_WIDTH - padX}" y2="${dividerY}" stroke="${roles.ink}" stroke-opacity="0.15" stroke-width="2"/>` : ""}
     ${closingSvg}
-    ${hasLogo ? `<rect x="${CANVAS_WIDTH - SAFE_X - 70}" y="${SAFE_X}" width="70" height="70" rx="12" fill="#ffffff" stroke="${CHECKLIST_INK_COLOR}" stroke-opacity="0.1" stroke-width="1"/>` : ""}
+    ${hasLogo ? `<rect x="${CANVAS_WIDTH - SAFE_X - 70}" y="${SAFE_X}" width="70" height="70" rx="12" fill="#ffffff" stroke="${roles.ink}" stroke-opacity="0.1" stroke-width="1"/>` : ""}
   `
   return { svg, logoBox: { x: CANVAS_WIDTH - SAFE_X - 62, y: SAFE_X + 8, size: 54 }, overflow: headlineOverflow || !!closingFit?.overflow }
 }
@@ -763,10 +773,13 @@ async function compositeLayoutPost(baseImageBuffer: Buffer, options: CompositePo
   const style = options.textStyle ?? null
   const plan = singleImagePlan({
     text_layout: options.textLayout, kicker: options.kicker, highlight: options.highlight, offer: options.offer,
-    headline: options.captionText.trim(), fonts: { heading, body }, textStyle: style, brandColor: options.colorTheme.primary, scale: options.textSizeScale ?? 1,
+    headline: options.captionText.trim(), fonts: { heading, body }, textStyle: style, brandColor: options.colorTheme.primary, palette: options.colorTheme.palette, scale: options.textSizeScale ?? 1,
   }, CANVAS_WIDTH, CANVAS_HEIGHT)
+  // Deep-tinted (base-tinted under dark text) instead of black / white.
+  const roles = paletteRoles(options.colorTheme.palette)
+  const tint = style?.text_color === "dark" ? roles.lightScrim : roles.scrim
   const scrim = plan.fullScrim
-    ? style ? `<rect width="${CANVAS_WIDTH}" height="${CANVAS_HEIGHT}" fill="${style.text_color === "light" ? "#000000" : "#ffffff"}" fill-opacity="${style.scrim_opacity}"/>` : `<rect width="${CANVAS_WIDTH}" height="${CANVAS_HEIGHT}" fill="#000000" fill-opacity="0.35"/>`
+    ? `<rect width="${CANVAS_WIDTH}" height="${CANVAS_HEIGHT}" fill="${tint}" fill-opacity="${tintedScrimOpacity(style ? style.scrim_opacity : 0.35, tint, style?.text_color ?? "light")}"/>`
     : ""
   const hasLogo = !!options.logoUrl
   const logoBox = hasLogo ? { x: CANVAS_WIDTH - SAFE_X - 62, y: SAFE_X + 8, size: 54 } : null

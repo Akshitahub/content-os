@@ -16,7 +16,9 @@
  */
 import { z } from "zod"
 import { DEFAULT_FONT_ID, type FontId } from "./fonts"
-import { TEXT_STYLE_PALETTE, backingRgba, type TextStyle } from "./text-style"
+import { TEXT_STYLE_PALETTE, BACKING_OPACITY, backingRgba, type TextStyle } from "./text-style"
+import { NEUTRAL_PALETTE, paletteFromColors, paletteRoles, resolvePresetForPalette, type BrandPalette } from "./color-themes"
+import { AA_BODY, AA_GRAPHIC, bestContrast, ensureContrast, hexContrast, mixHex, parseHex, tintedScrimOpacity } from "@/lib/image/text-contrast"
 import { wrapWords } from "./slide-text-layout"
 import { sanitizeTextForCompositing } from "@/lib/image/sanitize-text-for-compositing"
 
@@ -237,6 +239,10 @@ export interface PlanOptions {
   /** Overrides the text colour (story custom_text_color). */
   textColorOverride?: string | null
   brandColor?: string | null
+  /** The brand's 4-role palette (lib/design/color-themes.ts): card / panel /
+   * backing fills and every accent (highlight, number, quote mark, rule,
+   * dot, badge) come from it. Absent = the neutral palette. */
+  palette?: BrandPalette | null
   scale?: number | null
   /** Where the block sits vertically (story text_position, Ad Maker textPosition). */
   position?: "top" | "center" | "bottom" | null
@@ -268,11 +274,19 @@ function contrast(a: number, b: number): number {
   return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05)
 }
 
-/** The brand colour when it reads against the backdrop (>= 3:1), else a safe default. */
-function accentFor(backdropL: number, brandColor?: string | null): string {
-  const brandL = brandColor ? luminance(brandColor) : null
-  if (brandL != null && contrast(brandL, backdropL) >= 3) return brandColor!
-  return backdropL < 0.3 ? "#FCD34D" : "#6D28D9"
+/** Highlights / numbers / dots: the palette's pop when it reads against the
+ * backdrop (>= 3:1), then its accent, else pop pushed until it does. */
+function accentFor(backdropL: number, palette: BrandPalette): string {
+  for (const c of [palette.pop, palette.accent]) {
+    const L = luminance(c)
+    if (L != null && contrast(L, backdropL) >= AA_GRAPHIC) return c
+  }
+  return ensureContrast(palette.pop, backdropL < 0.3 ? "#111111" : "#f5f5f5", AA_GRAPHIC)
+}
+
+function rgba(hex: string, alpha: number): string {
+  const rgb = parseHex(hex) ?? [0, 0, 0]
+  return `rgba(${rgb[0]},${rgb[1]},${rgb[2]},${alpha})`
 }
 
 type ElementKind = "kicker" | "rule" | "number" | "quote_mark" | "headline" | "subtext" | "points" | "cta" | "handle" | "badge"
@@ -467,26 +481,33 @@ export function planTextLayout(rawOpts: PlanOptions): LayoutPlan {
   const top = blockTop(frame, height)
   const prims: LayoutPrim[] = []
 
-  // ── Colours: card/panel layouts carry their own backing; the rest follow text_style.
+  // ── Colours: card/panel layouts carry their own backing; the rest follow
+  // text_style. Fills come from the brand palette's roles (deep-tinted dark
+  // card / backing, base light card, accent split panel), every text /
+  // backdrop pair checked by lib/image/text-contrast.ts.
   const style = opts.textStyle ?? null
+  // No palette (content saved before palettes): one derived from the slide's brand colour.
+  const pal = opts.palette ?? (opts.brandColor && hexToRgb(opts.brandColor) ? paletteFromColors(opts.brandColor) : NEUTRAL_PALETTE)
+  const roles = paletteRoles(pal)
   let textColor: string
   let subColor: string
   let backdropL: number
   let fullScrim = true
   if (layout === "bottom_card") {
     const lightCard = style?.text_color === "dark" || (!style && !!opts.baseColors && (luminance(opts.baseColors.text) ?? 1) < 0.2)
-    textColor = lightCard ? "#111827" : "#ffffff"
-    subColor = lightCard ? "rgba(17,24,39,0.82)" : "rgba(255,255,255,0.86)"
-    backdropL = lightCard ? 0.9 : 0.02
+    const card = lightCard ? pal.base : roles.scrim
+    textColor = lightCard ? roles.ink : roles.onImage
+    subColor = ensureContrast(mixHex(textColor, card, 0.18), card, AA_BODY)
+    backdropL = luminance(card) ?? (lightCard ? 0.9 : 0.02)
     fullScrim = false
     const pad = W * 0.06
-    prims.push({ kind: "rect", x: frame.x - pad, y: top - pad, w: frame.w + 2 * pad, h: height + 2 * pad, r: W * 0.035, fill: lightCard ? "rgba(255,255,255,0.92)" : "rgba(17,17,17,0.82)" })
+    prims.push({ kind: "rect", x: frame.x - pad, y: top - pad, w: frame.w + 2 * pad, h: height + 2 * pad, r: W * 0.035, fill: rgba(card, lightCard ? 0.92 : tintedScrimOpacity(0.82, card, "light")) })
   } else if (layout === "split_panel") {
-    const panel = opts.brandColor && hexToRgb(opts.brandColor) ? opts.brandColor : "#1F2937"
+    // A strip: the accent, or deep when accent can't carry its text.
+    const panel = roles.band
     backdropL = luminance(panel) ?? 0.02
-    const darkText = backdropL > 0.4
-    textColor = darkText ? "#111827" : "#ffffff"
-    subColor = darkText ? "rgba(17,24,39,0.82)" : "rgba(255,255,255,0.86)"
+    textColor = roles.bandText
+    subColor = ensureContrast(mixHex(textColor, panel, 0.18), panel, AA_BODY)
     fullScrim = false
     if (H / W > 1.5) prims.push({ kind: "rect", x: 0, y: H * 0.6, w: W, h: H * 0.4, r: 0, fill: panel })
     else prims.push({ kind: "rect", x: 0, y: 0, w: W * 0.46, h: H, r: 0, fill: panel })
@@ -501,14 +522,17 @@ export function planTextLayout(rawOpts: PlanOptions): LayoutPlan {
         ? Math.min(frame.w, Math.max(...els.flatMap((e) => e.lines.flat().map((l) => l.length * e.px * GLYPH_RATIO[opts.fonts[e.font]] * (e.upper ? UPPER_FACTOR : 1)))))
         : frame.w
       const x = frame.align === "middle" ? frame.x + frame.w / 2 - widest / 2 : frame.x
-      prims.push({ kind: "rect", x: x - pad, y: top - pad, w: widest + 2 * pad, h: height + 2 * pad, r: W * 0.03, fill: backingRgba(style) })
+      // Deep-tinted under light text, base-tinted under dark (same strength as the black / white panel).
+      const tint = style.text_color === "light" ? roles.scrim : roles.lightScrim
+      const fill = opts.palette ? rgba(tint, tintedScrimOpacity(BACKING_OPACITY, tint, style.text_color)) : backingRgba(style)
+      prims.push({ kind: "rect", x: x - pad, y: top - pad, w: widest + 2 * pad, h: height + 2 * pad, r: W * 0.03, fill })
       backdropL = style.text_color === "light" ? 0.03 : 0.9
     }
   }
   if (opts.textColorOverride) { textColor = opts.textColorOverride; subColor = opts.textColorOverride }
   const accent = layout === "split_panel"
-    ? (contrast(luminance("#FCD34D")!, backdropL) >= 3 ? "#FCD34D" : contrast(luminance("#6D28D9")!, backdropL) >= 3 ? "#6D28D9" : textColor)
-    : accentFor(backdropL, opts.brandColor)
+    ? (hexContrast(pal.pop, roles.band) >= AA_GRAPHIC ? pal.pop : textColor)
+    : accentFor(backdropL, pal)
   const colorOf = (c: ElementSpec["color"]) => (c === "accent" ? accent : c === "sub" ? subColor : textColor)
 
   // ── Highlight range inside the (whitespace-normalized) headline.
@@ -536,9 +560,8 @@ export function planTextLayout(rawOpts: PlanOptions): LayoutPlan {
       const bw = textW + padX * 2
       const bh = el.height
       const bx = frame.align === "middle" ? x - bw / 2 : x
-      const pillL = luminance(accent) ?? 0.5
       prims.push({ kind: "rect", x: bx, y: cursor, w: bw, h: bh, r: bh / 2, fill: accent })
-      const pillText = pillL > 0.4 ? "#111827" : "#ffffff"
+      const pillText = ensureContrast(bestContrast(accent, ["#ffffff", roles.ink]), accent, AA_BODY)
       lines.forEach((l, i) => prims.push({ kind: "text", x: frame.align === "middle" ? x : bx + padX, y: cursor + el.px * 0.55 + i * lineH + el.px * 0.82, size: el.px, weight: el.weight, font: el.font, anchor: frame.align, spacing: (el.spacing ?? 0) * el.px, runs: [{ text: l, color: pillText }] }))
       cursor += el.height
       continue
@@ -608,9 +631,13 @@ export const STORY_PRESET_TEXT: Record<string, { text: string; sub: string }> = 
 
 const WHITE_ON_SCRIM = { text: "#ffffff", sub: "rgba(255,255,255,0.7)" }
 
-/** A photo / custom colour gets white-on-scrim; a named preset its own pairing. */
-export function presetBaseColors(map: Record<string, { text: string; sub: string }>, preset: string | null | undefined, onPhotoOrCustom: boolean, fallbackPreset: string) {
-  return onPhotoOrCustom ? WHITE_ON_SCRIM : map[preset ?? ""] ?? map[fallbackPreset]!
+/** A photo / custom colour gets white-on-scrim; a named preset its own pairing
+ * (a brand preset -- or an old one mapped to it -- from the palette). */
+export function presetBaseColors(map: Record<string, { text: string; sub: string }>, preset: string | null | undefined, onPhotoOrCustom: boolean, fallbackPreset: string, palette?: BrandPalette | null) {
+  if (onPhotoOrCustom) return WHITE_ON_SCRIM
+  const brand = resolvePresetForPalette(preset, palette)
+  if (brand) return { text: brand.text, sub: brand.sub }
+  return map[preset ?? ""] ?? map[fallbackPreset]!
 }
 
 /** 1-based number of each content slide (null for cover/cta) -- the numbered layout's step. */
@@ -680,6 +707,7 @@ export interface CarouselLayoutSlide extends TextLayoutFields {
   text_size_scale?: number | null
   text_style?: TextStyle | null
   accent_color?: string | null
+  palette?: BrandPalette | null
 }
 
 /** The plan a layout slide renders from -- carousel compositor and CarouselBuilder's preview alike. */
@@ -691,8 +719,9 @@ export function carouselSlidePlan(slide: CarouselLayoutSlide, stepNumber: number
     content: carouselLayoutContent(slide, stepNumber),
     fonts: { heading, body: slide.body_font_id ?? heading },
     textStyle: hasPhoto ? slide.text_style ?? null : null,
-    baseColors: presetBaseColors(CAROUSEL_PRESET_TEXT, slide.background_style, hasPhoto || !!slide.custom_background_colors?.filter(Boolean).length, "gradient_dark"),
+    baseColors: presetBaseColors(CAROUSEL_PRESET_TEXT, slide.background_style, hasPhoto || !!slide.custom_background_colors?.filter(Boolean).length, "gradient_dark", slide.palette),
     brandColor: slide.accent_color ?? null,
+    palette: slide.palette ?? null,
     scale: slide.text_size_scale ?? 1,
     // Clear of the brand line on the bottom safe edge.
     reserveBottom: 50,
@@ -714,6 +743,7 @@ export interface StoryLayoutFrame extends TextLayoutFields {
   text_size_scale?: number | null
   text_style?: TextStyle | null
   accent_color?: string | null
+  palette?: BrandPalette | null
 }
 
 /** The plan a layout frame renders from -- story compositor and StorySequence's preview alike. */
@@ -725,9 +755,10 @@ export function storyFramePlan(frame: StoryLayoutFrame, stepNumber: number | nul
     content: storyLayoutContent(frame, stepNumber),
     fonts: { heading, body: frame.body_font_id ?? heading },
     textStyle: hasPhoto ? frame.text_style ?? null : null,
-    baseColors: presetBaseColors(STORY_PRESET_TEXT, frame.background, hasPhoto || !!frame.custom_background_colors?.filter(Boolean).length, "gradient_violet"),
+    baseColors: presetBaseColors(STORY_PRESET_TEXT, frame.background, hasPhoto || !!frame.custom_background_colors?.filter(Boolean).length, "gradient_violet", frame.palette),
     textColorOverride: frame.custom_text_color ?? null,
     brandColor: frame.accent_color ?? null,
+    palette: frame.palette ?? null,
     scale: frame.text_size_scale ?? 1,
     position: frame.text_position ?? null,
     // Instagram's own top/bottom chrome (story-compositor's SAFE_ZONE).
@@ -744,6 +775,7 @@ export interface SingleLayoutInput extends TextLayoutFields {
   fonts: { heading: FontId; body: FontId }
   textStyle?: TextStyle | null
   brandColor?: string | null
+  palette?: BrandPalette | null
   position?: "top" | "center" | "bottom" | null
   scale?: number | null
   /** Space kept clear at the bottom (Ad Maker's handle line). */
@@ -762,6 +794,7 @@ export function singleImagePlan(input: SingleLayoutInput, width: number, height:
     fonts: input.fonts,
     textStyle: input.textStyle ?? null,
     brandColor: input.brandColor ?? null,
+    palette: input.palette ?? null,
     position: input.position ?? null,
     scale: input.scale ?? 1,
     textColorOverride: input.textColorOverride ?? null,

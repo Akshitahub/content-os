@@ -131,7 +131,7 @@ function NotAvailable() {
   )
 }
 
-function SlideVisual({ slide, aspectRatio }: { slide: ResolvedShareContent["slides"][number]; aspectRatio: "4:5" | "9:16" }) {
+function SlideVisual({ slide, aspectRatio, palette }: { slide: ResolvedShareContent["slides"][number]; aspectRatio: "4:5" | "9:16"; palette: ResolvedShareContent["brandPalette"] }) {
   const aspectClass = aspectRatio === "9:16" ? "aspect-[9/16]" : "aspect-[4/5]"
   if (slide.imageUrl) {
     return (
@@ -148,11 +148,11 @@ function SlideVisual({ slide, aspectRatio }: { slide: ResolvedShareContent["slid
   const custom = slide.customBackgroundColors?.length
     ? { background: slide.customBackgroundColors.length === 1 ? slide.customBackgroundColors[0] : `linear-gradient(135deg, ${slide.customBackgroundColors.join(", ")})` }
     : undefined
-  const fallback = resolveCarouselBgStyle(slide.backgroundStyle)
+  const fallback = resolveCarouselBgStyle(slide.backgroundStyle, palette)
   return (
     <div
       className={`flex w-full ${aspectClass} shrink-0 items-center justify-center rounded-xl ${custom ? "" : fallback.bg}`}
-      style={custom}
+      style={custom ?? fallback.style}
     />
   )
 }
@@ -179,7 +179,7 @@ function PreviewBody({ content }: { content: ResolvedShareContent }) {
           <div className="mb-4 -mx-4 flex gap-3 overflow-x-auto px-4 pb-1 sm:mx-0 sm:px-0">
             {content.slides.map((slide, i) => (
               <div key={i} className="w-[85%] shrink-0 sm:w-full">
-                <SlideVisual slide={slide} aspectRatio={content.aspectRatio} />
+                <SlideVisual slide={slide} aspectRatio={content.aspectRatio} palette={content.brandPalette} />
               </div>
             ))}
           </div>

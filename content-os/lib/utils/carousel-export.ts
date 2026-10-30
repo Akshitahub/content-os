@@ -13,6 +13,7 @@
 
 import type { TextStyle } from "@/lib/design/text-style"
 import type { TextLayoutId } from "@/lib/design/text-layouts"
+import type { BrandPalette } from "@/lib/design/color-themes"
 
 export interface CarouselExportSlide {
   type: "cover" | "content" | "cta"
@@ -41,6 +42,8 @@ export interface CarouselExportSlide {
   kicker?: string | null
   highlight?: string | null
   accent_color?: string | null
+  /** The brand's 4-role palette (lib/design/color-themes.ts) -- see the compositor's palette. */
+  palette?: BrandPalette | null
   /** Uniform font-size multiplier for this slide -- see
    * CarouselSlideRich.text_size_scale's own comment. */
   text_size_scale?: number | null

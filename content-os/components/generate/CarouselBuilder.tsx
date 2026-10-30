@@ -16,7 +16,9 @@ import { useGenerationStore } from "@/stores/generationStore"
 import { usePromptWriter } from "@/hooks/usePromptWriter"
 import { PromptWriterField } from "@/components/generate/PromptWriterField"
 import { CAROUSEL as CAROUSEL_CREDIT_COST, CAROUSEL_SLIDE_AI_BACKGROUND } from "@/lib/usage/credit-costs"
-import { CAROUSEL_BG_STYLES, type CarouselBackgroundStyle } from "@/lib/design/carousel-slide-styles"
+import { BRAND_PRESET_OPTIONS, resolveCarouselBgStyle, type CarouselBackgroundStyle } from "@/lib/design/carousel-slide-styles"
+import { resolveBrandPalette, scrimGradientCss, styleTintCss, toBrandPreset, type BrandPalette } from "@/lib/design/color-themes"
+import { BACKING_OPACITY } from "@/lib/design/text-style"
 import { cssBackgroundFromColors, ColorWheelPicker } from "@/components/shared/ColorWheelPicker"
 import { useDraggableText, type TextPosition } from "@/components/shared/useDraggableText"
 import { resolveFonts, DEFAULT_FONT_ID, TEXT_SIZE_OPTIONS, DEFAULT_TEXT_SIZE_SCALE } from "@/lib/design/fonts"
@@ -159,7 +161,7 @@ interface GeneratedCarousel {
 // own fields are what's actually in the database, so they're the more
 // trustworthy source here specifically (this function's whole job is
 // producing what gets exported/persisted).
-function toExportSlide(slide: CarouselSlideRich, ctaSlide: CtaSlide | undefined, productImage: string | null): CarouselExportSlide {
+function toExportSlide(slide: CarouselSlideRich, ctaSlide: CtaSlide | undefined, productImage: string | null, palette: BrandPalette | null = null): CarouselExportSlide {
   return {
     type: slide.type,
     headline: slide.headline,
@@ -181,6 +183,8 @@ function toExportSlide(slide: CarouselSlideRich, ctaSlide: CtaSlide | undefined,
     kicker: slide.kicker ?? null,
     highlight: slide.highlight ?? null,
     accent_color: slide.accent_color ?? null,
+    // The brand's 4-role palette: the compositor's presets, scrims and dots.
+    palette,
   }
 }
 
@@ -232,7 +236,7 @@ function withCtaSlideMerged(data: GeneratedCarousel): GeneratedCarousel {
   const ctaSlide: CarouselSlideRich = {
     slide_number: data.slides.length + 1,
     type: "cta",
-    background_style: "gradient_dark",
+    background_style: "brand_deep",
     headline: data.cta_slide.headline,
     // See CarouselSlideRich.cta/.handle's own comment -- these used to be
     // dropped here entirely, so the database's `slides` column (the only
@@ -322,12 +326,15 @@ function SlidePreview({
   backgroundImageUrl,
   onPositionCommit,
   stepNumber = null,
+  palette = null,
 }: {
   /** numbered layout: this content slide's step (carouselStepNumbers). */
   stepNumber?: number | null
   slide: CarouselSlideRich
   ctaSlide?: CtaSlide
   brandName: string
+  /** The brand's 4-role palette (lib/design/color-themes.ts) -- brand presets and scrims. */
+  palette?: BrandPalette | null
   size?: "full" | "thumb"
   isLastSlide?: boolean
   elementId?: string
@@ -347,7 +354,7 @@ function SlidePreview({
    * -- only the interactive handle itself is conditional. */
   onPositionCommit?: (position: TextPosition) => void
 }) {
-  const s = CAROUSEL_BG_STYLES[slide.background_style] ?? CAROUSEL_BG_STYLES.gradient_dark
+  const s = resolveCarouselBgStyle(slide.background_style, palette)
   const isThumb = size === "thumb"
   const isCta = slide.type === "cta" && isLastSlide && ctaSlide
   const hasBg = !!backgroundImageUrl
@@ -384,7 +391,7 @@ function SlidePreview({
   const textColor = textStyle ? (textStyle.text_color === "light" ? "text-white" : "text-gray-900") : hasBg || customBg ? "text-white" : s.text
   const subtextColor = textStyle ? (textStyle.text_color === "light" ? "text-white/85" : "text-gray-900/85") : hasBg || customBg ? "text-white/70" : s.subtext
   // A slide with a text_layout draws the shared plan instead of the blocks below.
-  const layoutPlan = slide.text_layout ? carouselSlidePlan(previewLayoutSlide(slide, ctaSlide), stepNumber, hasBg) : null
+  const layoutPlan = slide.text_layout ? carouselSlidePlan({ ...previewLayoutSlide(slide, ctaSlide), palette }, stepNumber, hasBg) : null
   const layoutFonts = { heading: slide.font_id ?? DEFAULT_FONT_ID, body: slide.body_font_id ?? slide.font_id ?? DEFAULT_FONT_ID }
   const brandPrim = layoutPlan ? carouselBrandPrim(brandName, layoutPlan) : null
 
@@ -401,16 +408,19 @@ function SlidePreview({
         // carousel stay visually uniform at the same ratio.
         isThumb ? "h-20 w-14 shrink-0" : "aspect-[4/5] w-full max-w-md"
       }`}
-      style={hasBg ? { backgroundImage: `url(${backgroundImageUrl})` } : customBg ? { background: customBg } : undefined}
+      style={hasBg ? { backgroundImage: `url(${backgroundImageUrl})` } : customBg ? { background: customBg } : s.style}
     >
       {/* Dark scrim so text stays readable over an AI-generated or custom
        * color/gradient background -- same treatment for both, since a
        * light custom pick (e.g. a pastel gradient) needs it just as much
-       * as a photo does for the white text both use. */}
+       * as a photo does for the white text both use. Tinted with the
+       * palette's deep, as the compositor draws it. */}
       {layoutPlan && !layoutPlan.fullScrim ? null : textStyle ? (
-        <div className="absolute inset-0 z-0" style={{ background: scrimRgba(textStyle) }} />
+        <div className="absolute inset-0 z-0" style={{ background: palette ? styleTintCss(palette, textStyle.text_color, textStyle.scrim_opacity) : scrimRgba(textStyle) }} />
       ) : (hasBg || customBg) && (
-        <div className="absolute inset-0 z-0 bg-gradient-to-t from-black/75 via-black/25 to-black/45" />
+        palette
+          ? <div className="absolute inset-0 z-0" style={{ background: scrimGradientCss(palette) }} />
+          : <div className="absolute inset-0 z-0 bg-gradient-to-t from-black/75 via-black/25 to-black/45" />
       )}
 
       {layoutPlan && (
@@ -476,7 +486,7 @@ function SlidePreview({
           maxWidth: "88%",
           touchAction: "none",
           // Soft panel behind the text over a busy photo (text_style.needs_backing).
-          ...(textStyle?.needs_backing ? { background: backingRgba(textStyle), padding: "10px 14px", borderRadius: 14 } : {}),
+          ...(textStyle?.needs_backing ? { background: palette ? styleTintCss(palette, textStyle.text_color, BACKING_OPACITY) : backingRgba(textStyle), padding: "10px 14px", borderRadius: 14 } : {}),
         }}
       >
         {/* Drag handle -- separate hit target from the text (SlideEditor,
@@ -646,14 +656,12 @@ function SlideEditor({
             </div>
           ) : (
             <select
-              value={slide.background_style}
+              value={toBrandPreset(slide.background_style)}
               onChange={(e) => onChange({ ...slide, background_style: e.target.value as BackgroundStyle })}
               className="mt-2 w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
             >
-              <option value="gradient_dark">Dark Violet</option>
-              <option value="gradient_light">Light Violet</option>
-              <option value="white_violet">White</option>
-              <option value="dark_navy">Dark Navy</option>
+              {/* Built from the brand palette (lib/design/color-themes.ts). */}
+              {BRAND_PRESET_OPTIONS.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
             </select>
           )}
         </div>
@@ -711,6 +719,8 @@ function SlideEditor({
 
 export function CarouselBuilder({ brandId }: { brandId: string }) {
   const { data: brand } = useBrand(brandId)
+  // The brand's 4-role palette: preview and export draw the same colours.
+  const palette = useMemo(() => (brand ? resolveBrandPalette(brand) : null), [brand])
   const { pendingTopic, setPendingTopic, pendingProductId, setPendingProductId } = useGenerationStore()
   const STORAGE_KEY = `carousel_${brandId}`
 
@@ -813,7 +823,7 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
   // Same layout math the compositor uses (lib/design/slide-text-layout.ts):
   // slides whose text only fits at the smallest size, or not at all.
   const overflowSlides = useMemo(
-    () => overflowingSlides(carousel?.slides ?? [], (s) => layoutCarouselText(toExportSlide(s, carousel?.cta_slide, null)).overflow),
+    () => overflowingSlides(carousel?.slides ?? [], (s) => layoutCarouselText(toExportSlide(s, carousel?.cta_slide, null, palette)).overflow),
     [carousel?.slides, carousel?.cta_slide]
   )
   const isLastSlide = activeSlide === allSlides.length - 1
@@ -1363,6 +1373,7 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
                     slide={slide}
                     ctaSlide={carousel.cta_slide}
                     brandName={brand?.name ?? ""}
+                    palette={palette}
                     isLastSlide={i === allSlides.length - 1}
                     stepNumber={stepNumbers[i] ?? null}
                     elementId={`carousel-slide-${i}`}
@@ -1409,6 +1420,7 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
                   slide={currentSlide}
                   ctaSlide={carousel.cta_slide}
                   brandName={brand?.name ?? ""}
+                  palette={palette}
                   isLastSlide={isLastSlide}
                   stepNumber={stepNumbers[activeSlide] ?? null}
                   elementId={`carousel-slide-${activeSlide}`}
@@ -1430,6 +1442,7 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
                       slide={slide}
                       ctaSlide={carousel.cta_slide}
                       brandName={brand?.name ?? ""}
+                      palette={palette}
                       size="thumb"
                       isLastSlide={i === allSlides.length - 1}
                       stepNumber={stepNumbers[i] ?? null}
@@ -1494,13 +1507,13 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
               {/* Action buttons */}
               <div className="flex flex-wrap gap-2">
                 <button
-                  onClick={() => currentSlide && downloadCarouselSlideAsImage(brand?.name ?? "", toExportSlide(currentSlide, carousel.cta_slide, productImage), `carousel-slide-${activeSlide + 1}`)}
+                  onClick={() => currentSlide && downloadCarouselSlideAsImage(brand?.name ?? "", toExportSlide(currentSlide, carousel.cta_slide, productImage, palette), `carousel-slide-${activeSlide + 1}`)}
                   className="flex items-center gap-1.5 rounded-full border border-input px-4 py-2 text-xs font-medium hover:bg-secondary"
                 >
                   <Image className="h-3.5 w-3.5" /> Save slide as PNG
                 </button>
                 <button
-                  onClick={() => downloadCarouselSlidesAsImages(brand?.name ?? "", allSlides.map((s) => toExportSlide(s, carousel.cta_slide, productImage)), "carousel")}
+                  onClick={() => downloadCarouselSlidesAsImages(brand?.name ?? "", allSlides.map((s) => toExportSlide(s, carousel.cta_slide, productImage, palette)), "carousel")}
                   className="flex items-center gap-1.5 rounded-full border border-input px-4 py-2 text-xs font-medium hover:bg-secondary"
                 >
                   <Download className="h-3.5 w-3.5" /> Download all slides
@@ -1529,7 +1542,7 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
 
               <ScheduleAction
                 brandId={brandId}
-                carouselSlides={allSlides.map((s) => toExportSlide(s, carousel.cta_slide, productImage))}
+                carouselSlides={allSlides.map((s) => toExportSlide(s, carousel.cta_slide, productImage, palette))}
                 brandName={brand?.name ?? ""}
                 contentFormat="carousel"
                 itemLabel="slide"

@@ -4,6 +4,7 @@
 // same generator's output instead of a second, drifting copy.
 import type { BrandRow } from "@/types/database"
 import type { CarouselBackgroundStyle } from "@/lib/design/carousel-slide-styles"
+import { toBrandPreset } from "@/lib/design/color-themes"
 import { findContentQualityIssues, normalizeHashtags, sanitizeLeakedArtifacts } from "@/lib/ai/content-quality-check"
 import { resolveTypography, type BrandTypography } from "@/lib/design/fonts"
 import { stampSequenceLayouts } from "@/lib/design/text-layouts"
@@ -163,9 +164,11 @@ export function finishGeneratedCarousel(
   // model's own suggested_vibe from the same JSON response.
   const effectiveVibe = opts.vibe || (d.suggested_vibe as string | undefined)
   const vibeBackground = effectiveVibe ? VIBE_TO_CAROUSEL_BACKGROUND[effectiveVibe] : undefined
-  if (vibeBackground) {
-    slides = slides.map((s) => (s && typeof s === "object" ? { ...s, background_style: vibeBackground } : s))
-  }
+  // New generations only use brand presets (built from the brand palette):
+  // the vibe's (or the model's) pick mapped to the nearest one.
+  slides = slides.map((s) => (s && typeof s === "object"
+    ? { ...s, background_style: toBrandPreset(vibeBackground ?? ((s as Record<string, unknown>).background_style as string | undefined)) }
+    : s))
 
   // Brand-level typography (lib/design/fonts.ts resolveTypography): the
   // same heading/body pair for every carousel, story and post of this

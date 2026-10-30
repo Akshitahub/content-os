@@ -10,7 +10,7 @@ import { GeneratingState } from "@/components/shared/GeneratingState"
 import { UsageLimitBanner } from "@/components/generate/UsageLimitBanner"
 import { DEFAULT_POST_TEMPLATE_ID } from "@/lib/design/post-templates"
 import type { PostTemplateId } from "@/lib/design/post-templates"
-import { resolveColorThemes } from "@/lib/design/color-themes"
+import { autoPickColorTheme, resolveColorThemes } from "@/lib/design/color-themes"
 import { useGenerateFullPost, useGeneratePostImage } from "@/hooks/useGeneration"
 import { POST as POST_CREDIT_COST } from "@/lib/usage/credit-costs"
 import { useGenerationStore } from "@/stores/generationStore"
@@ -164,8 +164,11 @@ export function FullPostGenerator({ brandId, products }: Props) {
   // below and beginImagePromptWriting's own comment.
   const userEditedPromptRef = useRef(false)
 
-  // colorThemes only resolves once the brand has loaded — falls back to the
-  // first available theme (always non-empty, curated presets included).
+  // colorThemes only resolves once the brand has loaded. "Brand colours"
+  // (the brand's 4-role palette) is always first and pre-selected; the
+  // curated palettes are "Other options" (group "other") and are never
+  // auto-picked while the brand has a palette of its own -- see
+  // autoPickColorTheme, which overrides the caption model's suggestion.
   const effectiveColorThemeId = selectedColorThemeId || colorThemes[0]?.id || ""
 
   const runImageGeneration = useCallback((data: FullPostResult, sessionId: string, imagePromptText: string) => {
@@ -204,7 +207,7 @@ export function FullPostGenerator({ brandId, products }: Props) {
         productId: selectedProductId ?? undefined,
         imagePrompt,
         template: (caption.suggested_template as PostTemplateId) || selectedLayout,
-        colorThemeId: caption.suggested_color_theme_id || effectiveColorThemeId,
+        colorThemeId: selectedColorThemeId || autoPickColorTheme(colorThemes, caption.suggested_color_theme_id || effectiveColorThemeId).id,
         captionText: undefined,
         postSessionId: sessionId,
         contentProjectId: data.contentProjectId ?? undefined,
@@ -250,7 +253,7 @@ export function FullPostGenerator({ brandId, products }: Props) {
         },
       }
     )
-  }, [brandId, selectedProductId, selectedLayout, effectiveColorThemeId, aspectRatio, visualStyle, headlineOverlay, generatePostImageMutate, promptWriter, brand?.vibe])
+  }, [brandId, selectedProductId, selectedLayout, effectiveColorThemeId, colorThemes, aspectRatio, visualStyle, headlineOverlay, generatePostImageMutate, promptWriter, brand?.vibe])
 
   // Kicks off the prompt-writing stage instead of generating the image
   // immediately -- fired both right after a fresh caption generation

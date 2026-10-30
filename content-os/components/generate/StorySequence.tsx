@@ -25,7 +25,9 @@ import type { BrandRow } from "@/types/database"
 import Link from "next/link"
 import { readJsonResponse } from "@/lib/utils/read-json-response"
 import { runSlideBackgroundJobs, slideBackgroundErrorForStatus, type SlideBackgroundOutcome } from "@/lib/utils/slide-backgrounds"
-import { backingRgba, scrimRgba, type TextStyle } from "@/lib/design/text-style"
+import { BACKING_OPACITY, backingRgba, scrimRgba, type TextStyle } from "@/lib/design/text-style"
+import { BRAND_PRESET_IDS, brandPreset, cssGradient, resolveBrandPalette, scrimGradientCss, styleTintCss, NEUTRAL_PALETTE, type BrandPalette } from "@/lib/design/color-themes"
+import { brandPresetPreview } from "@/lib/design/carousel-slide-styles"
 import { overflowingSlides, storySlideOverflows } from "@/lib/design/slide-text-layout"
 import { repickSequenceLayouts, storyFramePlan, storyStepNumbers, type TextLayoutId } from "@/lib/design/text-layouts"
 import { TextLayoutOverlay } from "@/components/shared/TextLayoutOverlay"
@@ -57,18 +59,14 @@ const STORY_BG: Record<string, { bg: string; text: string; sub: string }> = {
   checklist_cream:    { bg: "bg-[#F7F1E7] border border-[#E5DDD0]", text: "text-[#1A1A1A]", sub: "text-[#57534E]" },
 }
 
-// Curated preset swatches offered by the inline color picker below — the
-// same 5 flat backgrounds StorySequence can already render, just exposed
-// as a tap target. Picking one is a local re-composite only: it swaps
-// `background` and drops any AI `background_image_url` so the flat color
-// actually shows, with no new generation call.
-const STORY_BG_PRESETS: { key: string; swatch: string; label: string }[] = [
-  { key: "gradient_violet", swatch: "bg-gradient-to-b from-violet-600 to-indigo-700", label: "Violet" },
-  { key: "gradient_pink", swatch: "bg-gradient-to-b from-pink-500 to-red-500", label: "Pink" },
-  { key: "gradient_dark", swatch: "bg-gradient-to-b from-gray-900 to-black", label: "Dark" },
-  { key: "gradient_warm", swatch: "bg-gradient-to-b from-amber-400 to-red-600", label: "Warm" },
-  { key: "white", swatch: "bg-white border border-gray-300", label: "White" },
-]
+// The brand preset swatches offered by the inline color picker below --
+// built from the brand palette (lib/design/color-themes.ts). Picking one is
+// a local re-composite only: it swaps `background` and drops any AI
+// `background_image_url` so the flat color actually shows, with no new
+// generation call.
+const STORY_BG_PRESET_LABELS: Record<(typeof BRAND_PRESET_IDS)[number], string> = {
+  brand_deep: "Brand deep", brand_warm: "Brand warm", brand_light: "Brand light", brand_bold: "Brand bold",
+}
 
 // Shared by the per-slide "PNG" button, "Save all as PNG", and
 // ScheduleAction below — all three need the same slide data handed to the
@@ -77,7 +75,7 @@ const STORY_BG_PRESETS: { key: string; swatch: string; label: string }[] = [
 // time. productImageSource is safe to always pass regardless of slide
 // type — the compositor itself gates whether it's actually used (reveal/
 // cta, or hook for a single-slide sequence), same as the live preview.
-function toExportSlide(story: StorySlide, productImageSource: string | null | undefined): StoryExportSlide {
+function toExportSlide(story: StorySlide, productImageSource: string | null | undefined, palette: BrandPalette | null = null): StoryExportSlide {
   return {
     type: story.type,
     text: story.text,
@@ -110,6 +108,8 @@ function toExportSlide(story: StorySlide, productImageSource: string | null | un
     kicker: story.kicker ?? null,
     highlight: story.highlight ?? null,
     accent_color: story.accent_color ?? null,
+    // The brand's 4-role palette: the compositor's presets, scrims and checklist colours.
+    palette,
   }
 }
 
@@ -256,7 +256,10 @@ function PhoneStory({
   onUpdateSlide,
   stepNumber = null,
   onApplyLayoutToAll,
+  palette = null,
 }: {
+  /** The brand's 4-role palette (lib/design/color-themes.ts) -- brand presets and scrims. */
+  palette?: BrandPalette | null
   /** numbered layout: this frame's step (storyStepNumbers). */
   stepNumber?: number | null
   onApplyLayoutToAll?: (layout: TextLayoutId) => void
@@ -277,7 +280,10 @@ function PhoneStory({
   const frameRef = useRef<HTMLDivElement>(null)
   const textBlockRef = useRef<HTMLDivElement>(null)
   const productBlockRef = useRef<HTMLDivElement>(null)
-  const s = STORY_BG[story.background] ?? STORY_BG.gradient_violet
+  // A brand preset (or an old id mapped onto one) from the palette; the old
+  // classes only for a saved story with nothing to map onto.
+  const brandBg = brandPresetPreview(story.background, palette, "to bottom")
+  const s = brandBg ? { bg: "", text: brandBg.text, sub: brandBg.subtext } : STORY_BG[story.background] ?? STORY_BG.gradient_dark
   const elementId = `story-card-${index}`
   const hasBg = !!story.background_image_url
   // "Custom color" mode (see VibePicker/ColorWheelPicker in the main
@@ -318,7 +324,7 @@ function PhoneStory({
   // same one the compositor renders) instead of the editable block below;
   // checklist frames keep their own design.
   const isChecklist = !!story.checklist_highlighted_phrase || (!!story.checklist_wrong_item && !!story.checklist_right_item)
-  const layoutPlan = story.text_layout && !isChecklist ? storyFramePlan(story, stepNumber, hasBg) : null
+  const layoutPlan = story.text_layout && !isChecklist ? storyFramePlan({ ...story, palette }, stepNumber, hasBg) : null
   const layoutFonts = { heading: story.font_id ?? DEFAULT_FONT_ID, body: story.body_font_id ?? story.font_id ?? DEFAULT_FONT_ID }
   // Exact user-picked hex, applied as an inline style (not a Tailwind
   // class -- it's an arbitrary value) so it overrides textColor/subColor
@@ -406,14 +412,17 @@ function PhoneStory({
       >
         <div
           className={`flex h-full flex-col relative bg-cover bg-center ${hasBg || customBg ? "" : s.bg}`}
-          style={hasBg ? { backgroundImage: `url(${story.background_image_url})` } : customBg ? { background: customBg } : undefined}
+          style={hasBg ? { backgroundImage: `url(${story.background_image_url})` } : customBg ? { background: customBg } : brandBg?.style}
         >
           {/* Dark scrim so text stays readable over an AI-generated or
-           * custom color/gradient background. */}
+           * custom color/gradient background -- deep-tinted, as the
+           * compositor draws it. */}
           {layoutPlan && !layoutPlan.fullScrim ? null : textStyle ? (
-            <div className="absolute inset-0 z-0" style={{ background: scrimRgba(textStyle) }} />
+            <div className="absolute inset-0 z-0" style={{ background: palette ? styleTintCss(palette, textStyle.text_color, textStyle.scrim_opacity) : scrimRgba(textStyle) }} />
           ) : (hasBg || customBg) && (
-            <div className="absolute inset-0 z-0 bg-gradient-to-t from-black/75 via-black/25 to-black/45" />
+            palette
+              ? <div className="absolute inset-0 z-0" style={{ background: scrimGradientCss(palette) }} />
+              : <div className="absolute inset-0 z-0 bg-gradient-to-t from-black/75 via-black/25 to-black/45" />
           )}
           {layoutPlan && <TextLayoutOverlay prims={layoutPlan.prims} width={1080} height={1920} fonts={layoutFonts} />}
 
@@ -489,7 +498,7 @@ function PhoneStory({
               maxWidth: "88%",
               touchAction: "none",
               // Soft panel behind the text over a busy photo (text_style.needs_backing).
-              ...(textStyle?.needs_backing ? { background: backingRgba(textStyle), borderRadius: 12, paddingBottom: 8 } : {}),
+              ...(textStyle?.needs_backing ? { background: palette ? styleTintCss(palette, textStyle.text_color, BACKING_OPACITY) : backingRgba(textStyle), borderRadius: 12, paddingBottom: 8 } : {}),
             }}
           >
             {/* Drag handle -- deliberately separate from the text itself
@@ -589,7 +598,7 @@ function PhoneStory({
         )}
         <button onClick={async () => {
           setDlErr(false)
-          const ok = await downloadStorySlideAsImage(toExportSlide(story, uploadedImage), `story-${index + 1}`)
+          const ok = await downloadStorySlideAsImage(toExportSlide(story, uploadedImage, palette), `story-${index + 1}`)
           if (!ok) setDlErr(true)
         }}
           className="flex items-center gap-1 rounded-full border px-3 py-1.5 text-[11px] font-medium hover:bg-secondary">
@@ -615,19 +624,20 @@ function PhoneStory({
           <div className="flex flex-col items-center gap-1.5">
             <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Background</p>
             <div className="flex items-center gap-1.5">
-              {STORY_BG_PRESETS.map((preset) => (
+              {BRAND_PRESET_IDS.map((key) => (
                 <button
-                  key={preset.key}
+                  key={key}
                   type="button"
-                  title={preset.label}
-                  onClick={() => onUpdateSlide({ background: preset.key as StorySlide["background"], background_image_url: undefined, custom_background_colors: undefined })}
-                  className={`h-6 w-6 rounded-full ${preset.swatch} transition-transform hover:scale-110 ${story.background === preset.key && !hasBg && !customBg ? "ring-2 ring-offset-2 ring-violet-500" : ""}`}
+                  title={STORY_BG_PRESET_LABELS[key]}
+                  onClick={() => onUpdateSlide({ background: key, background_image_url: undefined, custom_background_colors: undefined })}
+                  className={`h-6 w-6 rounded-full border border-gray-300 transition-transform hover:scale-110 ${story.background === key && !hasBg && !customBg ? "ring-2 ring-offset-2 ring-violet-500" : ""}`}
+                  style={{ background: cssGradient(brandPreset(key, palette ?? NEUTRAL_PALETTE).stops) }}
                 />
               ))}
               <button
                 type="button"
                 title="Custom color"
-                onClick={() => onUpdateSlide({ custom_background_colors: story.custom_background_colors?.length ? story.custom_background_colors : ["#6366F1", "#EC4899"], background_image_url: undefined })}
+                onClick={() => onUpdateSlide({ custom_background_colors: story.custom_background_colors?.length ? story.custom_background_colors : [(palette ?? NEUTRAL_PALETTE).accent, (palette ?? NEUTRAL_PALETTE).pop], background_image_url: undefined })}
                 className={`flex h-6 w-6 items-center justify-center rounded-full border border-black/10 transition-transform hover:scale-110 ${customBg ? "ring-2 ring-offset-2 ring-violet-500" : ""}`}
                 style={{ background: customBg ?? "linear-gradient(135deg, #6366F1, #EC4899)" }}
               >
@@ -754,6 +764,8 @@ export function StorySequence({ brandId }: { brandId: string }) {
   // Only read for its palette (see resolveBrandTextColorPresets) -- the
   // rest of this component never needed brand data before now.
   const { data: brand } = useBrand(brandId)
+  // The brand's 4-role palette: preview and export draw the same colours.
+  const palette = useMemo(() => (brand ? resolveBrandPalette(brand) : null), [brand])
   const brandTextColorPresets = resolveBrandTextColorPresets(brand)
 
   const [topic, setTopic] = useState("")
@@ -1491,7 +1503,7 @@ export function StorySequence({ brandId }: { brandId: string }) {
                   </button>
                   <button onClick={async () => {
                     setSaveAllErr(false)
-                    const exportSlides = stories.map((s, i) => toExportSlide(s, selectedProduct?.imageUrl ?? uploadedImages[i]?.preview))
+                    const exportSlides = stories.map((s, i) => toExportSlide(s, selectedProduct?.imageUrl ?? uploadedImages[i]?.preview, palette))
                     const ok = await downloadStorySlidesAsImages(exportSlides, "story-sequence")
                     if (!ok) setSaveAllErr(true)
                   }}
@@ -1520,6 +1532,7 @@ export function StorySequence({ brandId }: { brandId: string }) {
                     total={stories.length}
                     uploadedImage={selectedProduct?.imageUrl ?? uploadedImages[i]?.preview}
                     brandColors={brandTextColorPresets}
+                    palette={palette}
                     onUpdateSlide={(updates) => updateSlide(i, updates)}
                     stepNumber={storySteps[i] ?? null}
                     onApplyLayoutToAll={(layout) => setStories((prev) => prev.map((st) => (st.text_layout ? { ...st, text_layout: layout, text_layout_source: "user" as const } : st)))}
@@ -1556,7 +1569,7 @@ export function StorySequence({ brandId }: { brandId: string }) {
 
               <ScheduleAction
                 brandId={brandId}
-                storySlides={stories.map((s, i) => toExportSlide(s, selectedProduct?.imageUrl ?? uploadedImages[i]?.preview))}
+                storySlides={stories.map((s, i) => toExportSlide(s, selectedProduct?.imageUrl ?? uploadedImages[i]?.preview, palette))}
                 contentFormat="story"
                 itemLabel="story"
                 caption={storyCaption?.caption_text || stories[0]?.text || ""}

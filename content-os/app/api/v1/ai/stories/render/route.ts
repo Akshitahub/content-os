@@ -6,6 +6,7 @@ import { uploadMediaToStorage } from "@/lib/storage/upload-media"
 import { z } from "zod"
 import { textStyleSchema } from "@/lib/design/text-style"
 import { textLayoutIdSchema } from "@/lib/design/text-layouts"
+import { parsePalette } from "@/lib/design/color-themes"
 
 // Not a generation call -- no checkAndIncrementUsage/credit cost here, same
 // as the DOM-screenshot flow it replaces never charged credits either.
@@ -63,6 +64,8 @@ const slideSchema = z.object({
   kicker: z.string().max(60).nullish(),
   highlight: z.string().max(120).nullish(),
   accent_color: z.string().max(32).nullish(),
+  // The brand's 4-role palette (lib/design/color-themes.ts); validated again by parsePalette.
+  palette: z.object({ deep: z.string().max(9), base: z.string().max(9), accent: z.string().max(9), pop: z.string().max(9), source: z.string().max(20).optional() }).nullish(),
   // Uniform font-size multiplier for this slide -- see
   // StoryCompositeSlide.text_size_scale's own comment.
   text_size_scale: z.number().min(0.7).max(1.5).nullish(),
@@ -94,7 +97,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const rendered = await renderStorySlides(parsed.data.slides as StoryCompositeSlide[])
+    const rendered = await renderStorySlides(parsed.data.slides.map((s) => ({ ...s, palette: parsePalette(s.palette) })) as StoryCompositeSlide[])
     const buffers = rendered.map((r) => r.png)
     const imageUrls = buffers.map((buf) => `data:image/png;base64,${buf.toString("base64")}`)
     // Upload in parallel so the schedule path can send small hosted URLs

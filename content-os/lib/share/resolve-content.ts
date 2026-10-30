@@ -1,6 +1,8 @@
 import { z } from "zod"
 import type { createAdminClient } from "@/lib/supabase/server"
 import type { Json } from "@/types/database"
+import { resolveBrandPalette, type BrandPalette } from "@/lib/design/color-themes"
+import type { BrandRow } from "@/types/database"
 
 // Typed from createAdminClient's own actual return type (SupabaseClient<Database>)
 // rather than importing @supabase/supabase-js's SupabaseClient separately,
@@ -86,6 +88,8 @@ export interface ResolvedShareContent {
   brandId: string
   brandName: string
   brandLogoUrl: string | null
+  /** The brand's 4-role palette (lib/design/color-themes.ts) -- slide placeholders use its presets. */
+  brandPalette: BrandPalette
   /** First line of the caption/hook text -- used for the OG title and the
    * page's own heading, never a generic "Caption"/"Carousel" label. */
   hook: string
@@ -106,12 +110,16 @@ export interface ResolvedShareContent {
 interface BrandInfo {
   name: string
   logo_url: string | null
+  primary_color: string | null
+  color_palette: unknown
+  brand_brain?: unknown
 }
 
 async function fetchBrandInfo(admin: AdminClient, brandId: string): Promise<BrandInfo | null> {
   const { data } = await admin
     .from("brands")
-    .select("name, logo_url")
+    // "*" (not a column list): brand_brain may not exist before migration 060.
+    .select("*")
     .eq("id", brandId)
     .maybeSingle<BrandInfo>()
   return data
@@ -160,6 +168,7 @@ async function resolveCaption(admin: AdminClient, contentId: string): Promise<Re
     brandId: caption.brand_id,
     brandName: brand.name,
     brandLogoUrl: brand.logo_url,
+    brandPalette: resolveBrandPalette(brand as Pick<BrandRow, "primary_color" | "color_palette"> & { brand_brain?: unknown }),
     hook: firstLine(caption.caption_text),
     captionText: caption.caption_text,
     hashtags: caption.hashtags ?? [],
@@ -207,6 +216,7 @@ async function resolveCarousel(admin: AdminClient, contentId: string): Promise<R
     brandId: carousel.brand_id,
     brandName: brand.name,
     brandLogoUrl: brand.logo_url,
+    brandPalette: resolveBrandPalette(brand as Pick<BrandRow, "primary_color" | "color_palette"> & { brand_brain?: unknown }),
     hook: carousel.title || slides[0]?.headline || "Carousel",
     captionText,
     hashtags: carousel.hashtags ?? [],
@@ -256,6 +266,7 @@ async function resolveStory(admin: AdminClient, contentId: string): Promise<Reso
     brandId: story.brand_id,
     brandName: brand.name,
     brandLogoUrl: brand.logo_url,
+    brandPalette: resolveBrandPalette(brand as Pick<BrandRow, "primary_color" | "color_palette"> & { brand_brain?: unknown }),
     // Stories table has no platform column of its own -- Instagram-only
     // feature today, same default toExportSlide/ContentDetailPanel callers
     // already pass.
@@ -301,6 +312,7 @@ async function resolveAdCopy(admin: AdminClient, contentId: string): Promise<Res
     brandId: ad.brand_id,
     brandName: brand.name,
     brandLogoUrl: brand.logo_url,
+    brandPalette: resolveBrandPalette(brand as Pick<BrandRow, "primary_color" | "color_palette"> & { brand_brain?: unknown }),
     hook: ad.headline,
     captionText,
     hashtags: [],
@@ -337,6 +349,7 @@ async function resolveDailyDraft(admin: AdminClient, contentId: string): Promise
     brandId: draft.brand_id,
     brandName: brand.name,
     brandLogoUrl: brand.logo_url,
+    brandPalette: resolveBrandPalette(brand as Pick<BrandRow, "primary_color" | "color_palette"> & { brand_brain?: unknown }),
     hook: draft.hook_text,
     captionText: draft.caption_text,
     hashtags: draft.hashtags ?? [],
