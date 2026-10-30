@@ -97,7 +97,9 @@ export async function PUT(request: Request, { params }: RouteParams) {
     if (fields.brand_brain && typeof fields.brand_brain === "object") {
       const { data: fresh } = await brandsTable(result.supabase!).select("brand_brain").eq("id", brandId).single() as { data: { brand_brain: unknown } | null }
       const freshBrain = fresh?.brand_brain && typeof fresh.brand_brain === "object" ? (fresh.brand_brain as Record<string, unknown>) : null
-      if (freshBrain?.art_direction) fields.brand_brain = { ...(fields.brand_brain as Record<string, unknown>), art_direction: freshBrain.art_direction }
+      // Also the auto / edited markers and derivation status of the self-filling Brand Brain.
+      const kept = Object.fromEntries(["art_direction", "field_meta", "derivation"].filter((k) => freshBrain?.[k] !== undefined).map((k) => [k, freshBrain![k]]))
+      if (Object.keys(kept).length) fields.brand_brain = { ...(fields.brand_brain as Record<string, unknown>), ...kept }
     }
     let { data: updated, error } = await runUpdate(fields)
 

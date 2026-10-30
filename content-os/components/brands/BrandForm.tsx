@@ -167,11 +167,11 @@ export function BrandForm({ defaultValues, onSubmit, submitLabel = "Save brand",
 
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
-              <Label htmlFor="niche">What you sell <span className="text-destructive">*</span></Label>
+              <Label htmlFor="niche">What you sell <span className="text-xs font-normal text-muted-foreground">(optional)</span></Label>
               <Input id="niche" placeholder="e.g. Skincare, Streetwear, Home decor, Gaming accessories" {...register("niche")} />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="instagram_handle">Instagram handle <span className="text-xs font-normal text-muted-foreground">(optional)</span></Label>
+              <Label htmlFor="instagram_handle">Instagram handle</Label>
               <div className="flex items-center">
                 <span className="flex h-10 items-center rounded-l-md border border-r-0 bg-muted px-3 text-sm text-muted-foreground">@</span>
                 <Input id="instagram_handle" placeholder="yourbrand" className="rounded-l-none" {...register("instagram_handle")} />
@@ -180,7 +180,8 @@ export function BrandForm({ defaultValues, onSubmit, submitLabel = "Save brand",
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="website_url">Website URL <span className="text-xs font-normal text-muted-foreground">(optional)</span></Label>
+            <Label htmlFor="website_url">Website URL</Label>
+            <p className="text-xs text-muted-foreground">Your website or your Instagram handle is all we need -- we set up the rest from it.</p>
             <Input id="website_url" type="url" placeholder="https://yourbrand.com" {...register("website_url")} aria-invalid={!!errors.website_url} />
             {errors.website_url && <p className="text-xs text-destructive">{errors.website_url.message}</p>}
           </div>
@@ -194,12 +195,12 @@ export function BrandForm({ defaultValues, onSubmit, submitLabel = "Save brand",
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="target_audience">Who buys from you <span className="text-destructive">*</span></Label>
+            <Label htmlFor="target_audience">Who buys from you <span className="text-xs font-normal text-muted-foreground">(optional)</span></Label>
             <Input id="target_audience" placeholder="e.g. Women aged 18-35 who love skincare, Young gamers in India" {...register("target_audience")} />
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="tone_of_voice">Brand personality <span className="text-destructive">*</span></Label>
+            <Label htmlFor="tone_of_voice">Brand personality <span className="text-xs font-normal text-muted-foreground">(optional)</span></Label>
             <p className="text-xs text-muted-foreground">How should your brand sound when it talks to people?</p>
             <Input id="tone_of_voice" placeholder="e.g. Fun and casual, Bold and confident, Warm and friendly" {...register("tone_of_voice")} />
           </div>

@@ -8,6 +8,7 @@ import type { UserPlan } from "@/types/app"
 import { isInternalUnlimited } from "@/lib/usage/is-internal-unlimited"
 import { scheduleArtDirection } from "@/lib/ai/art-direction"
 import { scheduleBrandPhotoSync } from "@/lib/brand-photos"
+import { scheduleBrandBrainDerivation } from "@/lib/ai/brand-brain-derive"
 
 export async function GET() {
   console.log("[brands] GET called")
@@ -125,6 +126,8 @@ export async function POST(request: Request) {
     if (brand?.id) scheduleArtDirection(brand.id)
     // Its real photos (website + Instagram, lib/brand-photos.ts), collected after the response.
     if (brand?.id) scheduleBrandPhotoSync(brand.id)
+    // Its Brand Brain fills itself from the website / Instagram (lib/ai/brand-brain-derive.ts).
+    if (brand?.id) scheduleBrandBrainDerivation(brand.id)
     return NextResponse.json({ data: brand }, { status: 201 })
   } catch (err) {
     console.error("[brands] POST unexpected error:", err)

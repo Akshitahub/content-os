@@ -20,7 +20,12 @@ const brandBaseSchema = z.object({
   brand_brain: brandBrainSchema.optional(),
 })
 
-export const createBrandSchema = brandBaseSchema
+// The only things a new brand needs: its name, plus a website or an
+// Instagram handle -- SocioPosts reads everything else from those.
+export const createBrandSchema = brandBaseSchema.refine(
+  (b) => !!(typeof b.website_url === "string" && b.website_url.trim()) || !!b.instagram_handle?.trim(),
+  { message: "Add your website or Instagram handle -- we'll set up everything else from it.", path: ["website_url"] },
+)
 export const updateBrandSchema = brandBaseSchema.partial()
 
 export type CreateBrandInput = {

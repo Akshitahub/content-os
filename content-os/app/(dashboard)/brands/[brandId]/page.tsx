@@ -7,7 +7,6 @@ import { BrandDetailTabs } from "@/components/brands/BrandDetailTabs"
 import { BrandBrainSection } from "@/components/brands/BrandBrainSection"
 import { BrandLookSection } from "@/components/brands/BrandLookSection"
 import { BrandPhotosStrip } from "@/components/brands/BrandPhotosStrip"
-import { parseBrandBrain } from "@/lib/brand-brain-profile"
 import type { Metadata } from "next"
 import type { BrandRow } from "@/types/database"
 
@@ -163,7 +162,7 @@ export default async function BrandDetailPage({ params }: PageProps) {
               </Card>
             )}
 
-            <BrandBrainSection brandId={brandId} brandBrain={parseBrandBrain(brand.brand_brain)} />
+            <BrandBrainSection brandId={brandId} />
             <BrandLookSection brandId={brandId} />
             <BrandPhotosStrip brandId={brandId} />
           </div>
