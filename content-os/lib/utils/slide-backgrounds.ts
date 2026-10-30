@@ -13,7 +13,7 @@ import type { TextStyle } from "@/lib/design/text-style"
  * neither retried nor reported as failed. */
 export type SlideBackgroundOutcome =
   | { url: string; provider?: "openai"; text_style?: TextStyle | null }
-  | { error: "insufficient_credits" | "failed" | "restricted" }
+  | { error: "insufficient_credits" | "failed" | "restricted"; message?: string }
 
 export type SlideBackgroundJob<K> = { key: K; run: () => Promise<SlideBackgroundOutcome> }
 
@@ -21,6 +21,8 @@ export type SlideBackgroundRunResult<K> = {
   succeeded: Map<K, { url: string; provider?: "openai"; text_style?: TextStyle | null }>
   /** Failed twice (first attempt + the automatic retry). */
   failed: K[]
+  /** The server's reason for each failed key, when it gave one. */
+  errors: Map<K, string>
   /** Got a 429, or never started because an earlier one did. */
   outOfCredits: K[]
 }
@@ -38,7 +40,7 @@ export async function runSlideBackgroundJobs<K>(
     isCancelled?: () => boolean
   } = {}
 ): Promise<SlideBackgroundRunResult<K>> {
-  const result: SlideBackgroundRunResult<K> = { succeeded: new Map(), failed: [], outOfCredits: [] }
+  const result: SlideBackgroundRunResult<K> = { succeeded: new Map(), failed: [], outOfCredits: [], errors: new Map() }
   const concurrency = Math.max(1, options.concurrency ?? SLIDE_BACKGROUND_CONCURRENCY)
   let next = 0
   let settled = 0
@@ -71,6 +73,7 @@ export async function runSlideBackgroundJobs<K>(
         result.outOfCredits.push(job.key)
       } else if (outcome.error === "failed") {
         result.failed.push(job.key)
+        if (outcome.message) result.errors.set(job.key, outcome.message)
       }
       settle()
     }

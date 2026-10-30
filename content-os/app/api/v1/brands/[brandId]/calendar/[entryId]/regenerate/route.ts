@@ -25,6 +25,7 @@ import { stampPostLayout } from "@/lib/design/text-layouts"
 import { getPrimaryColor } from "@/lib/design/post-card-generator"
 import { generatePostCopy } from "@/lib/ai/post-copy"
 import { artDirectionForRequest } from "@/lib/ai/art-direction"
+import { generationErrorMessage } from "@/lib/ai/generation-retry"
 
 const IMAGE_BUCKET = "brand-images"
 const FEATURE = "calendar_regenerate"
@@ -287,9 +288,11 @@ async function handlePost(request: Request, { params }: RouteParams, timer: Gene
     console.error(`[calendar/regenerate] entry ${entryId} failed:`, err instanceof Error ? err.message : err)
     await refundGenerationUsage(supabase, user.id, cost, logId)
     const timedOut = err instanceof DeadlineExceededError
+    // Off the entry's topic after a repair and a regeneration: say exactly that.
+    const topicError = generationErrorMessage(err)
     return NextResponse.json(
-      buildError(ErrorCodes.AI_GENERATION_FAILED, timedOut ? GENERATION_TIMED_OUT_MESSAGE : "Regeneration failed. Please try again."),
-      { status: timedOut ? 504 : 500 }
+      buildError(ErrorCodes.AI_GENERATION_FAILED, topicError ?? (timedOut ? GENERATION_TIMED_OUT_MESSAGE : "Regeneration failed. Please try again.")),
+      { status: topicError ? 422 : timedOut ? 504 : 500 }
     )
   }
 }

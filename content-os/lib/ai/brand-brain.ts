@@ -63,7 +63,8 @@ export function formatLessonsBlock(lessons: BrandLesson[]): string {
   const avoid = lessons.filter((l) => l.kind === "avoid").map((l) => `- AVOID: ${l.rule}`)
   const doRules = lessons.filter((l) => l.kind === "do").map((l) => `- DO: ${l.rule}`)
   return [
-    "BRAND LESSONS -- learned from this brand's own past feedback. These are HARD RULES, not suggestions:",
+    // Rules for HOW to write -- never what to write about (the topic above sets that).
+    "BRAND LESSONS -- STYLE REFERENCE ONLY (never reuse their subject, products or claims). Learned from this brand's own past feedback; follow them as hard rules for how to write:",
     ...avoid,
     ...doRules,
   ].join("\n")

@@ -1,10 +1,10 @@
 import { z } from "zod"
 import type { BrandRow, ProductRow } from "@/types/database"
 import type { AdBrief, AdVariant } from "@/types/app"
-import { buildBrandContext, QUALITY_BAR } from "./prompts"
+import { buildBrandContext, QUALITY_BAR, buildTopicSubjectBlock } from "./prompts"
 import { createCreativeCompletion } from "./creative-completion"
 import { buildFactSource, guardCopy, stripGuard } from "./fact-guard"
-import { runQualityGate, type GateReport } from "./quality-gate"
+import { onTopicOrRegenerate, runQualityGate, type GateReport } from "./quality-gate"
 import { addTextUsage, sumCostUsd, type TextUsage } from "./pricing"
 import { sanitizeVisualBrief, type VisualBrief, type VisualKind, NO_TEXT_BEARING_SUBJECTS_RULE, artDirectionBriefRules } from "./visual-brief"
 import { withLessons, type BrandLesson, artDirectionFrom } from "./brand-brain"
@@ -49,8 +49,9 @@ const SYSTEM_PROMPT = `You are a performance creative strategist for Meta (Faceb
 ${QUALITY_BAR}`
 
 function buildUserPrompt(brand: BrandRow, product: ProductRow | null, userDirection: string | undefined, format: string): string {
-  return `${buildBrandContext(brand, product)}
-${userDirection ? `\nThe user's own direction for this ad: "${userDirection}"\n` : ""}
+  // The user's direction is the subject -- first, before the brand profile.
+  return `${userDirection ? `${buildTopicSubjectBlock(userDirection, "ad variant")}\n\n` : ""}${buildBrandContext(brand, product)}
+
 Ad format: ${format} image ad${product ? ` for "${product.name}"` : ""}, the real product photo is placed in every image.
 
 STEP 1 — AD BRIEF (decide this before writing anything):
@@ -118,7 +119,12 @@ export type AdStrategyResult = {
  * distinct variants. Throws on provider error, timeout or an unusable
  * response -- the caller falls back to brief-less generation.
  */
-export async function generateAdStrategy(params: {
+export async function generateAdStrategy(params: Parameters<typeof generateAdStrategyOnce>[0]): Promise<AdStrategyResult> {
+  // The user's direction is the ad's topic: off it after the repair -> one regeneration, then OffTopicError.
+  return onTopicOrRegenerate(params.userDirection, () => generateAdStrategyOnce(params))
+}
+
+async function generateAdStrategyOnce(params: {
   brand: BrandRow
   product: ProductRow | null
   userDirection?: string
@@ -185,6 +191,7 @@ export async function generateAdStrategy(params: {
     brand,
     product,
     brief: [userDirection],
+    topic: userDirection,
     deadline: params.deadline,
     normalTimeoutMs: timeoutMs,
     // Ad Maker always generates from the real product photo.

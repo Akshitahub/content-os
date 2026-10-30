@@ -25,6 +25,7 @@ import { stampPostLayout } from "@/lib/design/text-layouts"
 import { getPrimaryColor } from "@/lib/design/post-card-generator"
 import { generatePostCopy } from "@/lib/ai/post-copy"
 import { artDirectionForRequest } from "@/lib/ai/art-direction"
+import { generationErrorMessage } from "@/lib/ai/generation-retry"
 
 // Mirrors components/generate/FullPostGenerator.tsx's former client-side
 // ANGLE_HINT map verbatim -- moved server-side so the angle is a real,
@@ -406,9 +407,11 @@ async function handlePost(request: Request, timer: GenerationTimer) {
     })
     await refundGenerationUsage(supabase, user.id, cost, logId)
     const timedOut = err instanceof DeadlineExceededError
+    // Off the user's topic after a repair and a regeneration: say exactly that.
+    const topicError = generationErrorMessage(err)
     return NextResponse.json(
-      buildError(ErrorCodes.AI_GENERATION_FAILED, timedOut ? GENERATION_TIMED_OUT_MESSAGE : "Full post generation failed. Please try again."),
-      { status: timedOut ? 504 : 500 }
+      buildError(ErrorCodes.AI_GENERATION_FAILED, topicError ?? (timedOut ? GENERATION_TIMED_OUT_MESSAGE : "Full post generation failed. Please try again.")),
+      { status: topicError ? 422 : timedOut ? 504 : 500 }
     )
   }
 }

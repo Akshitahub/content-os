@@ -287,6 +287,8 @@ export async function generateContent(
         data: firstCaption,
         brand,
         product: options.product,
+        // The user's own request is the post's subject (calendar regenerate passes the entry's topic).
+        topic: options.additionalContext,
         brief: [options.hookText, options.additionalContext],
         deadline: options.factGuardDeadline,
         normalTimeoutMs: 40_000,

@@ -6,7 +6,7 @@ import { UsageCarryingError } from "@/lib/ai/pricing"
 import { checkAndIncrementUsage, refundGenerationUsage, logGenerationOutcome } from "@/lib/usage/check-and-increment-usage"
 import { CAROUSEL } from "@/lib/usage/credit-costs"
 import { generateCarouselWithRetry } from "@/lib/ai/carousel-generator"
-import { finishGeneratedCarousel } from "@/lib/ai/carousel-postprocess"
+import { finishGeneratedCarousel, mergeCtaSlideIntoSlides } from "@/lib/ai/carousel-postprocess"
 import { z } from "zod"
 import type { BrandRow } from "@/types/database"
 import { rememberBrandTypography } from "@/lib/design/brand-typography"
@@ -17,6 +17,8 @@ import { recordContentEvent } from "@/lib/usage/content-events"
 import { gateEventMeta } from "@/lib/ai/quality-gate"
 import { layoutCarouselText, overflowingSlides } from "@/lib/design/slide-text-layout"
 import { artDirectionForRequest } from "@/lib/ai/art-direction"
+import { onTopicOrRegenerate } from "@/lib/ai/quality-gate"
+import { generationErrorMessage, regenerateIfShort } from "@/lib/ai/generation-retry"
 
 const schema = z.object({
   brandId: z.string().uuid(),
@@ -34,6 +36,12 @@ const schema = z.object({
 // JSON error path below always runs instead of Vercel killing the function.
 export const maxDuration = 300
 const COPY_DEADLINE_MS = 270_000
+
+/** Slides a carousel response will have once its CTA slide is merged in. */
+function countCarouselSlides(data: unknown): number {
+  const d = data && typeof data === "object" ? (data as Record<string, unknown>) : {}
+  return Array.isArray(d.slides) ? mergeCtaSlideIntoSlides(d.slides, d.cta_slide).length : 0
+}
 
 export async function POST(request: Request) {
   return timedGenerationRoute("carousel", (timer) => handlePost(request, timer))
@@ -117,7 +125,15 @@ async function handlePost(request: Request, timer: GenerationTimer) {
     // brand_brain; every brief and image prompt below reads it. Fail-soft.
     await artDirectionForRequest(supabase, brand)
     const lessons = await getActiveLessons(supabase, brandId, "carousel")
-    gen = await timer.step("caption", withDeadline(generateCarouselWithRetry(brand, topic, slideCount, platform, vibe, pastExamples, lessons, deadlineAt), deadlineAt - Date.now(), "carousel copy"))
+    // Off the topic after the gate's repair -> one regeneration; fewer slides
+    // (CTA included) than asked for -> one regeneration. Either still failing
+    // is a clear error -- never a silent off-topic or short carousel.
+    gen = await timer.step("caption", withDeadline(regenerateIfShort(
+      () => onTopicOrRegenerate(topic, () => generateCarouselWithRetry(brand, topic, slideCount, platform, vibe, pastExamples, lessons, deadlineAt)),
+      (g) => countCarouselSlides(g.data),
+      slideCount,
+      "slides",
+    ), deadlineAt - Date.now(), "carousel copy"))
     const data = gen.data
 
     const d = data as Record<string, unknown>
@@ -192,9 +208,11 @@ async function handlePost(request: Request, timer: GenerationTimer) {
     // provider in its message text -- classifyOpenAIError strips that
     // before this ever reaches the user.
     const timedOut = err instanceof DeadlineExceededError
+    // Off the user's topic, or fewer slides than asked for, after a retry: say exactly that.
+    const topicError = generationErrorMessage(err)
     return NextResponse.json(
-      buildError(ErrorCodes.AI_GENERATION_FAILED, timedOut ? GENERATION_TIMED_OUT_MESSAGE : classifyOpenAIError(err)),
-      { status: timedOut ? 504 : 500 }
+      buildError(ErrorCodes.AI_GENERATION_FAILED, topicError ?? (timedOut ? GENERATION_TIMED_OUT_MESSAGE : classifyOpenAIError(err))),
+      { status: topicError ? 422 : timedOut ? 504 : 500 }
     )
   }
 }

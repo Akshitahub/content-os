@@ -22,6 +22,8 @@ import { stampSequenceLayouts, type TextLayoutId } from "@/lib/design/text-layou
 import { getPrimaryColor } from "@/lib/design/post-card-generator"
 import { artDirectionForRequest } from "@/lib/ai/art-direction"
 import { toBrandPreset, type BrandPresetId } from "@/lib/design/color-themes"
+import { OffTopicError, onTopicOrRegenerate } from "@/lib/ai/quality-gate"
+import { ShortGenerationError, generationErrorMessage, regenerateIfShort } from "@/lib/ai/generation-retry"
 
 const schema = z.object({
   brandId: z.string().uuid(),
@@ -232,6 +234,16 @@ function sanitizeStorySlides(stories: Record<string, unknown>[]): Record<string,
 export const maxDuration = 300
 const COPY_DEADLINE_MS = 270_000
 
+/** How many story frames a raw model response holds (0 when unparseable). */
+function countStoryFrames(raw: string): number {
+  try {
+    const d = JSON.parse(raw.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim()) as { stories?: unknown }
+    return Array.isArray(d.stories) ? d.stories.length : 0
+  } catch {
+    return 0
+  }
+}
+
 export async function POST(request: Request) {
   return timedGenerationRoute("stories", (timer) => handlePost(request, timer))
 }
@@ -314,7 +326,15 @@ async function handlePost(request: Request, timer: GenerationTimer) {
     // brand_brain; every brief and image prompt below reads it. Fail-soft.
     await artDirectionForRequest(supabase, brand)
     const lessons = await getActiveLessons(supabase, brandId, "story")
-    gen = await timer.step("caption", withDeadline(requestStorySequence(brand, topic, storyCount, vibe, pastExamples, lessons, deadlineAt), deadlineAt - Date.now(), "story copy"))
+    // Off the topic after the gate's repair -> one regeneration (onTopicOrRegenerate);
+    // fewer frames than asked for -> one regeneration (regenerateIfShort). Either
+    // still failing is a clear error -- never a silent off-topic or short story.
+    gen = await timer.step("caption", withDeadline(regenerateIfShort(
+      () => onTopicOrRegenerate(topic, () => requestStorySequence(brand, topic, storyCount, vibe, pastExamples, lessons, deadlineAt)),
+      (g) => countStoryFrames(g.raw),
+      storyCount,
+      "stories",
+    ), deadlineAt - Date.now(), "story copy"))
     const raw = gen.raw
     const cleaned = raw.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim()
 
@@ -421,6 +441,7 @@ async function handlePost(request: Request, timer: GenerationTimer) {
     return NextResponse.json({ data: { ...d, id: storyRowId } }, { status: 200 })
   } catch (err) {
     console.error("[ai/stories/generate] error:", err)
+    if (err instanceof OffTopicError || err instanceof ShortGenerationError) gen = { raw: "", model: MODELS.creative, usage: err.usage, costUsd: err.costUsd }
     await recordOutcome(false, err instanceof Error ? err.message : "Unknown error")
     await refundGenerationUsage(supabase, user.id, STORY, logId)
     // A raw thrown error here can be the OpenAI SDK's own error object
@@ -428,9 +449,11 @@ async function handlePost(request: Request, timer: GenerationTimer) {
     // provider in its message text -- classifyOpenAIError strips that
     // before this ever reaches the user.
     const timedOut = err instanceof DeadlineExceededError
+    // Off the user's topic, or fewer slides than asked for, after a retry: say exactly that.
+    const topicError = generationErrorMessage(err)
     return NextResponse.json(
-      buildError(ErrorCodes.AI_GENERATION_FAILED, timedOut ? GENERATION_TIMED_OUT_MESSAGE : classifyOpenAIError(err)),
-      { status: timedOut ? 504 : 500 }
+      buildError(ErrorCodes.AI_GENERATION_FAILED, topicError ?? (timedOut ? GENERATION_TIMED_OUT_MESSAGE : classifyOpenAIError(err))),
+      { status: topicError ? 422 : timedOut ? 504 : 500 }
     )
   }
 }

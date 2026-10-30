@@ -196,7 +196,11 @@ async function fetchSlideBackgroundResult(
       // lib/ai/story-slide-background.ts. Omitted when the frame has none.
       body: JSON.stringify({ brandId, vibe, role, productImageUrl: productImageUrl ?? undefined, textPosition, customPrompt: customPrompt || undefined, visualBrief, userDirection: userDirection || undefined }),
     })
-    if (!res.ok) return { error: slideBackgroundErrorForStatus(res.status) }
+    if (!res.ok) {
+      // The server's reason travels with the failure -- shown on the slide, never a silent flat background.
+      const failure = await readJsonResponse(res).catch(() => null) as { error?: { message?: string } } | null
+      return { error: slideBackgroundErrorForStatus(res.status), message: failure?.error?.message }
+    }
     const json = await readJsonResponse(res) as { data?: { public_url?: string; provider?: "openai"; text_style?: TextStyle | null } }
     // A public_url with no provider would be an incomplete/malformed
     // response -- treated the same as any other failure rather than
@@ -257,7 +261,12 @@ function PhoneStory({
   stepNumber = null,
   onApplyLayoutToAll,
   palette = null,
+  backgroundFailed = false,
+  onRetryBackground,
 }: {
+  /** This frame's AI background failed -- marked on the frame with a Retry, not left looking finished. */
+  backgroundFailed?: boolean
+  onRetryBackground?: () => void
   /** The brand's 4-role palette (lib/design/color-themes.ts) -- brand presets and scrims. */
   palette?: BrandPalette | null
   /** numbered layout: this frame's step (storyStepNumbers). */
@@ -425,6 +434,14 @@ function PhoneStory({
               : <div className="absolute inset-0 z-0 bg-gradient-to-t from-black/75 via-black/25 to-black/45" />
           )}
           {layoutPlan && <TextLayoutOverlay prims={layoutPlan.prims} width={1080} height={1920} fonts={layoutFonts} />}
+          {backgroundFailed && !hasBg && (
+            <div className="absolute inset-x-2 top-2 z-20 flex items-center justify-between gap-2 rounded-md bg-red-600/90 px-2 py-1 text-[10px] font-semibold text-white">
+              <span className="flex items-center gap-1"><AlertCircle className="h-3 w-3" /> Background failed</span>
+              {onRetryBackground && (
+                <button type="button" onClick={onRetryBackground} className="rounded bg-white/20 px-1.5 py-0.5 hover:bg-white/30">Retry</button>
+              )}
+            </div>
+          )}
 
           {/* buildStoryTypeSequence() only produces a "reveal" slide when
               storyCount >= 3, so gating solely on "reveal" silently drops
@@ -783,6 +800,11 @@ export function StorySequence({ brandId }: { brandId: string }) {
   const [showSuccess, setShowSuccess] = useState(false)
   const [saveAllErr, setSaveAllErr] = useState(false)
   const [showStaleCue, setShowStaleCue] = useState(false)
+  // The topic the shown stories were generated for, and the one that just
+  // failed -- a failed generation restores the previous result, so both are
+  // named and the old story can't pass for the new topic's result.
+  const [shownTopic, setShownTopic] = useState<string | null>(null)
+  const [failedTopic, setFailedTopic] = useState<string | null>(null)
   const prevStoriesRef = useRef<StorySlide[]>([])
   const [selectedProduct, setSelectedProduct] = useState<PickedProduct | null>(null)
   const [uploadedImages, setUploadedImages] = useState<{ preview: string; base64: string }[]>([])
@@ -833,6 +855,8 @@ export function StorySequence({ brandId }: { brandId: string }) {
   // Slides whose background failed twice (first try + automatic retry) --
   // shown as "N of M backgrounds failed -- Retry". bgAttempted is M.
   const [failedBgSlides, setFailedBgSlides] = useState<number[]>([])
+  // Why the failed backgrounds failed (the server's message), shown with the Retry.
+  const [failedBgReason, setFailedBgReason] = useState<string | null>(null)
   const [bgAttempted, setBgAttempted] = useState(0)
   // Covers the WHOLE background-image step -- the always-on hook/cta
   // Promise.all AND (when allSlidesAiBg is on) the body-slide loop that
@@ -977,7 +1001,7 @@ export function StorySequence({ brandId }: { brandId: string }) {
     setBgProgress({ settled: 0, total: indices.length })
     setBgAttempted(indices.length)
     setFailedBgSlides([])
-    const { succeeded, failed, outOfCredits } = await runSlideBackgroundJobs(
+    const { succeeded, failed, outOfCredits, errors } = await runSlideBackgroundJobs(
       indices.map((i) => {
         const slide = slides[i]!
         const role = storyBgRole(slide)
@@ -1008,6 +1032,7 @@ export function StorySequence({ brandId }: { brandId: string }) {
     setBgProgress(null)
     setImagesGenerating(false)
     setFailedBgSlides([...failed].sort((x, y) => x - y))
+    setFailedBgReason(errors.values().next().value ?? null)
     if (outOfCredits.length > 0) {
       setBodyBgWarning(`Ran out of credits — ${outOfCredits.length} slide background${outOfCredits.length === 1 ? "" : "s"} weren't generated and kept their flat color.`)
     }
@@ -1089,6 +1114,8 @@ export function StorySequence({ brandId }: { brandId: string }) {
         throw new Error(json.error?.message ?? "Generation failed")
       }
       const savedStories = json.data.stories
+      setShownTopic(topic.trim())
+      setFailedTopic(null)
       const rowId = json.data.id ?? null
       setStories(savedStories)
       setStoryRowId(rowId)
@@ -1144,6 +1171,7 @@ export function StorySequence({ brandId }: { brandId: string }) {
       }
     } catch (e) {
       setApiError(e)
+      setFailedTopic(topic.trim())
       if (hadPrevStories && prevStoriesRef.current.length > 0) {
         setStories(prevStoriesRef.current)
         setShowStaleCue(true)
@@ -1395,7 +1423,10 @@ export function StorySequence({ brandId }: { brandId: string }) {
 
             {!!apiError && <UsageLimitBanner error={apiError} onRetry={generate} />}
             {showStaleCue && stories.length > 0 && (
-              <p className="text-xs text-amber-600">Showing your last successful result below.</p>
+              <p className="text-xs text-amber-700">
+                {failedTopic ? <>Nothing was generated for &ldquo;{failedTopic}&rdquo;. </> : null}
+                The stories below are your previous result{shownTopic ? <>, for &ldquo;{shownTopic}&rdquo;</> : null} — not this topic.
+              </p>
             )}
           </div>
         </div>
@@ -1455,7 +1486,7 @@ export function StorySequence({ brandId }: { brandId: string }) {
               <div className="flex items-start gap-2">
                 <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
                 <span>
-                  {failedBgSlides.length} of {bgAttempted} background{bgAttempted === 1 ? "" : "s"} failed (slide{failedBgSlides.length === 1 ? "" : "s"} {failedBgSlides.map((i) => i + 1).join(", ")}) — kept the flat color. No credits were used for them.
+                  {failedBgSlides.length} of {bgAttempted} AI background{bgAttempted === 1 ? "" : "s"} failed (slide{failedBgSlides.length === 1 ? "" : "s"} {failedBgSlides.map((i) => i + 1).join(", ")}){failedBgReason ? `: ${failedBgReason}` : "."} Those slides aren&apos;t finished yet — retry to generate them. No credits were used for them.
                 </span>
               </div>
               <button
@@ -1533,6 +1564,8 @@ export function StorySequence({ brandId }: { brandId: string }) {
                     uploadedImage={selectedProduct?.imageUrl ?? uploadedImages[i]?.preview}
                     brandColors={brandTextColorPresets}
                     palette={palette}
+                    backgroundFailed={failedBgSlides.includes(i) && !imagesGenerating}
+                    onRetryBackground={retryFailedBackgrounds}
                     onUpdateSlide={(updates) => updateSlide(i, updates)}
                     stepNumber={storySteps[i] ?? null}
                     onApplyLayoutToAll={(layout) => setStories((prev) => prev.map((st) => (st.text_layout ? { ...st, text_layout: layout, text_layout_source: "user" as const } : st)))}

@@ -69,10 +69,24 @@ export function buildBrandContext(brand: BrandRow, product?: ProductRow | null):
  */
 export function buildPastExamplesBlock(examples: string[], label: string): string {
   if (examples.length === 0) return ""
-  // "tone and style only": these past examples are about whatever the
-  // brand posted before (often the brand itself) -- copying their SUBJECT
-  // is exactly how a new post's own topic got overridden.
-  return `\n\nHere are examples of ${label} this brand's user has previously rated highly — match their tone, style and quality bar only. Never copy their subject: what this post is about comes from the topic/brief, not from these examples:\n${examples.map((e, i) => `${i + 1}. ${e}`).join("\n\n")}`
+  // Style reference only: these past examples are about whatever the brand
+  // posted before -- copying their SUBJECT is exactly how a new post's own
+  // topic got overridden. Always placed AFTER the topic.
+  return `\n\n${STYLE_REFERENCE_LABEL} -- ${label} this brand's user rated highly. Match their tone, style and quality bar; what this is about comes from the topic above, never from these:\n${examples.map((e, i) => `${i + 1}. ${e}`).join("\n\n")}`
+}
+
+/** The label on every past-example / lesson block: they set style, never the subject. */
+export const STYLE_REFERENCE_LABEL = "STYLE REFERENCE ONLY (never reuse their subject, products or claims)"
+
+/**
+ * The user's topic, stated first as the subject of the whole piece. A word
+ * the topic itself uses is always allowed -- even one on the brand's
+ * phrases-to-avoid list (a "birthday sale" topic may say "sale").
+ */
+export function buildTopicSubjectBlock(topic: string, noun: string): string {
+  return `${noun.toUpperCase()} TOPIC -- the user's own request. EVERY ${noun} is about this, and nothing else:
+"${topic.trim()}"
+Words the topic itself uses are always allowed, even if a brand rule below lists them as phrases to avoid. The brand profile below sets the voice, tone, style and audience only -- never the subject.`
 }
 
 // The user's own "What do you want to post" text is the post's SUBJECT.
@@ -88,7 +102,7 @@ function buildPrimaryTopicBlock(userTopic: string | undefined): string {
   if (!topic) return ""
   return `POST TOPIC -- the user's own request. This is what the post is ABOUT:
 "${topic}"
-The brand profile below sets ONLY the voice, tone, style and audience. It does NOT set the subject. If the topic names its own product, offer, occasion or business (for example "our candle brand"), write about exactly that -- never swap in the brand profile's own products, niche or company as the subject.
+The brand profile below sets ONLY the voice, tone, style and audience. It does NOT set the subject. If the topic names its own product, offer, occasion or business (for example "our candle brand"), write about exactly that -- never swap in the brand profile's own products, niche or company as the subject. Words the topic itself uses are always allowed, even if a brand rule lists them as phrases to avoid.
 
 `
 }

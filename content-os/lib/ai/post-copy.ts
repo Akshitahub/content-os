@@ -4,6 +4,7 @@ import { generateContent } from "./content-generator"
 import { generateHooks } from "./hooks-generator"
 import { UsageCarryingError, type TextUsage } from "./pricing"
 import type { BrandLesson } from "./brand-brain"
+import { onTopicOrRegenerate } from "./quality-gate"
 
 /**
  * A single post's hook + caption, in that dependency order: the caption
@@ -60,7 +61,8 @@ export async function generatePostCopy(brand: BrandRow, opts: PostCopyOptions): 
   // 1. The caption and its plan.
   let caption: Awaited<ReturnType<typeof generateContent>>
   try {
-    caption = await generateContent(brand, "social_post", {
+    // Off the user's topic after the gate's repair -> one regeneration, then OffTopicError.
+    caption = await onTopicOrRegenerate(opts.additionalContext, () => generateContent(brand, "social_post", {
       product: opts.product,
       platform: opts.platform,
       additionalContext: opts.additionalContext,
@@ -69,7 +71,7 @@ export async function generatePostCopy(brand: BrandRow, opts: PostCopyOptions): 
       availableColorThemes: opts.availableColorThemes,
       factGuardDeadline: opts.factGuardDeadline,
       lessons: opts.captionLessons,
-    })
+    }))
   } catch (err) {
     if (err instanceof UsageCarryingError) opts.onUsage?.("caption", err.usage, err.costUsd)
     throw err

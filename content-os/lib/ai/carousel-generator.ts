@@ -1,6 +1,6 @@
 import type { BrandRow } from "@/types/database"
 import { NO_TEXT_BEARING_SUBJECTS_RULE, VISUAL_KINDS, sanitizeVisualBrief, artDirectionBriefRules } from "./visual-brief"
-import { buildPastExamplesBlock, buildSuggestedFontField, QUALITY_BAR } from "./prompts"
+import { buildPastExamplesBlock, buildSuggestedFontField, buildTopicSubjectBlock, QUALITY_BAR } from "./prompts"
 import { createCreativeCompletion } from "./creative-completion"
 import { buildFactSource, guardCopy, stripGuard } from "./fact-guard"
 import { runQualityGate, type GateReport } from "./quality-gate"
@@ -38,13 +38,15 @@ function buildCarouselPrompt(brand: BrandRow, topic: string, slideCount: number,
   ].filter(Boolean).join("\n")
   const pastExamplesBlock = buildPastExamplesBlock(pastExamples, "carousels")
 
-  return `${brandCtx}${pastExamplesBlock}
+  // The topic first (the subject); the brand and any past examples after it (style only).
+  return `${buildTopicSubjectBlock(topic, "slide")}
 
-CAROUSEL TOPIC: "${topic}"
+${brandCtx}${pastExamplesBlock}
+
 PLATFORM: ${platform}
 TOTAL SLIDES: ${slideCount}
 
-Create a high-performing ${platform} carousel on this topic for this brand.
+Create a high-performing ${platform} carousel on the SLIDE TOPIC above for this brand.
 
 CRITICAL RULES:
 - NEVER use square-bracket placeholders like [Age], [Name], [Number], [Year], [Date] etc.
@@ -280,6 +282,7 @@ export async function generateCarouselWithRetry(
       data: sanitizeVisualBriefs(data),
       brand,
       brief: [topic],
+      topic,
       deadline,
       normalTimeoutMs: carouselCallParams(prompt, slideCount).timeoutMs,
       repair: async (correction, timeoutMs) => {

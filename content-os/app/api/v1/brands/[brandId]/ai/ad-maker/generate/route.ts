@@ -27,6 +27,7 @@ import { adTextRegion } from "@/lib/design/text-style"
 import { pickTextLayout } from "@/lib/design/text-layouts"
 import { getPrimaryColor } from "@/lib/design/post-card-generator"
 import { artDirectionForRequest } from "@/lib/ai/art-direction"
+import { OffTopicError, offTopicMessage } from "@/lib/ai/quality-gate"
 
 const BUCKET = "brand-images"
 
@@ -188,6 +189,16 @@ async function handlePost(request: Request, { params }: RouteParams, timer: Gene
       "ad strategy"
     ))
   } catch (err) {
+    // Off the user's direction after a repair and a regeneration: a clear
+    // error, never brief-less variations about something else.
+    if (err instanceof OffTopicError) {
+      await logGenerationOutcome(supabase, logId, {
+        user_id: user.id, brand_id: brandId, feature: FEATURE, model: "unknown",
+        cost_usd: err.costUsd, latency_ms: Date.now() - startTime, success: false, error_message: err.message,
+      })
+      await refundGenerationUsage(supabase, user.id, AD_MAKER, logId)
+      return NextResponse.json(buildError(ErrorCodes.AI_GENERATION_FAILED, offTopicMessage(err.topic)), { status: 422 })
+    }
     console.error("[ai/ad-maker/generate] ad strategy failed, falling back to brief-less variations:", err instanceof Error ? err.message : err)
   }
 

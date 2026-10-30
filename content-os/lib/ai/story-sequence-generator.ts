@@ -1,6 +1,6 @@
 import type { BrandRow } from "@/types/database"
 import type { StorySlide } from "@/app/api/v1/ai/stories/generate/route"
-import { buildPastExamplesBlock, buildSuggestedFontField, QUALITY_BAR } from "./prompts"
+import { buildPastExamplesBlock, buildSuggestedFontField, buildTopicSubjectBlock, QUALITY_BAR } from "./prompts"
 import { createCreativeCompletion } from "./creative-completion"
 import { buildFactSource, guardCopy, stripGuard } from "./fact-guard"
 import { runQualityGate, type GateReport } from "./quality-gate"
@@ -167,9 +167,10 @@ function buildHardTruthChecklistStoriesPrompt(
   ctaPhrase: string,
   handle: string
 ): string {
-  return `${brandCtx}${pastExamplesBlock}
+  return `${buildTopicSubjectBlock(topic, "story")}
 
-STORY TOPIC: "${topic}"
+${brandCtx}${pastExamplesBlock}
+
 NUMBER OF STORIES: ${storyCount}
 
 Create a "Hard Truth Checklist" Instagram story sequence: a genuine myth-busting/contrarian or problem-and-solution take on the topic above, structured as a wrong-way vs. right-way comparison across the sequence.
@@ -227,12 +228,14 @@ function buildStoriesPrompt(brand: BrandRow, topic: string, storyCount: number, 
     return buildHardTruthChecklistStoriesPrompt(brandCtx, pastExamplesBlock, topic, storyCount, typeSequence, ctaPhrase, handle)
   }
 
-  return `${brandCtx}${pastExamplesBlock}
+  // The topic first (the subject); the brand and any past examples after it (style only).
+  return `${buildTopicSubjectBlock(topic, "story")}
 
-STORY TOPIC: "${topic}"
+${brandCtx}${pastExamplesBlock}
+
 NUMBER OF STORIES: ${storyCount}
 
-Create ${storyCount} connected Instagram stories that build narrative momentum.
+Create ${storyCount} connected Instagram stories that build narrative momentum, all about the STORY TOPIC above.
 
 Story type sequence: ${typeSequence.join(" → ")}
 
@@ -420,6 +423,7 @@ ${QUALITY_BAR}`,
         data: withVisuals,
         brand,
         brief: [topic],
+        topic,
         deadline,
         normalTimeoutMs: base.timeoutMs,
         repair: async (correction, timeoutMs) => {
