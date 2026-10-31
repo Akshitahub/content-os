@@ -8,6 +8,7 @@ import { FONT_FAMILY_NAME, DEFAULT_FONT_ID, isFontId, type FontId } from "@/lib/
 import { NEUTRAL_PALETTE, paletteRoles, type BrandPalette } from "@/lib/design/color-themes"
 import { sanitizeTextForCompositing } from "@/lib/image/sanitize-text-for-compositing"
 import type { StoryFrame, StoryFrameFields } from "@/lib/ai/story-frames"
+import { frameDisplayFont } from "@/lib/design/carousel-frames"
 import { plainBackgroundColor, resolveSubjectBoxes, type SubjectBox } from "@/lib/image/subject-boxes"
 
 /** Feed post designs (lib/design/post-templates.ts bold_statement / product_focus / quote_card / minimal). */
@@ -86,7 +87,14 @@ function prng(seed: number): () => number {
 
 const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;")
 const r1 = (n: number) => Math.round(n * 10) / 10
-const clean = (s: string | null | undefined) => sanitizeTextForCompositing((s ?? "").trim())
+/**
+ * Copy as drawn: sanitized for the fonts' glyphs, with a real em dash for
+ * "—" or a typed "--" (every curated font has U+2014 -- checked; the
+ * sanitizer flattens dashes for the other compositors).
+ */
+const EM_DASH_MARK = "@@EMDASH@@"
+const clean = (s: string | null | undefined) =>
+  sanitizeTextForCompositing((s ?? "").trim().replace(/\s*(?:--|—)\s*/g, EM_DASH_MARK)).split(EM_DASH_MARK).join(" — ").trim()
 
 async function fetchImage(source: string): Promise<Buffer | null> {
   try {
@@ -482,7 +490,8 @@ function displayBlock(cv: FrameCanvas, f: Fonts, words: string, zone: { y0: numb
   const lines: string[] = []
   for (const w of raw) {
     const prev = lines[lines.length - 1]
-    if (prev && (prev.length <= 3 || w.length <= 2)) lines[lines.length - 1] = `${prev} ${w}`
+    // Only a tiny word ("a", "of", "&") rides on the next line -- the words stay huge.
+    if (prev && (prev.length <= 2 || w.length <= 2)) lines[lines.length - 1] = `${prev} ${w}`
     else lines.push(w)
   }
   const lh = displayLineHeight(f.displayId)
@@ -550,11 +559,20 @@ function readsOver(color: string, ink: Ink, stats: RegionStats | null, fallbackB
   return (ink.light ? L > against : L < against) && ratio >= AA_GRAPHIC
 }
 
-/** A brand colour for script lines / arrows / an accent word: pop, then accent, whichever reads; else null. */
+/**
+ * A brand colour for script lines / arrows / an accent word: pop when it
+ * reads, else pop deepened (on light) or lifted (on dark) until it does,
+ * else accent -- the brand colour is always there, not plain ink.
+ */
 function brandColorOver(p: BrandPalette, ink: Ink, stats: RegionStats | null): string | null {
   // Without a photo the frame is the palette gradient (deep into accent).
   const bg = mixHex(p.deep, p.accent, 0.3)
-  return [p.pop, p.accent].find((c) => readsOver(c, ink, stats, bg)) ?? null
+  if (readsOver(p.pop, ink, stats, bg)) return p.pop
+  // Pop first even when it needs deepening / lifting to read; then accent.
+  const behind = ink.light ? (stats ? mixHex("#000000", "#ffffff", Math.min(stats.high, 0.35)) : bg) : (stats ? mixHex("#000000", "#ffffff", Math.max(stats.low, 0.85)) : "#f2f2f2")
+  const adjusted = ensureContrast(p.pop, behind, AA_GRAPHIC + 0.5)
+  if (readsOver(adjusted, ink, stats, bg)) return adjusted
+  return readsOver(p.accent, ink, stats, bg) ? p.accent : null
 }
 
 /** The script line's colour: the brand's pop or accent when one reads over the photo it crosses, else the ink. */
@@ -668,7 +686,7 @@ function hookFrame(ctx: Ctx, s: StoryFrameSlide): string {
   const script = scriptAt(ctx, s.script_line ?? "", block.left + 18 + Math.round(ctx.rnd() * 60), scriptY, 96)
   // The mark sits in the corner away from the words; the tape in the other corner.
   const mark = zone === "top" ? brandMark(ctx, cv.side, cv.h - cv.safeBottom - 30 - MARK_MAX_H) : brandMark(ctx, cv.w - cv.side, cv.safeTop + 30, "end")
-  return block.svg + script.svg + mark + (s.tape ? tapeStrip(zone === "top" ? cv.w - 210 : 220, zone === "top" ? cv.h - cv.safeBottom - 40 : cv.safeTop + 40, 330, 92, zone === "top" ? -24 : -32, ctx.p.base, ctx.rnd) : "")
+  return block.svg + script.svg + mark + (s.tape ? tapeStrip(zone === "top" ? cv.w - 210 : 220, zone === "top" ? cv.h - cv.safeBottom - 40 : cv.safeTop + 40, 330, 92, zone === "top" ? -24 : -32, ctx.p.accent, ctx.rnd, 0.7) : "")
 }
 
 function offerFrame(ctx: Ctx, s: StoryFrameSlide): string {
@@ -806,7 +824,7 @@ function ctaFrame(ctx: Ctx, s: StoryFrameSlide): string {
   const arrowInk = inkAt(ctx, startY, py + ph)
   const arrowSvg = arrow(startX, startY, px - 18, py + ph * 0.35, -70, s.script_line ? script.color : arrowInk.ink.color, arrowInk.ink.filter)
   const mark = brandMark(ctx, cv.w / 2, py + ph + 36, "middle")
-  return block.svg + script.svg + arrowSvg + pill + mark + (s.tape ? tapeStrip(cv.w - 200, cv.h - cv.safeBottom - 20, 300, 86, 28, ctx.p.base, ctx.rnd) : "")
+  return block.svg + script.svg + arrowSvg + pill + mark + (s.tape ? tapeStrip(cv.w - 200, cv.h - cv.safeBottom - 20, 300, 86, 28, ctx.p.accent, ctx.rnd, 0.7) : "")
 }
 
 // ─── Feed posts (1080x1350) ─────────────────────────────────────────────────
@@ -855,7 +873,7 @@ function postQuoteFrame(ctx: Ctx, s: StoryFrameSlide): string {
   const quote = `<text x="${r1(block.left - 10)}" y="${r1(block.top + 40)}" font-family="${family(SCRIPT_FONT)}" font-size="260" font-weight="700" fill="${markColor}" filter="url(#${ink.filter})">&#8220;</text>`
   const scriptY = zone === "top" ? clampY(cv, block.bottom + 110) : clampY(cv, block.top - 40)
   const script = scriptAt(ctx, s.script_line ?? "", block.left + 30, scriptY, 84)
-  const tape = tapeStrip(cv.w - 190, cv.safeTop + 10, 300, 86, 30, ctx.p.base, ctx.rnd)
+  const tape = tapeStrip(cv.w - 190, cv.safeTop + 10, 300, 86, 30, ctx.p.accent, ctx.rnd, 0.7)
   const mark = zone === "top" ? brandMark(ctx, cv.side, cv.h - cv.safeBottom - MARK_MAX_H) : brandMark(ctx, cv.w - cv.side, cv.safeTop + 30, "end")
   return quote + block.svg + script.svg + mark + tape
 }
@@ -967,7 +985,9 @@ function slidePhotoFrame(ctx: Ctx, s: StoryFrameSlide): string {
   const ink = inkFor(ctx.stats[zone], ctx.p)
   const z = zones(cv)[zone]
   // Leave room for the body under the words.
-  const block = displayBlock(cv, ctx.f, clean(s.big_words) || clean(s.text), zone === "top" ? z : { y0: z.y0, y1: z.y1 - 170 }, zone, ink, ctx.rnd, 0.2)
+  // The last display line in the brand colour, as on the hook.
+  const accent = { color: brandColorOver(ctx.p, ink, ctx.stats[zone]), underline: ctx.p.accent }
+  const block = displayBlock(cv, ctx.f, clean(s.big_words) || clean(s.text), zone === "top" ? z : { y0: z.y0, y1: z.y1 - 170 }, zone, ink, ctx.rnd, 0.2, accent)
   const body = bodyLines(ctx, s.body ?? "", block.left + 4, block.bottom + 18, ink.color, ink.filter)
   return block.svg + body.svg
 }
@@ -978,7 +998,8 @@ function slideTypeFrame(ctx: Ctx, s: StoryFrameSlide): string {
   const roles = paletteRoles(ctx.p)
   const bg = ctx.p.base
   const ink: Ink = { color: roles.ink, filter: "glow", light: false }
-  const accentColor = [ctx.p.accent, ctx.p.pop].find((c) => hexContrast(c, bg) >= AA_GRAPHIC + 0.5) ?? null
+  // Pop first (deepened / lifted to read on the base), then accent.
+  const accentColor = [ctx.p.pop, ensureContrast(ctx.p.pop, bg, AA_GRAPHIC + 0.5), ctx.p.accent].find((c) => hexContrast(c, bg) >= AA_GRAPHIC + 0.5) ?? null
   const block = displayBlock(cv, ctx.f, clean(s.big_words) || clean(s.text), { y0: cv.safeTop + 140, y1: Math.round(cv.h * 0.66) }, "top", ink, ctx.rnd, 0.28, { color: accentColor, underline: ctx.p.accent })
   const body = bodyLines(ctx, s.body ?? "", block.left + 4, block.bottom + 30, roles.inkMuted, null)
   const tape = tapeStrip(cv.side + 120, cv.safeTop + 30, 280, 80, -18, ctx.p.accent, ctx.rnd, 0.55)
@@ -1021,7 +1042,7 @@ export interface FrameLayers {
 export async function renderFrameLayers(slide: StoryFrameSlide, cv: FrameCanvas): Promise<FrameLayers> {
   const p = slide.palette ?? NEUTRAL_PALETTE
   const rnd = prng(typeof slide.seed === "number" ? slide.seed : 1)
-  const displayId: FontId = isFontId(slide.font_id) ? slide.font_id : DEFAULT_FONT_ID
+  const displayId: FontId = frameDisplayFont(isFontId(slide.font_id) ? slide.font_id : DEFAULT_FONT_ID)
   const { display, script, box, fontFiles } = await loadFonts(displayId)
   const composed: Composed = slide.frame === "slide_type"
     ? { ...(await flatBackground(p.base, rnd, cv)), subjects: [], region: { x0: 0, y0: 0, x1: cv.w, y1: cv.h }, layout: "full" }

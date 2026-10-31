@@ -7,6 +7,18 @@
  * imports. Slides without a `frame` (saved before this) render as before.
  */
 
+import type { FontId } from "./fonts"
+
+/**
+ * Every frame -- story, post, carousel -- sets its big words in a poster
+ * display face: the brand's heading font when it is one (Anton, Playfair),
+ * else Anton. A rounded, body or script heading (Quicksand, Inter, Caveat)
+ * reads soft at poster size; those stay for the brand's other text.
+ */
+export function frameDisplayFont(id: FontId | null | undefined): FontId {
+  return id === "playfair" ? "playfair" : "anton"
+}
+
 export const CAROUSEL_FRAMES = ["hook", "slide_photo", "slide_type", "cta"] as const
 export type CarouselFrame = (typeof CAROUSEL_FRAMES)[number]
 

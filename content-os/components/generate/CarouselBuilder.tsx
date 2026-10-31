@@ -8,7 +8,7 @@ import { ScheduleAction } from "@/components/shared/ScheduleAction"
 import { CriticPanel } from "@/components/shared/CriticPanel"
 import { useBrand } from "@/hooks/useBrand"
 import { downloadCarouselSlideAsImage, downloadCarouselSlidesAsImages, exportFrameFields, renderCarouselSlides, type CarouselExportSlide } from "@/lib/utils/carousel-export"
-import { carouselFrameNeedsPhoto, type CarouselFrame } from "@/lib/design/carousel-frames"
+import { carouselFrameNeedsPhoto, frameDisplayFont, type CarouselFrame } from "@/lib/design/carousel-frames"
 import { GenerationWarning } from "@/components/shared/GenerationWarning"
 import { UsageLimitBanner } from "@/components/generate/UsageLimitBanner"
 import { TopicSuggestButton } from "@/components/shared/TopicSuggestButton"
@@ -646,13 +646,14 @@ function FrameSlideEditor({ slide, onChange }: { slide: CarouselSlideRich; onCha
         <div>
           <label className="text-xs text-muted-foreground">Font</label>
           <div className="mt-1 flex flex-wrap gap-1.5">
-            {resolveFonts().map((font) => (
+            {/* Framed slides set their big words in a poster face (lib/image/story-frame-compositor.ts frameDisplayFont). */}
+            {resolveFonts().filter((font) => font.id === "anton" || font.id === "playfair").map((font) => (
               <button
                 key={font.id}
                 type="button"
                 onClick={() => onChange({ ...slide, font_id: font.id, body_font_id: null })}
                 className={`rounded-full border-2 px-2.5 py-1 text-xs font-medium transition-all ${
-                  (slide.font_id ?? DEFAULT_FONT_ID) === font.id ? "border-violet-500 bg-violet-50 text-violet-700 dark:bg-violet-950/30" : "border-border hover:border-violet-300"
+                  frameDisplayFont(slide.font_id ?? DEFAULT_FONT_ID) === font.id ? "border-violet-500 bg-violet-50 text-violet-700 dark:bg-violet-950/30" : "border-border hover:border-violet-300"
                 }`}
               >
                 {font.label}
