@@ -9,7 +9,7 @@ import type { SubjectBox } from "@/lib/image/subject-boxes"
 /**
  * A feed post in the story frame language (lib/image/story-frame-compositor.ts):
  * the clean base photo stays stored (re-editable, never re-generated) and the
- * designed post -- 1-4 display words, a script line, tape / sticker, the
+ * designed post -- 1-4 display words, a script line, the
  * brand's mark and colours -- is rendered from it. Used by the post render
  * route (Full Post preview, calendar re-edit), Autopilot and the daily draft.
  * The brand's palette, heading font, logo and name always come from the
@@ -49,7 +49,7 @@ export async function renderPostDesign(
     badge: d.badge ?? null,
     quote: d.quote ?? null,
     seed: d.seed,
-    tape: d.template !== "minimal",
+    callouts: d.items ?? null,
     background_image_url: baseImageUrl,
     subject_boxes: subjectBoxes ?? null,
     palette: resolveBrandPalette(brand),

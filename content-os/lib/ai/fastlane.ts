@@ -608,7 +608,7 @@ async function generatePostSlot(
       post_big_words: caption.post_big_words ?? null,
       post_script_line: caption.post_script_line ?? null,
       suggested_overlay_text: caption.suggested_overlay_text ?? null,
-      listicle_title: caption.listicle_title, listicle_count: caption.listicle_count,
+      listicle_title: caption.listicle_title, listicle_count: caption.listicle_count, listicle_items: caption.listicle_items,
       festive_occasion: caption.festive_occasion, festive_greeting: caption.festive_greeting, festive_line: caption.festive_line,
       review_quote: caption.review_quote, review_author: caption.review_author,
     },

@@ -94,9 +94,6 @@ export function carouselFrameRules(): string {
 export function finalizeCarouselFrames(slides: Record<string, unknown>[], opts: { ctaPhrase?: string | null; seedBase?: number } = {}): Record<string, unknown>[] {
   const count = slides.length
   const seedBase = opts.seedBase ?? Math.floor(Math.random() * 2 ** 20)
-  // Tape on the hook and the first type-led slide only -- a whole carousel
-  // of tape reads as a template.
-  const firstType = slides.findIndex((_, i) => carouselFrameFor(i, count) === "slide_type")
   return slides.map((s, i) => {
     const frame = carouselFrameFor(i, count)
     const bigWords = bigWordsFor(s) || clampSlideWords(s.headline, CAROUSEL_BIG_WORDS_MAX) || "More"
@@ -112,7 +109,6 @@ export function finalizeCarouselFrames(slides: Record<string, unknown>[], opts: 
       points: [],
       ...(frame === "cta" ? { cta } : {}),
       seed: (seedBase + i * 7919) % 2 ** 30,
-      tape: i === 0 || i === firstType,
       brand_mark: frame === "hook" || frame === "cta",
     }
   })

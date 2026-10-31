@@ -1269,7 +1269,9 @@ export async function compositeAnnotatedProduct(options: CompositeAnnotatedProdu
 
   // ── Motifs: up to three small marks in empty space, never over text, product, arch or strip.
   let motifSvg = ""
-  const motifs = (options.motifs ?? []).filter((m) => m.trim())
+  // Motif scatter is purely decorative -- no longer drawn (the brand's
+  // motifs still shape the image prompt as props and textures).
+  const motifs: string[] = []
   if (motifs.length) {
     const taken: Box[] = [headlineBox, productBox, archBox, { x: 0, y: stripTop, w: CANVAS_WIDTH, h: ANNOTATED_STRIP_H }, ...placed.map((c) => c.box)]
     const candidates = [

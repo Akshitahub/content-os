@@ -29,6 +29,8 @@ export interface PostDesign {
   badge?: string
   /** review_card: the customer's words, as given. */
   quote?: string
+  /** listicle_cover: the list itself -- drawn under the number, which is its count. */
+  items?: string[]
 }
 
 /** What the render / schedule / re-edit routes accept as a post's design. */
@@ -39,6 +41,7 @@ export const postDesignSchema = z.object({
   seed: z.number().int().min(0).max(2 ** 31),
   aspect: z.enum(["4:5", "1:1", "9:16"]).optional(),
   badge: z.string().max(40).optional(),
+  items: z.array(z.string().max(120)).max(10).optional(),
   quote: z.string().max(240).optional(),
 })
 
@@ -72,6 +75,7 @@ export interface PostDesignCaptionFields {
   // The data-bound templates' checked fields (lib/ai/post-template-rules.ts).
   listicle_title?: string | null
   listicle_count?: number | null
+  listicle_items?: string[] | null
   festive_occasion?: string | null
   festive_greeting?: string | null
   festive_line?: string | null
@@ -82,8 +86,10 @@ export interface PostDesignCaptionFields {
 export function initialPostDesign(template: PostTemplateId | string | null | undefined, fields: PostDesignCaptionFields, seed = Math.floor(Math.random() * 2 ** 30)): PostDesign | null {
   if (!isPostDesignTemplate(template)) return null
   // A data-bound template draws only its own checked data -- without it, the bold look.
-  if (template === "listicle_cover" && fields.listicle_count && fields.listicle_title?.trim()) {
-    return { template, big_words: clampWords(fields.listicle_title, 5), script_line: clampWords(fields.post_script_line, POST_SCRIPT_LINE_MAX), badge: String(fields.listicle_count), seed }
+  // The number only with its list on the image: no items, no listicle.
+  const items = (fields.listicle_items ?? []).map((i) => i.trim()).filter(Boolean)
+  if (template === "listicle_cover" && fields.listicle_count && fields.listicle_title?.trim() && items.length === fields.listicle_count) {
+    return { template, big_words: clampWords(fields.listicle_title, 5), script_line: clampWords(fields.post_script_line, POST_SCRIPT_LINE_MAX), badge: String(items.length), items, seed }
   }
   if (template === "festive_poster" && fields.festive_occasion?.trim() && fields.festive_greeting?.trim()) {
     return { template, big_words: clampWords(fields.festive_greeting, POST_BIG_WORDS_MAX + 1), script_line: clampWords(fields.festive_line, POST_SCRIPT_LINE_MAX), badge: fields.festive_occasion.trim(), seed }

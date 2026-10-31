@@ -38,7 +38,6 @@ export function renderCarouselFrame(
     body: handwritten ? null : s.subtext ?? null,
     cta_label: s.frame === "cta" ? s.cta ?? null : null,
     seed: s.seed ?? 1,
-    tape: !!s.tape,
     brand_mark: !!s.brand_mark,
     // A type-led slide is drawn on the brand's colour, never a photo.
     background_image_url: s.frame === "slide_type" ? null : s.image_url ?? null,

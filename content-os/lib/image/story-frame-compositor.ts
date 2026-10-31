@@ -28,8 +28,7 @@ export type FrameKind = StoryFrame | PostFrame | SlideFrame
  * preview, a download and the published image are this one render.
  * Colours come from the brand's 4-role palette (resolveBrandPalette): the
  * script lines, callouts and arrows in pop or accent (whichever reads over
- * the strip of photo they sit on), the tape label and pill button on the
- * accent band, and the hook's last display line in accent / pop -- or white
+ * the strip of photo they sit on), the CTA pill on the accent band, and the hook's last display line in accent / pop -- or white
  * with an accent underline when neither reads. The hook and cta frames carry
  * the brand's logo (or its name) small, inside the safe area.
  */
@@ -589,19 +588,6 @@ const clampY = (cv: FrameCanvas, y: number) => Math.max(cv.safeTop + 20, Math.mi
 
 // ─── Decorations ────────────────────────────────────────────────────────────
 
-/** A torn-edged strip of tape: zig-zag short ends, translucent. */
-function tapePath(w: number, h: number, rnd: () => number): string {
-  const teeth = 6
-  const pts: string[] = []
-  for (let i = 0; i <= teeth; i++) pts.push(`${r1((i % 2 ? 9 : 0) + rnd() * 5)},${r1((h / teeth) * i)}`)
-  for (let i = teeth; i >= 0; i--) pts.push(`${r1(w - (i % 2 ? 9 : 0) - rnd() * 5)},${r1((h / teeth) * i)}`)
-  return pts.join(" ")
-}
-
-function tapeStrip(cx: number, cy: number, w: number, h: number, angle: number, fill: string, rnd: () => number, opacity = 0.82): string {
-  return `<g transform="translate(${r1(cx - w / 2)} ${r1(cy - h / 2)}) rotate(${r1(angle)} ${r1(w / 2)} ${r1(h / 2)})" filter="url(#drop)"><polygon points="${tapePath(w, h, rnd)}" fill="${fill}" fill-opacity="${opacity}"/></g>`
-}
-
 /** A hand-drawn arrow from (x1,y1) toward (x2,y2) -- annotated_product's own drawing, thicker. */
 const arrow = (x1: number, y1: number, x2: number, y2: number, bow: number, color: string, filter: string) =>
   `<g filter="url(#${filter})">${handArrow(x1, y1, x2, y2, bow, color, 7)}</g>`
@@ -688,9 +674,9 @@ function hookFrame(ctx: Ctx, s: StoryFrameSlide): string {
   const block = displayBlock(cv, ctx.f, clean(s.big_words) || clean(s.text), zones(cv)[zone], zone, ink, ctx.rnd, 0.3, accent)
   const scriptY = zone === "top" ? clampY(cv, block.bottom + 130) : clampY(cv, block.top - 50)
   const script = scriptAt(ctx, s.script_line ?? "", block.left + 18 + Math.round(ctx.rnd() * 60), scriptY, 96)
-  // The mark sits in the corner away from the words; the tape in the other corner.
+  // The mark sits in the corner away from the words.
   const mark = zone === "top" ? brandMark(ctx, cv.side, cv.h - cv.safeBottom - 30 - MARK_MAX_H) : brandMark(ctx, cv.w - cv.side, cv.safeTop + 30, "end")
-  return block.svg + script.svg + mark + (s.tape ? tapeStrip(zone === "top" ? cv.w - 210 : 220, zone === "top" ? cv.h - cv.safeBottom - 40 : cv.safeTop + 40, 330, 92, zone === "top" ? -24 : -32, ctx.p.accent, ctx.rnd, 0.7) : "")
+  return block.svg + script.svg + mark
 }
 
 function offerFrame(ctx: Ctx, s: StoryFrameSlide): string {
@@ -705,6 +691,8 @@ function offerFrame(ctx: Ctx, s: StoryFrameSlide): string {
   const fill = ctx.p.pop
   const ink2 = bestContrast(fill, ["#ffffff", ctx.p.deep, "#111111"])
   const words = displayCase(ctx.f.displayId, clean(s.badge)).split(/\s+/).filter(Boolean)
+  // No real offer, no badge (story-frames.ts only keeps a number the topic / product gives).
+  if (words.length === 0) return block.svg + scriptAt(ctx, s.script_line ?? "", block.left + 24, zone === "top" ? clampY(cv, block.bottom + 120) : clampY(cv, block.top - 46), 88).svg
   // Number on top, the rest below -- each line fitted inside the circle.
   const lines = words.length > 1 ? [words[0]!, words.slice(1).join(" ")] : words
   const sizes = lines.map((l, i) => Math.floor(Math.min((i === 0 ? 1.55 : 1.25) * r / Math.max(1, measureTextWidth(ctx.f.display, l, 1)), i === 0 ? r * 0.82 : r * 0.42)))
@@ -754,7 +742,7 @@ function productFrame(ctx: Ctx, s: StoryFrameSlide): string {
     const ey = sy + (t.y - sy) * 0.62
     out.push(arrow(sx, sy, ex, ey, right ? -55 : 55, color, ink.filter))
   })
-  // The torn-tape label with the display words, low on the frame.
+  // The display words, low on the frame -- plain type, no label behind them.
   const label = displayCase(ctx.f.displayId, clean(s.big_words) || clean(s.text))
   if (label) {
     let fs = 104
@@ -766,8 +754,8 @@ function productFrame(ctx: Ctx, s: StoryFrameSlide): string {
     const cy = cv.h - cv.safeBottom - h / 2 - 150 - Math.round(ctx.rnd() * 50)
     const angle = (ctx.rnd() < 0.5 ? -1 : 1) * (2 + ctx.rnd() * 3)
     // The accent band and its text colour (paletteRoles), like the pill.
-    const { band: tapeFill, bandText: textColor } = paletteRoles(ctx.p)
-    out.push(`<g transform="rotate(${r1(angle)} ${r1(cx)} ${r1(cy)})">${tapeStrip(cx, cy, w, h, 0, tapeFill, ctx.rnd, 0.94)}<text x="${r1(cx)}" y="${r1(cy + fs * 0.34)}" text-anchor="middle" font-family="${family(ctx.f.displayId)}" font-size="${fs}" font-weight="700" fill="${textColor}">${esc(label)}</text></g>`)
+    const { ink } = inkAt(ctx, cy - h / 2, cy + h / 2)
+    out.push(`<g transform="rotate(${r1(angle)} ${r1(cx)} ${r1(cy)})"><text x="${r1(cx)}" y="${r1(cy + fs * 0.34)}" text-anchor="middle" font-family="${family(ctx.f.displayId)}" font-size="${fs}" font-weight="700" fill="${ink.color}" filter="url(#${ink.filter})">${esc(label)}</text></g>`)
   }
   return out.join("")
 }
@@ -827,49 +815,29 @@ function ctaFrame(ctx: Ctx, s: StoryFrameSlide): string {
   const sy = clampY(cv, py - 250 - Math.round(ctx.rnd() * 40))
   const sx = cv.side + 10 + Math.round(ctx.rnd() * 40)
   const script = scriptAt(ctx, s.script_line ?? "", sx, sy, 92)
-  const startX = s.script_line ? sx + Math.min(script.width, 360) * 0.5 : sx + 120
-  const startY = sy + 40
-  const arrowInk = inkAt(ctx, startY, py + ph)
-  const arrowSvg = arrow(startX, startY, px - 18, py + ph * 0.35, -70, s.script_line ? script.color : arrowInk.ink.color, arrowInk.ink.filter)
   const mark = brandMark(ctx, cv.w / 2, py + ph + 36, "middle")
-  return block.svg + script.svg + arrowSvg + pill + mark + (s.tape ? tapeStrip(cv.w - 200, cv.h - cv.safeBottom - 20, 300, 86, 28, ctx.p.accent, ctx.rnd, 0.7) : "")
+  return block.svg + script.svg + pill + mark
 }
 
 // ─── Feed posts (1080x1350) ─────────────────────────────────────────────────
 // The story frame language on a feed post: full-bleed photo, 1-4 huge
-// display words + one script line, slight rotation, a tape / sticker, the
-// brand mark and colours. post_bold is the hook frame itself.
+// display words + one script line, slight rotation, the brand mark and
+// colours -- nothing purely decorative. post_bold is the hook frame itself.
 
-/** product_focus: the photo carries the product; the words sit on an accent tape label, a script line above it, a round sticker. */
+/** product_focus: the photo carries the product; the display words low on the frame, a script line above them. */
 function postProductFrame(ctx: Ctx, s: StoryFrameSlide): string {
   const { cv } = ctx
-  const out: string[] = []
-  const label = displayCase(ctx.f.displayId, clean(s.big_words) || clean(s.text))
-  let fs = 120
-  while (fs > 64 && measureTextWidth(ctx.f.display, label, fs) > cv.w - cv.side * 2 - 120) fs -= 4
-  const tw = measureTextWidth(ctx.f.display, label, fs)
-  const w = tw + 110
-  const h = fs * 1.38
-  const cx = cv.side + w / 2 + Math.round(ctx.rnd() * 30)
-  const cy = cv.h - cv.safeBottom - h / 2 - 40 - Math.round(ctx.rnd() * 30)
-  const angle = (ctx.rnd() < 0.5 ? -1 : 1) * (2 + ctx.rnd() * 2.5)
-  const { band, bandText } = paletteRoles(ctx.p)
-  out.push(`<g transform="rotate(${r1(angle)} ${r1(cx)} ${r1(cy)})">${tapeStrip(cx, cy, w, h, 0, band, ctx.rnd, 0.95)}<text x="${r1(cx)}" y="${r1(cy + fs * 0.34)}" text-anchor="middle" font-family="${family(ctx.f.displayId)}" font-size="${fs}" font-weight="700" fill="${bandText}">${esc(label)}</text></g>`)
-  out.push(scriptAt(ctx, s.script_line ?? "", cv.side + 20 + Math.round(ctx.rnd() * 40), clampY(cv, cy - h / 2 - 34), 84).svg)
-  // A round sticker with the brand mark's initial letters / name -- the "sticker" element.
-  const r = 92
-  const sx = cv.w - cv.side - r - Math.round(ctx.rnd() * 20)
-  const sy = cv.safeTop + r + 10 + Math.round(ctx.rnd() * 20)
-  const stickerFill = ctx.p.pop
-  const stickerInk = bestContrast(stickerFill, ["#ffffff", ctx.p.deep, "#111111"])
-  const word = displayCase(ctx.f.displayId, clean(ctx.mark?.name ?? "") || "new").split(/\s+/)[0]!.slice(0, 8)
-  let ss = 54
-  while (ss > 22 && measureTextWidth(ctx.f.display, word, ss) > r * 1.5) ss -= 2
-  out.push(`<g transform="rotate(${r1((ctx.rnd() - 0.5) * 24)} ${sx} ${sy})" filter="url(#drop)"><circle cx="${sx}" cy="${sy}" r="${r}" fill="${stickerFill}"/><circle cx="${sx}" cy="${sy}" r="${r - 12}" fill="none" stroke="${stickerInk}" stroke-opacity="0.5" stroke-width="3" stroke-dasharray="8 9"/><text x="${sx}" y="${r1(sy + ss * 0.34)}" text-anchor="middle" font-family="${family(ctx.f.displayId)}" font-size="${ss}" font-weight="700" fill="${stickerInk}">${esc(word)}</text></g>`)
-  return out.join("")
+  const zone = calmZone(ctx, "bottom")
+  const ink = inkFor(ctx.stats[zone], ctx.p)
+  const accent = { color: brandColorOver(ctx.p, ink, ctx.stats[zone]), underline: ctx.p.accent }
+  const block = displayBlock(cv, ctx.f, clean(s.big_words) || clean(s.text), zones(cv)[zone], zone, ink, ctx.rnd, 0.2, accent)
+  const scriptY = zone === "top" ? clampY(cv, block.bottom + 100) : clampY(cv, block.top - 40)
+  const script = scriptAt(ctx, s.script_line ?? "", block.left + 10, scriptY, 84)
+  const mark = zone === "top" ? brandMark(ctx, cv.side, cv.h - cv.safeBottom - MARK_MAX_H) : brandMark(ctx, cv.w - cv.side, cv.safeTop + 20, "end")
+  return block.svg + script.svg + mark
 }
 
-/** quote_card: a big brand-coloured quote mark, the display words, a script line, tape. */
+/** quote_card: a big brand-coloured quote mark, the display words, a script line. */
 function postQuoteFrame(ctx: Ctx, s: StoryFrameSlide): string {
   const { cv } = ctx
   const zone = calmZone(ctx, "top")
@@ -881,12 +849,11 @@ function postQuoteFrame(ctx: Ctx, s: StoryFrameSlide): string {
   const quote = `<text x="${r1(block.left - 10)}" y="${r1(block.top + 40)}" font-family="${family(SCRIPT_FONT)}" font-size="260" font-weight="700" fill="${markColor}" filter="url(#${ink.filter})">&#8220;</text>`
   const scriptY = zone === "top" ? clampY(cv, block.bottom + 110) : clampY(cv, block.top - 40)
   const script = scriptAt(ctx, s.script_line ?? "", block.left + 30, scriptY, 84)
-  const tape = tapeStrip(cv.w - 190, cv.safeTop + 10, 300, 86, 30, ctx.p.accent, ctx.rnd, 0.7)
   const mark = zone === "top" ? brandMark(ctx, cv.side, cv.h - cv.safeBottom - MARK_MAX_H) : brandMark(ctx, cv.w - cv.side, cv.safeTop + 30, "end")
-  return quote + block.svg + script.svg + mark + tape
+  return quote + block.svg + script.svg + mark
 }
 
-/** minimal: the quiet option -- small display words in the brand colour, a small script line, the mark. No tape. */
+/** minimal: the quiet option -- small display words in the brand colour, a small script line, the mark. */
 function postMinimalFrame(ctx: Ctx, s: StoryFrameSlide): string {
   const { cv } = ctx
   const zone = calmZone(ctx, "bottom")
@@ -900,34 +867,36 @@ function postMinimalFrame(ctx: Ctx, s: StoryFrameSlide): string {
 }
 
 /**
- * listicle_cover: the item count on a big sticker (the server sets it from
- * the real item list -- lib/ai/post-template-rules.ts), the title as display
- * words, a script line, the mark.
+ * listicle_cover: the real item count as a big numeral in the brand colour,
+ * the title, and the items themselves, numbered -- the number only means
+ * something because the list is right there. Without items it isn't chosen
+ * (lib/design/post-design-fields.ts).
  */
 function postListicleFrame(ctx: Ctx, s: StoryFrameSlide): string {
   const { cv } = ctx
-  const zone = calmZone(ctx, "bottom")
-  const mark = zone === "bottom" ? brandMark(ctx, cv.side, cv.safeTop + 20) : brandMark(ctx, cv.side, cv.h - cv.safeBottom - MARK_MAX_H)
-  return offerFrame(ctx, s) + mark
-}
-
-/** A few four-point sparkles in the pop colour -- the festive frame's decoration. */
-function sparkles(ctx: Ctx, count: number, region: { y0: number; y1: number }): string {
-  const { cv } = ctx
-  const fill = ctx.p.pop
-  return Array.from({ length: count }, () => {
-    const x = cv.side + ctx.rnd() * (cv.w - cv.side * 2)
-    const y = region.y0 + ctx.rnd() * (region.y1 - region.y0)
-    const r = 14 + ctx.rnd() * 22
-    const k = r * 0.28
-    return `<path d="M${r1(x)} ${r1(y - r)} Q${r1(x + k)} ${r1(y - k)} ${r1(x + r)} ${r1(y)} Q${r1(x + k)} ${r1(y + k)} ${r1(x)} ${r1(y + r)} Q${r1(x - k)} ${r1(y + k)} ${r1(x - r)} ${r1(y)} Q${r1(x - k)} ${r1(y - k)} ${r1(x)} ${r1(y - r)}Z" fill="${fill}" filter="url(#drop)"/>`
+  const zone = calmZone(ctx, "top")
+  const ink = inkFor(ctx.stats[zone], ctx.p)
+  const color = brandColorOver(ctx.p, ink, ctx.stats[zone]) ?? ink.color
+  const items = (s.callouts ?? []).map(clean).filter(Boolean)
+  const z = zones(cv)[zone]
+  const numSize = Math.round(Math.min(cv.h * 0.2, (cv.w - cv.side * 2) * 0.5))
+  const top = z.y0 + 10
+  const num = `<text x="${r1(cv.side)}" y="${r1(top + numSize * 0.86)}" font-family="${family(ctx.f.displayId)}" font-size="${numSize}" font-weight="700" fill="${color}" filter="url(#${ink.filter})">${esc(clean(s.badge) || String(items.length))}</text>`
+  const block = displayBlock(cv, ctx.f, clean(s.big_words) || clean(s.text), { y0: top + numSize + 10, y1: z.y1 }, "top", ink, ctx.rnd, 0.16)
+  let y = block.bottom + 26
+  const list = items.slice(0, 7).map((item, i) => {
+    const line = bodyLines(ctx, `${i + 1}. ${item}`, cv.side + 4, y, ink.color, ink.filter)
+    y += line.height + 6
+    return line.svg
   }).join("")
+  const mark = zone === "top" ? brandMark(ctx, cv.w - cv.side, cv.h - cv.safeBottom - MARK_MAX_H, "end") : brandMark(ctx, cv.w - cv.side, cv.safeTop + 20, "end")
+  return num + block.svg + list + mark
 }
 
 /**
- * festive_poster: the occasion on a tape label, the greeting as display
- * words, a script line, sparkles, the mark -- only drawn for a real
- * occasion (the server checks the topic / date).
+ * festive_poster: the occasion's name as a small kicker in the brand
+ * colour, the greeting as display words, a script line, the mark -- only
+ * drawn for a real occasion (the server checks the topic / date).
  */
 function postFestiveFrame(ctx: Ctx, s: StoryFrameSlide): string {
   const { cv } = ctx
@@ -935,23 +904,13 @@ function postFestiveFrame(ctx: Ctx, s: StoryFrameSlide): string {
   const ink = inkFor(ctx.stats[zone], ctx.p)
   const accent = { color: brandColorOver(ctx.p, ink, ctx.stats[zone]), underline: ctx.p.accent }
   const z = zones(cv)[zone]
-  const block = displayBlock(cv, ctx.f, clean(s.big_words) || clean(s.text), { y0: z.y0 + (zone === "top" ? 150 : 0), y1: z.y1 - (zone === "bottom" ? 120 : 0) }, zone, ink, ctx.rnd, 0.24, accent)
-  // The occasion's name on the tape label, above the words.
+  const kickerSize = 56
   const label = displayCase(ctx.f.displayId, clean(s.badge))
-  let fs = 64
-  while (fs > 36 && measureTextWidth(ctx.f.display, label, fs) > cv.w - cv.side * 2 - 160) fs -= 2
-  const w = measureTextWidth(ctx.f.display, label, fs) + 90
-  const h = fs * 1.5
-  const cx = block.left + w / 2 - 10
-  const cy = Math.max(cv.safeTop + h / 2 + 10, block.top - h / 2 - 30)
-  const { band, bandText } = paletteRoles(ctx.p)
-  const tag = label ? `<g transform="rotate(${r1(-3 + ctx.rnd() * 2)} ${r1(cx)} ${r1(cy)})">${tapeStrip(cx, cy, w, h, 0, band, ctx.rnd, 0.95)}<text x="${r1(cx)}" y="${r1(cy + fs * 0.34)}" text-anchor="middle" font-family="${family(ctx.f.displayId)}" font-size="${fs}" font-weight="700" fill="${bandText}">${esc(label)}</text></g>` : ""
-  const scriptY = clampY(cv, block.bottom + 100)
-  const script = scriptAt(ctx, s.script_line ?? "", block.left + 24, scriptY, 84)
-  // Sparkles in the other half, clear of the words.
-  const decoration = sparkles(ctx, 5, zone === "top" ? { y0: Math.max(scriptY + 80, Math.round(cv.h * 0.6)), y1: cv.h - cv.safeBottom - MARK_MAX_H - 40 } : { y0: cv.safeTop + 40, y1: Math.min(block.top - 120, Math.round(cv.h * 0.4)) })
-  const mark = zone === "top" ? brandMark(ctx, cv.w - cv.side, cv.h - cv.safeBottom - MARK_MAX_H, "end") : brandMark(ctx, cv.w - cv.side, cv.safeTop + 20, "end")
-  return decoration + tag + block.svg + script.svg + mark
+  const block = displayBlock(cv, ctx.f, clean(s.big_words) || clean(s.text), { y0: z.y0 + (label ? kickerSize + 30 : 0), y1: z.y1 }, "top", ink, ctx.rnd, 0.24, accent)
+  const kicker = label ? `<text x="${r1(block.left)}" y="${r1(block.top - 24)}" font-family="${family(ctx.f.displayId)}" font-size="${kickerSize}" font-weight="700" letter-spacing="4" fill="${accent.color ?? ink.color}" filter="url(#${ink.filter})">${esc(label)}</text>` : ""
+  const script = scriptAt(ctx, s.script_line ?? "", block.left + 24, clampY(cv, block.bottom + 100), 84)
+  const mark = brandMark(ctx, cv.w - cv.side, cv.h - cv.safeBottom - MARK_MAX_H, "end")
+  return kicker + block.svg + script.svg + mark
 }
 
 /**
@@ -1010,8 +969,7 @@ function slideTypeFrame(ctx: Ctx, s: StoryFrameSlide): string {
   const accentColor = [ctx.p.pop, ensureContrast(ctx.p.pop, bg, AA_GRAPHIC + 0.5), ctx.p.accent].find((c) => hexContrast(c, bg) >= AA_GRAPHIC + 0.5) ?? null
   const block = displayBlock(cv, ctx.f, clean(s.big_words) || clean(s.text), { y0: cv.safeTop + 140, y1: Math.round(cv.h * 0.66) }, "top", ink, ctx.rnd, 0.28, { color: accentColor, underline: ctx.p.accent })
   const body = bodyLines(ctx, s.body ?? "", block.left + 4, block.bottom + 30, roles.inkMuted, null)
-  const tape = tapeStrip(cv.side + 120, cv.safeTop + 30, 280, 80, -18, ctx.p.accent, ctx.rnd, 0.55)
-  return tape + block.svg + body.svg
+  return block.svg + body.svg
 }
 
 const DRAW: Record<FrameKind, (ctx: Ctx, s: StoryFrameSlide) => string> = {

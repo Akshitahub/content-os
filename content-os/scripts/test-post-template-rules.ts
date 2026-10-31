@@ -83,7 +83,12 @@ async function main() {
   })
 
   await test("design: the badge is the checked count / occasion; missing data -> the bold look", () => {
-    assert.equal(initialPostDesign("listicle_cover", { listicle_title: "ways to wear chinos", listicle_count: 3 }, 1)?.badge, "3")
+    const items = ["Tuck in a white tee", "Roll the hem once", "Pair with white sneakers"]
+    const listicle = initialPostDesign("listicle_cover", { listicle_title: "ways to wear chinos", listicle_count: 3, listicle_items: items }, 1)
+    assert.equal(listicle?.badge, "3")
+    assert.deepEqual(listicle?.items, items)
+    // The number only with its list on the image: no items -> not a listicle.
+    assert.equal(initialPostDesign("listicle_cover", { listicle_title: "ways to wear chinos", listicle_count: 3, post_big_words: "Chino tips" }, 1)?.template, "bold_statement")
     assert.equal(initialPostDesign("festive_poster", { festive_occasion: "Diwali", festive_greeting: "Happy Diwali" }, 1)?.badge, "Diwali")
     assert.equal(initialPostDesign("listicle_cover", { post_big_words: "New launch" }, 1)?.template, "bold_statement")
     assert.equal(initialPostDesign("review_card", { review_quote: "best chinos I have ever owned" }, 1)?.quote, "best chinos I have ever owned")
