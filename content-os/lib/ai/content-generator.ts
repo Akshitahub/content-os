@@ -25,6 +25,7 @@ import { findContentQualityIssues, normalizeHashtags, sanitizeLeakedArtifacts } 
 import { sanitizeVisualBrief } from "./visual-brief"
 import type { BrandLesson } from "./brand-brain"
 import { annotatedContext } from "./annotated-product"
+import { finishPostTemplates, postTemplatePromptBlock, type PostTemplateContext } from "./post-template-rules"
 
 export type GenerateContentOptions = {
   product?: ProductRow | null
@@ -44,6 +45,9 @@ export type GenerateContentOptions = {
   /** Brand lessons (lib/ai/brand-brain.ts) for this format's scope, fetched
    * by the route -- used by the caption, story, carousel and ad_copy prompts. */
   lessons?: BrandLesson[]
+  /** social_post + includeImagePrompt: what the data-bound templates may use
+   * (lib/ai/post-template-rules.ts) -- offered in the prompt, checked after. */
+  templateContext?: PostTemplateContext
 }
 
 type ReasoningEffort = "none" | "low" | "medium" | "high"
@@ -76,6 +80,9 @@ function buildPrompts(
           includeImagePrompt: options.includeImagePrompt,
           availableColorThemes: options.availableColorThemes,
           lessons: options.lessons,
+          postTemplates: options.includeImagePrompt && options.templateContext
+            ? { ...postTemplatePromptBlock(options.templateContext), hasOccasion: !!options.templateContext.occasion, hasReview: options.templateContext.reviews.length > 0 }
+            : undefined,
         }),
         reasoningEffort: "low",
         // A bit more headroom when image_prompt is also being generated in
@@ -318,6 +325,9 @@ export async function generateContent(
       finalCaption = gated.data
       gate = gated.gate
     }
+    // listicle_cover / festive_poster / review_card: requirement checked here,
+    // the number / occasion set from real data, else bold_statement.
+    if (options.includeImagePrompt) finalCaption = finishPostTemplates(finalCaption, options.templateContext)
 
     return {
       data: finalCaption,

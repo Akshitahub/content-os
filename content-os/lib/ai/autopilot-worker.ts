@@ -319,7 +319,8 @@ async function prepareSlot(admin: Admin, job: SlotJobRow, ctx: RunContext, track
     getActiveLessons(admin, brand.id, isCarousel ? "carousel" : "caption"),
     isCarousel || isReel ? Promise.resolve(undefined) : getActiveLessons(admin, brand.id, "hook"),
   ])
-  let generated = await generateSlotContent(brand, slot, product, params.totalSlots, tracker, workDeadline - 60_000, lessons, hookLessons)
+  const postDate = slotScheduledDate(params.baseDate, slot.day)
+  let generated = await generateSlotContent(brand, slot, product, params.totalSlots, tracker, workDeadline - 60_000, lessons, hookLessons, undefined, postDate)
   tracker.captionMs += Date.now() - captionStartedAt
 
   // The per-slot prompt has no structural guarantee that `caption` opens
@@ -343,7 +344,7 @@ async function prepareSlot(admin: Admin, job: SlotJobRow, ctx: RunContext, track
       try {
         const saved = toSavedCritic(post.critic)
         const feedback = `it scored ${post.critic.overall}/10. Fix: ${post.critic.top_fix}${saved.reasons.length ? `. Weak spots: ${saved.reasons.join("; ")}` : ""}`
-        const regen = await generateSlotContent(brand, slot, product, params.totalSlots, tracker, workDeadline - 60_000, lessons, hookLessons, feedback)
+        const regen = await generateSlotContent(brand, slot, product, params.totalSlots, tracker, workDeadline - 60_000, lessons, hookLessons, feedback, postDate)
         const second = await makeAutopilotPost(admin, job, ctx, tracker, regen, merge(regen), product, 1)
         if (second.critic && second.critic.overall > post.critic.overall) {
           generated = regen
@@ -513,10 +514,7 @@ async function makeAutopilotPost(admin: Admin, job: SlotJobRow, ctx: RunContext,
     // The post as designed: its 1-4 words and script line in the frame
     // language on the clean image, in up to bestOf looks.
     const f = generated.postDesignFields
-    const designs = candidatePostDesigns({
-      template: f?.template, hasProduct: !!product, post_big_words: f?.post_big_words, post_script_line: f?.post_script_line,
-      fallbackWords: [f?.suggested_overlay_text, generated.hook],
-    }, bestOf)
+    const designs = candidatePostDesigns({ ...f, template: f?.template, hasProduct: !!product, fallbackWords: [f?.suggested_overlay_text, generated.hook] }, bestOf)
     let best: { jpg: Buffer | null; design: PostDesign | null; critic: CriticResult | null } | null = null
     let candidates = 0
     for (const design of designs.length ? designs : [null]) {

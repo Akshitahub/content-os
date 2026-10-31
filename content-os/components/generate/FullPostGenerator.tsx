@@ -28,7 +28,7 @@ import type { GeneratedHook, GeneratedCaption, ReelScript, CarouselContent, Blog
 import { pickTextLayout, type TextLayoutId } from "@/lib/design/text-layouts"
 import { TextLayoutPicker } from "@/components/shared/TextLayoutPicker"
 import { defaultBodyFont } from "@/lib/design/fonts"
-import { initialPostDesign, POST_DESIGN_TEMPLATES, type PostDesign } from "@/lib/design/post-design-fields"
+import { initialPostDesign, postDesignLooks, type PostDesign } from "@/lib/design/post-design-fields"
 import { readJsonResponse } from "@/lib/utils/read-json-response"
 import { isApiError } from "@/types/api"
 
@@ -260,6 +260,9 @@ export function FullPostGenerator({ brandId, products }: Props) {
             post_big_words: caption.post_big_words,
             post_script_line: caption.post_script_line,
             fallbackWords: [headlineOverlay, caption.suggested_overlay_text, data.hook.hook_text],
+            listicle_title: caption.listicle_title, listicle_count: caption.listicle_count,
+            festive_occasion: caption.festive_occasion, festive_greeting: caption.festive_greeting, festive_line: caption.festive_line,
+            review_quote: caption.review_quote, review_author: caption.review_author,
           })
           setPostDesign(design ? { ...design, aspect: aspectRatio } : null)
           // The image is the last piece of "the post" to finish -- this is
@@ -1359,29 +1362,38 @@ const POST_DESIGN_LABEL: Record<PostDesign["template"], string> = {
   product_focus: "Product",
   quote_card: "Quote",
   minimal: "Quiet",
+  listicle_cover: "Listicle",
+  festive_poster: "Festive",
+  review_card: "Review",
 }
 
 /** The designed post's words and look -- every change re-renders on the server, no credits. */
 function PostDesignFields({ design, onChange, error }: { design: PostDesign; onChange: (design: PostDesign) => void; error: string | null }) {
+  const isReview = design.template === "review_card"
   return (
     <div className="space-y-2">
-      <input
-        value={design.big_words}
-        onChange={(e) => onChange({ ...design, big_words: e.target.value })}
-        maxLength={80}
-        placeholder="Big words (1-4)"
-        className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-semibold focus:outline-none focus:ring-1 focus:ring-ring"
-      />
+      {isReview ? (
+        // A real customer's words -- shown, never edited into something they didn't say.
+        <p className="rounded-md border border-dashed px-3 py-2 text-sm italic text-muted-foreground">&ldquo;{design.quote}&rdquo;</p>
+      ) : (
+        <input
+          value={design.big_words}
+          onChange={(e) => onChange({ ...design, big_words: e.target.value })}
+          maxLength={80}
+          placeholder={design.template === "listicle_cover" ? `The list (the ${design.badge} is the real count)` : "Big words (1-4)"}
+          className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-semibold focus:outline-none focus:ring-1 focus:ring-ring"
+        />
+      )}
       <input
         value={design.script_line}
         onChange={(e) => onChange({ ...design, script_line: e.target.value })}
         maxLength={120}
-        placeholder="Handwritten line under them (optional)"
+        placeholder={isReview ? "Reviewer's name (only if they gave it)" : "Handwritten line under them (optional)"}
         className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
       />
       <div className="flex flex-wrap items-center gap-1.5">
         <span className="text-[11px] text-muted-foreground">Look</span>
-        {POST_DESIGN_TEMPLATES.map((t) => (
+        {postDesignLooks(design).map((t) => (
           <button
             key={t}
             type="button"

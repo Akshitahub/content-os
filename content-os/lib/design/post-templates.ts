@@ -10,7 +10,7 @@
 // color-theme selector. Layout x color are two independent choices, not
 // preset combos.
 
-export type PostTemplateId = "bold_statement" | "product_focus" | "quote_card" | "minimal" | "blank" | "hard_truth_checklist" | "annotated_product"
+export type PostTemplateId = "bold_statement" | "product_focus" | "quote_card" | "minimal" | "blank" | "hard_truth_checklist" | "annotated_product" | "listicle_cover" | "festive_poster" | "review_card"
 
 export interface PostTemplateMeta {
   id: PostTemplateId
@@ -18,6 +18,12 @@ export interface PostTemplateMeta {
   description: string
   /** Only offered for a post with a product that has a photo. */
   requiresProductPhoto?: boolean
+  /** Only offered when the topic names an occasion or the post's date is one. */
+  requiresOccasion?: boolean
+  /** Only offered when the user gave real review text. */
+  requiresReview?: boolean
+  /** Only offered to the Full Post caption call, which can list items (checked after: lib/ai/post-template-rules.ts). */
+  requiresListCheck?: boolean
 }
 
 export const POST_TEMPLATES: PostTemplateMeta[] = [
@@ -37,11 +43,20 @@ export const POST_TEMPLATES: PostTemplateMeta[] = [
   // card with handwritten callouts pointing at it -- no AI scene. See
   // lib/image/post-compositor.ts's compositeAnnotatedProduct.
   { id: "annotated_product", label: "Annotated Product", description: "Product with handwritten callouts", requiresProductPhoto: true },
+  // Data-bound templates in the story frame language (lib/image/post-design.ts),
+  // each checked server-side by lib/ai/post-template-rules.ts.
+  { id: "listicle_cover", label: "Listicle Cover", description: "The number of tips on a big sticker -- always the real count", requiresListCheck: true },
+  { id: "festive_poster", label: "Festive Poster", description: "A greeting poster for a real occasion", requiresOccasion: true },
+  { id: "review_card", label: "Review Card", description: "A real customer review, word for word", requiresReview: true },
 ]
 
-/** The templates a post can use: the photo-only ones need a product with a photo. */
-export function availablePostTemplates(opts: { hasProductPhoto: boolean }): PostTemplateMeta[] {
-  return POST_TEMPLATES.filter((t) => !t.requiresProductPhoto || opts.hasProductPhoto)
+/** The templates a post can use: each data-bound one only when its data exists. */
+export function availablePostTemplates(opts: { hasProductPhoto: boolean; hasOccasion?: boolean; hasReview?: boolean; canCheckList?: boolean }): PostTemplateMeta[] {
+  return POST_TEMPLATES.filter((t) =>
+    (!t.requiresProductPhoto || opts.hasProductPhoto)
+    && (!t.requiresOccasion || !!opts.hasOccasion)
+    && (!t.requiresReview || !!opts.hasReview)
+    && (!t.requiresListCheck || !!opts.canCheckList))
 }
 
 export const POST_TEMPLATE_IDS = POST_TEMPLATES.map((t) => t.id) as [PostTemplateId, ...PostTemplateId[]]

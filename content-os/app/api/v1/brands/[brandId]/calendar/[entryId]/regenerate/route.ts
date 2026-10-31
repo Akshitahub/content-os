@@ -210,6 +210,7 @@ async function handlePost(request: Request, { params }: RouteParams, timer: Gene
     const { hook: hookResult, caption: contentResult } = await timer.step("caption", withDeadline(generatePostCopy(brand, {
       platform, additionalContext, pastExamples, factGuardDeadline: requestStartedAt + POST_TEXT_DEADLINE_MS,
       captionLessons, hookLessons,
+      postDate: (entry as { scheduled_date?: string | null }).scheduled_date ?? null,
     }), requestStartedAt + ROUTE_DEADLINE_MS - Date.now(), "regenerate post copy"))
 
     const hook = hookResult.hooks[0]

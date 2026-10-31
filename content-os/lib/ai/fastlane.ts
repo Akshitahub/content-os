@@ -1,3 +1,4 @@
+import type { PostDesignCaptionFields } from "@/lib/design/post-design-fields"
 import { createCreativeCompletion } from "./creative-completion"
 import { buildFactSource, guardCopy, stripGuard } from "./fact-guard"
 import { addTextUsage, sumCostUsd, UsageCarryingError, type TextUsage } from "./pricing"
@@ -335,7 +336,7 @@ export interface SlotContent {
   /** Posts: the image prompt built from that brief (falls back to the caption's image_prompt). */
   imagePrompt?: string
   /** Posts: the designed post's words and template (lib/image/post-design.ts). */
-  postDesignFields?: { template: string | null; post_big_words: string | null; post_script_line: string | null; suggested_overlay_text: string | null }
+  postDesignFields?: PostDesignCaptionFields & { template: string | null; suggested_overlay_text: string | null }
   /** Carousels: the shared generator's slides after the manual route's
    * post-processing (lib/ai/carousel-postprocess.ts) -- typed slides with
    * visual briefs, typography and layouts, for per-slide backgrounds and the
@@ -544,11 +545,13 @@ export async function generateSlotContent(
   hookLessons?: BrandLesson[],
   /** Posts only: the critic's reasons on a first draft (lib/ai/critic.ts) -- a regeneration fixes them. */
   feedback?: string,
+  /** Posts only: the day the slot goes out (YYYY-MM-DD) -- a festive poster may follow an occasion on it. */
+  postDate?: string,
 ): Promise<SlotContent> {
   if (slot.content_type === "reel_script") return generateReelSlotContent(brand, slot, product, totalSlots, tracker, factGuardDeadline, lessons)
   if (slot.content_type === "carousel") return generateCarouselSlot(brand, slot, product, totalSlots, tracker, factGuardDeadline, lessons)
   // hooks / caption / ad_copy are all a full post with an image.
-  return generatePostSlot(brand, slot, product, totalSlots, tracker, factGuardDeadline, lessons, hookLessons, feedback)
+  return generatePostSlot(brand, slot, product, totalSlots, tracker, factGuardDeadline, lessons, hookLessons, feedback, postDate)
 }
 
 // Same opener the post pipeline uses for an abstract_mood brief.
@@ -571,12 +574,13 @@ async function generatePostSlot(
   lessons: BrandLesson[] | undefined,
   hookLessons: BrandLesson[] | undefined,
   feedback?: string,
+  postDate?: string,
 ): Promise<SlotContent> {
   const brief = buildSlotBrief(slot, product, totalSlots) + (feedback ? `\n\nA FIRST DRAFT OF THIS POST WAS REJECTED -- write a better one that fixes this: ${feedback}` : "")
   // Each call's usage is tracked as it completes (onUsage).
   const { caption: contentResult, hook: hookResult } = await generatePostCopy(brand, {
     product, platform: slot.platform, additionalContext: brief, factGuardDeadline,
-    captionLessons: lessons, hookLessons,
+    captionLessons: lessons, hookLessons, postDate,
     onUsage: (_step, usage, costUsd) => trackUsage(tracker, usage, costUsd),
   })
 
@@ -604,6 +608,9 @@ async function generatePostSlot(
       post_big_words: caption.post_big_words ?? null,
       post_script_line: caption.post_script_line ?? null,
       suggested_overlay_text: caption.suggested_overlay_text ?? null,
+      listicle_title: caption.listicle_title, listicle_count: caption.listicle_count,
+      festive_occasion: caption.festive_occasion, festive_greeting: caption.festive_greeting, festive_line: caption.festive_line,
+      review_quote: caption.review_quote, review_author: caption.review_author,
     },
   }
 }

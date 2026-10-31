@@ -2,7 +2,7 @@ import type { BrandRow } from "@/types/database"
 import { resolveBrandPalette } from "@/lib/design/color-themes"
 import { resolveTypography } from "@/lib/design/fonts"
 import { FEED_CANVAS, STORY_CANVAS, renderFrame, type FrameCanvas, type PostFrame } from "@/lib/image/story-frame-compositor"
-import { POST_DESIGN_TEMPLATES, clampPostDesign, initialPostDesign, isPostDesignTemplate, type PostDesign } from "@/lib/design/post-design-fields"
+import { POST_DESIGN_TEMPLATES, clampPostDesign, initialPostDesign, isPostDesignTemplate, type PostDesign, type PostDesignCaptionFields } from "@/lib/design/post-design-fields"
 import { uploadMediaToStorage } from "@/lib/storage/upload-media"
 
 /**
@@ -20,6 +20,9 @@ const FRAME_FOR: Record<(typeof POST_DESIGN_TEMPLATES)[number], PostFrame> = {
   product_focus: "post_product",
   quote_card: "post_quote",
   minimal: "post_minimal",
+  listicle_cover: "post_listicle",
+  festive_poster: "post_festive",
+  review_card: "post_review",
 }
 
 const SQUARE_CANVAS: FrameCanvas = { w: 1080, h: 1080, safeTop: 80, safeBottom: 80, side: 72 }
@@ -40,6 +43,8 @@ export async function renderPostDesign(
     frame: FRAME_FOR[d.template],
     big_words: d.big_words,
     script_line: d.script_line,
+    badge: d.badge ?? null,
+    quote: d.quote ?? null,
     seed: d.seed,
     tape: d.template !== "minimal",
     background_image_url: baseImageUrl,
@@ -50,11 +55,9 @@ export async function renderPostDesign(
   }, canvasForAspect(aspect))
 }
 
-export interface PostDesignFields {
+export interface PostDesignFields extends PostDesignCaptionFields {
   template?: string | null
   hasProduct: boolean
-  post_big_words?: string | null
-  post_script_line?: string | null
   fallbackWords: (string | null | undefined)[]
 }
 

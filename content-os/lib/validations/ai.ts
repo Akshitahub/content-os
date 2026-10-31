@@ -145,7 +145,7 @@ export const extractFromUrlSchema = z.object({
 
 export type ExtractFromUrlInput = z.infer<typeof extractFromUrlSchema>
 
-const postTemplateEnum = z.enum(["bold_statement", "product_focus", "quote_card", "minimal", "blank", "hard_truth_checklist", "annotated_product"])
+const postTemplateEnum = z.enum(["bold_statement", "product_focus", "quote_card", "minimal", "blank", "hard_truth_checklist", "annotated_product", "listicle_cover", "festive_poster", "review_card"])
 // Matches lib/design/fonts.ts's CURATED_FONTS ids exactly -- kept as a
 // static literal here rather than importing from lib/design, same
 // convention postTemplateEnum above already follows for lib/design/post-templates.ts.

@@ -10,7 +10,7 @@ import { sanitizeTextForCompositing } from "@/lib/image/sanitize-text-for-compos
 import type { StoryFrame, StoryFrameFields } from "@/lib/ai/story-frames"
 
 /** Feed post designs (lib/design/post-templates.ts bold_statement / product_focus / quote_card / minimal). */
-export type PostFrame = "post_bold" | "post_product" | "post_quote" | "post_minimal"
+export type PostFrame = "post_bold" | "post_product" | "post_quote" | "post_minimal" | "post_listicle" | "post_festive" | "post_review"
 /** Carousel middle slides: photo-led and type-led, alternating (lib/ai/carousel-frames.ts). */
 export type SlideFrame = "slide_photo" | "slide_type"
 export type FrameKind = StoryFrame | PostFrame | SlideFrame
@@ -618,6 +618,76 @@ function postMinimalFrame(ctx: Ctx, s: StoryFrameSlide): string {
   return block.svg + script.svg + mark
 }
 
+/**
+ * listicle_cover: the item count on a big sticker (the server sets it from
+ * the real item list -- lib/ai/post-template-rules.ts), the title as display
+ * words, a script line, the mark.
+ */
+function postListicleFrame(ctx: Ctx, s: StoryFrameSlide): string {
+  const { cv } = ctx
+  const zone = calmZone(ctx, "bottom")
+  const mark = zone === "bottom" ? brandMark(ctx, cv.side, cv.safeTop + 20) : brandMark(ctx, cv.side, cv.h - cv.safeBottom - MARK_MAX_H)
+  return offerFrame(ctx, s) + mark
+}
+
+/** A few four-point sparkles in the pop colour -- the festive frame's decoration. */
+function sparkles(ctx: Ctx, count: number, region: { y0: number; y1: number }): string {
+  const { cv } = ctx
+  const fill = ctx.p.pop
+  return Array.from({ length: count }, () => {
+    const x = cv.side + ctx.rnd() * (cv.w - cv.side * 2)
+    const y = region.y0 + ctx.rnd() * (region.y1 - region.y0)
+    const r = 14 + ctx.rnd() * 22
+    const k = r * 0.28
+    return `<path d="M${r1(x)} ${r1(y - r)} Q${r1(x + k)} ${r1(y - k)} ${r1(x + r)} ${r1(y)} Q${r1(x + k)} ${r1(y + k)} ${r1(x)} ${r1(y + r)} Q${r1(x - k)} ${r1(y + k)} ${r1(x - r)} ${r1(y)} Q${r1(x - k)} ${r1(y - k)} ${r1(x)} ${r1(y - r)}Z" fill="${fill}" filter="url(#drop)"/>`
+  }).join("")
+}
+
+/**
+ * festive_poster: the occasion on a tape label, the greeting as display
+ * words, a script line, sparkles, the mark -- only drawn for a real
+ * occasion (the server checks the topic / date).
+ */
+function postFestiveFrame(ctx: Ctx, s: StoryFrameSlide): string {
+  const { cv } = ctx
+  const zone = calmZone(ctx, "top")
+  const ink = inkFor(ctx.stats[zone], ctx.p)
+  const accent = { color: brandColorOver(ctx.p, ink, ctx.stats[zone]), underline: ctx.p.accent }
+  const z = zones(cv)[zone]
+  const block = displayBlock(cv, ctx.f, clean(s.big_words) || clean(s.text), { y0: z.y0 + (zone === "top" ? 150 : 0), y1: z.y1 - (zone === "bottom" ? 120 : 0) }, zone, ink, ctx.rnd, 0.24, accent)
+  // The occasion's name on the tape label, above the words.
+  const label = displayCase(ctx.f.displayId, clean(s.badge))
+  let fs = 64
+  while (fs > 36 && measureTextWidth(ctx.f.display, label, fs) > cv.w - cv.side * 2 - 160) fs -= 2
+  const w = measureTextWidth(ctx.f.display, label, fs) + 90
+  const h = fs * 1.5
+  const cx = block.left + w / 2 - 10
+  const cy = Math.max(cv.safeTop + h / 2 + 10, block.top - h / 2 - 30)
+  const { band, bandText } = paletteRoles(ctx.p)
+  const tag = label ? `<g transform="rotate(${r1(-3 + ctx.rnd() * 2)} ${r1(cx)} ${r1(cy)})">${tapeStrip(cx, cy, w, h, 0, band, ctx.rnd, 0.95)}<text x="${r1(cx)}" y="${r1(cy + fs * 0.34)}" text-anchor="middle" font-family="${family(ctx.f.displayId)}" font-size="${fs}" font-weight="700" fill="${bandText}">${esc(label)}</text></g>` : ""
+  const scriptY = clampY(cv, block.bottom + 100)
+  const script = scriptAt(ctx, s.script_line ?? "", block.left + 24, scriptY, 84)
+  // Sparkles in the other half, clear of the words.
+  const decoration = sparkles(ctx, 5, zone === "top" ? { y0: Math.max(scriptY + 80, Math.round(cv.h * 0.6)), y1: cv.h - cv.safeBottom - MARK_MAX_H - 40 } : { y0: cv.safeTop + 40, y1: Math.min(block.top - 120, Math.round(cv.h * 0.4)) })
+  const mark = zone === "top" ? brandMark(ctx, cv.w - cv.side, cv.h - cv.safeBottom - MARK_MAX_H, "end") : brandMark(ctx, cv.w - cv.side, cv.safeTop + 20, "end")
+  return decoration + tag + block.svg + script.svg + mark
+}
+
+/**
+ * review_card: a real customer's words in white boxed lines (the proof
+ * frame), the reviewer's name as a script line when the review gives one,
+ * the mark. Only drawn for review text that exists (the server checks).
+ */
+function postReviewFrame(ctx: Ctx, s: StoryFrameSlide): string {
+  const { cv } = ctx
+  const zone = calmZone(ctx, "top")
+  const author = clean(s.script_line)
+  const by = zone === "top" ? Math.round(cv.h * 0.3) + 360 : Math.round(cv.h * 0.56) - 90
+  const script = author ? scriptAt(ctx, `— ${author}`, cv.w / 2 - 120, clampY(cv, by), 72).svg : ""
+  const mark = zone === "top" ? brandMark(ctx, cv.side, cv.h - cv.safeBottom - MARK_MAX_H) : brandMark(ctx, cv.side, cv.safeTop + 20)
+  return proofFrame(ctx, { ...s, quote: clean(s.quote) || clean(s.big_words) }) + script + mark
+}
+
 // ─── Carousel middle slides (1080x1350) ─────────────────────────────────────
 
 /** Body text (<= 12 words) as up to 3 short lines in the clean face. */
@@ -666,6 +736,9 @@ const DRAW: Record<FrameKind, (ctx: Ctx, s: StoryFrameSlide) => string> = {
   post_product: postProductFrame,
   post_quote: postQuoteFrame,
   post_minimal: postMinimalFrame,
+  post_listicle: postListicleFrame,
+  post_festive: postFestiveFrame,
+  post_review: postReviewFrame,
   slide_photo: slidePhotoFrame,
   slide_type: slideTypeFrame,
 }

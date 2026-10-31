@@ -1,0 +1,36 @@
+{
+  "brand": "SNITCH",
+  "note": "fixture copy checked by lib/ai/post-template-rules.ts; the review is a labelled placeholder",
+  "renders": [
+    {
+      "asked": "listicle_cover",
+      "rendered": "listicle_cover",
+      "topic": "how to style the Olive Straight Fit Chinos",
+      "badge": "3",
+      "big_words": "ways to wear them",
+      "script_line": "pick your favourite",
+      "quote": null,
+      "background": "product photo"
+    },
+    {
+      "asked": "festive_poster",
+      "rendered": "festive_poster",
+      "topic": "Diwali drop: the Olive Straight Fit Chinos",
+      "badge": "Diwali",
+      "big_words": "Happy Diwali",
+      "script_line": "light up the festive fits",
+      "quote": null,
+      "background": "product photo"
+    },
+    {
+      "asked": "review_card",
+      "rendered": "review_card",
+      "topic": "\"A real customer review goes here\" -- placeholder",
+      "badge": null,
+      "big_words": "A real customer review",
+      "script_line": "",
+      "quote": "A real customer review goes here",
+      "background": "product photo"
+    }
+  ]
+}

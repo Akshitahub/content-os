@@ -98,6 +98,18 @@ export type GeneratedCaption = {
   annotated_headline?: string | null
   annotated_keyword?: string | null
   annotated_callouts?: string[] | null
+  /** listicle_cover / festive_poster / review_card only -- checked and set by
+   * lib/ai/post-template-rules.ts. listicle_count is the number of real
+   * items (computed, never the model's); festive_occasion is the occasion
+   * the topic or date names; review_quote is the user's own review text. */
+  listicle_title?: string | null
+  listicle_items?: string[] | null
+  listicle_count?: number | null
+  festive_occasion?: string | null
+  festive_greeting?: string | null
+  festive_line?: string | null
+  review_quote?: string | null
+  review_author?: string | null
   /** Full Post only (includeImagePrompt): the ONE message the post commits
    * to before any copy. Returned with the caption; not persisted (the
    * captions row has no column for it). */

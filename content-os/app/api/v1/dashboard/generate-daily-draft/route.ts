@@ -177,6 +177,7 @@ async function handlePost(request: Request, timer: GenerationTimer) {
       factGuardDeadline: requestStartedAt + TEXT_DEADLINE_MS,
       captionLessons,
       hookLessons,
+      postDate: today,
       onUsage: (_step, usage, cost) => {
         textUsage = addTextUsage(textUsage, usage)
         costUsd = sumCostUsd(costUsd, cost)
@@ -263,7 +264,7 @@ async function handlePost(request: Request, timer: GenerationTimer) {
     // The post as designed (its words in the frame language); a failed
     // render keeps the clean image.
     const designed = await designAndUploadPost(brand, publicUrlData.publicUrl, {
-      template: caption.suggested_template, hasProduct: false, post_big_words: caption.post_big_words, post_script_line: caption.post_script_line,
+      ...caption, template: caption.suggested_template, hasProduct: false,
       fallbackWords: [caption.suggested_overlay_text, hook.hook_text],
     }, "daily draft")
     const draftImageUrl = designed?.imageUrl ?? publicUrlData.publicUrl

@@ -1,3 +1,4 @@
+import { postTemplateContext } from "./post-template-rules"
 import type { BrandRow, ProductRow } from "@/types/database"
 import type { GeneratedCaption, GeneratedHook, HookType, Platform } from "@/types/app"
 import { generateContent } from "./content-generator"
@@ -36,6 +37,8 @@ export interface PostCopyOptions {
   captionLessons?: BrandLesson[]
   hookLessons?: BrandLesson[]
   hookTypes?: HookType[]
+  /** The day the post goes out (YYYY-MM-DD) -- a festive poster may follow an occasion on it. */
+  postDate?: string | null
   /** Called as soon as each billed call completes (or fails with usage), so
    * a caller's tracking never loses one call's usage to the other's failure. */
   onUsage?: (step: PostCopyStep, usage: TextUsage | undefined, costUsd: number | null) => void
@@ -60,6 +63,8 @@ export function hookFromCaptionFirstLine(captionText: string): string {
 export async function generatePostCopy(brand: BrandRow, opts: PostCopyOptions): Promise<PostCopyResult> {
   // 1. The caption and its plan.
   let caption: Awaited<ReturnType<typeof generateContent>>
+  // What listicle_cover / festive_poster / review_card may use (never throws).
+  const templateContext = await postTemplateContext(opts.additionalContext, opts.postDate)
   try {
     // Off the user's topic after the gate's repair -> one regeneration, then OffTopicError.
     caption = await onTopicOrRegenerate(opts.additionalContext, () => generateContent(brand, "social_post", {
@@ -71,6 +76,7 @@ export async function generatePostCopy(brand: BrandRow, opts: PostCopyOptions): 
       availableColorThemes: opts.availableColorThemes,
       factGuardDeadline: opts.factGuardDeadline,
       lessons: opts.captionLessons,
+      templateContext,
     }))
   } catch (err) {
     if (err instanceof UsageCarryingError) opts.onUsage?.("caption", err.usage, err.costUsd)

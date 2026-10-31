@@ -1,3 +1,4 @@
+import { getISTDateString } from "@/lib/utils/ist"
 import { NextResponse, after } from "next/server"
 import { noteGenerationBrand } from "@/lib/ai/provider-fallback"
 import { createClient } from "@/lib/supabase/server"
@@ -144,6 +145,8 @@ async function handlePost(request: Request, timer: GenerationTimer) {
           factGuardDeadline: deadlineAt - 30_000,
           captionLessons: contentLessons,
           hookLessons,
+          // Today (IST): a festive poster may follow an occasion on it.
+          postDate: getISTDateString(),
         }),
         createPostImageSession(user.id),
       ]), remainingMs(), "fullpost caption"))
