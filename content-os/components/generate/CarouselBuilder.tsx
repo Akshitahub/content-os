@@ -66,7 +66,7 @@ interface CarouselSlideRich {
    * realistically placed in the scene itself (unlike "pollinations",
    * which has no image-to-image capability and still needs that
    * overlay). Same field/reasoning as Stories' StorySlide.background_image_provider. */
-  background_image_provider?: "pollinations" | "openai"
+  background_image_provider?: "pollinations" | "openai" | "brand_photo"
   /** Set when this slide (or, from the "Custom color" Vibe option, every
    * slide in the carousel at once) uses an exact user-picked flat/gradient
    * color instead of an AI-generated image or a named background_style --

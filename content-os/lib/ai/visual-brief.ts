@@ -205,6 +205,32 @@ export function findTextBearingSubject(brief: VisualBrief | null | undefined, op
   return null
 }
 
+// ─── Candid photo direction ────────────────────────────────────────────────
+// The default look for every generated photo (stories and posts): what a
+// real customer's phone photo looks like, never a studio product shot. Used
+// by the brief-writing prompts (CANDID_PHOTO_RULE), the image prompt
+// builders, and art direction's default photo_style. A real brand photo is
+// always preferred over generating one (lib/brand-photos.ts).
+
+export const CANDID_PHOTO_STYLE = "candid phone photo, natural window light or outdoor daylight, a real Indian setting (a home, a street, a market, a cafe or a college campus), slightly off-centre framing, shallow depth of field, subtle film grain"
+export const CANDID_PEOPLE_DIRECTION = "a real person, or just their hands, using, holding or wearing the product mid-moment -- natural and unposed, never looking into the camera with a posed smile"
+export const CANDID_PHOTO_AVOID = ["studio sweeps or seamless backdrops", "products floating in mid-air", "perfect symmetry", "a glossy CGI or 3D-render look", "stock-photo smiles"] as const
+/** The image-prompt clause banning the AI-default product look. */
+export const CANDID_PHOTO_GUARD = `never: ${CANDID_PHOTO_AVOID.join(", ")}`
+
+/** The rule for a prompt that WRITES visual briefs. */
+export const CANDID_PHOTO_RULE = `- Every scene is a candid phone photo, as if taken by a customer: ${CANDID_PHOTO_STYLE}. Show ${CANDID_PEOPLE_DIRECTION}. Never: ${CANDID_PHOTO_AVOID.join("; ")}.`
+
+// A stored photo_style describing one of the banned looks (art direction
+// derived before the candid default, or typed in) -- replaced by the default.
+const NON_CANDID_STYLE = /studio|seamless|sweep|backdrop|cgi|3d|render|floating|symmetr/i
+
+/** The brand's photo_style when it's candid-compatible, else CANDID_PHOTO_STYLE. */
+export function candidPhotoStyle(ad: ArtDirection | null | undefined): string {
+  const own = ad?.photo_style?.trim()
+  return own && !NON_CANDID_STYLE.test(own) ? own : CANDID_PHOTO_STYLE
+}
+
 // ─── Brand art direction in briefs and image prompts ───────────────────────
 // The brand's art direction (lib/ai/brand-brain.ts, derived by
 // lib/ai/art-direction.ts) reaches every format from here: the visual-brief
@@ -224,7 +250,7 @@ export function artDirectionBriefRules(ad: ArtDirection | null | undefined): str
 - Palette (the image's dominant colours, described in words -- never write colour codes): ${colourName(ad.palette.accent)} as the signature accent, ${colourName(ad.palette.base)} as the base, ${colourName(ad.palette.deep)} for deep tones, ${colourName(ad.palette.pop)} as a small pop. Mood: ${ad.mood}.
 - Props, materials and textures come from this brand's world: ${ad.motifs.join(", ")}.
 - Setting: ${ad.cultural_context}
-- Photography: ${ad.photo_style}
+- Photography: ${candidPhotoStyle(ad)}
 - Never: ${ad.avoid.join("; ")}.`
 }
 
@@ -236,7 +262,7 @@ export function artDirectionImageClause(ad: ArtDirection | null | undefined): st
     `${ad.mood} mood`,
     `props and textures drawn from: ${ad.motifs.join(", ")}`,
     `set in ${ad.cultural_context.replace(/[.]+$/, "")}`,
-    `photography: ${ad.photo_style.replace(/[.]+$/, "")}`,
+    `photography: ${candidPhotoStyle(ad).replace(/[.]+$/, "")}`,
     `never show: ${ad.avoid.join("; ")}`,
   ].join(", ")
 }

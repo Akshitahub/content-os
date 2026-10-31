@@ -23,6 +23,10 @@ import { getPrimaryColor } from "@/lib/design/post-card-generator"
 import { artDirectionForRequest } from "@/lib/ai/art-direction"
 import { toBrandPreset, type BrandPresetId } from "@/lib/design/color-themes"
 import { OffTopicError, onTopicOrRegenerate } from "@/lib/ai/quality-gate"
+import { PHOTO_KINDS_FOR, download, takeBrandPhotos } from "@/lib/brand-photos"
+import { createAdminClient } from "@/lib/supabase/server"
+import { computeTextStyleSafe } from "@/lib/image/text-contrast"
+import { storyTextRegion } from "@/lib/design/text-style"
 import { ShortGenerationError, generationErrorMessage, regenerateIfShort } from "@/lib/ai/generation-retry"
 
 const schema = z.object({
@@ -30,6 +34,10 @@ const schema = z.object({
   topic: z.string().min(3).max(300),
   storyCount: z.number().int().min(1).max(10).default(3),
   vibe: z.string().optional(),
+  // The picked product -- its own brand photos are preferred for the frames.
+  productId: z.string().uuid().optional(),
+  // False for the client's Custom color mode (flat colours, never a photo).
+  brandPhotos: z.boolean().default(true),
 })
 
 export type StorySlide = {
@@ -85,7 +93,12 @@ export type StorySlide = {
    * product realistically placed in the scene itself (unlike
    * "pollinations", which has no image-to-image capability and still
    * needs that overlay). */
-  background_image_provider?: "pollinations" | "openai"
+  background_image_provider?: "pollinations" | "openai" | "brand_photo"
+  /** The brand's own photo on this frame (brand_images.id, lib/brand-photos.ts)
+   * -- set when background_image_url is a real brand photo. Every frame in a
+   * sequence gets a different one; sent back as the slide-image route's
+   * excludePhotoIds so a regenerated frame never repeats one. */
+  brand_photo_id?: string | null
   /** "Custom color" mode (see components/shared/VibePicker.tsx +
    * ColorWheelPicker) -- an exact user-picked flat/gradient, applied
    * uniformly to every slide when active. Client-only, same as
@@ -244,6 +257,34 @@ function countStoryFrames(raw: string): number {
   }
 }
 
+/**
+ * One distinct brand photo per frame, in frame order (lib/brand-photos.ts
+ * takeBrandPhotos; brand_images is read with the service role after the
+ * brand's ownership was checked, like the photos routes). Each assigned
+ * frame also gets its text_style from the photo. Frames beyond the photos
+ * available keep no background_image_url. Never throws.
+ */
+async function assignBrandPhotos(brand: BrandRow, stories: Record<string, unknown>[], productId: string | null): Promise<Record<string, unknown>[]> {
+  try {
+    const admin = await createAdminClient()
+    const photos = await takeBrandPhotos(admin, brand, { productId, kinds: PHOTO_KINDS_FOR.story, count: stories.length })
+    if (photos.length === 0) return stories
+    const styles = await Promise.all(photos.map(async (p, i) => {
+      const bytes = await download(p.url)
+      const position = stories[i]?.text_position as "top" | "center" | "bottom" | undefined
+      return bytes ? computeTextStyleSafe(bytes, storyTextRegion(position)) : null
+    }))
+    console.log(`[ai/stories/generate] ${photos.length}/${stories.length} frame(s) use the brand's own photos`)
+    return stories.map((s, i) => {
+      const photo = photos[i]
+      return photo ? { ...s, background_image_url: photo.url, background_image_provider: "brand_photo", brand_photo_id: photo.id, text_style: styles[i] ?? null } : s
+    })
+  } catch (err) {
+    console.error("[ai/stories/generate] couldn't assign brand photos (non-fatal):", err instanceof Error ? err.message : err)
+    return stories
+  }
+}
+
 export async function POST(request: Request) {
   return timedGenerationRoute("stories", (timer) => handlePost(request, timer))
 }
@@ -273,7 +314,7 @@ async function handlePost(request: Request, timer: GenerationTimer) {
     return NextResponse.json(buildError(ErrorCodes.VALIDATION_ERROR, "Validation failed.", parsed.error.issues[0]?.message), { status: 400 })
   }
 
-  const { brandId, topic, storyCount, vibe } = parsed.data
+  const { brandId, topic, storyCount, vibe, productId, brandPhotos } = parsed.data
 
   const { data: brand } = await supabase.from("brands").select("*").eq("id", brandId).eq("user_id", user.id).single<BrandRow>()
   if (!brand) return NextResponse.json(buildError(ErrorCodes.BRAND_NOT_FOUND, "Brand not found."), { status: 404 })
@@ -408,6 +449,15 @@ async function handlePost(request: Request, timer: GenerationTimer) {
     const caption = d.caption as { caption_text?: unknown; hashtags?: unknown } | undefined
     if (caption && typeof caption.caption_text === "string") {
       d.caption = { ...caption, caption_text: sanitizeStoryText(caption.caption_text), hashtags: normalizeHashtags(caption.hashtags) }
+    }
+
+    // Real photos first: every frame gets one of the brand's own photos
+    // (the product's first), never the same photo twice in the sequence --
+    // assigned here, in one pick, so frames generated in parallel can't
+    // collide. Frames left without one get an AI background from the
+    // client, as before. Not for checklist cards (no photo) or Custom color.
+    if (brandPhotos && effectiveVibe !== "hard_truth_checklist") {
+      d.stories = await assignBrandPhotos(brand, d.stories as Record<string, unknown>[], productId ?? null)
     }
 
     // Persist (non-fatal) — matches the pattern used by every other

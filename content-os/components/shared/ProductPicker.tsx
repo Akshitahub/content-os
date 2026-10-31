@@ -7,6 +7,9 @@ import { useExtractProductFromUrl } from "@/hooks/useExtraction"
 import Link from "next/link"
 
 export interface PickedProduct {
+  /** Set for one of the brand's saved products (not a URL extract or an
+   * upload) -- lets generation prefer that product's own brand photos. */
+  id?: string
   imageUrl?: string
   name: string
   description?: string
@@ -189,6 +192,7 @@ export function ProductPicker({ brandId, selected, onSelect, label = "Product im
                 type="button"
                 onClick={() => {
                   onSelect({
+                    id: p.id,
                     name: p.name,
                     description: p.description ?? undefined,
                     imageUrl: p.image_urls?.[0],

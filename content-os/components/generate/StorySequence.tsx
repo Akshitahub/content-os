@@ -93,7 +93,7 @@ function toExportSlide(story: StorySlide, productImageSource: string | null | un
     // provider-based default -- hide once background_image_provider is
     // "openai" -- depends on a field the export/compositor side never sees.
     // Same default PhoneStory's own render condition uses.
-    show_product_overlay: story.show_product_overlay ?? story.background_image_provider !== "openai",
+    show_product_overlay: story.show_product_overlay ?? (story.background_image_provider !== "openai" && story.background_image_provider !== "brand_photo"),
     product_position_x: story.product_position_x,
     product_position_y: story.product_position_y,
     custom_text_color: story.custom_text_color,
@@ -182,7 +182,11 @@ async function fetchSlideBackgroundResult(
   textPosition?: StorySlide["text_position"],
   customPrompt?: string,
   visualBrief?: VisualBrief,
-  userDirection?: string | null
+  userDirection?: string | null,
+  // The picked product's id (its own brand photos first) and the brand
+  // photos the sequence already uses -- the route tries a real photo first.
+  productId?: string,
+  excludePhotoIds?: string[]
 ): Promise<SlideBackgroundOutcome> {
   try {
     const res = await fetch("/api/v1/ai/stories/slide-image/generate", {
@@ -194,19 +198,19 @@ async function fetchSlideBackgroundResult(
       // optional, not nullable.
       // visualBrief: this frame's own scene (non-hook frames) -- see
       // lib/ai/story-slide-background.ts. Omitted when the frame has none.
-      body: JSON.stringify({ brandId, vibe, role, productImageUrl: productImageUrl ?? undefined, textPosition, customPrompt: customPrompt || undefined, visualBrief, userDirection: userDirection || undefined }),
+      body: JSON.stringify({ brandId, vibe, role, productImageUrl: productImageUrl ?? undefined, textPosition, customPrompt: customPrompt || undefined, visualBrief, userDirection: userDirection || undefined, productId, excludePhotoIds: excludePhotoIds?.length ? excludePhotoIds : undefined }),
     })
     if (!res.ok) {
       // The server's reason travels with the failure -- shown on the slide, never a silent flat background.
       const failure = await readJsonResponse(res).catch(() => null) as { error?: { message?: string } } | null
       return { error: slideBackgroundErrorForStatus(res.status), message: failure?.error?.message }
     }
-    const json = await readJsonResponse(res) as { data?: { public_url?: string; provider?: "openai"; text_style?: TextStyle | null } }
+    const json = await readJsonResponse(res) as { data?: { public_url?: string; provider?: "openai" | "brand_photo"; text_style?: TextStyle | null; photo_id?: string | null } }
     // A public_url with no provider would be an incomplete/malformed
     // response -- treated the same as any other failure rather than
     // storing a background with an unknown provider (which PhoneStory's
     // "!== openai" overlay gating needs to be trustworthy either way).
-    return json.data?.public_url && json.data.provider ? { url: json.data.public_url, provider: json.data.provider, text_style: json.data.text_style ?? null } : { error: "failed" }
+    return json.data?.public_url && json.data.provider ? { url: json.data.public_url, provider: json.data.provider, text_style: json.data.text_style ?? null, photo_id: json.data.photo_id ?? null } : { error: "failed" }
   } catch {
     return { error: "failed" }
   }
@@ -395,7 +399,7 @@ function PhoneStory({
   // per-slide via the "Product" toggle button below, regardless of
   // provider -- e.g. when a generation dropped the product from the
   // scene despite the reference photo.
-  const productOverlayOn = story.show_product_overlay ?? story.background_image_provider !== "openai"
+  const productOverlayOn = story.show_product_overlay ?? (story.background_image_provider !== "openai" && story.background_image_provider !== "brand_photo")
 
   function copyText() {
     navigator.clipboard.writeText(`${story.text}\n${story.subtext}`)
@@ -1001,6 +1005,8 @@ export function StorySequence({ brandId }: { brandId: string }) {
     setBgProgress({ settled: 0, total: indices.length })
     setBgAttempted(indices.length)
     setFailedBgSlides([])
+    // Brand photos already on this sequence's frames -- never repeated.
+    const usedPhotoIds = slides.map((s) => s.brand_photo_id).filter((id): id is string => !!id)
     const { succeeded, failed, outOfCredits, errors } = await runSlideBackgroundJobs(
       indices.map((i) => {
         const slide = slides[i]!
@@ -1022,7 +1028,9 @@ export function StorySequence({ brandId }: { brandId: string }) {
             visualPrompt,
             slide.visual,
             // The user's own typed scene text, never the AI-expanded prompt.
-            visualPromptSeedRef.current
+            visualPromptSeedRef.current,
+            selectedProduct?.id,
+            usedPhotoIds
           ),
         }
       }),
@@ -1040,7 +1048,7 @@ export function StorySequence({ brandId }: { brandId: string }) {
       // Then re-pick auto layouts now that each background's text_style is known.
       setStories((prev) => repickSequenceLayouts(prev.map((s, i) => {
         const bg = succeeded.get(i)
-        return bg ? { ...s, background_image_url: bg.url, background_image_provider: bg.provider, text_style: bg.text_style ?? null } : s
+        return bg ? { ...s, background_image_url: bg.url, background_image_provider: bg.provider, brand_photo_id: bg.photo_id ?? null, text_style: bg.text_style ?? null } : s
       }), {
         format: "story", brand: { vibe: brand?.vibe }, headingFont: prev[0]?.font_id ?? DEFAULT_FONT_ID,
         toPick: (st) => ({ role: st.type, visualKind: st.visual?.kind ?? null, textStyle: st.background_image_url ? st.text_style ?? null : null }),
@@ -1106,6 +1114,10 @@ export function StorySequence({ brandId }: { brandId: string }) {
           hasUserImages: uploadedImages.length > 0,
           imageDescriptions: uploadedImages.map((_, i) => `User provided image ${i + 1}`),
           vibe: isCustomColorMode ? undefined : vibe,
+          // Real photos first: the route puts one of the brand's own photos
+          // on every frame it can; the rest get AI backgrounds below.
+          productId: selectedProduct?.id,
+          brandPhotos: !isCustomColorMode,
         }),
       })
       const json = await readJsonResponse(res) as { data?: { id?: string | null; stories: StorySlide[]; caption?: StoryCaption; story_plan?: StoryPlan }; error?: { code?: string; message?: string } }
@@ -1160,7 +1172,9 @@ export function StorySequence({ brandId }: { brandId: string }) {
         // cta go first (always on), then reveal/buildup when "AI background
         // for every slide" is on. "✓ generated and saved" waits for the
         // whole image step.
-        const indices = savedStories.map((_, i) => i)
+        // Frames that already carry one of the brand's own photos (assigned
+        // by the generate route) need nothing generated.
+        const indices = savedStories.map((_, i) => i).filter((i) => !savedStories[i]!.background_image_url)
         const hookAndCta = indices.filter((i) => storyBgRole(savedStories[i]!) !== "body")
         const middle = allSlidesAiBg ? indices.filter((i) => storyBgRole(savedStories[i]!) === "body") : []
         void runStoryBackgrounds(genId, savedStories, [...hookAndCta, ...middle]).then((finished) => {

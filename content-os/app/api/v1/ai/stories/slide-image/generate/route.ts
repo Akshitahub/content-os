@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
-import { createClient } from "@/lib/supabase/server"
+import { createAdminClient, createClient } from "@/lib/supabase/server"
+import { PHOTO_KINDS_FOR, download, takeBrandPhotos } from "@/lib/brand-photos"
 import { buildError, ErrorCodes } from "@/types/api"
 import { generateStorySlideBackground, type StoryVibe } from "@/lib/ai/story-slide-background"
 import { VISUAL_KINDS, briefUsesProductReference, sanitizeVisualBrief } from "@/lib/ai/visual-brief"
@@ -25,6 +26,10 @@ const schema = z.object({
   role: z.enum(["hook", "cta", "body"]),
   productImageUrl: z.string().url().optional(),
   textPosition: z.enum(["top", "center", "bottom"]).optional(),
+  // The picked product (its own brand photos first) and the brand photos the
+  // sequence already uses -- a frame never repeats one.
+  productId: z.string().uuid().optional(),
+  excludePhotoIds: z.array(z.string().uuid()).max(20).optional(),
   // SocioPosts-authored (and possibly user-edited) visual scene from the
   // new prompt-writing stage -- see lib/ai/story-slide-background.ts's
   // GenerateStorySlideBackgroundOptions.customPrompt.
@@ -124,6 +129,18 @@ async function handlePost(request: Request, timer: GenerationTimer) {
 
   const { data: brand } = await supabase.from("brands").select("*").eq("id", brandId).eq("user_id", user.id).single<BrandRow>()
   if (!brand) return NextResponse.json(buildError(ErrorCodes.BRAND_NOT_FOUND, "Brand not found."), { status: 404 })
+
+  // A real brand photo first (lib/brand-photos.ts) -- free, nothing generated.
+  // Only when the brand has none left for this sequence is an image generated.
+  const photo = (await takeBrandPhotos(await createAdminClient(), brand, {
+    productId: parsed.data.productId ?? null, kinds: PHOTO_KINDS_FOR.story, count: 1, exclude: parsed.data.excludePhotoIds,
+  }))[0]
+  if (photo) {
+    const bytes = await download(photo.url)
+    const textStyle = bytes ? await computeTextStyleSafe(bytes, storyTextRegion(textPosition)) : null
+    console.log(`[ai/stories/slide-image/generate] role=${role} using brand photo ${photo.id} (no image generated)`)
+    return NextResponse.json({ data: { public_url: photo.url, role, provider: "brand_photo", photo_id: photo.id, text_style: textStyle } }, { status: 200 })
+  }
 
   const { data: userData } = await supabase.from("users").select("plan").eq("id", user.id).single<{ plan: UserPlan }>()
   const plan: UserPlan = userData?.plan ?? "starter"

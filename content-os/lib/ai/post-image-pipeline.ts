@@ -11,7 +11,8 @@ import type { SlideWarning } from "@/lib/design/slide-text-layout"
 import type { PostTemplateId } from "@/lib/design/post-templates"
 import type { ColorTheme } from "@/lib/design/color-themes"
 import type { UserPlan } from "@/types/app"
-import { artDirectionImageClause, briefUsesProductReference, halfUsesProductReference, type VisualBrief } from "./visual-brief"
+import { download } from "@/lib/brand-photos"
+import { CANDID_PEOPLE_DIRECTION, CANDID_PHOTO_GUARD, CANDID_PHOTO_STYLE, artDirectionImageClause, briefUsesProductReference, candidPhotoStyle, halfUsesProductReference, type VisualBrief } from "./visual-brief"
 import type { ArtDirection } from "./brand-brain"
 
 export type { ImageDimensions }
@@ -84,7 +85,7 @@ function resolvePostImageDimensions(aspectRatio: "4:5" | "1:1" | "9:16" | undefi
 
 export type PostImagePipelineResult =
   | {
-      success: true; buffer: Buffer; mimeType: string; fullPrompt: string; provider: typeof IMAGE_PROVIDER | "none"; attempts: ImageGenerationAttempt[]; textComposited: boolean
+      success: true; buffer: Buffer; mimeType: string; fullPrompt: string; provider: typeof IMAGE_PROVIDER | "none" | "brand_photo"; attempts: ImageGenerationAttempt[]; textComposited: boolean
       /** From the raw background at the text's region (null for the flat checklist card or on failure). */
       textStyle?: TextStyle | null
       /** "text_overflow" when the composited text didn't fit at the smallest size. */
@@ -195,38 +196,40 @@ interface NicheStyleProfile {
   setting: string
 }
 
+// Real, everyday Indian settings per industry -- candid phone-photo
+// territory (CANDID_PHOTO_STYLE), never a studio set.
 const NICHE_STYLE_PROFILES: NicheStyleProfile[] = [
   {
     keywords: ["skincare", "beauty", "cosmetic", "makeup", "haircare", "wellness", "spa"],
-    setting: "clean minimalist beauty studio setting, soft diffused lighting, marble or neutral textured surface, editorial beauty product photography",
+    setting: "a real bathroom shelf or dressing table at home by a window, everyday things softly out of focus",
   },
   {
     keywords: ["food", "beverage", "snack", "drink", "coffee", "tea", "restaurant", "bakery", "culinary", "kitchen"],
-    setting: "appetizing food photography styling, natural warm lighting, styled kitchen or table surface, 45-degree angle food styling",
+    setting: "a home kitchen counter, a dining table mid-meal or a busy street-side stall, natural light",
   },
   {
     keywords: ["apparel", "fashion", "clothing", "wear", "garment", "footwear", "shoe", "accessor"],
-    setting: "editorial fashion photography, natural outdoor or minimalist studio backdrop, fabric and texture detail visible",
+    setting: "a city street, a college campus or a cafe, the piece worn by a real person going about their day",
   },
   {
     keywords: ["tech", "software", "saas", "app", "digital product", "startup"],
-    setting: "modern minimalist tech aesthetic, clean device-focused composition, soft natural light",
+    setting: "a real desk at home or a cafe table, the product in use by a person, natural light",
   },
   {
     keywords: ["home", "decor", "furniture", "interior", "candle", "fragrance"],
-    setting: "warm inviting home interior styling, natural window light, styled wood, linen, or ceramic surface",
+    setting: "a lived-in Indian home, natural window light falling on wood, linen or ceramic",
   },
   {
     keywords: ["jewelry", "jewellery", "watch"],
-    setting: "macro editorial jewelry photography, soft directional lighting, elegant neutral backdrop emphasizing texture and shine",
+    setting: "worn by a real person, a close crop at home or at a festive gathering, soft window light",
   },
   {
     keywords: ["fitness", "gym", "sport", "activewear", "supplement", "nutrition"],
-    setting: "energetic athletic photography, natural or gym-appropriate setting, dynamic but tasteful composition",
+    setting: "a park, a rooftop or a neighbourhood gym in early-morning daylight",
   },
 ]
 
-const DEFAULT_NICHE_SETTING = "clean editorial product photography setting appropriate to the brand's own industry"
+const DEFAULT_NICHE_SETTING = "a real everyday Indian setting that fits the brand's own industry"
 
 const TECH_NICHE_KEYWORDS = ["tech", "software", "saas", "app", "digital product", "startup"]
 
@@ -305,6 +308,10 @@ export const REFERENCE_IMAGE_PEOPLE_GUARD = "if the reference photo shows the pr
 // extra-limb anomalies (e.g. a woman with three hands). Also adds general
 // surface-cleanliness language the guard previously lacked entirely.
 export const POST_IMAGE_QUALITY_AND_NEGATIVE_GUARD = "no text, no watermarks, no logos, no illegible text or symbols, no social media UI elements, no usernames or @handles, no URLs or website addresses, no 'link in bio' or similar caption-style text, no fake app interface elements, if any people are shown: exactly two arms and two hands per person, five fingers per hand, no extra or duplicated limbs, no merged or fused body parts, no distorted or extra fingers, anatomically normal human proportions, natural hand positioning, authentic unretouched skin texture with natural imperfections, not a 3D render, not CGI, not a digital illustration, not an AI-generated look, avoid airbrushed or over-smoothed skin, avoid plastic or waxy-looking surfaces, avoid unnaturally perfect symmetry, no blemishes, no visual artifacts, no compression artifacts, no random marks or smudges, no color banding, clean unmarked surface, the main subject rendered in crisp sharp focus with clearly resolved fine detail, not soft, hazy, or out of focus, ultra-high-resolution 8K quality, professionally composed and lit, modern and elevated editorial aesthetic, visually striking and scroll-stopping, on-trend for 2026 social media, tightly grounded in and relevant to the specific scene described above, no generic or unrelated stock-photo filler"
+// The candid photo version: the same anatomy / artifact / no-text guards,
+// minus the glossy "8K, professionally lit, editorial" finish that pulls the
+// image back toward a stock product shot.
+export const CANDID_QUALITY_AND_NEGATIVE_GUARD = POST_IMAGE_QUALITY_AND_NEGATIVE_GUARD.replace(", ultra-high-resolution 8K quality, professionally composed and lit, modern and elevated editorial aesthetic, visually striking and scroll-stopping", ", looks like a real photo a customer would post")
 
 // Now that the target canvas is 4:5 portrait (see PORTRAIT_DIMENSIONS
 // above), Instagram's profile-grid preview crops it further to 3:4 — tighter
@@ -312,6 +319,9 @@ export const POST_IMAGE_QUALITY_AND_NEGATIVE_GUARD = "no text, no watermarks, no
 // centered means it survives that extra crop instead of being clipped at
 // the top/bottom edges.
 export const CENTERED_COMPOSITION_GUARD = "keep the main subject, text, logos, and key visual elements centered in the frame — avoid placing them in the outer ~10% margin on any side"
+// The candid photo version: subject off-centre like a real phone photo, but
+// still clear of the edges a crop or overlay would cut.
+export const CANDID_COMPOSITION_GUARD = "keep the main subject slightly off-centre but fully inside the frame, clear of the outer ~10% margin on every side"
 
 // The only two genuinely unbounded pieces of the assembled prompt below —
 // everything else (niche setting, negative guard, photography style,
@@ -422,16 +432,17 @@ export function wrapForReferenceImage(sceneDescription: string): string {
   return `The attached reference photo shows the real product — replicate its exact appearance (shape, color, packaging, and label) faithfully into a single new photograph of this scene: ${sceneDescription}. The reference product must be clearly visible, in focus, and recognizable as the central subject — do not omit it, crop it out of frame, obscure it behind other objects, or substitute a different item in its place. Output must be ONE seamless photograph only, photographed once from a single camera angle — not a comparison, not a before/after, not a split image, not a side-by-side, not a collage, not multiple panels or frames; one continuous scene with the exact reference product naturally placed in it and clearly visible.`
 }
 
-function simplifyPrompt(prompt: string, brandNiche: string | null, hasReferenceImage: boolean): string {
+function simplifyPrompt(prompt: string, brandNiche: string | null, hasReferenceImage: boolean, editorial = false): string {
   const core = prompt.split(",")[0]?.trim() || prompt.slice(0, 150)
   const sceneDescription = [
     core,
     brandNiche ? `${brandNiche} brand` : "",
     resolveNicheSetting(brandNiche),
-    PHOTOGRAPHY_STYLE,
-    hasReferenceImage ? REFERENCE_IMAGE_PEOPLE_GUARD : NO_PEOPLE_BY_DEFAULT_GUARD,
-    CENTERED_COMPOSITION_GUARD,
-    POST_IMAGE_QUALITY_AND_NEGATIVE_GUARD,
+    editorial ? EDITORIAL_GRAPHIC_STYLE : CANDID_PHOTO_STYLE,
+    hasReferenceImage ? REFERENCE_IMAGE_PEOPLE_GUARD : editorial ? NO_PEOPLE_BY_DEFAULT_GUARD : CANDID_PEOPLE_DIRECTION,
+    editorial ? CENTERED_COMPOSITION_GUARD : CANDID_COMPOSITION_GUARD,
+    editorial ? "" : CANDID_PHOTO_GUARD,
+    editorial ? POST_IMAGE_QUALITY_AND_NEGATIVE_GUARD : CANDID_QUALITY_AND_NEGATIVE_GUARD,
   ].filter(Boolean).join(", ")
   return hasReferenceImage ? wrapForReferenceImage(sceneDescription) : sceneDescription
 }
@@ -544,6 +555,11 @@ export interface GeneratePostImageOptions {
   /** gpt-image-2 quality for the background; omitted = "medium". "low"
    * is raised to "medium" when productImageUrl is set. */
   quality?: ImageQuality
+  /** The brand's own photo to use as the background (lib/brand-photos.ts
+   * takeBrandPhotos) -- real photos first. Set = no image is generated; the
+   * photo goes through the same text-style / compositing / resize steps.
+   * Unreachable = generated as usual. */
+  brandPhotoUrl?: string | null
   /** Client-chosen aspect ratio (generatePostImageSchema's aspectRatio) —
    * only actually changes the output when there's no text overlay
    * (captionText empty). See resolvePostImageDimensions and the
@@ -724,21 +740,26 @@ export async function generatePostImage(rawOptions: GeneratePostImageOptions): P
 
   // One scene's full prompt text around its creative core -- the post's
   // imagePrompt, or (split layer) one half of a split brief.
+  // A photo (the default) is a candid phone photo (CANDID_PHOTO_STYLE): a
+  // person or hands using the product, off-centre, real setting. The
+  // editorial graphic look keeps its flat, product-only composition.
+  const editorial = options.visualStyle === "editorial_graphic"
   const sceneFor = (core: string, withReference: boolean) => [
     core,
     options.brandNiche ? `${options.brandNiche} brand` : "",
     resolveNicheSetting(options.brandNiche),
     cappedTargetAudience ? `styled to appeal to ${cappedTargetAudience}` : "",
-    options.visualStyle === "editorial_graphic" ? EDITORIAL_GRAPHIC_STYLE : PHOTOGRAPHY_STYLE,
-    withReference ? REFERENCE_IMAGE_PEOPLE_GUARD : NO_PEOPLE_BY_DEFAULT_GUARD,
+    editorial ? EDITORIAL_GRAPHIC_STYLE : candidPhotoStyle(options.artDirection),
+    withReference ? REFERENCE_IMAGE_PEOPLE_GUARD : editorial ? NO_PEOPLE_BY_DEFAULT_GUARD : CANDID_PEOPLE_DIRECTION,
     buildNegativeGuard(options.brandNiche),
     // Only relevant when there's actually going to be a text overlay —
     // biasing every image toward a simpler lower third no longer makes
     // sense now that a clean, text-free image is the default (Commit 2:
     // text overlay is opt-in, not auto-injected).
     willCompositeText ? "leave the lower third of the frame visually simpler and less busy for a text overlay" : "",
-    CENTERED_COMPOSITION_GUARD,
-    POST_IMAGE_QUALITY_AND_NEGATIVE_GUARD,
+    editorial ? CENTERED_COMPOSITION_GUARD : CANDID_COMPOSITION_GUARD,
+    editorial ? "" : CANDID_PHOTO_GUARD,
+    editorial ? POST_IMAGE_QUALITY_AND_NEGATIVE_GUARD : CANDID_QUALITY_AND_NEGATIVE_GUARD,
     artDirectionImageClause(options.artDirection),
   ].filter(Boolean).join(", ")
   const sceneDescription = sceneFor(cappedImagePrompt, hasReferenceImage)
@@ -750,18 +771,22 @@ export async function generatePostImage(rawOptions: GeneratePostImageOptions): P
   // after "reference photo", which would hijack that extraction if passed
   // the already-wrapped fullPrompt. simplifyPrompt applies the same
   // wrapping itself, once it has the real core.
-  const retryPrompt = simplifyPrompt(sceneDescription, options.brandNiche, hasReferenceImage)
+  const retryPrompt = simplifyPrompt(sceneDescription, options.brandNiche, hasReferenceImage, editorial)
   const requestedDimensions = resolvePostImageDimensions(options.aspectRatio)
   // A split brief with both halves becomes two images composited side by
   // side (lib/ai/split-layer.ts); otherwise the single prompt, as before.
   const brief = options.visualBrief
-  const result = await generateWithSplitLayer({
+  const brandPhoto = options.brandPhotoUrl ? await download(options.brandPhotoUrl) : null
+  if (options.brandPhotoUrl && !brandPhoto) console.error("[post-image-pipeline] brand photo unreachable -- generating an image instead")
+  const result = brandPhoto
+    ? { success: true as const, buffer: brandPhoto, mimeType: "image/jpeg", provider: "brand_photo" as const, attempts: [] as ImageGenerationAttempt[], split: undefined }
+    : await generateWithSplitLayer({
     brief, dims: requestedDimensions, plan: options.plan, isInternalUnlimitedUser: options.isInternalUnlimitedUser, quality: options.quality,
     fetchImage: fetchBackgroundImage,
     buildHalf: (text, side) => {
       const ref = brief && halfUsesProductReference(brief, side) ? options.productImageUrl : null
       const scene = sceneFor(`a photorealistic scene featuring ${text}, single subject centred in a narrow vertical frame`, !!ref)
-      return { prompt: ref ? wrapForReferenceImage(scene) : scene, fallbackPrompt: simplifyPrompt(scene, options.brandNiche, !!ref), productImageUrl: ref }
+      return { prompt: ref ? wrapForReferenceImage(scene) : scene, fallbackPrompt: simplifyPrompt(scene, options.brandNiche, !!ref, editorial), productImageUrl: ref }
     },
     single: () => fetchBackgroundImage(fullPrompt, retryPrompt, options.plan, options.isInternalUnlimitedUser, requestedDimensions, options.productImageUrl, options.quality),
   })

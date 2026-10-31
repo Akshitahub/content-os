@@ -12,13 +12,13 @@ import type { TextStyle } from "@/lib/design/text-style"
  * plan gate (e.g. the CTA slide's AI background), not a failure -- it is
  * neither retried nor reported as failed. */
 export type SlideBackgroundOutcome =
-  | { url: string; provider?: "openai"; text_style?: TextStyle | null }
+  | { url: string; provider?: "openai" | "brand_photo"; text_style?: TextStyle | null; photo_id?: string | null }
   | { error: "insufficient_credits" | "failed" | "restricted"; message?: string }
 
 export type SlideBackgroundJob<K> = { key: K; run: () => Promise<SlideBackgroundOutcome> }
 
 export type SlideBackgroundRunResult<K> = {
-  succeeded: Map<K, { url: string; provider?: "openai"; text_style?: TextStyle | null }>
+  succeeded: Map<K, { url: string; provider?: "openai" | "brand_photo"; text_style?: TextStyle | null; photo_id?: string | null }>
   /** Failed twice (first attempt + the automatic retry). */
   failed: K[]
   /** The server's reason for each failed key, when it gave one. */
@@ -67,7 +67,7 @@ export async function runSlideBackgroundJobs<K>(
         outcome = await job.run()
       }
       if ("url" in outcome) {
-        result.succeeded.set(job.key, { url: outcome.url, provider: outcome.provider, text_style: outcome.text_style ?? null })
+        result.succeeded.set(job.key, { url: outcome.url, provider: outcome.provider, text_style: outcome.text_style ?? null, photo_id: outcome.photo_id ?? null })
       } else if (outcome.error === "insufficient_credits") {
         creditsExhausted = true
         result.outOfCredits.push(job.key)

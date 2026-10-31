@@ -55,8 +55,9 @@ type Db = any
 
 const hash = (s: string) => createHash("sha1").update(s).digest("hex").slice(0, 24)
 
-/** An image's bytes, or null (not an image, too big, unreachable). */
-async function download(url: string): Promise<Buffer | null> {
+/** An image's bytes, or null (not an image, too big, unreachable). Also used
+ * by generation routes to read a picked photo (text style, compositing). */
+export async function download(url: string): Promise<Buffer | null> {
   try {
     const res = await fetch(url, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS), headers: { "User-Agent": "Mozilla/5.0 (SocioPosts photo collector)" } })
     if (!res.ok) return null
@@ -341,6 +342,27 @@ export async function pickBrandPhotos(db: Db, brand: Pick<BrandRow, "id">, opts:
   } catch {
     return []
   }
+}
+
+/**
+ * Distinct real photos for one piece of content (a story sequence, a post):
+ * the product's own photos first when a product is given, then any photo of
+ * the wanted kinds -- never one already in `exclude`, never the same one
+ * twice. Marked used, so the next piece prefers others. [] when there are
+ * none; the caller then generates. Never throws.
+ */
+export async function takeBrandPhotos(db: Db, brand: Pick<BrandRow, "id">, opts: { productId?: string | null; kinds: PhotoKind[]; count: number; exclude?: string[] }): Promise<BrandPhoto[]> {
+  if (opts.count <= 0) return []
+  const picked: BrandPhoto[] = opts.productId ? await pickBrandPhotos(db, brand, opts) : []
+  if (picked.length < opts.count) {
+    picked.push(...await pickBrandPhotos(db, brand, {
+      kinds: opts.kinds,
+      count: opts.count - picked.length,
+      exclude: [...(opts.exclude ?? []), ...picked.map((p) => p.id)],
+    }))
+  }
+  if (picked.length > 0) await markBrandPhotosUsed(db, picked)
+  return picked
 }
 
 /** Records that photos were used, so the next pick prefers others. Never throws. */

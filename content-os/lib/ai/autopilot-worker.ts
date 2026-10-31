@@ -7,6 +7,7 @@ import {
   IMAGE_BUCKET, MIN_CAROUSEL_SLIDES, type AutopilotUsageTracker,
 } from "./fastlane"
 import { attemptsCostUsd, generatePostImage } from "./post-image-pipeline"
+import { PHOTO_KINDS_FOR, takeBrandPhotos } from "@/lib/brand-photos"
 import { generateCarouselHtml } from "@/lib/design/post-card-generator"
 import { DEFAULT_POST_TEMPLATE_ID } from "@/lib/design/post-templates"
 import { resolveBrandPalette, resolveColorThemes, type BrandPalette, type ColorTheme } from "@/lib/design/color-themes"
@@ -309,8 +310,12 @@ async function prepareSlot(admin: Admin, job: SlotJobRow, ctx: RunContext, track
       const imageStartedAt = Date.now()
       // The caption's visual brief drives the image: its scene is the prompt
       // and the brief itself goes along (product-reference and split rules).
+      // Real photos first (lib/brand-photos.ts) -- the slot's product's own,
+      // least used first, so a month of posts rotates through them.
+      const brandPhoto = (await takeBrandPhotos(admin, brand, { productId: product?.id ?? null, kinds: PHOTO_KINDS_FOR.post, count: 1 }))[0] ?? null
       const imageResult = await generatePostImage({
         artDirection: artDirectionFrom(brand),
+        brandPhotoUrl: brandPhoto?.url ?? null,
         imagePrompt: generated.imagePrompt || generated.visual_direction || "professional product photography",
         visualBrief: generated.visual,
         brandNiche: brand.niche,

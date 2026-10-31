@@ -1,15 +1,14 @@
 import {
   fetchBackgroundImage,
   wrapForReferenceImage,
-  PHOTOGRAPHY_STYLE,
   REFERENCE_IMAGE_PEOPLE_GUARD,
-  POST_IMAGE_QUALITY_AND_NEGATIVE_GUARD,
+  CANDID_QUALITY_AND_NEGATIVE_GUARD,
   type ImageDimensions,
 } from "./post-image-pipeline"
 import type { ImageQuality } from "./image-provider"
-import { type Vibe, DEFAULT_VIBE, VIBE_BACKGROUND_STYLES, VIBE_FALLBACK_COLORS, ABSTRACT_SAFETY_BOILERPLATE, describeColor } from "./vibe-background-styles"
+import { type Vibe, DEFAULT_VIBE, VIBE_FALLBACK_COLORS, describeColor } from "./vibe-background-styles"
 import type { UserPlan } from "@/types/app"
-import { SPLIT_LABEL_GUARD, briefScene as sharedBriefScene, briefUsesProductReference, halfBrief, halfUsesProductReference, type VisualBrief, artDirectionColors, artDirectionImageClause, artDirectionShortClause } from "./visual-brief"
+import { CANDID_PEOPLE_DIRECTION, CANDID_PHOTO_GUARD, CANDID_PHOTO_STYLE, SPLIT_LABEL_GUARD, briefScene as sharedBriefScene, briefUsesProductReference, halfBrief, halfUsesProductReference, type VisualBrief, artDirectionColors, artDirectionImageClause, artDirectionShortClause } from "./visual-brief"
 import { generateWithSplitLayer, type SplitBackgroundResult } from "./split-layer"
 import type { BrandRow } from "@/types/database"
 import { artDirectionFrom } from "./brand-brain"
@@ -63,86 +62,81 @@ function resolveTextSafeZoneGuard(textPosition?: "top" | "center" | "bottom"): s
   return "leave generous calm negative space around the vertical center for a text overlay"
 }
 
-function buildStorySlidePrompt(niche: string | null, vibe: Vibe, colors: string[], productImageUrl?: string | null, textPosition?: "top" | "center" | "bottom", customPrompt?: string): string {
-  // Descriptive color names, not raw hex — diffusion models reliably follow
-  // "a vibrant orange-red" but ignore "#FF5733" outright, confirmed via real
-  // testing (see docs/research/seedream-5-lite-evaluation.md).
-  const colorNames = colors.map(describeColor).filter((c): c is string => !!c).slice(0, 3)
-  const trimmedCustom = customPrompt?.trim()
+// Every generated story frame is a candid phone photo (CANDID_PHOTO_STYLE,
+// lib/ai/visual-brief.ts) -- the old abstract-gradient look is gone, and a
+// real brand photo is always tried before generating one
+// (lib/brand-photos.ts). The vibe only sets the moment's mood.
+const VIBE_PHOTO_MOOD: Record<Vibe, string> = {
+  fun_playful: "a playful, bright everyday moment",
+  clean_minimal: "a calm, uncluttered everyday moment",
+  bold_dramatic: "a high-contrast moment in late-evening light",
+  warm_cozy: "a warm, cosy moment in soft golden light",
+  professional: "a composed everyday moment at work or on the go",
+  trendy_genz: "a lively moment with friends, youthful and casual",
+}
 
-  // A real uploaded product photo switches this from an abstract gradient
-  // background to a genuine photorealistic scene with the product placed
-  // in it (same reference-image prompt pieces Post/Ad Maker already use,
-  // see lib/ai/post-image-pipeline.ts) — the slide's own text is still
-  // overlaid client-side afterward (StorySequence.tsx), so this only needs
-  // to keep the text's own safe zone calm, not avoid rendering text itself
-  // the way the abstract-only prompt below does.
-  if (productImageUrl) {
-    const sceneDescription = [
-      trimmedCustom,
-      PHOTOGRAPHY_STYLE,
-      REFERENCE_IMAGE_PEOPLE_GUARD,
-      niche ? `${niche} brand` : "",
-      VIBE_BACKGROUND_STYLES[vibe],
-      colorNames.length > 0 ? `color palette inspired by ${colorNames.join(" and ")}` : "",
-      resolveTextSafeZoneGuard(textPosition),
-      POST_IMAGE_QUALITY_AND_NEGATIVE_GUARD,
-    ].filter(Boolean).join(", ")
-    return wrapForReferenceImage(sceneDescription)
-  }
+const NO_TEXT_LINES = [
+  "no text, no words, no letters, no numbers, no logos anywhere in the image",
+  "no rendered slogans, taglines, or typography of any kind, however short",
+]
 
-  // The SocioPosts-authored (and possibly user-edited) scene, when present,
-  // replaces the generic "abstract atmospheric vertical background..."
-  // opener as the creative core -- every guard after it (vibe style, color
-  // palette, and critically the hard "no text/words/letters" rule) still
-  // applies in code exactly as before regardless of what that opener says,
-  // for the same on-image-text-hallucination reason documented above this
-  // function.
+const STORY_PHOTO_OPENER = "a candid vertical phone photo for an Instagram story"
+const VERTICAL_COMPOSITION = "vertical 9:16 phone-screen composition, subject stacked vertically rather than a wide landscape scene"
+
+function colourLine(colors: string[]): string {
+  const names = colors.map(describeColor).filter((c): c is string => !!c).map((c) => c.replace(/^an? /, "")).slice(0, 3)
+  // Brand colours show up in real things in the scene -- clothing, props,
+  // walls -- never as a gradient or a colour wash.
+  return names.length > 0 ? `${names.join(" and ")} tones appearing naturally in clothing, props or surroundings` : ""
+}
+
+/** The candid photo direction every story frame prompt carries. */
+function candidLines(vibe: Vibe, withReference: boolean): string[] {
   return [
-    trimmedCustom || "abstract atmospheric vertical background image for a full-screen phone story slide",
-    VIBE_BACKGROUND_STYLES[vibe],
-    colorNames.length > 0 ? `color palette inspired by ${colorNames.join(" and ")}` : "",
-    niche ? `evokes the mood of a ${niche} brand` : "",
-    "no text, no words, no letters, no numbers, no logos anywhere in the image",
-    "no rendered slogans, taglines, or typography of any kind, however short",
-    "no literal photos of people, products, or objects — purely abstract shapes, gradients, and textures",
-    "keep the vertical center calm and uncluttered so text stays readable when overlaid on top",
-    ABSTRACT_SAFETY_BOILERPLATE,
+    CANDID_PHOTO_STYLE,
+    withReference ? REFERENCE_IMAGE_PEOPLE_GUARD : CANDID_PEOPLE_DIRECTION,
+    VIBE_PHOTO_MOOD[vibe],
+    CANDID_PHOTO_GUARD,
+  ]
+}
+
+function buildStorySlidePrompt(niche: string | null, vibe: Vibe, colors: string[], productImageUrl?: string | null, textPosition?: "top" | "center" | "bottom", customPrompt?: string): string {
+  const trimmedCustom = customPrompt?.trim()
+  const scene = [
+    trimmedCustom || (niche ? `${STORY_PHOTO_OPENER} for a ${niche} brand, the product in real everyday use` : STORY_PHOTO_OPENER),
+    VERTICAL_COMPOSITION,
+    ...candidLines(vibe, !!productImageUrl),
+    niche ? `${niche} brand` : "",
+    colourLine(colors),
+    ...NO_TEXT_LINES,
+    resolveTextSafeZoneGuard(textPosition),
+    CANDID_QUALITY_AND_NEGATIVE_GUARD,
   ].filter(Boolean).join(", ")
+  // A real product photo is placed into the scene as an image-to-image reference.
+  return productImageUrl ? wrapForReferenceImage(scene) : scene
 }
 
 function simplifyStorySlidePrompt(vibe: Vibe, productImageUrl?: string | null, customPrompt?: string): string {
-  const trimmedCustom = customPrompt?.trim()
-  // Same shorter/simplified spirit as the abstract-only fallback below,
-  // just reference-aware -- a retry with a real product photo attached
-  // still needs to stay in the photorealistic reference-image path (see
-  // buildStorySlidePrompt above), not fall back to an abstract gradient
-  // that would drop the product from the scene entirely.
-  if (productImageUrl) {
-    return wrapForReferenceImage([trimmedCustom, PHOTOGRAPHY_STYLE, REFERENCE_IMAGE_PEOPLE_GUARD, VIBE_BACKGROUND_STYLES[vibe]].filter(Boolean).join(", "))
-  }
-  return [
-    trimmedCustom || "abstract atmospheric vertical gradient background",
-    VIBE_BACKGROUND_STYLES[vibe],
+  const scene = [
+    customPrompt?.trim() || STORY_PHOTO_OPENER,
+    CANDID_PHOTO_STYLE,
+    productImageUrl ? REFERENCE_IMAGE_PEOPLE_GUARD : CANDID_PEOPLE_DIRECTION,
+    VIBE_PHOTO_MOOD[vibe],
     "no text, no words, no letters",
   ].join(", ")
+  return productImageUrl ? wrapForReferenceImage(scene) : scene
 }
 
 // ─── Per-frame visual briefs ────────────────────────────────────────────────
-// Same structure as lib/ai/carousel-slide-background.ts: every non-hook
-// frame with a visual brief (already sanitized, never combined with the
-// frame's text) gets its OWN scene from it instead of the one shared
-// customPrompt scene. Every no-text/typography guard stays, and the
-// text-overlay safe zone is always applied -- the frame's text_position is
-// known. Only the "purely abstract" line is dropped for concrete kinds.
-
-const STORY_ABSTRACT_OPENER = "abstract atmospheric vertical background image for a full-screen phone story slide"
-const VERTICAL_COMPOSITION = "vertical 9:16 phone-screen composition, subject stacked vertically rather than a wide landscape scene"
+// Every frame with a visual brief (already sanitized, never combined with
+// the frame's text) gets its own scene from it -- still a candid phone
+// photo, whatever the brief's kind (an abstract_mood brief becomes the
+// photographed moment that carries that mood). Every no-text guard stays,
+// and the text-overlay safe zone is always applied.
 
 function briefScene(brief: VisualBrief): string {
-  return sharedBriefScene(brief, STORY_ABSTRACT_OPENER)
+  return sharedBriefScene(brief, STORY_PHOTO_OPENER)
 }
-
 
 // The user's own typed scene text (never the AI-expanded customPrompt),
 // kept as soft direction on a brief-driven image -- capped at 300 chars.
@@ -152,62 +146,33 @@ function userDirectionLine(userDirection?: string | null): string {
 }
 
 function buildBriefStorySlidePrompt(brief: VisualBrief, niche: string | null, vibe: Vibe, colors: string[], productImageUrl?: string | null, textPosition?: "top" | "center" | "bottom", userDirection?: string | null): string {
-  const colorNames = colors.map(describeColor).filter((c): c is string => !!c).slice(0, 3)
-  const composition = brief.composition ? `composition: ${brief.composition}` : ""
-  const direction = userDirectionLine(userDirection)
   const isSplit = brief.kind === "side_by_side" || brief.kind === "before_after"
-  const noText = [
-    "no text, no words, no letters, no numbers, no logos anywhere in the image",
-    "no rendered slogans, taglines, or typography of any kind, however short",
-  ]
-
-  // product_scene / detail_closeup / before_after with a real product photo
-  // attached -- same reference-image path as buildStorySlidePrompt, with the
-  // brief as the scene and the hard no-text lines added on top.
-  if (productImageUrl) {
-    return wrapForReferenceImage([
-      briefScene(brief),
-      composition,
-      direction,
-      VERTICAL_COMPOSITION,
-      PHOTOGRAPHY_STYLE,
-      REFERENCE_IMAGE_PEOPLE_GUARD,
-      niche ? `${niche} brand` : "",
-      VIBE_BACKGROUND_STYLES[vibe],
-      colorNames.length > 0 ? `color palette inspired by ${colorNames.join(" and ")}` : "",
-      ...noText,
-      isSplit ? SPLIT_LABEL_GUARD : "",
-      resolveTextSafeZoneGuard(textPosition),
-      POST_IMAGE_QUALITY_AND_NEGATIVE_GUARD,
-    ].filter(Boolean).join(", "))
-  }
-
-  return [
-    briefScene(brief),
-    composition,
-    direction,
+  const scene = [
+    brief.kind === "abstract_mood" ? `${STORY_PHOTO_OPENER} capturing the mood of: ${brief.must_show}` : briefScene(brief),
+    brief.composition ? `composition: ${brief.composition}` : "",
+    userDirectionLine(userDirection),
     VERTICAL_COMPOSITION,
-    VIBE_BACKGROUND_STYLES[vibe],
-    colorNames.length > 0 ? `color palette inspired by ${colorNames.join(" and ")}` : "",
-    niche ? `evokes the mood of a ${niche} brand` : "",
-    ...noText,
-    brief.kind === "abstract_mood" ? "no literal photos of people, products, or objects — purely abstract shapes, gradients, and textures" : "",
+    ...candidLines(vibe, !!productImageUrl),
+    niche ? `${niche} brand` : "",
+    colourLine(colors),
+    ...NO_TEXT_LINES,
     isSplit ? SPLIT_LABEL_GUARD : "",
     resolveTextSafeZoneGuard(textPosition),
-    ABSTRACT_SAFETY_BOILERPLATE,
+    CANDID_QUALITY_AND_NEGATIVE_GUARD,
   ].filter(Boolean).join(", ")
+  return productImageUrl ? wrapForReferenceImage(scene) : scene
 }
 
 function simplifyBriefStorySlidePrompt(brief: VisualBrief, vibe: Vibe, productImageUrl?: string | null): string {
-  if (productImageUrl) {
-    return wrapForReferenceImage([briefScene(brief), VERTICAL_COMPOSITION, PHOTOGRAPHY_STYLE, REFERENCE_IMAGE_PEOPLE_GUARD, VIBE_BACKGROUND_STYLES[vibe], "no text, no words, no letters"].join(", "))
-  }
-  return [
+  const scene = [
     briefScene(brief),
     VERTICAL_COMPOSITION,
-    VIBE_BACKGROUND_STYLES[vibe],
+    CANDID_PHOTO_STYLE,
+    productImageUrl ? REFERENCE_IMAGE_PEOPLE_GUARD : CANDID_PEOPLE_DIRECTION,
+    VIBE_PHOTO_MOOD[vibe],
     "no text, no words, no letters",
   ].join(", ")
+  return productImageUrl ? wrapForReferenceImage(scene) : scene
 }
 
 export interface GenerateStorySlideBackgroundOptions {

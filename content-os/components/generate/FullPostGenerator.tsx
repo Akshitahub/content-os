@@ -622,7 +622,7 @@ export function FullPostGenerator({ brandId, products }: Props) {
             <Label className="text-xs">Visual direction</Label>
             <div className="flex gap-1.5">
               {([
-                { value: "studio_scene", label: "Studio scene" },
+                { value: "studio_scene", label: "Real photo" },
                 { value: "editorial_graphic", label: "Editorial graphic" },
               ] as const).map((opt) => (
                 <button

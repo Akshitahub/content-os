@@ -5,6 +5,7 @@ import type { BrandRow, ProductRow } from "@/types/database"
 import { MODELS, getGroqClient, getOpenAIClient } from "./models"
 import { artDirectionFrom, artDirectionSchema, type ArtDirection } from "./brand-brain"
 import { buildBrandBrainLines, isMissingBrandBrainColumn, parseBrandBrain } from "@/lib/brand-brain-profile"
+import { CANDID_PHOTO_AVOID, CANDID_PHOTO_STYLE } from "./visual-brief"
 
 /**
  * Brand art direction: derived ONCE per brand with one model call from what's
@@ -118,7 +119,7 @@ ${colors.length
 - mood: 3-5 words.
 - motifs: 3-6 CONCRETE, photographable props, materials or textures from this brand's actual world (e.g. marigolds, saffron threads, brass, block-print fabric) -- never abstract ideas.
 - cultural_context: one specific line about the Indian setting and audience it lives in (kinds of homes, workplaces, cities, occasions) -- not clichés.
-- photo_style: one line on lighting, saturation and framing.
+- photo_style: one line on lighting, saturation and framing, ALWAYS in the candid phone-photo direction ("${CANDID_PHOTO_STYLE}") adapted to this brand -- never studio, seamless-backdrop, floating-product or CGI looks.
 - avoid: visual clichés never to use for this brand. Always include ${GENERIC_SCENE_AVOID}, plus anything else that reads as stock photography or an AI-default look for this industry.
 ${products.length ? "- The attached photos are the brand's real products: match the palette and world to them." : ""}`
 }
@@ -130,8 +131,13 @@ function finalize(raw: unknown, colors: string[], sourceHash: string): ArtDirect
   const hex = (v: unknown) => (typeof v === "string" && /^#?[0-9a-fA-F]{6}$/.test(v.trim()) ? `#${v.trim().replace(/^#/, "").toLowerCase()}` : undefined)
   const list = (v: unknown, max: number) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string" && !!x.trim()).map((x) => x.trim()).slice(0, max) : [])
   const avoid = list(obj.avoid, 9)
-  // Always avoid the generic AI lifestyle scene.
-  if (!avoid.some((a) => /beige|chai|mug|desk/i.test(a))) avoid.unshift(GENERIC_SCENE_AVOID)
+  // Always avoid the generic AI lifestyle scene and the AI-default product
+  // look -- kept first so the 10-item cap never drops them.
+  const required = [
+    ...(avoid.some((a) => /beige|chai|mug|desk/i.test(a)) ? [] : [GENERIC_SCENE_AVOID]),
+    ...CANDID_PHOTO_AVOID.filter((item) => !avoid.some((a) => a.toLowerCase() === item.toLowerCase())),
+  ]
+  avoid.unshift(...required)
   const candidate = {
     palette: {
       deep: hex(palette.deep),
@@ -143,8 +149,9 @@ function finalize(raw: unknown, colors: string[], sourceHash: string): ArtDirect
     mood: typeof obj.mood === "string" ? obj.mood.trim().split(/\s+/).slice(0, 5).join(" ") : undefined,
     motifs: list(obj.motifs, 6),
     cultural_context: typeof obj.cultural_context === "string" ? obj.cultural_context.trim() : undefined,
-    photo_style: typeof obj.photo_style === "string" ? obj.photo_style.trim() : undefined,
-    avoid,
+    // Candid phone photos are the default look.
+    photo_style: typeof obj.photo_style === "string" && obj.photo_style.trim() ? obj.photo_style.trim() : CANDID_PHOTO_STYLE,
+    avoid: avoid.slice(0, 10),
     source_hash: sourceHash,
     palette_source: colors.length ? "brand_colors" : "invented",
     derived_at: new Date().toISOString(),
