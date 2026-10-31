@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react"
 import { Sparkles, RefreshCw, Copy, Check, Download, Archive, Loader2, AlertCircle, Heart, MessageCircle, Send } from "lucide-react"
 import { ScheduleAction } from "@/components/shared/ScheduleAction"
-import { CriticPanel } from "@/components/shared/CriticPanel"
+import { CriticPanel, type CriticVerdict } from "@/components/shared/CriticPanel"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import Link from "next/link"
@@ -139,6 +139,14 @@ export function FullPostGenerator({ brandId, products }: Props) {
   // flattenedImageUrl. Null = the template draws its own text (checklist,
   // annotated product, blank) and the overlay editor is used instead.
   const [postDesign, setPostDesign] = useState<PostDesign | null>(null)
+  // Every finished post this session, each with its critic score: the best
+  // is shown by default; a worse new version never silently replaces it.
+  const [versions, setVersions] = useState<PostVersion[]>([])
+  const [versionKey, setVersionKey] = useState<string | null>(null)
+  const versionCounter = useRef(0)
+  // The critic's fix + weaknesses of the version being regenerated, folded into the next image prompt.
+  const regenFeedbackRef = useRef<string | null>(null)
+  const [versionNotice, setVersionNotice] = useState<string | null>(null)
   const [postRenderError, setPostRenderError] = useState<string | null>(null)
   // Canvas vs. in-feed preview toggle (Commit 4) — purely a display mode,
   // doesn't touch postImageUrl/overlayText/flattenedImageUrl at all.
@@ -188,7 +196,10 @@ export function FullPostGenerator({ brandId, products }: Props) {
     // post-image-pipeline.ts's sentence-boundary-aware safety cap are the
     // single source of truth for any length limit, so it's never enforced
     // twice with two different (and previously much shorter) values.
-    const imagePrompt = imagePromptText
+    // Regenerate: the critic's top fix and the last version's weak spots go in.
+    const feedback = regenFeedbackRef.current
+    regenFeedbackRef.current = null
+    const imagePrompt = feedback ? `${imagePromptText}\n\nFix from the previous version: ${feedback}` : imagePromptText
     // Commit 3: captionText/fontId/textSizeScale are no longer sent here —
     // the image route always returns a clean, text-free background for
     // this tool now (see generatePostImage's own !willCompositeText
@@ -224,6 +235,7 @@ export function FullPostGenerator({ brandId, products }: Props) {
         contentProjectId: data.contentProjectId ?? undefined,
         aspectRatio,
         visualStyle,
+        userBrief: additionalContext || undefined,
         // Only actually used server-side when template is
         // "hard_truth_checklist" -- see generatePostImage's own early-exit
         // branch. Harmless to always send; every other template ignores
@@ -264,7 +276,16 @@ export function FullPostGenerator({ brandId, products }: Props) {
             festive_occasion: caption.festive_occasion, festive_greeting: caption.festive_greeting, festive_line: caption.festive_line,
             review_quote: caption.review_quote, review_author: caption.review_author,
           })
-          setPostDesign(design ? { ...design, aspect: aspectRatio } : null)
+          const finalDesign = design ? { ...design, aspect: aspectRatio } : null
+          setPostDesign(finalDesign)
+          // A new version of this session's post (scored by the critic below).
+          const key = `${sessionId}:${++versionCounter.current}`
+          setVersions((prev) => [...prev, {
+            key, sessionId, result: data, imageUrl: imgData.public_url, textStyle: imgData.text_style ?? null,
+            overlayText: initialOverlayText, overlayFontId: initialOverlayFont, design: finalDesign, score: null, topFix: null, reasons: [],
+          }])
+          setVersionKey(key)
+          setVersionNotice(null)
           // The image is the last piece of "the post" to finish -- this is
           // the real "done" point (and the first point creditsUsedForResult
           // is actually knowable), not right after the caption's own text
@@ -277,7 +298,7 @@ export function FullPostGenerator({ brandId, products }: Props) {
         },
       }
     )
-  }, [brandId, selectedProductId, selectedLayout, effectiveColorThemeId, colorThemes, aspectRatio, visualStyle, headlineOverlay, generatePostImageMutate, promptWriter, brand?.vibe])
+  }, [brandId, selectedProductId, selectedLayout, effectiveColorThemeId, colorThemes, aspectRatio, visualStyle, headlineOverlay, generatePostImageMutate, promptWriter, brand?.vibe, additionalContext])
 
   // Kicks off the prompt-writing stage instead of generating the image
   // immediately -- fired both right after a fresh caption generation
@@ -375,8 +396,10 @@ export function FullPostGenerator({ brandId, products }: Props) {
   // at the same seed.
   const handleRegenerateImage = useCallback(() => {
     if (!fullPostResult || !postSessionId) return
+    regenFeedbackRef.current = regenerateFeedback()
     beginImagePromptWriting(fullPostResult, postSessionId, true)
-  }, [fullPostResult, postSessionId, beginImagePromptWriting])
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- regenerateFeedback reads the latest versions on each render
+  }, [fullPostResult, postSessionId, beginImagePromptWriting, versions, versionKey])
 
   // Caption editing — this result is still pre-save local/store state at
   // this point (the captions row this generation already wrote server-side
@@ -490,8 +513,52 @@ export function FullPostGenerator({ brandId, products }: Props) {
     setTimeout(() => setCopied(null), 2000)
   }, [])
 
+  // Switching versions: edits made to the one on screen (words, look,
+  // caption) are kept with it, then the other one is restored.
+  function showVersion(v: PostVersion) {
+    if (versionKey && versionKey !== v.key) {
+      setVersions((prev) => prev.map((x) => (x.key === versionKey ? { ...x, design: postDesign, overlayText, overlayFontId, result: fullPostResult ?? x.result } : x)))
+    }
+    setFullPostResult(v.result)
+    setPostSessionId(v.sessionId)
+    setPostImageUrl(v.imageUrl)
+    setPostTextStyle(v.textStyle)
+    setImageSource("ai")
+    setOverlayText(v.overlayText)
+    setOverlayFontId(v.overlayFontId)
+    setFlattenedImageUrl(null)
+    setPostDesign(v.design)
+    setVersionKey(v.key)
+  }
+
+  // A version's score arrives: when the newest is below the best so far,
+  // the best stays on screen and the new one is named, not hidden.
+  function handleVerdict(key: string, verdict: CriticVerdict) {
+    setVersions((prev) => {
+      const next = prev.map((v) => (v.key === key ? { ...v, score: verdict.overall, topFix: verdict.top_fix, reasons: verdict.reasons } : v))
+      const scored = next.filter((v) => v.score != null)
+      const newest = next[next.length - 1]
+      const best = scored.reduce<PostVersion | null>((a, b) => (!a || (b.score ?? 0) > (a.score ?? 0) ? b : a), null)
+      if (newest && newest.key === key && best && best.key !== key && (newest.score ?? 0) < (best.score ?? 0)) {
+        const n = (v: PostVersion) => next.indexOf(v) + 1
+        setVersionNotice(`Version ${n(newest)} (score ${newest.score}), your best is Version ${n(best)} (score ${best.score}).`)
+        // On the next tick, so this update finishes first.
+        setTimeout(() => showVersion(best), 0)
+      }
+      return next
+    })
+  }
+
+  /** The critic's top fix and weak spots of the version on screen -- what a regenerate should fix. */
+  function regenerateFeedback(): string | null {
+    const current = versions.find((v) => v.key === versionKey)
+    if (!current || current.score == null) return null
+    return [`it scored ${current.score}/10`, current.topFix ? `fix: ${current.topFix}` : "", current.reasons.length ? `weak spots: ${current.reasons.join("; ")}` : ""].filter(Boolean).join(". ")
+  }
+
+  // Regenerating an existing post passes its critic's fixes into the new generation.
   function handleGenerate() {
-    startGeneration()
+    startGeneration(fullPostResult ? regenerateFeedback() ?? undefined : undefined)
   }
 
   // "Make it better": a new generation with the critic's fix folded into the brief.
@@ -788,7 +855,12 @@ export function FullPostGenerator({ brandId, products }: Props) {
             postDesign={postDesign}
             onPostDesignChange={setPostDesign}
             postRenderError={postRenderError}
-            postSessionId={postSessionId}
+            postSessionId={versionKey ?? postSessionId}
+            versions={versions}
+            versionKey={versionKey}
+            versionNotice={versionNotice}
+            onShowVersion={(v) => { setVersionNotice(null); showVersion(v) }}
+            onVerdict={handleVerdict}
             onImprove={handleImprove}
             improving={isPending}
             previewMode={previewMode}
@@ -1418,6 +1490,42 @@ function PostDesignFields({ design, onChange, error }: { design: PostDesign; onC
   )
 }
 
+/** One finished post of this session: what's on screen, and its critic score once known. */
+interface PostVersion {
+  key: string
+  sessionId: string
+  result: FullPostResult
+  imageUrl: string
+  textStyle: TextStyle | null
+  overlayText: string
+  overlayFontId: FontId
+  design: PostDesign | null
+  score: number | null
+  topFix: string | null
+  reasons: string[]
+}
+
+/** "‹ Version 2 of 3 · score 6 ›", the best marked; the notice when a new version scored below the best. */
+function VersionSwitcher({ versions, versionKey, notice, onShow }: { versions: PostVersion[]; versionKey: string | null; notice: string | null; onShow: (v: PostVersion) => void }) {
+  const i = Math.max(0, versions.findIndex((v) => v.key === versionKey))
+  const current = versions[i]!
+  const best = versions.filter((v) => v.score != null).reduce<PostVersion | null>((a, b) => (!a || (b.score ?? 0) > (a.score ?? 0) ? b : a), null)
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between gap-2 rounded-lg border bg-card px-3 py-2">
+        <button type="button" aria-label="Previous version" disabled={i === 0} onClick={() => onShow(versions[i - 1]!)} className="rounded px-2 py-0.5 text-sm hover:bg-muted disabled:opacity-30">‹</button>
+        <span className="text-xs font-medium">
+          Version {i + 1} of {versions.length}
+          {current.score != null ? ` · score ${current.score}` : " · scoring…"}
+          {best && best.key === current.key && versions.length > 1 ? " · your best" : ""}
+        </span>
+        <button type="button" aria-label="Next version" disabled={i === versions.length - 1} onClick={() => onShow(versions[i + 1]!)} className="rounded px-2 py-0.5 text-sm hover:bg-muted disabled:opacity-30">›</button>
+      </div>
+      {notice && <p className="text-xs text-amber-800 dark:text-amber-300">{notice} Showing your best -- use the arrows to compare.</p>}
+    </div>
+  )
+}
+
 function FullPostResults({
   result,
   copied,
@@ -1443,6 +1551,11 @@ function FullPostResults({
   onPostDesignChange,
   postRenderError,
   postSessionId,
+  versions,
+  versionKey,
+  versionNotice,
+  onShowVersion,
+  onVerdict,
   onImprove,
   improving,
   previewMode,
@@ -1473,6 +1586,11 @@ function FullPostResults({
   onPostDesignChange: (design: PostDesign) => void
   postRenderError: string | null
   postSessionId: string | null
+  versions: PostVersion[]
+  versionKey: string | null
+  versionNotice: string | null
+  onShowVersion: (v: PostVersion) => void
+  onVerdict: (key: string, verdict: CriticVerdict) => void
   onImprove: (fix: string) => void
   improving: boolean
   previewMode: "canvas" | "feed"
@@ -1512,6 +1630,10 @@ function FullPostResults({
       {/* Image first — matches the original design intent (visual up top,
           copy workspace below it) and keeps the generating-state indicator
           from appearing far down the page below a wall of caption text. */}
+      {versions.length > 1 && (
+        <VersionSwitcher versions={versions} versionKey={versionKey} notice={versionNotice} onShow={onShowVersion} />
+      )}
+
       <PostImagePreview
         postImageUrl={postImageUrl}
         alt={postImageAlt}
@@ -1550,6 +1672,7 @@ function FullPostResults({
         contentType="caption"
         onImprove={onImprove}
         improving={improving}
+        onVerdict={onVerdict}
       />
 
       <HookSection hook={result.hook} copied={copied} onCopy={onCopy} />

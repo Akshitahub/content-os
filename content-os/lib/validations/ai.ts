@@ -193,6 +193,8 @@ export const generatePostImageSchema = z.object({
   // Omitted defaults to PHOTOGRAPHY_STYLE (today's existing behavior), so
   // this stays behavior-preserving for every caller that doesn't pass it.
   visualStyle: z.enum(["studio_scene", "editorial_graphic"]).optional(),
+  // The user's own brief: an editorial graphic shows people only when it asks for them.
+  userBrief: z.string().max(1000).optional(),
   // Fully optional -- replaces the old separate headline/ctaText fields.
   // Omitted or empty means no text overlay at all: no auto-filled headline
   // from a picked hook, no auto-filled CTA from brand.cta_phrase. Only

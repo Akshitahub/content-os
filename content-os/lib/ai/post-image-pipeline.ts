@@ -245,7 +245,28 @@ export const PHOTOGRAPHY_STYLE = "professional product photography shot on a ful
 // Full Post's visual-direction picker). A flat, styled-composition look
 // rather than a photorealistic studio shot, for brands whose product
 // doesn't suit (or doesn't exist as) a physical photographed scene.
-export const EDITORIAL_GRAPHIC_STYLE = "minimal editorial flat-lay composition, soft paper or fabric texture background, clean geometric shapes, muted contemporary color palette, generous negative space, magazine-editorial commercial aesthetic — no photorealistic studio lighting or DSLR depth-of-field effects"
+export const EDITORIAL_GRAPHIC_STYLE = "a FLAT 2D editorial graphic layout, not a photograph: the subject drawn as clean flat shapes and simple objects on a soft paper or fabric texture background, clean geometric shapes, muted contemporary color palette, generous negative space, magazine-editorial print aesthetic — no photorealism, no photographic lighting, no depth of field, no 3D render"
+
+/** Editorial graphic: people only when the user's own brief asks for them. */
+export const EDITORIAL_NO_PEOPLE_GUARD = "no people, no faces, no hands, no bodies -- objects and shapes only"
+/** Editorial graphic's own quality guard (the photo guard rejects illustration). */
+export const EDITORIAL_QUALITY_GUARD = "no text, no watermarks, no logos, no letters or numbers, crisp clean edges, balanced flat composition, print-quality finish, no visual artifacts"
+
+/**
+ * An image prompt written for a photo (a candid scene, a person) made fit
+ * for the flat editorial look: photo words dropped, and -- unless people
+ * were asked for -- every sentence about a person dropped too.
+ */
+export function editorialCore(prompt: string, allowPeople: boolean): string {
+  const PHOTO = /\b(photo(?:realistic|graph(?:ic|y)?)?|candid|phone[- ]photo|dslr|depth of field|bokeh|film grain|shallow focus|lens|shot on)\b/gi
+  const PERSON = /\b(man|men|woman|women|person|people|guy|girl|boy|model|he|she|his|her|him|they|someone|hands?|face|wearing|worn)\b/i
+  const sentences = prompt.split(/(?<=[.;])\s+/)
+  const kept = sentences.filter((s) => allowPeople || !PERSON.test(s)).map((s) => s.replace(PHOTO, "").replace(/\s{2,}/g, " ").trim()).filter(Boolean)
+  return kept.join(" ") || "the product as clean flat shapes"
+}
+
+/** The user asked for people in their own brief. */
+export const asksForPeople = (brief: string | null | undefined) => /\b(person|people|man|men|woman|women|model|someone|wearing|worn|on a body|influencer|customer)\b/i.test(brief ?? "")
 
 // The single most effective lever against anatomy anomalies: a shot with
 // no people in it can't have an extra-limb problem at all. Biases every
@@ -439,10 +460,10 @@ function simplifyPrompt(prompt: string, brandNiche: string | null, hasReferenceI
     brandNiche ? `${brandNiche} brand` : "",
     resolveNicheSetting(brandNiche),
     editorial ? EDITORIAL_GRAPHIC_STYLE : CANDID_PHOTO_STYLE,
-    hasReferenceImage ? REFERENCE_IMAGE_PEOPLE_GUARD : editorial ? NO_PEOPLE_BY_DEFAULT_GUARD : CANDID_PEOPLE_DIRECTION,
+    hasReferenceImage ? REFERENCE_IMAGE_PEOPLE_GUARD : editorial ? EDITORIAL_NO_PEOPLE_GUARD : CANDID_PEOPLE_DIRECTION,
     editorial ? CENTERED_COMPOSITION_GUARD : CANDID_COMPOSITION_GUARD,
     editorial ? "" : CANDID_PHOTO_GUARD,
-    editorial ? POST_IMAGE_QUALITY_AND_NEGATIVE_GUARD : CANDID_QUALITY_AND_NEGATIVE_GUARD,
+    editorial ? EDITORIAL_QUALITY_GUARD : CANDID_QUALITY_AND_NEGATIVE_GUARD,
   ].filter(Boolean).join(", ")
   return hasReferenceImage ? wrapForReferenceImage(sceneDescription) : sceneDescription
 }
@@ -571,6 +592,8 @@ export interface GeneratePostImageOptions {
    * behavior, so every caller that doesn't pass this (Carousel, Story,
    * Autopilot) is unaffected. */
   visualStyle?: "studio_scene" | "editorial_graphic"
+  /** The user's own brief -- editorial graphic shows people only when it asks for them. */
+  userBrief?: string | null
   /** Only meaningful when template is "hard_truth_checklist" -- the
    * caption's own checklist_* fields (see types/app.ts's GeneratedCaption),
    * threaded straight through to lib/image/post-compositor.ts's
@@ -744,14 +767,15 @@ export async function generatePostImage(rawOptions: GeneratePostImageOptions): P
   // person or hands using the product, off-centre, real setting. The
   // editorial graphic look keeps its flat, product-only composition.
   const editorial = options.visualStyle === "editorial_graphic"
+  const editorialPeople = editorial && asksForPeople(options.userBrief)
   const sceneFor = (core: string, withReference: boolean) => [
-    core,
+    editorial ? editorialCore(core, editorialPeople) : core,
     options.brandNiche ? `${options.brandNiche} brand` : "",
     resolveNicheSetting(options.brandNiche),
     cappedTargetAudience ? `styled to appeal to ${cappedTargetAudience}` : "",
     editorial ? EDITORIAL_GRAPHIC_STYLE : candidPhotoStyle(options.artDirection),
-    withReference ? REFERENCE_IMAGE_PEOPLE_GUARD : editorial ? NO_PEOPLE_BY_DEFAULT_GUARD : CANDID_PEOPLE_DIRECTION,
-    buildNegativeGuard(options.brandNiche),
+    withReference ? REFERENCE_IMAGE_PEOPLE_GUARD : editorial ? (editorialPeople ? NO_PEOPLE_BY_DEFAULT_GUARD : EDITORIAL_NO_PEOPLE_GUARD) : CANDID_PEOPLE_DIRECTION,
+    editorial ? "" : buildNegativeGuard(options.brandNiche),
     // Only relevant when there's actually going to be a text overlay —
     // biasing every image toward a simpler lower third no longer makes
     // sense now that a clean, text-free image is the default (Commit 2:
@@ -759,8 +783,9 @@ export async function generatePostImage(rawOptions: GeneratePostImageOptions): P
     willCompositeText ? "leave the lower third of the frame visually simpler and less busy for a text overlay" : "",
     editorial ? CENTERED_COMPOSITION_GUARD : CANDID_COMPOSITION_GUARD,
     editorial ? "" : CANDID_PHOTO_GUARD,
-    editorial ? POST_IMAGE_QUALITY_AND_NEGATIVE_GUARD : CANDID_QUALITY_AND_NEGATIVE_GUARD,
-    artDirectionImageClause(options.artDirection),
+    editorial ? EDITORIAL_QUALITY_GUARD : CANDID_QUALITY_AND_NEGATIVE_GUARD,
+    // The editorial look keeps the brand's colours and motifs, never its photo direction.
+    artDirectionImageClause(options.artDirection, { photography: !editorial }),
   ].filter(Boolean).join(", ")
   const sceneDescription = sceneFor(cappedImagePrompt, hasReferenceImage)
   const fullPrompt = hasReferenceImage ? wrapForReferenceImage(sceneDescription) : sceneDescription
@@ -776,7 +801,8 @@ export async function generatePostImage(rawOptions: GeneratePostImageOptions): P
   // A split brief with both halves becomes two images composited side by
   // side (lib/ai/split-layer.ts); otherwise the single prompt, as before.
   const brief = options.visualBrief
-  const brandPhoto = options.brandPhotoUrl ? await download(options.brandPhotoUrl) : null
+  // A brand photo is a photograph -- never the editorial graphic look.
+  const brandPhoto = options.brandPhotoUrl && !editorial ? await download(options.brandPhotoUrl) : null
   if (options.brandPhotoUrl && !brandPhoto) console.error("[post-image-pipeline] brand photo unreachable -- generating an image instead")
   const result = brandPhoto
     ? { success: true as const, buffer: brandPhoto, mimeType: "image/jpeg", provider: "brand_photo" as const, attempts: [] as ImageGenerationAttempt[], split: undefined }

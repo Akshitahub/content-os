@@ -266,16 +266,17 @@ export function artDirectionBriefRules(ad: ArtDirection | null | undefined): str
 }
 
 /** The clause an image prompt carries (comma-joined like the rest of the prompt). */
-export function artDirectionImageClause(ad: ArtDirection | null | undefined): string {
+export function artDirectionImageClause(ad: ArtDirection | null | undefined, opts: { photography?: boolean } = {}): string {
   if (!ad) return ""
   return [
     `dominant colours from the brand palette: ${colourName(ad.palette.accent)} accent, ${colourName(ad.palette.base)} base, ${colourName(ad.palette.deep)} deep tones, ${colourName(ad.palette.pop)} as a small pop`,
     `${ad.mood} mood`,
     `props and textures drawn from: ${ad.motifs.join(", ")}`,
     `set in ${ad.cultural_context.replace(/[.]+$/, "")}`,
-    `photography: ${candidPhotoStyle(ad).replace(/[.]+$/, "")}`,
+    // Not for a flat graphic (the editorial look).
+    opts.photography === false ? "" : `photography: ${candidPhotoStyle(ad).replace(/[.]+$/, "")}`,
     `never show: ${ad.avoid.join("; ")}`,
-  ].join(", ")
+  ].filter(Boolean).join(", ")
 }
 
 /** A short version for the simplified fallback prompts. */

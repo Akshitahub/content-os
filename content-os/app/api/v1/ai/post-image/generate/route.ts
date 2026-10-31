@@ -99,7 +99,7 @@ async function handlePost(request: Request, timer: GenerationTimer) {
 
   const {
     brandId, productId, imagePrompt, template, colorThemeId, captionText, fontId, textSizeScale,
-    postSessionId, contentProjectId, aspectRatio, visualStyle,
+    postSessionId, contentProjectId, aspectRatio, visualStyle, userBrief,
     checklistHeadline, checklistHighlightedPhrase, checklistWrongItems, checklistRightItems, checklistClosingLine,
     annotatedHeadline, annotatedKeyword, annotatedCallouts,
   } = parsed.data
@@ -168,7 +168,8 @@ async function handlePost(request: Request, timer: GenerationTimer) {
   // never another product's photo; least used first among equals, so a
   // regenerate gets a different one. Not for the checklist card (no photo) or
   // annotated_product (draws the product photo itself). No fit = generated.
-  const brandPhoto = template === "hard_truth_checklist" || template === "annotated_product"
+  // ...nor for the editorial graphic look (a flat layout, never a photo).
+  const brandPhoto = template === "hard_truth_checklist" || template === "annotated_product" || visualStyle === "editorial_graphic"
     ? null
     : (await chooseFittingPhotos(await createAdminClient(), brand, {
         productId: productId ?? null, productName: product?.name ?? null, kinds: PHOTO_KINDS_FOR.post,
@@ -194,6 +195,7 @@ async function handlePost(request: Request, timer: GenerationTimer) {
     productImageUrl,
     aspectRatio,
     visualStyle,
+    userBrief,
     checklistHeadline,
     checklistHighlightedPhrase,
     checklistWrongItems,

@@ -14,7 +14,9 @@ export type PostDesignTemplate = (typeof POST_DESIGN_TEMPLATES)[number]
 /** The looks any post can switch between; the data-bound three need their own data. */
 export const POST_DESIGN_LOOKS = ["bold_statement", "product_focus", "quote_card", "minimal"] as const satisfies readonly PostDesignTemplate[]
 
-export const POST_BIG_WORDS_MAX = 4
+// Room for a specific headline: "Linen that stays crisp till 6pm" (the
+// compositor breaks it into at most 3 balanced lines).
+export const POST_BIG_WORDS_MAX = 7
 export const POST_SCRIPT_LINE_MAX = 6
 
 export interface PostDesign {

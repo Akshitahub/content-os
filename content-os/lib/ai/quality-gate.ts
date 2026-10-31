@@ -20,9 +20,9 @@ import { artDirectionFrom } from "./brand-brain"
 // still off-topic (GateReport.offTopic), and onTopicOrRegenerate regenerates
 // once before failing with OffTopicError -- never a silent off-topic result.
 
-export const GATE_CHECKS = ["unsupported_claim", "visual_mismatch", "off_topic", "generic", "duplicate"] as const
+export const GATE_CHECKS = ["unsupported_claim", "visual_mismatch", "off_topic", "generic", "duplicate", "vague_headline"] as const
 export type GateCheck = (typeof GATE_CHECKS)[number]
-const CRITICAL = new Set<GateCheck>(["unsupported_claim", "visual_mismatch", "off_topic"])
+const CRITICAL = new Set<GateCheck>(["unsupported_claim", "visual_mismatch", "off_topic", "vague_headline"])
 
 export type GateFormat = "carousel" | "story" | "post" | "ad"
 export type GateIssue = { item: number; check: GateCheck; detail: string; fix_hint: string }
@@ -209,6 +209,54 @@ function textBearingIssues(items: GateItem[], productReference: boolean): GateIs
   })
 }
 
+// Words that never make a topic specific: function words, generic verbs and
+// generic post words ("tips", "ways", "guide").
+const TOPIC_STOPWORDS = new Set(("a an the and or but so to of for in on at by with from into onto over under than then till until " +
+  "how why what when where which who whom whose is are was were be been being do does did doesn don dont not no can could will would " +
+  "doesnt isnt arent wasnt werent didnt cant couldnt wont wouldnt shouldnt hasnt havent youre theyre its " +
+  "should shall may might must it its it's this that these those you your yours our ours my me we us they them their he she his her " +
+  "make makes making made get gets getting keep keeps keeping style styles styling styled look looks looking use uses using wear wears wearing " +
+  "tip tips way ways guide guides best top new easy simple quick really very just more most less much many every all any some " +
+  "things thing stuff ideas idea help helps").split(" "))
+
+const stem = (w: string) => w.toLowerCase().replace(/[^a-z0-9]/g, "").replace(/(ing|ed|es|ly|s)$/, (m, _g, i: number) => (i >= 4 ? "" : m))
+
+/** The topic's own subject words (stemmed), e.g. "linen", "wrinkl", "noon" for "How to style pure linen so it doesn't look wrinkled by noon". */
+export function topicKeyTerms(topic: string | null | undefined): string[] {
+  const words = (topic ?? "").toLowerCase().match(/[a-z0-9']+/g) ?? []
+  return [...new Set(words.filter((w) => w.length >= 3 && !TOPIC_STOPWORDS.has(w.replace(/'/g, ""))).map(stem).filter((w) => w.length >= 3))]
+}
+
+/** The headline the gate checks: the post's on-image words, a carousel's cover, a story's opener. */
+function headlineOf(format: GateFormat, data: unknown): string {
+  const d = obj(data) ?? {}
+  if (format === "post") return text(d.post_big_words) || text(d.suggested_overlay_text)
+  if (format === "carousel") { const first = obj(Array.isArray(d.slides) ? d.slides[0] : null) ?? {}; return text(first.big_words) || text(first.headline) }
+  if (format === "story") { const first = obj(Array.isArray(d.stories) ? d.stories[0] : null) ?? {}; return text(first.big_words) || text(first.text) }
+  return ""
+}
+
+/**
+ * The cheap deterministic headline check (no model call): a headline that
+ * carries none of the topic's own subject words ("shirt styling tips" for
+ * "how to style pure linen so it doesn't look wrinkled by noon") is
+ * vague_headline -- critical, repaired like off_topic.
+ */
+export function headlineTopicIssues(format: GateFormat, data: unknown, topic: string | null | undefined): GateIssue[] {
+  const terms = topicKeyTerms(topic)
+  const headline = headlineOf(format, data)
+  if (terms.length === 0 || !headline) return []
+  const words = (headline.toLowerCase().match(/[a-z0-9']+/g) ?? []).map(stem)
+  if (terms.some((t) => words.some((w) => w.startsWith(t) || t.startsWith(w) && w.length >= 4))) return []
+  const field = format === "post" ? "post_big_words" : format === "carousel" ? "the first slide's big_words / headline" : "the first story's big_words"
+  return [{
+    item: 0,
+    check: "vague_headline",
+    detail: `the headline "${headline}" drops the topic's subject (${terms.slice(0, 4).join(", ")})`,
+    fix_hint: `rewrite ${field} to carry the topic's own subject and its benefit -- name ${terms.slice(0, 3).join(" / ")} -- e.g. "Linen that stays crisp till 6pm", never a generic label like "shirt styling tips"`,
+  }]
+}
+
 function countIssues(issues: GateIssue[]): Record<GateCheck, number> {
   const counts = Object.fromEntries(GATE_CHECKS.map((c) => [c, 0])) as Record<GateCheck, number>
   for (const i of issues) counts[i.check]++
@@ -247,7 +295,11 @@ export async function runQualityGate<T>(params: {
 }): Promise<{ data: T; gate: GateReport }> {
   const check = await checkCreative(params)
   // The model's issues plus the deterministic text-bearing-subject ones.
-  const issues = [...check.issues, ...textBearingIssues(itemsFor(params.format, params.data), !!params.productReference)]
+  const issues = [
+    ...check.issues,
+    ...textBearingIssues(itemsFor(params.format, params.data), !!params.productReference),
+    ...headlineTopicIssues(params.format, params.data, params.topic),
+  ]
   const report: GateReport = {
     skipped: check.skipped,
     issues,
@@ -278,6 +330,8 @@ export async function runQualityGate<T>(params: {
     report.repaired = true
     console.log(`[quality-gate] ${params.format}: repaired item(s) ${[...failing].join(", ")}`)
     const merged = mergeRepaired(params.format, params.data, repaired, failing) as T
+    const stillVague = headlineTopicIssues(params.format, merged, params.topic)
+    if (stillVague.length) console.log(`[quality-gate] ${params.format}: headline still drops the topic after repair`)
     // Off-topic items get one cheap re-check after their repair; any still off are reported.
     if (offTopicAt(critical).length) {
       const recheck = await checkCreative({ ...params, data: merged })

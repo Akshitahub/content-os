@@ -7,7 +7,7 @@ import { isApiError } from "@/types/api"
 import { readJsonResponse } from "@/lib/utils/read-json-response"
 import { CRITIC_PASS } from "@/lib/design/critic-scores"
 
-interface CriticVerdict { overall: number; passed: boolean; top_fix: string; reasons: string[] }
+export interface CriticVerdict { overall: number; passed: boolean; top_fix: string; reasons: string[] }
 
 /**
  * The critic's score on a finished post / carousel / story (lib/ai/critic.ts
@@ -15,7 +15,7 @@ interface CriticVerdict { overall: number; passed: boolean; top_fix: string; rea
  * fix that would lift it most and a "Make it better" button that regenerates
  * with that fix. Hidden entirely when scoring isn't available.
  */
-export function CriticPanel({ brandId, resultKey, imageUrl, caption, hook, format, contentType, contentId, onImprove, improving }: {
+export function CriticPanel({ brandId, resultKey, imageUrl, caption, hook, format, contentType, contentId, onImprove, improving, onVerdict }: {
   brandId: string
   /** Changes when there's a new result to score (a new generation). */
   resultKey: string | null
@@ -28,6 +28,8 @@ export function CriticPanel({ brandId, resultKey, imageUrl, caption, hook, forma
   contentId?: string | null
   onImprove: (fix: string) => void
   improving?: boolean
+  /** Called once with each result's verdict (Full Post keeps a score per version). */
+  onVerdict?: (resultKey: string, verdict: CriticVerdict) => void
 }) {
   const [verdicts, setVerdicts] = useState<Record<string, CriticVerdict | "unavailable">>({})
   const verdict = resultKey ? verdicts[resultKey] : undefined
@@ -48,6 +50,7 @@ export function CriticPanel({ brandId, resultKey, imageUrl, caption, hook, forma
           const json: unknown = await readJsonResponse(res)
           const next = !res.ok || isApiError(json) ? "unavailable" as const : (json as { data: CriticVerdict }).data
           setVerdicts((prev) => ({ ...prev, [resultKey]: next }))
+          if (next !== "unavailable") onVerdict?.(resultKey, next)
         })
         .catch(() => {
           if (!controller.signal.aborted) setVerdicts((prev) => ({ ...prev, [resultKey]: "unavailable" }))
