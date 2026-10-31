@@ -257,6 +257,47 @@ export function headlineTopicIssues(format: GateFormat, data: unknown, topic: st
   }]
 }
 
+// Slide words that say nothing on their own ("Style it", "Yours next").
+const EMPTY_SLIDE_WORDS = new Set(["yours", "next", "now", "here", "this", "that", "more", "it", "go", "see", "learn", "find", "out", "check", "secret", "story", "time", "moment", "vibe", "vibes", "look", "style", "wear", "shop", "buy", "get", "try", "save", "tap", "swipe", "done", "ready", "set"])
+
+/** The words a carousel slide draws huge (big_words, else its headline). */
+function slideWords(slide: unknown): string {
+  const o = obj(slide) ?? {}
+  return text(o.big_words) || text(o.headline)
+}
+
+/**
+ * Carousels, deterministic: a slide whose big words carry no content word
+ * ("Style it", "Yours next") is vague_headline; a cover that promises a
+ * number of points other than the middle slides' real count is an
+ * unsupported claim. Both critical (repaired).
+ */
+export function carouselSlideIssues(data: unknown, topic: string | null | undefined): GateIssue[] {
+  const d = obj(data) ?? {}
+  const slides = Array.isArray(d.slides) ? d.slides : []
+  const all = [...slides, ...(obj(d.cta_slide) ? [d.cta_slide] : [])]
+  const issues: GateIssue[] = []
+  all.forEach((s, i) => {
+    const words = (slideWords(s).toLowerCase().match(/[a-z0-9']+/g) ?? []).map((w) => w.replace(/'/g, ""))
+    if (words.length === 0) return
+    const content = words.filter((w) => w.length >= 3 && !TOPIC_STOPWORDS.has(w) && !EMPTY_SLIDE_WORDS.has(w))
+    if (content.length === 0) {
+      issues.push({ item: i, check: "vague_headline", detail: `slide words "${slideWords(s)}" say nothing on their own`, fix_hint: "make big_words name this slide's concrete point (e.g. \"Roll the hem once\", \"Olive + white tee\")" })
+    }
+  })
+  // The cover's number must be the real count of middle slides (or come from the topic).
+  const cover = obj(slides[0]) ?? {}
+  const promise = [text(cover.big_words), text(cover.headline), text(cover.subtext), text(obj(d.narrative_plan)?.payoff)].join(" ")
+  const middle = Math.max(0, slides.filter((s) => (obj(s)?.type ?? "content") === "content").length)
+  const topicNumbers = new Set((topic ?? "").match(/\d+/g) ?? [])
+  for (const n of new Set(promise.match(/\b\d+\b/g) ?? [])) {
+    if (Number(n) !== middle && !topicNumbers.has(n) && Number(n) <= 20) {
+      issues.push({ item: 0, check: "unsupported_claim", detail: `the cover promises ${n} but ${middle} slides deliver it`, fix_hint: `make the cover's number ${middle} (the real count of points), or drop the number` })
+    }
+  }
+  return issues
+}
+
 function countIssues(issues: GateIssue[]): Record<GateCheck, number> {
   const counts = Object.fromEntries(GATE_CHECKS.map((c) => [c, 0])) as Record<GateCheck, number>
   for (const i of issues) counts[i.check]++
@@ -299,6 +340,7 @@ export async function runQualityGate<T>(params: {
     ...check.issues,
     ...textBearingIssues(itemsFor(params.format, params.data), !!params.productReference),
     ...headlineTopicIssues(params.format, params.data, params.topic),
+    ...(params.format === "carousel" ? carouselSlideIssues(params.data, params.topic) : []),
   ]
   const report: GateReport = {
     skipped: check.skipped,

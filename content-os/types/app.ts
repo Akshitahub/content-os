@@ -217,6 +217,10 @@ export type CarouselSlide = {
 
 /** The plan the carousel model writes before its slides (lib/ai/carousel-generator.ts). Returned with the generated carousel; not persisted (the carousels row has no column for it). */
 export type CarouselNarrativePlan = {
+  /** ways | mistake_fix | before_after | myth_truth | mini_guide | product_breakdown -- what the carousel pays off. */
+  payoff_type?: string
+  /** The cover's one-line promise. */
+  payoff?: string
   audience_question?: string
   takeaway?: string
   arc?: { slide_number: number; role: string; new_information: string }[]

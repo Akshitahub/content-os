@@ -1,3 +1,4 @@
+import { generateCheckedSlide } from "./slide-photo-check"
 import { isLifestyleTemplate, postImageFromBrandPhoto } from "@/lib/ai/catalogue-photos"
 import { recordGeneratedSubjects } from "@/lib/image/subject-boxes"
 import { after } from "next/server"
@@ -18,7 +19,6 @@ import { resolveBrandPalette, resolveColorThemes, type BrandPalette, type ColorT
 import { mergeCaptionWithHookAndCta } from "@/lib/utils/caption-merge"
 import { MUSIC_OPTIONS, resolveMusicTrackId } from "@/lib/video/music-options"
 import { renderCarouselSlidesToPng, renderRichCarouselSlides, type CarouselCompositeSlide } from "@/lib/image/carousel-compositor"
-import { generateCarouselSlideBackground } from "./carousel-slide-background"
 import { sanitizeVisualBrief } from "./visual-brief"
 import { gateEventMeta } from "./quality-gate"
 import { computeTextStyleSafe } from "@/lib/image/text-contrast"
@@ -581,7 +581,8 @@ async function withCarouselBackgrounds(job: SlotJobRow, ctx: RunContext, slides:
     const keepRef = () => (ref ? { ...slide, image_url: ref, background_image_provider: "brand_photo", text_style: null } : slide)
     if (!visualBrief && !ref) return slide
     try {
-      const result = await generateCarouselSlideBackground({
+      // The photo must show this slide's point (lib/ai/slide-photo-check.ts).
+      const result = await generateCheckedSlide({
         brand,
         plan: params.plan,
         isInternalUnlimitedUser: params.isInternalUnlimitedUser,
@@ -590,7 +591,8 @@ async function withCarouselBackgrounds(job: SlotJobRow, ctx: RunContext, slides:
         productImageUrl: ref,
         userDirection: typeof slide.scene_direction === "string" ? slide.scene_direction : undefined,
         quality: "low",
-      })
+      }, { headline: String(slide.headline ?? ""), body: typeof slide.subtext === "string" ? slide.subtext : null }, `autopilot slot ${job.id} slide ${i + 1}`)
+      if (result.checkCostUsd) trackUsage(tracker, undefined, result.checkCostUsd)
       trackUsage(tracker, undefined, attemptsCostUsd(result.attempts))
       if (!result.success) {
         console.error(`[autopilot-worker] slot ${job.id}: slide ${i + 1} background failed, keeping its flat style:`, result.error)

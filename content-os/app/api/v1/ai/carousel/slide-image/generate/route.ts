@@ -1,3 +1,4 @@
+import { generateCheckedSlide } from "@/lib/ai/slide-photo-check"
 import { recordGeneratedSubjects } from "@/lib/image/subject-boxes"
 import { NextResponse } from "next/server"
 import { noteGenerationBrand } from "@/lib/ai/provider-fallback"
@@ -23,6 +24,8 @@ const CAROUSEL_VIBES = ["fun_playful", "clean_minimal", "bold_dramatic", "warm_c
 
 const schema = z.object({
   brandId: z.string().uuid(),
+  // The slide's own words: the photo is checked against them (lib/ai/slide-photo-check.ts).
+  slideCopy: z.object({ headline: z.string().max(200), body: z.string().max(300).nullish() }).optional(),
   vibe: z.enum(CAROUSEL_VIBES).optional(),
   role: z.enum(["hook", "cta", "body"]),
   productImageUrl: z.string().url().optional(),
@@ -166,7 +169,8 @@ async function handlePost(request: Request, timer: GenerationTimer) {
   }
 
   const startTime = Date.now()
-  const result = await timer.step("image", withDeadline(generateCarouselSlideBackground({
+  // The photo must show this slide's point: checked, and tried once more if not.
+  const result = await timer.step("image", withDeadline(generateCheckedSlide({
     vibe: vibe as CarouselVibe | undefined,
     brand,
     plan,
@@ -180,7 +184,7 @@ async function handlePost(request: Request, timer: GenerationTimer) {
     // Text is composited over slide backgrounds, so "low" is enough --
     // raised to "medium" automatically when a product photo is attached.
     quality: "low",
-  }), deadlineAt - Date.now(), "carousel slide image")).catch((err): Awaited<ReturnType<typeof generateCarouselSlideBackground>> => ({
+  }, parsed.data.slideCopy, `carousel role=${role}`, () => Date.now() < deadlineAt - 60_000), deadlineAt - Date.now(), "carousel slide image")).catch((err): Awaited<ReturnType<typeof generateCarouselSlideBackground>> => ({
     // Deadline hit (or an unexpected throw): handled exactly like a failed
     // generation below -- logged and refunded.
     success: false,

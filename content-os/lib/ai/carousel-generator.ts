@@ -58,12 +58,18 @@ CRITICAL RULES:
 - RESPOND WITH ONLY VALID JSON — no markdown fences, no explanation text, no trailing commas
 
 STEP 1 — NARRATIVE PLAN (do this first, emit it as "narrative_plan" before any slide copy):
+- "payoff_type": the shape that makes people swipe to the end and save it -- ONE of: ways (N ways / tips), mistake_fix (a common mistake, then the fix), before_after, myth_truth (a myth, then the truth), mini_guide (steps in order), product_breakdown (what makes the product what it is, part by part). Pick the one that fits the topic.
+- "payoff": the one-line promise the cover makes (e.g. "3 ways to wear olive chinos to work"). A number in it is ONLY the real count of the middle slides that deliver it.
 - "audience_question": the real question this carousel answers for this brand's audience.
 - "takeaway": the one thing the reader should know or do after the last slide.
 - "arc": one entry per slide (all ${slideCount}, CTA included) — its "slide_number", its "role", and the "new_information" that slide adds.
 Roles to choose from (adapt to the topic, don't force all of them): hook, problem, context, step, comparison, evidence, example, mistake, decision_criteria, takeaway, cta.
 Default progression: hook → context/problem → explanation/steps → evidence/example → takeaway → CTA.
 Then write every slide from its arc entry, and give each slide object (and cta_slide) a "role" matching it.
+PAYOFF RULES -- one carousel, one story, not separate posts:
+- The cover promises the payoff in its own words; every middle slide delivers exactly ONE concrete, useful point of it (one way, one fix, one step, one part) -- no filler, no slide that only names the topic, no two slides saying the same thing.
+- The last slide sums the payoff up in a line and gives the call to action.
+- Each slide's visual shows THAT slide's point: a slide about the colour shows the product clearly in that colour; a pairing slide shows that exact pairing; a step shows that step being done.
 
 SLIDE STRUCTURE:
 - Slide 1: Cover slide (type: "cover", role: "hook") — bold hook headline + teaser subtext
@@ -145,6 +151,8 @@ ${QUALITY_BAR}
 Respond with ONLY this JSON (no markdown, no explanation). The values below are an example for a different topic ("why shoppers abandon checkout") showing the depth expected — write your own for THIS topic and brand:
 {
   "narrative_plan": {
+    "payoff_type": "mistake_fix",
+    "payoff": "The checkout leak, and the three fixes in order",
     "audience_question": "Why do shoppers leave at checkout, and what should I fix first?",
     "takeaway": "Show the full cost before checkout and cut every step that isn't address or payment.",
     "arc": [

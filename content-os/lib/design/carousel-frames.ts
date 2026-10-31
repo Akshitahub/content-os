@@ -79,7 +79,7 @@ function bodyFor(s: Record<string, unknown>, bigWords: string): string {
 /** The prompt rule for the frame copy (lib/ai/carousel-generator.ts). */
 export function carouselFrameRules(): string {
   return `FRAME COPY -- every slide is a designed image, not a document. Every slide object (and cta_slide) ALSO gets:
-- "big_words": 1-${CAROUSEL_BIG_WORDS_MAX} words, drawn huge -- the slide's core in the fewest words (the topic's own words when short). Never a number, price or claim the brand facts or topic don't give.
+- "big_words": 1-${CAROUSEL_BIG_WORDS_MAX} words, drawn huge -- THIS slide's concrete point in the fewest words (e.g. "Roll the hem once", "Olive + white tee"), never a generic label ("Style it", "Yours next", "Learn more", "The secret"). The topic's own words when short. Never a number, price or claim the brand facts or topic don't give.
 - "body": ONE line, max ${CAROUSEL_BODY_MAX} words -- the slide's new information. No paragraphs, no lists. The cover's "body" is a teaser of at most ${CAROUSEL_SCRIPT_LINE_MAX} words (it's handwritten).
 - cta_slide: "cta" is the button, max ${CAROUSEL_CTA_LABEL_MAX} words (the action, e.g. "Shop the drop").`
 }

@@ -285,7 +285,8 @@ async function fetchSlideBackgroundResult(
   customPrompt?: string,
   visualBrief?: CarouselVisualBrief,
   userDirection?: string | null,
-  textPosition?: { x?: number; y?: number }
+  textPosition?: { x?: number; y?: number },
+  slideCopy?: { headline: string; body?: string | null }
 ): Promise<SlideBackgroundOutcome> {
   try {
     const res = await fetch("/api/v1/ai/carousel/slide-image/generate", {
@@ -297,7 +298,7 @@ async function fetchSlideBackgroundResult(
       // lib/ai/carousel-slide-background.ts. Omitted when the slide has none.
       // textPositionX/Y: where the text block sits, so the server measures
       // text_style over the right region.
-      body: JSON.stringify({ brandId, vibe, role, productImageUrl: productImageUrl ?? undefined, slideType, customPrompt: customPrompt || undefined, visualBrief, userDirection: userDirection || undefined, textPositionX: textPosition?.x, textPositionY: textPosition?.y }),
+      body: JSON.stringify({ brandId, vibe, role, productImageUrl: productImageUrl ?? undefined, slideType, customPrompt: customPrompt || undefined, visualBrief, userDirection: userDirection || undefined, textPositionX: textPosition?.x, textPositionY: textPosition?.y, ...(slideCopy?.headline ? { slideCopy } : {}) }),
     })
     if (!res.ok) return { error: slideBackgroundErrorForStatus(res.status) }
     const json = await readJsonResponse(res) as { data?: { public_url?: string; provider?: "openai"; text_style?: TextStyle | null } }
@@ -1086,7 +1087,7 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
         // reference, with a candid real-life scene direction.
         const ref = slides[i]?.product_reference_url ?? null
         const product = ref ?? productImage
-        return { key: i, run: () => fetchSlideBackgroundResult(brandId, vibe, role, product ?? undefined, product ? SLIDE_TYPE_FOR_BG_ROLE[role] : undefined, visualPrompt, slides[i]?.visual, slides[i]?.scene_direction ?? visualPromptSeedRef.current, { x: slides[i]?.text_position_x, y: slides[i]?.text_position_y }) }
+        return { key: i, run: () => fetchSlideBackgroundResult(brandId, vibe, role, product ?? undefined, product ? SLIDE_TYPE_FOR_BG_ROLE[role] : undefined, visualPrompt, slides[i]?.visual, slides[i]?.scene_direction ?? visualPromptSeedRef.current, { x: slides[i]?.text_position_x, y: slides[i]?.text_position_y }, { headline: slides[i]?.headline ?? "", body: slides[i]?.subtext ?? null }) }
       }),
       { onProgress: (settled, total) => { if (isCurrent()) setBgProgress({ settled, total }) }, isCancelled: () => !isCurrent() }
     )
