@@ -201,6 +201,20 @@ async function callOpenAIImageAPI(
 }
 
 /**
+ * Every image prompt, whatever built it: one single photograph, no panels,
+ * no collage, no person shown twice. A deliberate split comparison (a
+ * side_by_side / before_after brief drawn in one image) keeps its two
+ * halves; it still never repeats a person within them.
+ */
+export const SINGLE_PHOTO_GUARD = "one single photograph of one moment -- not a collage, not multiple panels, frames or a grid -- and no person appears more than once in the image"
+export const NO_REPEATED_PERSON_GUARD = "no person appears more than once in the image"
+
+export function withSinglePhotoGuard(prompt: string): string {
+  const deliberateSplit = /split composition|side by side|before\/after|before and after/i.test(prompt)
+  return `${prompt.trim().replace(/[.,]?$/, "")}. ${deliberateSplit ? NO_REPEATED_PERSON_GUARD : SINGLE_PHOTO_GUARD}.`
+}
+
+/**
  * The only place in this codebase that talks to an image-generation
  * provider -- lib/ai/post-image-pipeline.ts's fetchBackgroundImage is the
  * only caller, the same single-chokepoint shape the previous provider's
@@ -225,7 +239,7 @@ export async function generateOpenAIImage(
 
   const startedAt = Date.now()
   try {
-    const response = await callOpenAIImageAPI(prompt, size, referenceImageUrl, quality)
+    const response = await callOpenAIImageAPI(withSinglePhotoGuard(prompt), size, referenceImageUrl, quality)
     const costUsd = imageCostUsd(IMAGE_PROVIDER_CONFIG.model, response.usage)
     const b64 = response.data?.[0]?.b64_json
     if (!b64) {

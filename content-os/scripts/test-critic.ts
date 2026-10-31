@@ -50,6 +50,23 @@ async function main() {
     assert.match(parseCriticResponse(JSON.stringify({ scores: all(7, { reason_to_act: 3 }) }))!.top_fix, /Reason to act/)
   })
 
+  await test("a collage / repeated subject hard-fails, whatever else scored", () => {
+    const parsed = parseCriticResponse(JSON.stringify({ scores: all(9), single_photo: false, top_fix: "x" }))
+    assert.equal(parsed?.single_photo, false)
+    assert.match(parsed!.top_fix, /one single photograph/)
+    // A missing field isn't a fail.
+    assert.equal(parseCriticResponse(JSON.stringify({ scores: all(9) }))?.single_photo, true)
+  })
+
+  await test("every image prompt carries the single-photo guard; a deliberate split keeps its halves", async () => {
+    const { withSinglePhotoGuard } = await import("@/lib/ai/image-provider")
+    assert.match(withSinglePhotoGuard("a man in a cafe"), /not a collage, not multiple panels/)
+    assert.match(withSinglePhotoGuard("a man in a cafe"), /no person appears more than once/)
+    const split = withSinglePhotoGuard("a split composition with two clearly separated halves side by side")
+    assert.doesNotMatch(split, /not multiple panels/)
+    assert.match(split, /no person appears more than once/)
+  })
+
   await test("saved verdict: needs approval below the bar, worst reasons first", () => {
     const saved = toSavedCritic({ scores: all(9, { craft: 4, reason_to_act: 6 }), overall: 6, top_fix: "Fix the crop" }, { candidates: 3, regenerated: true })
     assert.equal(saved.needs_approval, true)
@@ -90,6 +107,13 @@ async function main() {
     assert.equal(r?.overall, criticOverall(all(7, { stops_scroll: 9 })))
     assert.equal(r?.passed, false)
     assert.equal(r?.top_fix, "Show the chinos worn outdoors")
+  })
+
+  await test("critiquePost caps a single_photo=false image at 3", async () => {
+    ;(client.chat.completions as unknown as { create: unknown }).create = async () => ({ choices: [{ message: { content: JSON.stringify({ scores: all(9), single_photo: false, top_fix: "x" }) } }], usage: { prompt_tokens: 10, completion_tokens: 10, total_tokens: 20 } })
+    const r = await critiquePost(brand, { imageUrl: "https://example.com/p.jpg", caption: "", hook: "", format: "post" }, "test")
+    assert.equal(r?.overall, 3)
+    assert.equal(r?.passed, false)
   })
 
   await test("critiquePost returns null when the call fails (no credits)", async () => {

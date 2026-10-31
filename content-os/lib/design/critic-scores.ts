@@ -21,6 +21,8 @@ export const CRITIC_PASS = 8
 /** A score below this on a gate criterion caps the overall. */
 export const CRITIC_FAIL_BELOW = 5
 export const CRITIC_CAP = 6
+/** The overall for a collage / multi-panel / repeated-subject image (lib/ai/critic.ts). */
+export const CRITIC_HARD_FAIL = 3
 const GATES: CriticCriterionId[] = ["image_copy_agree", "craft"]
 
 /** Weighted average, one decimal; capped at 6 when image/copy agreement or craft fails. */

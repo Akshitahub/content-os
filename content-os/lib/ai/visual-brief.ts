@@ -91,7 +91,8 @@ export const BRIEF_FRAMING: Record<Exclude<VisualKind, "abstract_mood">, string>
   side_by_side: "a split composition with two clearly separated halves side by side, comparing",
   before_after: "a split composition, left half the before state and right half the after state, showing",
   material_swatches: "a top-down flat-lay of physical material samples and finishes arranged in a neat grid:",
-  process_sequence: "three to four stages of a process arranged left to right in one frame:",
+  // Objects at each stage -- never the same person repeated across stages.
+  process_sequence: "three to four stages of a process shown as objects arranged left to right in one frame, no person repeated:",
   sketch_or_drawing: "a hand-drawn pencil or ink sketch on paper, photographed on a desk:",
   detail_closeup: "a macro close-up photograph of",
 }
@@ -133,7 +134,17 @@ export function briefUsesProductReference(brief: VisualBrief | undefined): boole
 // readable words belong to the text overlay.
 
 /** The prompt rule every brief prompt (carousel, story, post, ad) carries. */
-export const NO_TEXT_BEARING_SUBJECTS_RULE = `- The scene must NEVER centre on or prominently show anything that normally carries readable text: phone, tablet or laptop screens, documents, notebooks with writing, sticky notes with words, signs, packaging labels with copy, calendars, dashboards or charts. If the idea needs one (e.g. "a content calendar"), show it indirectly: the device face-down or its screen dark or out of focus, the person's reaction, or the physical result. Readable words belong to the text overlay, never the image.`
+/**
+ * One photograph, one moment: an image that shows the same person several
+ * times (a "three moments of the same man" sequence) or is built from
+ * panels reads as a broken collage -- confirmed live (2026-10-31): a Full
+ * Post brief asked for "three candid left-to-right moments of the same
+ * man" and the image model drew exactly that.
+ */
+export const SINGLE_PHOTO_RULE = `- ONE photograph of ONE moment: never the same person more than once in the image, never panels, a collage or a grid. For a sequence of someone's actions, show the single most telling moment; a sequence of stages uses objects, not a repeated person.`
+
+export const NO_TEXT_BEARING_SUBJECTS_RULE = `${SINGLE_PHOTO_RULE}
+- The scene must NEVER centre on or prominently show anything that normally carries readable text: phone, tablet or laptop screens, documents, notebooks with writing, sticky notes with words, signs, packaging labels with copy, calendars, dashboards or charts. If the idea needs one (e.g. "a content calendar"), show it indirectly: the device face-down or its screen dark or out of focus, the person's reaction, or the physical result. Readable words belong to the text overlay, never the image.`
 
 // Objects that normally carry readable text. Packaging/labels are allowed
 // when the brand's real product photo is the image reference (its real label).

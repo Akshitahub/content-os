@@ -4,7 +4,7 @@ import { MODELS, getOpenAIClient } from "./models"
 import { buildBrandContext } from "./prompts"
 import { textCostUsd, toTextUsage } from "./pricing"
 import type { BrandRow } from "@/types/database"
-import { CRITIC_CRITERIA, CRITIC_PASS, criticOverall, type CriticCriterionId, type CriticScores } from "@/lib/design/critic-scores"
+import { CRITIC_CRITERIA, CRITIC_HARD_FAIL, CRITIC_PASS, criticOverall, type CriticCriterionId, type CriticScores } from "@/lib/design/critic-scores"
 
 /**
  * The critic (one vision call): scores a finished post -- the rendered image
@@ -75,18 +75,20 @@ ${buildBrandContext(brand)}
 Score each criterion 1-10 with ONE short reason (max 15 words) about THIS post:
 ${criteria}
 
+Also "single_photo": false if the image is a collage, has several panels or frames, or shows the same person more than once (a deliberate two-half comparison with different subjects is fine) -- otherwise true.
+
 Then "top_fix": the single change that would raise the score most, as one plain instruction (max 20 words) -- e.g. "Use a photo of the chinos being worn; the flat studio shot doesn't match the street-style caption".
 
 Respond with valid JSON only, no markdown:
-{"scores": {${CRITIC_CRITERIA.map((c) => `"${c.id}": {"score": 1-10, "reason": "..."}`).join(", ")}}, "top_fix": "..."}`
+{"scores": {${CRITIC_CRITERIA.map((c) => `"${c.id}": {"score": 1-10, "reason": "..."}`).join(", ")}}, "single_photo": true, "top_fix": "..."}`
 }
 
 const clampScore = (n: unknown) => (typeof n === "number" && Number.isFinite(n) ? Math.max(1, Math.min(10, Math.round(n))) : null)
 
 /** The model's JSON -> scores, or null if any criterion is missing. Exported for scripts/test-critic.ts. */
-export function parseCriticResponse(raw: string): { scores: CriticScores; top_fix: string } | null {
+export function parseCriticResponse(raw: string): { scores: CriticScores; top_fix: string; single_photo: boolean } | null {
   try {
-    const data = JSON.parse(raw.replace(/```json\n?|```\n?/g, "").trim()) as { scores?: Record<string, { score?: unknown; reason?: unknown }>; top_fix?: unknown }
+    const data = JSON.parse(raw.replace(/```json\n?|```\n?/g, "").trim()) as { scores?: Record<string, { score?: unknown; reason?: unknown }>; top_fix?: unknown; single_photo?: unknown }
     const scores = {} as CriticScores
     for (const c of CRITIC_CRITERIA) {
       const entry = data.scores?.[c.id]
@@ -95,7 +97,12 @@ export function parseCriticResponse(raw: string): { scores: CriticScores; top_fi
       scores[c.id] = { score, reason: typeof entry?.reason === "string" ? entry.reason.trim().slice(0, 160) : "" }
     }
     const topFix = typeof data.top_fix === "string" ? data.top_fix.trim().slice(0, 200) : ""
-    return { scores, top_fix: topFix || lowestReason(scores) }
+    // Only an explicit false fails -- a missing field doesn't.
+    const singlePhoto = data.single_photo !== false
+    if (!singlePhoto) {
+      return { scores, single_photo: false, top_fix: "Use one single photograph of one moment -- this image repeats the same person or is split into panels." }
+    }
+    return { scores, single_photo: true, top_fix: topFix || lowestReason(scores) }
   } catch {
     return null
   }
@@ -138,7 +145,8 @@ export async function critiquePost(brand: BrandRow, input: CriticInput, label: s
       console.error(`[critic] ${label}: unreadable response (scoring skipped)`)
       return null
     }
-    const overall = criticOverall(parsed.scores)
+    // A collage / repeated subject is a hard fail, whatever else scored well.
+    const overall = parsed.single_photo ? criticOverall(parsed.scores) : Math.min(criticOverall(parsed.scores), CRITIC_HARD_FAIL)
     const usage = toTextUsage(res.usage)
     console.log(`[critic] ${label}: overall=${overall} latencyMs=${Date.now() - startedAt}`)
     return { scores: parsed.scores, overall, passed: overall >= CRITIC_PASS, top_fix: parsed.top_fix, model: MODELS.vision, costUsd: textCostUsd(MODELS.vision, usage) }
