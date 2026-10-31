@@ -12,6 +12,8 @@ import { NEUTRAL_PALETTE, paletteRoles, resolvePresetForPalette, type BrandPalet
 import { tintedScrimOpacity } from "@/lib/image/text-contrast"
 import { storyFramePlan, storyStepNumbers, svgFamilies, type TextLayoutFields } from "@/lib/design/text-layouts"
 import { layoutPrimsToSvg } from "@/lib/design/text-layout-render"
+import { renderStoryFrame } from "@/lib/image/story-frame-compositor"
+import type { StoryFrameFields } from "@/lib/ai/story-frames"
 import {
   STORY_SAFE_ZONE, STORY_TEXT_AREA, TEXT_OVERFLOW_WARNING, clampBlockTop, clampCenterX, estimateBlockWidth,
   layoutStoryChecklistHook, layoutStoryChecklistPair, layoutStoryText, type FittedBlock, type SlideWarning,
@@ -502,7 +504,9 @@ function backingRect(x: number, y: number, w: number, h: number, style: TextStyl
 
 // ─── Public API ─────────────────────────────────────────────────────────────
 
-export interface StoryCompositeSlide {
+/** Story-frame slides (`frame` set, lib/ai/story-frames.ts) render through
+ * lib/image/story-frame-compositor.ts; everything else as before. */
+export interface StoryCompositeSlide extends StoryFrameFields {
   type: "hook" | "reveal" | "buildup" | "cta"
   text: string
   subtext: string
@@ -606,14 +610,19 @@ export async function renderStorySlidesToPng(slides: StoryCompositeSlide[]): Pro
   return (await renderStorySlides(slides)).map((r) => r.png)
 }
 
-/** renderStorySlidesToPng plus each slide's warnings ("text_overflow"). */
-export async function renderStorySlides(slides: StoryCompositeSlide[]): Promise<{ png: Buffer; warnings: SlideWarning[] }[]> {
+/** renderStorySlidesToPng plus each slide's warnings ("text_overflow") and
+ * its image type -- a story frame is a JPEG (a grainy full-bleed photo), the
+ * older layouts PNG. `png` holds whichever bytes it is. */
+export async function renderStorySlides(slides: StoryCompositeSlide[]): Promise<{ png: Buffer; mimeType: "image/png" | "image/jpeg"; warnings: SlideWarning[] }[]> {
   const total = slides.length
   if (total === 0) return []
   const steps = storyStepNumbers(slides)
 
   return Promise.all(
     slides.map(async (slide, i) => {
+      if (slide.frame) {
+        return { png: await renderStoryFrame({ ...slide, frame: slide.frame }), mimeType: "image/jpeg" as const, warnings: [] }
+      }
       // Layout frames draw the shared plan; checklist frames keep their own design.
       const photo = slide.text_layout && !isChecklistFlaggedSlide(slide) && slide.background_image_url ? await fetchImageBuffer(slide.background_image_url) : null
       const plan = slide.text_layout && !isChecklistFlaggedSlide(slide) ? storyFramePlan(slide, steps[i] ?? null, !!photo) : null
@@ -662,7 +671,7 @@ export async function renderStorySlides(slides: StoryCompositeSlide[]): Promise<
       layers.push({ input: textOverlayPng, top: 0, left: 0 })
 
       const png = await sharp(backgroundLayer).composite(layers).png().toBuffer()
-      return { png, warnings: overlay.overflow ? [TEXT_OVERFLOW_WARNING] : [] }
+      return { png, mimeType: "image/png" as const, warnings: overlay.overflow ? [TEXT_OVERFLOW_WARNING] : [] }
     })
   )
 }

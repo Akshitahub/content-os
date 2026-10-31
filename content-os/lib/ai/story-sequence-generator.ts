@@ -1,4 +1,4 @@
-import type { BrandRow } from "@/types/database"
+import type { BrandRow, ProductRow } from "@/types/database"
 import type { StorySlide } from "@/app/api/v1/ai/stories/generate/route"
 import { buildPastExamplesBlock, buildSuggestedFontField, buildTopicSubjectBlock, QUALITY_BAR } from "./prompts"
 import { createCreativeCompletion } from "./creative-completion"
@@ -6,7 +6,7 @@ import { buildFactSource, guardCopy, stripGuard } from "./fact-guard"
 import { runQualityGate, type GateReport } from "./quality-gate"
 import { addTextUsage, sumCostUsd, type TextUsage } from "./pricing"
 import { CANDID_PHOTO_RULE, NO_TEXT_BEARING_SUBJECTS_RULE, VISUAL_KINDS, sanitizeVisualBrief, type VisualBrief, artDirectionBriefRules } from "./visual-brief"
-import { kickerHighlightRule } from "@/lib/design/text-layouts"
+import { allowedMiddleFrames, exampleFrameFields, finalizeStoryFrames, frameSlots, storyFrameContext, storyFrameRules, type StoryFrameContext } from "./story-frames"
 import { withLessons, type BrandLesson, artDirectionFrom } from "./brand-brain"
 import { buildBrandBrainLines, parseBrandBrain } from "@/lib/brand-brain-profile"
 
@@ -70,24 +70,20 @@ const EXAMPLE_SLIDE_BY_TYPE: Record<string, { text: string; subtext: string; bac
   },
 }
 
-function buildExampleStoriesJson(typeSequence: string[]): string {
+// The frame-format example (lib/ai/story-frames.ts): one object per slot,
+// with that slot's frame fields and the type / visual the rest of the
+// pipeline still reads.
+function buildExampleFrameStoriesJson(typeSequence: string[], slots: string[]): string {
   const exampleStories = typeSequence.map((type, i) => {
     const example = EXAMPLE_SLIDE_BY_TYPE[type] ?? EXAMPLE_SLIDE_BY_TYPE.hook!
     return {
       story_number: i + 1,
       type,
-      text: example.text,
-      subtext: example.subtext,
-      background: example.background,
+      ...exampleFrameFields(slots[i] ?? "hook"),
       text_position: example.text_position,
-      has_poll: example.has_poll,
-      ...(example.poll_options ? { poll_options: example.poll_options } : {}),
       visual: example.visual,
     }
   })
-  // Indented so nested lines line up under the "stories": key it gets
-  // interpolated into below — JSON.stringify's own indentation is
-  // 0-based, so every line but the opening "[" needs 2 extra spaces.
   return JSON.stringify(exampleStories, null, 2)
     .split("\n")
     .map((line, i) => (i === 0 ? line : `  ${line}`))
@@ -150,7 +146,7 @@ function buildChecklistExampleStoriesJson(typeSequence: string[]): string {
     }
   })
   // Indented so nested lines line up under the "stories": key it gets
-  // interpolated into below -- same convention buildExampleStoriesJson
+  // interpolated into below -- same convention buildExampleFrameStoriesJson
   // above already uses.
   return JSON.stringify(exampleStories, null, 2)
     .split("\n")
@@ -207,7 +203,7 @@ Respond with ONLY this JSON:
 Make the text punchy and specific. Each story should make the viewer want to tap to the next one.`
 }
 
-function buildStoriesPrompt(brand: BrandRow, topic: string, storyCount: number, vibe?: string, pastExamples: string[] = []): string {
+function buildStoriesPrompt(brand: BrandRow, topic: string, storyCount: number, vibe?: string, pastExamples: string[] = [], frameCtx: StoryFrameContext = storyFrameContext(brand, null, topic)): string {
   const brandCtx = [
     `Brand: ${brand.name}`,
     brand.niche ? `Niche: ${brand.niche}` : null,
@@ -251,23 +247,7 @@ STEP 1 — STORY PLAN (do this first, emit it as "story_plan" before the stories
 - "arc": one entry per frame, in the type sequence above — its "story_number", its "type", and the single "message" that frame carries.
 Then write every frame from its arc entry.
 
-STORY FRAME RULES:
-- One message per frame. Each frame adds something the previous frame didn't — never restate it.
-- "text" must be readable in about 2 seconds at large size: 8 words or fewer.
-- The cta frame's "text" states the payoff; its "subtext" is an action that matches next_action.
-- No empty adjectives ("premium", "refined", "elevated", "seamless", "luxurious") unless the same frame states the specific detail that justifies them.
-- Only use facts from the brand context or topic above (the number and placeholder rules still apply).
-
-INFORMATION DEPTH — the most common failure is frames that only name a topic and never say anything:
-- Every frame's "subtext" carries one concrete detail — a how, a why, a material, a step or a result — never a slogan. A frame that only names a topic is a failure.
-- A question frame is allowed only if the very next frame answers it.
-- story_plan.arc[].message is the frame's claim in plain words — not a copy of its "text".
-- The frame's "visual" must show what that frame's text says: if the text is a comparison, its kind is side_by_side or before_after.
-
-TEXT RULES: No exclamation marks, no hashtags, no emojis in "text" or "subtext" — plain, punchy text only.
-
-ON-IMAGE EXTRAS — every story object may add:
-${kickerHighlightRule("text")}
+${storyFrameRules(frameCtx, storyCount)}
 
 VISUAL DIRECTION — every story object gets a "visual" brief for its full-screen 9:16 background image:
 - "kind": one of ${VISUAL_KINDS.join(" | ")}.
@@ -286,36 +266,6 @@ ${NO_TEXT_BEARING_SUBJECTS_RULE}
 ${CANDID_PHOTO_RULE}
 ${artDirectionBriefRules(artDirectionFrom(brand))}
 
-SLIDE TEXT FORMATS — confirmed live (2026-08-29): every slide defaulting
-to the same "punchy claim + supporting detail" shape for "text"/"subtext"
-reads as repetitive across a sequence, even when the wording changes.
-Vary the structure slide-by-slide instead — don't force every sequence
-through the same rotation, and don't use the same format twice in a row:
-- Direct statement — "text" states the value prop or fact outright,
-  "subtext" adds one supporting detail. (The default shape — use it,
-  but not for every slide.)
-- Question — "text" poses a real question the viewer would ask
-  themselves, "subtext" teases the answer without fully giving it away.
-- Fact callout — only if the brand facts or topic above supply a real
-  number or fact: "text" leads with that exact fact, "subtext" explains
-  what it means. If none is supplied, skip this format — never use a
-  number that wasn't supplied.
-- Contrast — "text" names a before/after or old-way/new-way shift,
-  "subtext" is the other half of the contrast.
-Also vary "text_position" genuinely across the sequence (top/center/
-bottom) rather than defaulting to the same position for every slide of
-a given type. "has_poll" isn't cta-exclusive either — a reveal or
-buildup slide can carry a real poll (e.g. "Which do you prefer?") when
-it fits the content; use it on at most one non-cta slide, only when it
-genuinely fits, not as a default.
-
-Background options:
-- "gradient_violet": Purple/violet gradient (great for hook)
-- "gradient_pink": Pink/rose gradient (great for reveal)
-- "gradient_dark": Dark dramatic (great for CTA)
-- "gradient_warm": Warm orange/amber (great for buildup)
-- "white": Clean white (great for text-heavy slides)
-
 CAPTION — separate from the story slides above: this is the actual Instagram caption text posted alongside the story sequence when it's scheduled, so it needs its own real copy, not a placeholder.
 - caption_text: a short hook line (can echo the story's opening hook, doesn't need to repeat it word-for-word), 1-2 lines of value or context, then end with "${ctaPhrase}" followed by "${handle}" on its own line. Keep it tight — a few short lines, not an essay. Aim for under ~150 characters total unless the topic genuinely needs more room to explain.
 - hashtags: 15 tags using the 5+5+5 rule:
@@ -331,7 +281,7 @@ Respond with ONLY this JSON:
     "next_action": "the concrete action the cta frame asks for",
     "arc": [${typeSequence.map((type, i) => `{ "story_number": ${i + 1}, "type": "${type}", "message": "the single message of this frame" }`).join(", ")}]
   },
-  "stories": ${buildExampleStoriesJson(typeSequence)},
+  "stories": ${buildExampleFrameStoriesJson(typeSequence, frameSlots(storyCount, allowedMiddleFrames(frameCtx)))},
   "caption": {
     "caption_text": "hook line, 1-2 lines of value, then ${ctaPhrase} and ${handle} on its own line — see CAPTION above",
     "hashtags": ["niche1", "niche2", "niche3", "niche4", "niche5", "brand1", "brand2", "brand3", "brand4", "brand5", "broad1", "broad2", "broad3", "broad4", "broad5"]
@@ -340,7 +290,7 @@ Respond with ONLY this JSON:
   ${buildSuggestedFontField("the suggested_vibe you picked (it sets the slide colors)")}
 }
 
-Make the text punchy and emotion-led. Each story should make the viewer want to tap to the next one.`
+Make every frame punchy and emotion-led. Each story should make the viewer want to tap to the next one.`
 }
 
 /**
@@ -366,14 +316,23 @@ export async function requestStorySequence(
   /** "story"-scope brand lessons (lib/ai/brand-brain.ts), fetched by the route. */
   lessons?: BrandLesson[],
   /** Epoch ms the route must finish by -- the quality gate skips its repair past it. */
-  deadline?: number
+  deadline?: number,
+  /** The picked product: product frames, callout facts and offer numbers. */
+  product: ProductRow | null = null
 ): Promise<{ raw: string; model: string; usage: TextUsage | undefined; costUsd: number | null; gate?: GateReport }> {
+  // Story frames (lib/ai/story-frames.ts) -- not for Hard Truth Checklist,
+  // which keeps its own wrong-way / right-way design.
+  const frameCtx = storyFrameContext(brand, product, topic)
+  const frames = vibe !== "hard_truth_checklist"
+  const withFrames = (d: Record<string, unknown>) => (frames && Array.isArray(d.stories)
+    ? { ...d, stories: finalizeStoryFrames(d.stories.filter((x): x is Record<string, unknown> => !!x && typeof x === "object"), frameCtx) }
+    : d)
   const base = {
     stage: "story",
     logPrefix: "ai/stories/generate",
     system: `You are an expert Instagram story creator for Indian D2C brands. Always return valid JSON only.
 ${QUALITY_BAR}`,
-    user: withLessons(buildStoriesPrompt(brand, topic, storyCount, vibe, pastExamples), lessons),
+    user: withLessons(buildStoriesPrompt(brand, topic, storyCount, vibe, pastExamples, frameCtx), lessons),
     // Structured multi-slide JSON needs real reasoning to keep the
     // narrative arc coherent across slides -- same "medium" as on Groq.
     // Budget scales with storyCount (up to 10), unchanged from Groq: hidden
@@ -396,12 +355,13 @@ ${QUALITY_BAR}`,
   let costUsd = first.costUsd
   let gate: GateReport | undefined
 
-  const parsed = parseStoryJson(raw)
+  const parsedRaw = parseStoryJson(raw)
+  const parsed = parsedRaw ? withFrames(parsedRaw) : null
   if (parsed) {
-    const guarded = await guardCopy({
+    const guarded = withFrames(await guardCopy({
       stage: "story",
       data: parsed,
-      facts: buildFactSource({ brand, brief: [topic] }),
+      facts: buildFactSource({ brand, product, brief: [topic] }),
       normalTimeoutMs: base.timeoutMs,
       retry: async (correction, timeoutMs) => {
         const retry = await createCreativeCompletion({ ...base, timeoutMs, followUp: { previous: raw, correction } })
@@ -409,16 +369,16 @@ ${QUALITY_BAR}`,
         costUsd = sumCostUsd(costUsd, retry.costUsd)
         const retryParsed = parseStoryJson(retry.content ?? "")
         if (!retryParsed) throw new Error("unparseable retry")
-        return retryParsed
+        return withFrames(retryParsed)
       },
-    })
+    }))
     const withVisuals = sanitizeStoryVisuals(guarded)
-    if (withVisuals !== parsed) raw = JSON.stringify(withVisuals)
+    if (withVisuals !== parsedRaw) raw = JSON.stringify(withVisuals)
 
     // Quality gate (lib/ai/quality-gate.ts) -- normal prompt only; Hard
     // Truth Checklist has no image and stays exactly as is.
     if (vibe !== "hard_truth_checklist") {
-      const facts = buildFactSource({ brand, brief: [topic] })
+      const facts = buildFactSource({ brand, product, brief: [topic] })
       const gated = await runQualityGate({
         format: "story",
         data: withVisuals,
@@ -433,7 +393,7 @@ ${QUALITY_BAR}`,
           costUsd = sumCostUsd(costUsd, fix.costUsd)
           const fixParsed = parseStoryJson(fix.content ?? "")
           if (!fixParsed) throw new Error("unparseable repair")
-          return sanitizeStoryVisuals(stripGuard("story", fixParsed, facts))
+          return sanitizeStoryVisuals(withFrames(stripGuard("story", fixParsed, facts)))
         },
       })
       gate = gated.gate

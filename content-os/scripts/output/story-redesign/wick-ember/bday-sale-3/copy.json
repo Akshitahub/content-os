@@ -1,0 +1,42 @@
+{
+  "brand": "Wick & Ember",
+  "topic": "Bday sale",
+  "frames": [
+    {
+      "frame": 1,
+      "kind": "hook",
+      "big_words": "Birthday",
+      "script_line": "feel the glow",
+      "badge": null,
+      "callouts": null,
+      "quote": null,
+      "cta_label": null,
+      "background": "brand photo"
+    },
+    {
+      "frame": 2,
+      "kind": "product",
+      "big_words": "Handmade scent",
+      "script_line": null,
+      "badge": null,
+      "callouts": [
+        "soy wax",
+        "natural oils"
+      ],
+      "quote": null,
+      "cta_label": null,
+      "background": "brand photo"
+    },
+    {
+      "frame": 3,
+      "kind": "cta",
+      "big_words": "Grab yours",
+      "script_line": "tap to celebrate",
+      "badge": null,
+      "callouts": null,
+      "quote": null,
+      "cta_label": "Shop now",
+      "background": "brand photo"
+    }
+  ]
+}

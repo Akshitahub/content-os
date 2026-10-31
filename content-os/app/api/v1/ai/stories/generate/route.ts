@@ -7,10 +7,11 @@ import { STORY } from "@/lib/usage/credit-costs"
 import { requestStorySequence } from "@/lib/ai/story-sequence-generator"
 import { findContentQualityIssues, normalizeHashtags, sanitizeLeakedArtifacts } from "@/lib/ai/content-quality-check"
 import { z } from "zod"
-import type { BrandRow } from "@/types/database"
+import type { BrandRow, ProductRow } from "@/types/database"
 import { resolveTypography, type FontId } from "@/lib/design/fonts"
 import { rememberBrandTypography } from "@/lib/design/brand-typography"
 import type { VisualBrief } from "@/lib/ai/visual-brief"
+import type { StoryFrameFields } from "@/lib/ai/story-frames"
 import { timedGenerationRoute, type GenerationTimer } from "@/lib/utils/generation-timing"
 import { withDeadline, DeadlineExceededError, GENERATION_TIMED_OUT_MESSAGE } from "@/lib/utils/with-deadline"
 import { getActiveLessons } from "@/lib/ai/brand-brain"
@@ -40,7 +41,7 @@ const schema = z.object({
   brandPhotos: z.boolean().default(true),
 })
 
-export type StorySlide = {
+export type StorySlide = StoryFrameFields & {
   story_number: number
   type: "hook" | "reveal" | "buildup" | "cta"
   text: string
@@ -228,10 +229,18 @@ function sanitizeStoryText(value: string | undefined): string | undefined {
 }
 
 function sanitizeStorySlides(stories: Record<string, unknown>[]): Record<string, unknown>[] {
+  const clean = (v: unknown) => (typeof v === "string" ? sanitizeStoryText(v) : v)
   return stories.map((s) => ({
     ...s,
-    text: typeof s.text === "string" ? sanitizeStoryText(s.text) : s.text,
-    subtext: typeof s.subtext === "string" ? sanitizeStoryText(s.subtext) : s.subtext,
+    text: clean(s.text),
+    subtext: clean(s.subtext),
+    // Story frame copy (lib/ai/story-frames.ts).
+    big_words: clean(s.big_words),
+    script_line: clean(s.script_line),
+    badge: clean(s.badge),
+    quote: clean(s.quote),
+    cta_label: clean(s.cta_label),
+    callouts: Array.isArray(s.callouts) ? s.callouts.map(clean) : s.callouts,
     checklist_highlighted_phrase: typeof s.checklist_highlighted_phrase === "string" ? sanitizeStoryText(s.checklist_highlighted_phrase) : s.checklist_highlighted_phrase,
     checklist_wrong_item: typeof s.checklist_wrong_item === "string" ? sanitizeStoryText(s.checklist_wrong_item) : s.checklist_wrong_item,
     checklist_right_item: typeof s.checklist_right_item === "string" ? sanitizeStoryText(s.checklist_right_item) : s.checklist_right_item,
@@ -319,6 +328,11 @@ async function handlePost(request: Request, timer: GenerationTimer) {
   const { data: brand } = await supabase.from("brands").select("*").eq("id", brandId).eq("user_id", user.id).single<BrandRow>()
   if (!brand) return NextResponse.json(buildError(ErrorCodes.BRAND_NOT_FOUND, "Brand not found."), { status: 404 })
 
+  // The picked product (this brand's only): story frames' product callouts,
+  // offer numbers, and its own brand photos first.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: product } = productId ? await (supabase.from("products") as any).select("*").eq("id", productId).eq("brand_id", brandId).maybeSingle() as { data: ProductRow | null } : { data: null }
+
   // Feed the brand's own past highly-rated stories back into the prompt as
   // few-shot examples — skip entirely if none exist yet.
   const pastExamples: string[] = []
@@ -371,7 +385,7 @@ async function handlePost(request: Request, timer: GenerationTimer) {
     // fewer frames than asked for -> one regeneration (regenerateIfShort). Either
     // still failing is a clear error -- never a silent off-topic or short story.
     gen = await timer.step("caption", withDeadline(regenerateIfShort(
-      () => onTopicOrRegenerate(topic, () => requestStorySequence(brand, topic, storyCount, vibe, pastExamples, lessons, deadlineAt)),
+      () => onTopicOrRegenerate(topic, () => requestStorySequence(brand, topic, storyCount, vibe, pastExamples, lessons, deadlineAt, product)),
       (g) => countStoryFrames(g.raw),
       storyCount,
       "stories",
@@ -444,7 +458,8 @@ async function handlePost(request: Request, timer: GenerationTimer) {
     d.stories = stampSequenceLayouts(d.stories as Record<string, unknown>[], {
       format: "story", brand, headingFont: fontId, accentColor: getPrimaryColor(brand), headlineKey: "text",
       toPick: (s) => ({ role: typeof s.type === "string" ? s.type : null, visualKind: (s.visual as { kind?: string } | undefined)?.kind ?? null }),
-      skip: (s) => !!s.checklist_highlighted_phrase || (!!s.checklist_wrong_item && !!s.checklist_right_item),
+      // Story frames draw their own design (lib/image/story-frame-compositor.ts).
+      skip: (s) => !!s.frame || !!s.checklist_highlighted_phrase || (!!s.checklist_wrong_item && !!s.checklist_right_item),
     })
     const caption = d.caption as { caption_text?: unknown; hashtags?: unknown } | undefined
     if (caption && typeof caption.caption_text === "string") {

@@ -9,8 +9,10 @@
 import type { TextStyle } from "@/lib/design/text-style"
 import type { TextLayoutId } from "@/lib/design/text-layouts"
 import type { BrandPalette } from "@/lib/design/color-themes"
+import type { StoryFrameFields } from "@/lib/ai/story-frames"
 
-export interface StoryExportSlide {
+/** A story-frame slide also carries its frame copy (lib/ai/story-frames.ts). */
+export interface StoryExportSlide extends StoryFrameFields {
   type: "hook" | "reveal" | "buildup" | "cta"
   text: string
   subtext: string
@@ -82,12 +84,14 @@ export interface StoryExportSlide {
  * (hostedUrls, for ScheduleAction.tsx to send instead of several MB of
  * base64) -- null on any failure. hostedUrls is itself null if the render
  * succeeded but any individual upload failed. */
-export async function renderStorySlides(slides: StoryExportSlide[]): Promise<{ imageUrls: string[]; hostedUrls: string[] | null } | null> {
+export async function renderStorySlides(slides: StoryExportSlide[], opts: { preview?: boolean; signal?: AbortSignal } = {}): Promise<{ imageUrls: string[]; hostedUrls: string[] | null } | null> {
   try {
     const res = await fetch("/api/v1/ai/stories/render", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ slides }),
+      // preview: the editor's live preview -- rendered only, never uploaded.
+      body: JSON.stringify({ slides, preview: opts.preview || undefined }),
+      signal: opts.signal,
     })
     if (!res.ok) return null
     const json = await res.json() as { data?: { imageUrls?: string[]; hostedUrls?: string[] | null } }
@@ -98,9 +102,12 @@ export async function renderStorySlides(slides: StoryExportSlide[]): Promise<{ i
   }
 }
 
+// Story frames render as JPEG, the older layouts as PNG -- the file name follows.
+const extensionOf = (dataUrl: string) => (dataUrl.startsWith("data:image/jpeg") ? "jpg" : "png")
+
 function triggerDownload(dataUrl: string, filename: string) {
   const link = document.createElement("a")
-  link.download = filename
+  link.download = `${filename}.${extensionOf(dataUrl)}`
   link.href = dataUrl
   document.body.appendChild(link)
   link.click()
@@ -113,7 +120,7 @@ export async function downloadStorySlideAsImage(slide: StoryExportSlide, filenam
   // always uses imageUrls -- never hostedUrls (a real https URL would just
   // navigate the tab there instead of downloading).
   if (!rendered || rendered.imageUrls.length === 0) return false
-  triggerDownload(rendered.imageUrls[0]!, `${filename}.png`)
+  triggerDownload(rendered.imageUrls[0]!, filename)
   return true
 }
 
@@ -122,7 +129,7 @@ export async function downloadStorySlidesAsImages(slides: StoryExportSlide[], fi
   if (!rendered || rendered.imageUrls.length !== slides.length) return false
   const urls = rendered.imageUrls
   for (let i = 0; i < urls.length; i++) {
-    triggerDownload(urls[i]!, `${filenamePrefix}-${i + 1}.png`)
+    triggerDownload(urls[i]!, `${filenamePrefix}-${i + 1}`)
     // Staggered the same way downloadMultipleAsImages (download-as-image.ts)
     // always did -- back-to-back <a download> clicks are unreliable in some
     // browsers otherwise.

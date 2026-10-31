@@ -43,7 +43,7 @@ const MIN_HEADLINE_FONT_SIZE = 28
 // independently rather than each request evicting the last one.
 const fontPathCache = new Map<string, string>()
 
-async function getFontPath(fontId: string): Promise<string> {
+export async function getFontPath(fontId: string): Promise<string> {
   const cached = fontPathCache.get(fontId)
   if (cached && existsSync(cached)) return cached
 
@@ -65,7 +65,7 @@ async function getFontPath(fontId: string): Promise<string> {
 // drop whole lines of headline text that didn't fit that guess).
 const fontCache = new Map<string, fontkit.Font>()
 
-async function getFont(fontId: string): Promise<fontkit.Font> {
+export async function getFont(fontId: string): Promise<fontkit.Font> {
   const cached = fontCache.get(fontId)
   if (cached) return cached
   const ttfPath = await getFontPath(fontId)
@@ -82,7 +82,7 @@ function escapeXml(s: string): string {
 
 // Real pixel width of `text` set in `font` at `fontSize`, via the font's
 // actual shaped glyph advances (kerning included) — not an estimate.
-function measureTextWidth(font: fontkit.Font, text: string, fontSize: number): number {
+export function measureTextWidth(font: fontkit.Font, text: string, fontSize: number): number {
   if (!text) return 0
   const run = font.layout(text)
   const unitsWide = run.positions.reduce((sum, p) => sum + p.xAdvance, 0)
@@ -1025,8 +1025,9 @@ function runMetrics(font: fontkit.Font, text: string, size: number): RunMetrics 
   return Number.isFinite(box.minX) && Number.isFinite(box.maxX) ? { width, inkLeft: box.minX * scale, inkRight: box.maxX * scale } : { width }
 }
 
-/** A hand-drawn-looking arrow: a quadratic curve bowing away from the straight line, with an open head. */
-function handArrow(x1: number, y1: number, x2: number, y2: number, bow: number, color: string): string {
+/** A hand-drawn-looking arrow: a quadratic curve bowing away from the straight line, with an open head.
+ * Also drawn by the story frames (lib/image/story-frame-compositor.ts), thicker at their larger canvas. */
+export function handArrow(x1: number, y1: number, x2: number, y2: number, bow: number, color: string, width: number = ARROW_WIDTH): string {
   const mx = (x1 + x2) / 2
   const my = (y1 + y2) / 2
   const dx = x2 - x1
@@ -1040,15 +1041,15 @@ function handArrow(x1: number, y1: number, x2: number, y2: number, bow: number, 
   const tl = Math.hypot(tx, ty) || 1
   const ux = tx / tl
   const uy = ty / tl
-  const head = 16
+  const head = width * 4
   const spread = 0.5
   const hx1 = x2 - head * (ux * Math.cos(spread) - uy * Math.sin(spread))
   const hy1 = y2 - head * (uy * Math.cos(spread) + ux * Math.sin(spread))
   const hx2 = x2 - head * (ux * Math.cos(-spread) - uy * Math.sin(-spread))
   const hy2 = y2 - head * (uy * Math.cos(-spread) + ux * Math.sin(-spread))
   const r = (n: number) => Math.round(n * 10) / 10
-  return `<path d="M ${r(x1)} ${r(y1)} Q ${r(cx)} ${r(cy)} ${r(x2)} ${r(y2)}" fill="none" stroke="${color}" stroke-width="${ARROW_WIDTH}" stroke-linecap="round"/>`
-    + `<path d="M ${r(hx1)} ${r(hy1)} L ${r(x2)} ${r(y2)} L ${r(hx2)} ${r(hy2)}" fill="none" stroke="${color}" stroke-width="${ARROW_WIDTH}" stroke-linecap="round" stroke-linejoin="round"/>`
+  return `<path d="M ${r(x1)} ${r(y1)} Q ${r(cx)} ${r(cy)} ${r(x2)} ${r(y2)}" fill="none" stroke="${color}" stroke-width="${width}" stroke-linecap="round"/>`
+    + `<path d="M ${r(hx1)} ${r(hy1)} L ${r(x2)} ${r(y2)} L ${r(hx2)} ${r(hy2)}" fill="none" stroke="${color}" stroke-width="${width}" stroke-linecap="round" stroke-linejoin="round"/>`
 }
 
 /** A small motif mark: a 5-petal flower for floral motifs, else a ring of dots. */

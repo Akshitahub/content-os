@@ -7,6 +7,7 @@ import { z } from "zod"
 import { textStyleSchema } from "@/lib/design/text-style"
 import { textLayoutIdSchema } from "@/lib/design/text-layouts"
 import { parsePalette } from "@/lib/design/color-themes"
+import { STORY_FRAMES } from "@/lib/ai/story-frames"
 
 // Not a generation call -- no checkAndIncrementUsage/credit cost here, same
 // as the DOM-screenshot flow it replaces never charged credits either.
@@ -75,9 +76,20 @@ const slideSchema = z.object({
   checklist_highlighted_phrase: z.string().max(100).nullish(),
   checklist_wrong_item: z.string().max(200).nullish(),
   checklist_right_item: z.string().max(200).nullish(),
+  // Story frames (lib/ai/story-frames.ts).
+  frame: z.enum(STORY_FRAMES).nullish(),
+  big_words: z.string().max(80).nullish(),
+  script_line: z.string().max(120).nullish(),
+  badge: z.string().max(40).nullish(),
+  callouts: z.array(z.string().max(80)).max(2).nullish(),
+  quote: z.string().max(200).nullish(),
+  cta_label: z.string().max(40).nullish(),
+  seed: z.number().int().min(0).max(2 ** 31).nullish(),
+  tape: z.boolean().nullish(),
 })
-// Matches the generate route's own storyCount cap (1-10).
-const schema = z.object({ slides: z.array(slideSchema).min(1).max(10) })
+// Matches the generate route's own storyCount cap (1-10). preview: the
+// editor's live preview -- rendered, never uploaded.
+const schema = z.object({ slides: z.array(slideSchema).min(1).max(10), preview: z.boolean().optional() })
 
 export async function POST(request: Request) {
   const supabase = await createClient()
@@ -98,15 +110,16 @@ export async function POST(request: Request) {
 
   try {
     const rendered = await renderStorySlides(parsed.data.slides.map((s) => ({ ...s, palette: parsePalette(s.palette) })) as StoryCompositeSlide[])
-    const buffers = rendered.map((r) => r.png)
-    const imageUrls = buffers.map((buf) => `data:image/png;base64,${buf.toString("base64")}`)
+    // A story frame is a JPEG, the older layouts PNG (renderStorySlides' mimeType).
+    const imageUrls = rendered.map((r) => `data:${r.mimeType};base64,${r.png.toString("base64")}`)
+    if (parsed.data.preview) return NextResponse.json({ data: { imageUrls, hostedUrls: null, warnings: rendered.map((r) => r.warnings) } })
     // Upload in parallel so the schedule path can send small hosted URLs
     // instead of shuttling several MB of base64 back through the browser
     // and re-uploading it — imageUrls (data: URLs) stays as-is so the
     // existing "Save as PNG" download flow (story-export.ts's
     // downloadStorySlideAsImage/downloadStorySlidesAsImages) is untouched.
     const hostedResults = await Promise.all(
-      buffers.map((buf, i) => uploadMediaToStorage({ kind: "buffer", buffer: buf, mimeType: "image/png" }, `story-renders/${user.id}-${Date.now()}-${i}`, { generatedImage: true }))
+      rendered.map((r, i) => uploadMediaToStorage({ kind: "buffer", buffer: r.png, mimeType: r.mimeType }, `story-renders/${user.id}-${Date.now()}-${i}`, { generatedImage: true }))
     )
     const hostedUrls = hostedResults.every(r => "publicUrl" in r) ? hostedResults.map(r => (r as { publicUrl: string }).publicUrl) : null
     // warnings[i]: ["text_overflow"] when slide i's text only fits past the smallest size.

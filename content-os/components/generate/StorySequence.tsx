@@ -7,7 +7,8 @@ import { PREVIEW_FONT_CLASS } from "@/lib/design/preview-fonts"
 import { ProductPicker, type PickedProduct } from "@/components/shared/ProductPicker"
 import type { StorySlide, StoryCaption, StoryPlan } from "@/app/api/v1/ai/stories/generate/route"
 import type { VisualBrief } from "@/lib/ai/visual-brief"
-import { downloadStorySlideAsImage, downloadStorySlidesAsImages, type StoryExportSlide } from "@/lib/utils/story-export"
+import { downloadStorySlideAsImage, downloadStorySlidesAsImages, renderStorySlides, type StoryExportSlide } from "@/lib/utils/story-export"
+import { BADGE_MAX_WORDS, BIG_WORDS_MAX, CALLOUT_MAX_WORDS, CTA_LABEL_MAX, SCRIPT_LINE_MAX, SENTENCE_MAX, type StoryFrame } from "@/lib/ai/story-frames"
 import { GenerationWarning } from "@/components/shared/GenerationWarning"
 import { UsageLimitBanner } from "@/components/generate/UsageLimitBanner"
 import { TopicSuggestButton } from "@/components/shared/TopicSuggestButton"
@@ -110,6 +111,16 @@ function toExportSlide(story: StorySlide, productImageSource: string | null | un
     accent_color: story.accent_color ?? null,
     // The brand's 4-role palette: the compositor's presets, scrims and checklist colours.
     palette,
+    // Story frames (lib/ai/story-frames.ts) -- drawn by the frame compositor.
+    frame: story.frame ?? null,
+    big_words: story.big_words ?? null,
+    script_line: story.script_line ?? null,
+    badge: story.badge ?? null,
+    callouts: story.callouts ?? null,
+    quote: story.quote ?? null,
+    cta_label: story.cta_label ?? null,
+    seed: story.seed ?? null,
+    tape: story.tape ?? null,
   }
 }
 
@@ -779,6 +790,128 @@ function PhoneStory({
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
+// ─── Story frames (lib/ai/story-frames.ts) ──────────────────────────────────
+// A frame-format slide is shown as the frame compositor's own render (lib/
+// image/story-frame-compositor.ts, via the render route's preview mode) --
+// the exact image that's downloaded and posted, never a CSS look-alike.
+// Editing a field re-renders it.
+
+const FRAME_LABELS: Record<StoryFrame, string> = { hook: "Hook", offer: "Offer", product: "Product", proof: "Customer quote", cta: "Call to action" }
+
+const clampWords = (v: string, max: number) => v.split(/\s+/).filter(Boolean).slice(0, max).join(" ")
+
+// Same mirroring finalizeStoryFrames does server-side: text / subtext carry
+// the frame's copy for everything that reads only those (Copy all, the text
+// file, captions).
+function mirrorFrameText(s: StorySlide): Pick<StorySlide, "text" | "subtext"> {
+  const primary = s.frame === "proof" ? s.quote ?? "" : s.big_words ?? ""
+  const secondary = s.frame === "offer" ? [s.badge, s.script_line].filter(Boolean).join(", ")
+    : s.frame === "product" ? (s.callouts ?? []).join(", ")
+    : s.frame === "cta" ? [s.cta_label, s.script_line].filter(Boolean).join(", ")
+    : s.script_line ?? ""
+  return { text: primary || s.text, subtext: secondary }
+}
+
+/** One line of frame copy: committed on blur, capped at `max` words. */
+function FrameField({ label, value, max, onCommit }: { label: string; value: string; max: number; onCommit: (v: string) => void }) {
+  return (
+    <label className="block space-y-0.5">
+      <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{label} <span className="font-normal normal-case">(max {max} words)</span></span>
+      <input
+        key={value}
+        defaultValue={value}
+        onBlur={(e) => {
+          const next = clampWords(e.currentTarget.value.trim(), max)
+          e.currentTarget.value = next
+          if (next !== value) onCommit(next)
+        }}
+        onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur() }}
+        className="w-full rounded-md border border-input bg-background px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+      />
+    </label>
+  )
+}
+
+function StoryFrameCard({
+  story,
+  index,
+  previewUrl,
+  palette,
+  backgroundFailed = false,
+  onRetryBackground,
+  onUpdateSlide,
+}: {
+  story: StorySlide & { frame: StoryFrame }
+  index: number
+  /** The frame compositor's render of this exact slide; null while it renders. */
+  previewUrl: string | null
+  palette: BrandPalette | null
+  backgroundFailed?: boolean
+  onRetryBackground?: () => void
+  onUpdateSlide: (updates: Partial<StorySlide>) => void
+}) {
+  const [copied, setCopied] = useState(false)
+  const [dlErr, setDlErr] = useState(false)
+  const update = (patch: Partial<StorySlide>) => onUpdateSlide({ ...patch, ...mirrorFrameText({ ...story, ...patch }) })
+  const callouts = story.callouts ?? []
+
+  return (
+    <div className="flex flex-col items-center gap-3">
+      <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+        Story {index + 1}: {FRAME_LABELS[story.frame]}
+      </span>
+
+      <div className="relative overflow-hidden rounded-[28px] border-[5px] border-gray-900 bg-gray-900 shadow-2xl" style={{ width: 220, height: 390 }}>
+        {previewUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={previewUrl} alt={`Story frame ${index + 1}`} className="h-full w-full object-cover" />
+        ) : (
+          <div className="flex h-full items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-white/70" /></div>
+        )}
+        {backgroundFailed && !story.background_image_url && (
+          <div className="absolute inset-x-2 top-2 flex items-center justify-between gap-2 rounded-md bg-red-600/90 px-2 py-1 text-[10px] font-semibold text-white">
+            <span className="flex items-center gap-1"><AlertCircle className="h-3 w-3" /> Photo failed</span>
+            {onRetryBackground && <button type="button" onClick={onRetryBackground} className="rounded bg-white/20 px-1.5 py-0.5 hover:bg-white/30">Retry</button>}
+          </div>
+        )}
+      </div>
+
+      <div className="w-[220px] space-y-1.5">
+        {story.frame === "proof" ? (
+          <FrameField label="Quote" value={story.quote ?? ""} max={SENTENCE_MAX} onCommit={(v) => update({ quote: v })} />
+        ) : (
+          <FrameField label={story.frame === "product" ? "Label" : "Big words"} value={story.big_words ?? ""} max={BIG_WORDS_MAX} onCommit={(v) => update({ big_words: v })} />
+        )}
+        {story.frame === "offer" && <FrameField label="Badge" value={story.badge ?? ""} max={BADGE_MAX_WORDS} onCommit={(v) => update({ badge: v })} />}
+        {story.frame === "product" && [0, 1].map((k) => (
+          <FrameField key={k} label={`Callout ${k + 1}`} value={callouts[k] ?? ""} max={CALLOUT_MAX_WORDS}
+            onCommit={(v) => update({ callouts: [0, 1].map((j) => (j === k ? v : callouts[j] ?? "")).filter(Boolean) })} />
+        ))}
+        {story.frame === "cta" && <FrameField label="Button" value={story.cta_label ?? ""} max={CTA_LABEL_MAX} onCommit={(v) => update({ cta_label: v })} />}
+        {story.frame !== "proof" && story.frame !== "product" && (
+          <FrameField label="Script line" value={story.script_line ?? ""} max={SCRIPT_LINE_MAX} onCommit={(v) => update({ script_line: v })} />
+        )}
+      </div>
+
+      <div className="flex flex-wrap justify-center gap-1.5">
+        <button onClick={() => { navigator.clipboard.writeText(`${story.text}\n${story.subtext}`); setCopied(true); setTimeout(() => setCopied(false), 1600) }}
+          className="flex items-center gap-1 rounded-full border px-3 py-1.5 text-[11px] font-medium hover:bg-secondary">
+          {copied ? <Check className="h-3 w-3 text-green-500" /> : <Copy className="h-3 w-3" />} Copy
+        </button>
+        <button onClick={async () => {
+          setDlErr(false)
+          const ok = await downloadStorySlideAsImage(toExportSlide(story, null, palette), `story-${index + 1}`)
+          if (!ok) setDlErr(true)
+        }}
+          className="flex items-center gap-1 rounded-full border px-3 py-1.5 text-[11px] font-medium hover:bg-secondary">
+          <Download className="h-3 w-3" /> Image
+        </button>
+        {dlErr && <p className="text-[10px] text-destructive">Download failed</p>}
+      </div>
+    </div>
+  )
+}
+
 export function StorySequence({ brandId }: { brandId: string }) {
   const STORAGE_KEY = `stories_${brandId}`
 
@@ -798,6 +931,28 @@ export function StorySequence({ brandId }: { brandId: string }) {
   // A layout frame's overflow comes from its plan; others from the original layout math.
   const overflowStories = useMemo(() => overflowingSlides(stories, (st) => (st.text_layout && !st.checklist_highlighted_phrase && !(st.checklist_wrong_item && st.checklist_right_item) ? storyFramePlan(st, null, !!st.background_image_url).overflow : storySlideOverflows(st))), [stories])
   const storySteps = storyStepNumbers(stories)
+  // Frame previews (StoryFrameCard): keyed by each frame's export data, so an
+  // unchanged frame is never re-rendered and an edited one is.
+  const frameExports = useMemo(() => stories.map((st) => (st.frame ? toExportSlide(st, null, palette) : null)), [stories, palette])
+  const frameKeys = useMemo(() => frameExports.map((e) => (e ? JSON.stringify(e) : null)), [frameExports])
+  const [framePreviews, setFramePreviews] = useState<Record<string, string>>({})
+  useEffect(() => {
+    const missing = frameKeys.flatMap((key, i) => (key && !framePreviews[key] ? [{ key, i }] : []))
+    if (missing.length === 0) return
+    const controller = new AbortController()
+    const timer = setTimeout(async () => {
+      const rendered = await renderStorySlides(missing.map((m) => frameExports[m.i]!), { preview: true, signal: controller.signal })
+      if (!rendered || controller.signal.aborted) return
+      const live = new Set(frameKeys.filter((k): k is string => !!k))
+      setFramePreviews((prev) => {
+        // Only the frames still on screen are kept -- each preview is a data URL.
+        const next: Record<string, string> = Object.fromEntries(Object.entries(prev).filter(([k]) => live.has(k)))
+        missing.forEach((m, j) => { if (rendered.imageUrls[j]) next[m.key] = rendered.imageUrls[j]! })
+        return next
+      })
+    }, 500)
+    return () => { clearTimeout(timer); controller.abort() }
+  }, [frameKeys, frameExports, framePreviews])
   const [storyCaption, setStoryCaption] = useState<StoryCaption | null>(null)
   const [showCaptionEditor, setShowCaptionEditor] = useState(false)
   const [allCopied, setAllCopied] = useState(false)
@@ -1569,7 +1724,18 @@ export function StorySequence({ brandId }: { brandId: string }) {
 
               {/* Horizontal scroll of phone frames */}
               <div className="flex gap-6 overflow-x-auto pb-4">
-                {stories.map((story, i) => (
+                {stories.map((story, i) => (story.frame ? (
+                  <StoryFrameCard
+                    key={i}
+                    story={story as StorySlide & { frame: StoryFrame }}
+                    index={i}
+                    previewUrl={frameKeys[i] ? framePreviews[frameKeys[i]!] ?? null : null}
+                    palette={palette}
+                    backgroundFailed={failedBgSlides.includes(i) && !imagesGenerating}
+                    onRetryBackground={retryFailedBackgrounds}
+                    onUpdateSlide={(updates) => updateSlide(i, updates)}
+                  />
+                ) : (
                   <PhoneStory
                     key={i}
                     story={story}
@@ -1584,7 +1750,7 @@ export function StorySequence({ brandId }: { brandId: string }) {
                     stepNumber={storySteps[i] ?? null}
                     onApplyLayoutToAll={(layout) => setStories((prev) => prev.map((st) => (st.text_layout ? { ...st, text_layout: layout, text_layout_source: "user" as const } : st)))}
                   />
-                ))}
+                )))}
               </div>
 
               {storyCaption && (

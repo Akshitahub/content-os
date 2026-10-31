@@ -246,7 +246,7 @@ export function stripUnsupportedClaims(text: string, facts: FactSource): string 
 // when walking a structured response.
 const NON_COPY_KEYS = new Set([
   "hashtags", "image_prompt", "background", "background_style", "text_position", "type",
-  "suggested_vibe", "suggested_template", "suggested_color_theme_id", "suggested_font_id", "story_number",
+  "suggested_vibe", "suggested_template", "suggested_color_theme_id", "suggested_font_id", "story_number", "frame",
   "slide_number", "has_poll", "handle", "id", "hook_type", "visual_direction",
   "audio_suggestion", "sticker_suggestion", "cta_button", "suggested_tags", "duration_seconds",
   "pattern_note", "reasoning",
