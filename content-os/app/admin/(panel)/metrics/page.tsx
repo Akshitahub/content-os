@@ -69,6 +69,8 @@ export default async function AdminMetricsPage({ searchParams }: PageProps) {
               <th className="px-4 py-3 font-medium text-right">Specificity</th>
               <th className="px-4 py-3 font-medium text-right">Message–visual alignment</th>
               <th className="px-4 py-3 font-medium text-right">Provider fallbacks</th>
+              <th className="px-4 py-3 font-medium text-right">Critic score</th>
+              <th className="px-4 py-3 font-medium text-right">Autopilot needing approval</th>
             </tr>
           </thead>
           <tbody>
@@ -84,6 +86,8 @@ export default async function AdminMetricsPage({ searchParams }: PageProps) {
                 <td className="px-4 py-3 text-right tabular-nums">{pct(r.specificity)}</td>
                 <td className="px-4 py-3 text-right tabular-nums">{r.alignment == null ? "—" : `${r.alignment.toFixed(1)} / 5`}</td>
                 <td className="px-4 py-3 text-right tabular-nums">{r.providerFallbacks.toLocaleString("en-IN")}</td>
+                <td className="px-4 py-3 text-right tabular-nums">{r.criticScore == null ? "—" : `${r.criticScore.toFixed(1)} / 10 (${r.criticScored})`}</td>
+                <td className="px-4 py-3 text-right tabular-nums">{pct(r.autopilotNeedsApprovalRate)}</td>
               </tr>
             ))}
           </tbody>
@@ -94,6 +98,7 @@ export default async function AdminMetricsPage({ searchParams }: PageProps) {
         <p>Acceptance = items saved or scheduled ÷ generated. First-pass publishable = accepted with no regenerate or edit before acceptance ÷ generated. Edit burden = edits per accepted item.</p>
         <p>Cost per usable item is approximate: ai_generation_logs cost for the matching features ÷ accepted items (logs aren&apos;t linked per item except posts).</p>
         <p>Specificity = gated generations with no unsupported claim and no generic line before repair. Message–visual alignment = average 1–5 vision score on a sample of images (QUALITY_VISION_SAMPLE_RATE).</p>
+        <p>Critic score = average 1–10 score from the critic (one vision call on the finished image + caption), Autopilot and manual; the count is items scored. Autopilot needing approval = Autopilot items still below 8 after best-of-3 and one regeneration ÷ Autopilot items scored.</p>
         <p>Provider fallbacks = text calls Groq couldn&apos;t serve (out of tokens, overloaded, down) that OpenAI answered instead, so the generation didn&apos;t fail.</p>
         <p>Generated rows are already saved by default, so &quot;saved&quot; only counts explicit saves; scheduling is recorded for Autopilot entries only (manual scheduling has no source id yet).</p>
       </div>

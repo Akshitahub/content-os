@@ -49,6 +49,11 @@ const nextConfig: NextConfig = {
   // placeable in ESM chunks"), so it needs native Node.js require instead,
   // same as sharp (already externalized by Next.js's own default list).
   serverExternalPackages: ["@resvg/resvg-js"],
+  // The critic's calibration examples (lib/ai/critic.ts reads them with fs):
+  // every API route and the Autopilot drain can score a post.
+  outputFileTracingIncludes: {
+    "/api/**": ["./scripts/reference-posts/**/*"],
+  },
   async headers() {
     return [
       {

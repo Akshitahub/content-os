@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useCallback, useMemo } from "react"
+import { isSavedCritic, type SavedCritic } from "@/lib/design/critic-scores"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { calendarKeys } from "@/hooks/useAutopostPause"
 import Link from "next/link"
@@ -14,6 +15,12 @@ import { CalendarEntryCard } from "@/components/calendar/CalendarEntryCard"
 import { STATUS_COLORS } from "@/components/calendar/calendar-status"
 import type { CalendarEntryRow } from "@/types/database"
 import type { DashboardOccasion } from "@/lib/occasions/get-upcoming-occasions"
+
+/** The critic's verdict saved on an Autopilot entry (platform_specific_data.critic). */
+function entryCritic(entry: { platform_specific_data?: unknown }): SavedCritic | null {
+  const critic = (entry.platform_specific_data as { critic?: unknown } | null)?.critic
+  return isSavedCritic(critic) ? critic : null
+}
 
 // image_url is a response-shape addition from app/api/v1/calendar/route.ts's
 // GET handler (a batch join against captions/generated_images), not a real
@@ -361,6 +368,7 @@ export function ContentCalendar({ brandId, defaultView = "month" }: ContentCalen
                         contentType={entry.content_type}
                         imageUrl={entry.image_url ?? null}
                         status={entry.status}
+                        critic={entryCritic(entry)}
                       />
                     </div>
                   ))}
@@ -487,6 +495,7 @@ export function ContentCalendar({ brandId, defaultView = "month" }: ContentCalen
                           contentType={entry.content_type}
                           imageUrl={entry.image_url ?? null}
                           status={entry.status}
+                          critic={entryCritic(entry)}
                         />
                       </div>
                     )

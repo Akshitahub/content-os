@@ -34,6 +34,11 @@ export interface ContentTypeMetrics {
   alignment: number | null
   /** Text calls Groq couldn't serve that OpenAI answered instead ("provider_fallback", lib/ai/provider-fallback.ts). */
   providerFallbacks: number
+  /** Average critic score, 1-10 ("critic_scored", lib/ai/critic.ts) -- Autopilot and manual. */
+  criticScore: number | null
+  criticScored: number
+  /** Autopilot items the critic scored below the bar (flagged "Needs approval") ÷ Autopilot items scored. */
+  autopilotNeedsApprovalRate: number | null
 }
 
 export interface ContentMetricsResult {
@@ -75,6 +80,16 @@ async function fetchAll<T>(build: (from: number, to: number) => any): Promise<{ 
 }
 
 const ratio = (num: number, den: number): number | null => (den > 0 ? num / den : null)
+
+function criticMetrics(events: EventRow[]): Pick<ContentTypeMetrics, "criticScore" | "criticScored" | "autopilotNeedsApprovalRate"> {
+  const scored = events.filter((e) => e.event === "critic_scored" && Number.isFinite(Number(e.meta?.score)))
+  const autopilot = scored.filter((e) => e.meta?.source === "autopilot")
+  return {
+    criticScore: scored.length ? scored.reduce((a, e) => a + Number(e.meta?.score), 0) / scored.length : null,
+    criticScored: scored.length,
+    autopilotNeedsApprovalRate: ratio(autopilot.filter((e) => e.meta?.needs_approval === true).length, autopilot.length),
+  }
+}
 
 export async function getContentMetrics(days: MetricWindow): Promise<ContentMetricsResult> {
   const admin = await createAdminClient()
@@ -155,6 +170,7 @@ export async function getContentMetrics(days: MetricWindow): Promise<ContentMetr
       specificity: ratio(specific, gated.length),
       alignment: scores.length ? scores.reduce((a, b) => a + b, 0) / scores.length : null,
       providerFallbacks: typeEvents.filter((e) => e.event === "provider_fallback").length,
+      ...criticMetrics(typeEvents),
     }
   })
 

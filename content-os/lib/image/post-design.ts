@@ -50,30 +50,60 @@ export async function renderPostDesign(
   }, canvasForAspect(aspect))
 }
 
+export interface PostDesignFields {
+  template?: string | null
+  hasProduct: boolean
+  post_big_words?: string | null
+  post_script_line?: string | null
+  fallbackWords: (string | null | undefined)[]
+}
+
 /**
- * Autopilot / the daily draft: the caption's design words drawn on the clean
- * base, uploaded. Null when the template draws its own text or there are no
- * words -- the caller then keeps the clean image as before. Never throws.
+ * The design for a generated post, or null with no words. Autopilot / the
+ * daily draft had no on-image text before: an undesignable template falls
+ * back to the post's own look. `template` overrides the caption's pick (an
+ * Autopilot candidate in another look).
+ */
+export function postDesignFor(fields: PostDesignFields, template?: PostDesign["template"], seed?: number): PostDesign | null {
+  const picked = template ?? (isPostDesignTemplate(fields.template) ? fields.template : fields.hasProduct ? "product_focus" : "bold_statement")
+  const design = initialPostDesign(picked, fields, seed)
+  return design ? { ...design, aspect: "4:5" } : null
+}
+
+/** Up to `count` designs in different looks -- the caption's pick first. */
+export function candidatePostDesigns(fields: PostDesignFields, count: number): PostDesign[] {
+  const first = postDesignFor(fields)
+  if (!first) return []
+  const others = (["bold_statement", "product_focus", "quote_card"] as const).filter((t) => t !== first.template && (t !== "product_focus" || fields.hasProduct))
+  return [first, ...others.map((t, i) => postDesignFor(fields, t, first.seed + 7919 * (i + 1))!)].slice(0, Math.max(1, count))
+}
+
+/** Hosts a rendered post. Null (logged) on failure. */
+export async function uploadDesignedPost(brand: Pick<BrandRow, "id">, jpg: Buffer, label: string): Promise<string | null> {
+  const upload = await uploadMediaToStorage({ kind: "buffer", buffer: jpg, mimeType: "image/jpeg" }, `${brand.id}/designed-post-${Date.now()}`, { generatedImage: true })
+  if ("error" in upload) {
+    console.error(`[post-design] ${label}: upload failed (keeping the clean image):`, upload.error)
+    return null
+  }
+  return upload.publicUrl
+}
+
+/**
+ * The daily draft: the caption's design drawn on the clean base, uploaded.
+ * Null when there are no words or anything fails -- the caller then keeps
+ * the clean image as before. Never throws.
  */
 export async function designAndUploadPost(
   brand: Parameters<typeof renderPostDesign>[0] & Pick<BrandRow, "id">,
   baseImageUrl: string,
-  fields: { template?: string | null; hasProduct: boolean; post_big_words?: string | null; post_script_line?: string | null; fallbackWords: (string | null | undefined)[] },
+  fields: PostDesignFields,
   label: string,
 ): Promise<{ imageUrl: string; design: PostDesign } | null> {
   try {
-    // Autopilot / the daily draft had no on-image text before: an
-    // undesignable template falls back to the post's own look.
-    const template = isPostDesignTemplate(fields.template) ? fields.template : fields.hasProduct ? "product_focus" : "bold_statement"
-    const design = initialPostDesign(template, fields)
+    const design = postDesignFor(fields)
     if (!design) return null
-    const jpg = await renderPostDesign(brand, baseImageUrl, { ...design, aspect: "4:5" }, "4:5")
-    const upload = await uploadMediaToStorage({ kind: "buffer", buffer: jpg, mimeType: "image/jpeg" }, `${brand.id}/designed-post-${Date.now()}`, { generatedImage: true })
-    if ("error" in upload) {
-      console.error(`[post-design] ${label}: upload failed (keeping the clean image):`, upload.error)
-      return null
-    }
-    return { imageUrl: upload.publicUrl, design: { ...design, aspect: "4:5" } }
+    const imageUrl = await uploadDesignedPost(brand, await renderPostDesign(brand, baseImageUrl, design, "4:5"), label)
+    return imageUrl ? { imageUrl, design } : null
   } catch (err) {
     console.error(`[post-design] ${label}: render failed (keeping the clean image):`, err instanceof Error ? err.message : err)
     return null

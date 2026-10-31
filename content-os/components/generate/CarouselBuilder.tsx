@@ -5,6 +5,7 @@ import { ChevronLeft, ChevronRight, Copy, Check, Loader2, RefreshCw, Download, A
 import { ProductPicker, type PickedProduct } from "@/components/shared/ProductPicker"
 import { VibePicker, type Vibe } from "@/components/shared/VibePicker"
 import { ScheduleAction } from "@/components/shared/ScheduleAction"
+import { CriticPanel } from "@/components/shared/CriticPanel"
 import { useBrand } from "@/hooks/useBrand"
 import { downloadCarouselSlideAsImage, downloadCarouselSlidesAsImages, exportFrameFields, renderCarouselSlides, type CarouselExportSlide } from "@/lib/utils/carousel-export"
 import { carouselFrameNeedsPhoto, type CarouselFrame } from "@/lib/design/carousel-frames"
@@ -1102,7 +1103,9 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
     void runCarouselBackgrounds(carousel.id ?? null, carousel.slides, failedBgSlides)
   }
 
-  async function generate() {
+  // `improve`: "Make it better" -- the critic's fix on the last version (a click passes an event, ignored).
+  async function generate(improve?: unknown) {
+    const improveFix = typeof improve === "string" ? improve : undefined
     if (!topic.trim()) { setError("Please enter a topic for your carousel."); return }
     // "custom_color" is a client-only rendering mode that skips AI image
     // generation entirely, so there's nothing for SocioPosts to author a
@@ -1135,7 +1138,7 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
       const res = await fetch("/api/v1/ai/carousel/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ brandId, topic: topic.trim(), slideCount, platform: "instagram", vibe: isCustomColorMode ? undefined : vibe }),
+        body: JSON.stringify({ brandId, topic: topic.trim(), slideCount, platform: "instagram", vibe: isCustomColorMode ? undefined : vibe, ...(improveFix ? { improve: improveFix } : {}) }),
       })
       const json = await readJsonResponse(res) as { data?: GeneratedCarousel; error?: { code?: string; message?: string } }
       if (!res.ok || !json.data) {
@@ -1541,6 +1544,22 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
                 />
                 )}
               </div>
+
+              {/* The critic, on the cover as rendered plus the caption it posts with. */}
+              {currentSlide && allSlides[0]?.frame && (
+                <CriticPanel
+                  brandId={brandId}
+                  resultKey={carousel.id ?? null}
+                  imageUrl={imagesGenerating ? null : framePreviews[0] ?? null}
+                  caption={carousel.cover_hook ?? ""}
+                  hook={allSlides[0]?.headline ?? ""}
+                  format="carousel"
+                  contentType="carousel"
+                  contentId={carousel.id ?? null}
+                  onImprove={(fix) => void generate(fix)}
+                  improving={loading}
+                />
+              )}
 
               {/* Thumbnail row */}
               <div className="flex gap-2 overflow-x-auto py-1">

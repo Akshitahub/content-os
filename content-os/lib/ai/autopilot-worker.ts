@@ -39,7 +39,10 @@ import { stampPostLayout } from "@/lib/design/text-layouts"
 import { getPrimaryColor } from "@/lib/design/post-card-generator"
 import { ensureArtDirection } from "./art-direction"
 import { artDirectionFrom } from "./brand-brain"
-import { designAndUploadPost } from "@/lib/image/post-design"
+import { candidatePostDesigns, renderPostDesign, uploadDesignedPost } from "@/lib/image/post-design"
+import { critiquePost, type CriticResult } from "./critic"
+import { toSavedCritic, type SavedCritic } from "@/lib/design/critic-scores"
+import { isSubscribed } from "@/lib/usage/trial-status"
 import { assignCarouselBrandPhotos } from "./carousel-photos"
 import { carouselFrameNeedsPhoto, isCarouselFrame, type CarouselFrame } from "@/lib/design/carousel-frames"
 import { renderCarouselFrame } from "@/lib/image/carousel-frames"
@@ -101,6 +104,8 @@ type RunContext = {
   /** Credit limit for complete_autopilot_slot; null = internal-unlimited, never charged. */
   pLimit: number | null
   imageColorTheme: ColorTheme
+  /** Post candidates per slot, best kept by the critic: 3, or 1 on a trial. */
+  bestOf: number
 }
 
 type PreparedSlot = {
@@ -115,6 +120,8 @@ type PreparedSlot = {
   /** The designed post drawn on it (lib/image/post-design.ts) -- what's published. */
   designedImageUrl: string | null
   postDesign: PostDesign | null
+  /** The critic's verdict (lib/ai/critic.ts); null when it couldn't score. */
+  critic: SavedCritic | null
   carouselHtml: string | null
   carouselSlides: { slide_number: number; headline: string; body: string; kicker?: string | null; highlight?: string | null }[]
   /** The shared generator's typed slides, with their background image_url and
@@ -266,11 +273,14 @@ async function loadRunContext(admin: Admin, job: SlotJobRow): Promise<RunContext
   // Same limit checkAndIncrementUsage would use, from the user's CURRENT
   // plan/trial (they may have upgraded mid-run).
   let pLimit: number | null = null
+  let bestOf = 3
   if (!run.params.isInternalUnlimitedUser) {
     const { data: user } = await admin.from("users").select("plan, trial_ends_at, subscribed_at").eq("id", job.user_id)
       .single<{ plan: string; trial_ends_at: string | null; subscribed_at: string | null }>()
     const plan: UserPlan = user?.plan && user.plan in PLAN_LIMITS ? (user.plan as UserPlan) : "starter"
     pLimit = resolveGenerationLimit(plan, { trial_ends_at: user?.trial_ends_at ?? null, subscribed_at: user?.subscribed_at ?? null })
+    // Trial ("free") accounts: a single candidate, still scored.
+    if (!isSubscribed({ trial_ends_at: user?.trial_ends_at ?? null, subscribed_at: user?.subscribed_at ?? null })) bestOf = 1
   }
 
   return {
@@ -281,6 +291,7 @@ async function loadRunContext(admin: Admin, job: SlotJobRow): Promise<RunContext
     productByName: new Map((products ?? []).map((p) => [p.name.toLowerCase(), p])),
     pLimit,
     imageColorTheme: resolveColorThemes(brand)[0]!,
+    bestOf,
   }
 }
 
@@ -308,74 +319,44 @@ async function prepareSlot(admin: Admin, job: SlotJobRow, ctx: RunContext, track
     getActiveLessons(admin, brand.id, isCarousel ? "carousel" : "caption"),
     isCarousel || isReel ? Promise.resolve(undefined) : getActiveLessons(admin, brand.id, "hook"),
   ])
-  const generated = await generateSlotContent(brand, slot, product, params.totalSlots, tracker, workDeadline - 60_000, lessons, hookLessons)
+  let generated = await generateSlotContent(brand, slot, product, params.totalSlots, tracker, workDeadline - 60_000, lessons, hookLessons)
   tracker.captionMs += Date.now() - captionStartedAt
 
   // The per-slot prompt has no structural guarantee that `caption` opens
   // with the hook or closes with the CTA -- merged in so caption_text (the
   // only field publish-scheduled/route.ts sends) is the true final text.
-  const mergedCaption = generated.caption
-    ? mergeCaptionWithHookAndCta(generated.caption, generated.hook, generated.call_to_action)
-    : generated.caption
+  const merge = (g: typeof generated) => (g.caption ? mergeCaptionWithHookAndCta(g.caption, g.hook, g.call_to_action) : g.caption)
+  let mergedCaption = merge(generated)
 
-  // Post slots: AI image (clean, no text overlay -- Autopilot has no human
-  // choosing on-image text). Uploaded now; referenced only if committed.
+  // Post slots: the image, then the best of bestOf designed candidates by
+  // the critic; below CRITIC_PASS, one regeneration with the critic's
+  // reasons when the lease allows -- the better of the two is kept, and one
+  // still below the bar is flagged for approval on its calendar card.
   let imageUrl: string | null = null
   let designed: { imageUrl: string; design: PostDesign } | null = null
+  let critic: SavedCritic | null = null
   if (!isReel && !isCarousel) {
-    try {
-      const imageStartedAt = Date.now()
-      // The caption's visual brief drives the image: its scene is the prompt
-      // and the brief itself goes along (product-reference and split rules).
-      // Real photos first, when one FITS this post's brief and copy
-      // (lib/ai/photo-fit.ts, fit 4+; never another product's photo) --
-      // least used first among equals, so a month of posts rotates.
-      const brandPhoto = (await chooseFittingPhotos(admin, brand, {
-        productId: product?.id ?? null, productName: product?.name ?? null, kinds: PHOTO_KINDS_FOR.post,
-        items: [photoFitItem(generated.visual, generated.imagePrompt || generated.visual_direction, [generated.hook, generated.caption])],
-        label: `autopilot slot ${job.id}`,
-      }))[0] ?? null
-      const imageResult = await generatePostImage({
-        artDirection: artDirectionFrom(brand),
-        brandPhotoUrl: brandPhoto?.url ?? null,
-        imagePrompt: generated.imagePrompt || generated.visual_direction || "professional product photography",
-        visualBrief: generated.visual,
-        brandNiche: brand.niche,
-        targetAudience: brand.target_audience,
-        template: DEFAULT_POST_TEMPLATE_ID,
-        colorTheme: ctx.imageColorTheme,
-        logoUrl: brand.logo_url,
-        plan: params.plan,
-        isInternalUnlimitedUser: params.isInternalUnlimitedUser,
-        // Autopilot post backgrounds get text on top -- "low" is enough.
-        quality: "low",
-      })
-      trackUsage(tracker, undefined, attemptsCostUsd(imageResult.attempts))
-      tracker.imageMs += Date.now() - imageStartedAt
-      if (imageResult.success) {
-        const image = await prepareGeneratedImage(imageResult.buffer, imageResult.mimeType, `autopilot-worker slot ${job.id}`)
-        const storagePath = `${job.user_id}/${job.brand_id}/${Date.now()}-${crypto.randomUUID()}.${image.ext}`
-        const { error: uploadError } = await admin.storage.from(IMAGE_BUCKET)
-          .upload(storagePath, image.buffer, { contentType: image.mimeType, upsert: false })
-        if (uploadError) {
-          console.error(`[autopilot-worker] slot ${job.id}: image upload failed:`, uploadError.message)
-        } else {
-          imageUrl = admin.storage.from(IMAGE_BUCKET).getPublicUrl(storagePath).data.publicUrl
-          // The post as designed: its 1-4 words and script line in the
-          // frame language on the clean image. No words / a failed render
-          // keeps the clean image, as before.
-          const f = generated.postDesignFields
-          designed = await designAndUploadPost(brand, imageUrl, {
-            template: f?.template, hasProduct: !!product, post_big_words: f?.post_big_words, post_script_line: f?.post_script_line,
-            fallbackWords: [f?.suggested_overlay_text, generated.hook],
-          }, `autopilot slot ${job.id}`)
+    let post = await makeAutopilotPost(admin, job, ctx, tracker, generated, mergedCaption, product, ctx.bestOf)
+    let regenerated = false
+    if (post.critic && !post.critic.passed && Date.now() < workDeadline - 150_000) {
+      regenerated = true
+      try {
+        const saved = toSavedCritic(post.critic)
+        const feedback = `it scored ${post.critic.overall}/10. Fix: ${post.critic.top_fix}${saved.reasons.length ? `. Weak spots: ${saved.reasons.join("; ")}` : ""}`
+        const regen = await generateSlotContent(brand, slot, product, params.totalSlots, tracker, workDeadline - 60_000, lessons, hookLessons, feedback)
+        const second = await makeAutopilotPost(admin, job, ctx, tracker, regen, merge(regen), product, 1)
+        if (second.critic && second.critic.overall > post.critic.overall) {
+          generated = regen
+          mergedCaption = merge(regen)
+          post = second
         }
-      } else {
-        console.error(`[autopilot-worker] slot ${job.id}: image generation failed:`, imageResult.error)
+      } catch (err) {
+        console.error(`[autopilot-worker] slot ${job.id}: regeneration after the critic failed, keeping the first draft:`, err instanceof Error ? err.message : err)
       }
-    } catch (err) {
-      console.error(`[autopilot-worker] slot ${job.id}: image generation unexpected error:`, err instanceof Error ? err.message : err)
     }
+    imageUrl = post.imageUrl
+    designed = post.designed
+    critic = post.critic ? toSavedCritic(post.critic, { candidates: post.candidates, regenerated }) : null
   }
 
   // Carousel slots: HTML preview + real PNG slides, uploaded now.
@@ -424,8 +405,15 @@ async function prepareSlot(admin: Admin, job: SlotJobRow, ctx: RunContext, track
         if ("publicUrl" in uploadResult) uploaded.push(uploadResult.publicUrl)
         else console.error(`[autopilot-worker] slot ${job.id}: carousel slide ${idx} upload failed:`, uploadResult.error)
       }
-      if (uploaded.length >= MIN_CAROUSEL_SLIDES) carouselImageUrls = uploaded
-      else carouselRichSlides = null
+      if (uploaded.length >= MIN_CAROUSEL_SLIDES) {
+        carouselImageUrls = uploaded
+        const cover = rendered[0]!
+        const scored = await critiquePost(brand, { imageUrl: `data:${cover.mime};base64,${cover.png.toString("base64")}`, caption: mergedCaption, hook: generated.hook, format: "carousel" }, `autopilot slot ${job.id} carousel`)
+        if (scored) {
+          trackUsage(tracker, undefined, scored.costUsd)
+          critic = toSavedCritic(scored, { candidates: 1 })
+        }
+      } else carouselRichSlides = null
     } catch (err) {
       console.error(`[autopilot-worker] slot ${job.id}: rich carousel rendering failed, using the plain renderer:`, err instanceof Error ? err.message : err)
       carouselRichSlides = null
@@ -464,7 +452,101 @@ async function prepareSlot(admin: Admin, job: SlotJobRow, ctx: RunContext, track
   return {
     generated, mergedCaption, product,
     scheduledDate: slotScheduledDate(params.baseDate, slot.day),
-    isCarousel, isReel, imageUrl, designedImageUrl: designed?.imageUrl ?? null, postDesign: designed?.design ?? null, carouselHtml, carouselSlides, carouselRichSlides, carouselImageUrls, reelScenes, reelMusicUrl,
+    isCarousel, isReel, imageUrl, designedImageUrl: designed?.imageUrl ?? null, postDesign: designed?.design ?? null, critic, carouselHtml, carouselSlides, carouselRichSlides, carouselImageUrls, reelScenes, reelMusicUrl,
+  }
+}
+
+type AutopilotPost = { imageUrl: string | null; designed: { imageUrl: string; design: PostDesign } | null; critic: CriticResult | null; candidates: number }
+
+/**
+ * One post: a fitting brand photo or a generated image (clean, uploaded),
+ * then up to `bestOf` designs in different looks, each scored by the critic
+ * -- only the best is uploaded. The critic unavailable = the first design,
+ * exactly as before. Never throws.
+ */
+async function makeAutopilotPost(admin: Admin, job: SlotJobRow, ctx: RunContext, tracker: AutopilotUsageTracker, generated: PreparedSlot["generated"], caption: string, product: ProductRow | null, bestOf: number): Promise<AutopilotPost> {
+  const { brand, params } = ctx
+  const none: AutopilotPost = { imageUrl: null, designed: null, critic: null, candidates: 0 }
+  try {
+    const imageStartedAt = Date.now()
+    // The caption's visual brief drives the image: its scene is the prompt
+    // and the brief itself goes along (product-reference and split rules).
+    // Real photos first, when one FITS this post's brief and copy
+    // (lib/ai/photo-fit.ts, fit 4+; never another product's photo) --
+    // least used first among equals, so a month of posts rotates.
+    const brandPhoto = (await chooseFittingPhotos(admin, brand, {
+      productId: product?.id ?? null, productName: product?.name ?? null, kinds: PHOTO_KINDS_FOR.post,
+      items: [photoFitItem(generated.visual, generated.imagePrompt || generated.visual_direction, [generated.hook, generated.caption])],
+      label: `autopilot slot ${job.id}`,
+    }))[0] ?? null
+    const imageResult = await generatePostImage({
+      artDirection: artDirectionFrom(brand),
+      brandPhotoUrl: brandPhoto?.url ?? null,
+      imagePrompt: generated.imagePrompt || generated.visual_direction || "professional product photography",
+      visualBrief: generated.visual,
+      brandNiche: brand.niche,
+      targetAudience: brand.target_audience,
+      template: DEFAULT_POST_TEMPLATE_ID,
+      colorTheme: ctx.imageColorTheme,
+      logoUrl: brand.logo_url,
+      plan: params.plan,
+      isInternalUnlimitedUser: params.isInternalUnlimitedUser,
+      // Autopilot post backgrounds get text on top -- "low" is enough.
+      quality: "low",
+    })
+    trackUsage(tracker, undefined, attemptsCostUsd(imageResult.attempts))
+    tracker.imageMs += Date.now() - imageStartedAt
+    if (!imageResult.success) {
+      console.error(`[autopilot-worker] slot ${job.id}: image generation failed:`, imageResult.error)
+      return none
+    }
+    const image = await prepareGeneratedImage(imageResult.buffer, imageResult.mimeType, `autopilot-worker slot ${job.id}`)
+    const storagePath = `${job.user_id}/${job.brand_id}/${Date.now()}-${crypto.randomUUID()}.${image.ext}`
+    const { error: uploadError } = await admin.storage.from(IMAGE_BUCKET)
+      .upload(storagePath, image.buffer, { contentType: image.mimeType, upsert: false })
+    if (uploadError) {
+      console.error(`[autopilot-worker] slot ${job.id}: image upload failed:`, uploadError.message)
+      return none
+    }
+    const imageUrl = admin.storage.from(IMAGE_BUCKET).getPublicUrl(storagePath).data.publicUrl
+
+    // The post as designed: its 1-4 words and script line in the frame
+    // language on the clean image, in up to bestOf looks.
+    const f = generated.postDesignFields
+    const designs = candidatePostDesigns({
+      template: f?.template, hasProduct: !!product, post_big_words: f?.post_big_words, post_script_line: f?.post_script_line,
+      fallbackWords: [f?.suggested_overlay_text, generated.hook],
+    }, bestOf)
+    let best: { jpg: Buffer | null; design: PostDesign | null; critic: CriticResult | null } | null = null
+    let candidates = 0
+    for (const design of designs.length ? designs : [null]) {
+      let jpg: Buffer | null = null
+      try {
+        jpg = design ? await renderPostDesign(brand, imageUrl, design, "4:5") : null
+      } catch (err) {
+        console.error(`[autopilot-worker] slot ${job.id}: design render failed:`, err instanceof Error ? err.message : err)
+        continue
+      }
+      candidates++
+      const scored = await critiquePost(brand, {
+        imageUrl: jpg ? `data:image/jpeg;base64,${jpg.toString("base64")}` : imageUrl,
+        caption, hook: generated.hook, format: "post",
+      }, `autopilot slot ${job.id} candidate ${candidates}`)
+      if (scored) trackUsage(tracker, undefined, scored.costUsd)
+      if (!best || (scored && (!best.critic || scored.overall > best.critic.overall))) best = { jpg, design, critic: scored }
+      // No critic (no credits / an error): the first design, as before.
+      if (!scored) break
+    }
+    const designedUrl = best?.jpg ? await uploadDesignedPost(brand, best.jpg, `autopilot slot ${job.id}`) : null
+    return {
+      imageUrl,
+      designed: designedUrl && best?.design ? { imageUrl: designedUrl, design: best.design } : null,
+      critic: best?.critic ?? null,
+      candidates,
+    }
+  } catch (err) {
+    console.error(`[autopilot-worker] slot ${job.id}: image generation unexpected error:`, err instanceof Error ? err.message : err)
+    return none
   }
 }
 
@@ -594,6 +676,9 @@ async function persistSlot(admin: Admin, job: SlotJobRow, ctx: RunContext, p: Pr
       const stamped = stampPostLayout(g as { kicker?: unknown; highlight?: unknown }, g.hook, { brand, headingFont: typography.heading, accentColor: getPrimaryColor(brand) })
       platformData.overlay_layout = { text_layout: stamped.text_layout, kicker: stamped.kicker, highlight: stamped.highlight, text_layout_source: "auto", body_font_id: typography.body, brand_color: stamped.accent_color }
     }
+    // The critic's verdict: the calendar card shows a post below the bar as
+    // "Needs approval" with its reasons (never auto-published either way).
+    if (p.critic) platformData.critic = p.critic
     if (p.carouselHtml) platformData.carousel_html = p.carouselHtml
     if (p.carouselImageUrls.length > 0) {
       // Same shape schedule-post/route.ts produces for a manual carousel.
@@ -658,6 +743,14 @@ async function persistSlot(admin: Admin, job: SlotJobRow, ctx: RunContext, p: Pr
       ...(written.carouselId ? [{ ...source, contentType: "carousel" as const, contentId: written.carouselId, event: "generated" as const }] : []),
       ...(written.captionId ? [{ ...source, contentType: "caption" as const, contentId: written.captionId, event: "scheduled" as const, meta: { source: "autopilot", entry_status: "content_ready" } }] : []),
       ...(written.carouselId ? [{ ...source, contentType: "carousel" as const, contentId: written.carouselId, event: "scheduled" as const, meta: { source: "autopilot", entry_status: "content_ready" } }] : []),
+      // Admin metrics: average critic score, share of Autopilot posts needing approval.
+      ...(p.critic && (written.captionId || written.carouselId) ? [{
+        ...source,
+        contentType: written.carouselId ? "carousel" as const : "caption" as const,
+        contentId: (written.carouselId ?? written.captionId)!,
+        event: "critic_scored" as const,
+        meta: { source: "autopilot", score: p.critic.overall, needs_approval: p.critic.needs_approval, candidates: p.critic.candidates ?? 1, regenerated: !!p.critic.regenerated },
+      }] : []),
     ])
 
     await db("autopilot_slot_jobs").update({ calendar_entry_id: entry.id, updated_at: new Date().toISOString() }).eq("id", job.id)

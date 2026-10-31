@@ -542,11 +542,13 @@ export async function generateSlotContent(
   lessons?: BrandLesson[],
   /** Posts only: "hook"-scope lessons for the hook generator. */
   hookLessons?: BrandLesson[],
+  /** Posts only: the critic's reasons on a first draft (lib/ai/critic.ts) -- a regeneration fixes them. */
+  feedback?: string,
 ): Promise<SlotContent> {
   if (slot.content_type === "reel_script") return generateReelSlotContent(brand, slot, product, totalSlots, tracker, factGuardDeadline, lessons)
   if (slot.content_type === "carousel") return generateCarouselSlot(brand, slot, product, totalSlots, tracker, factGuardDeadline, lessons)
   // hooks / caption / ad_copy are all a full post with an image.
-  return generatePostSlot(brand, slot, product, totalSlots, tracker, factGuardDeadline, lessons, hookLessons)
+  return generatePostSlot(brand, slot, product, totalSlots, tracker, factGuardDeadline, lessons, hookLessons, feedback)
 }
 
 // Same opener the post pipeline uses for an abstract_mood brief.
@@ -568,8 +570,9 @@ async function generatePostSlot(
   factGuardDeadline: number | undefined,
   lessons: BrandLesson[] | undefined,
   hookLessons: BrandLesson[] | undefined,
+  feedback?: string,
 ): Promise<SlotContent> {
-  const brief = buildSlotBrief(slot, product, totalSlots)
+  const brief = buildSlotBrief(slot, product, totalSlots) + (feedback ? `\n\nA FIRST DRAFT OF THIS POST WAS REJECTED -- write a better one that fixes this: ${feedback}` : "")
   // Each call's usage is tracked as it completes (onUsage).
   const { caption: contentResult, hook: hookResult } = await generatePostCopy(brand, {
     product, platform: slot.platform, additionalContext: brief, factGuardDeadline,

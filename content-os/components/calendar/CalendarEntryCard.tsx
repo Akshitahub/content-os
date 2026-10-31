@@ -1,6 +1,7 @@
 "use client"
 
 import { STATUS_COLORS, STATUS_LABELS } from "./calendar-status"
+import type { SavedCritic } from "@/lib/design/critic-scores"
 
 // Dedicated calendar-entry card for ContentCalendar.tsx's week AND month
 // views -- deliberately NOT another PostCard.tsx size variant. PostCard's
@@ -119,9 +120,12 @@ export interface CalendarEntryCardProps {
    * missed-ring behavior, just laid out to fit. Week view is untouched --
    * this only activates when the caller opts in. */
   compact?: boolean
+  /** The critic's verdict on an Autopilot post (lib/ai/critic.ts): below
+   * the bar it shows why, while the entry still needs approval. */
+  critic?: SavedCritic | null
 }
 
-export function CalendarEntryCard({ title, scheduledTime, platform, contentType, imageUrl, status, compact = false }: CalendarEntryCardProps) {
+export function CalendarEntryCard({ title, scheduledTime, platform, contentType, imageUrl, status, compact = false, critic = null }: CalendarEntryCardProps) {
   const gradient = PLATFORM_GRADIENT[platform ?? "instagram"] ?? PLATFORM_GRADIENT.instagram
   const timeLabel = formatScheduledTime(scheduledTime)
   const platformLabel = platform ? (PLATFORM_LABEL[platform] ?? titleCaseFallback(platform)) : null
@@ -132,12 +136,15 @@ export function CalendarEntryCard({ title, scheduledTime, platform, contentType,
   // show redundant treatments for the same entry.
   const statusText = !isMissed && status ? STATUS_LABELS[status] : null
   const statusClasses = !isMissed && status ? STATUS_COLORS[status] : null
+  // Only while it's still waiting on the user -- once scheduled, the verdict is history.
+  const flagged = critic?.needs_approval && status === "content_ready" ? critic : null
+  const criticTip = flagged ? `Score ${flagged.overall}/10 -- ${[flagged.top_fix, ...flagged.reasons].join("\n")}` : null
 
   if (compact) {
     return (
       <div
         className={`flex items-center gap-1.5 overflow-hidden rounded-md border bg-card px-1 py-1 shadow-sm transition-shadow hover:shadow-md ${isMissed ? "ring-1 ring-inset ring-red-500" : ""}`}
-        title={statusText ? `${title} — ${statusText}` : undefined}
+        title={criticTip ? `${title} — ${criticTip}` : statusText ? `${title} — ${statusText}` : undefined}
       >
         <div className="relative h-6 w-6 shrink-0 overflow-hidden rounded-sm">
           {imageUrl ? (
@@ -147,7 +154,7 @@ export function CalendarEntryCard({ title, scheduledTime, platform, contentType,
             <div className={`h-full w-full bg-gradient-to-br ${gradient}`} />
           )}
           {statusText && (
-            <span className={`absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full ring-1 ring-white ${statusDotColor(status)}`} />
+            <span className={`absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full ring-1 ring-white ${flagged ? "bg-amber-500" : statusDotColor(status)}`} />
           )}
         </div>
         <div className="min-w-0 flex-1 leading-tight">
@@ -161,7 +168,7 @@ export function CalendarEntryCard({ title, scheduledTime, platform, contentType,
   return (
     <div
       className={`overflow-hidden rounded-xl border bg-card shadow-sm transition-all hover:shadow-md ${isMissed ? "ring-1 ring-inset ring-red-500" : ""}`}
-      title={statusText ? statusText : undefined}
+      title={criticTip ?? statusText ?? undefined}
     >
       {/* Image fills the top of the card at a consistent 1:1 ratio -- a
           gradient placeholder (same visual language as PostCard.tsx's
@@ -207,6 +214,11 @@ export function CalendarEntryCard({ title, scheduledTime, platform, contentType,
               </span>
             )}
           </div>
+        )}
+        {flagged && (
+          <p className="line-clamp-3 rounded-md bg-amber-50 px-1.5 py-1 text-[10px] leading-snug text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
+            <span className="font-semibold">Score {flagged.overall}/10.</span> {flagged.top_fix}
+          </p>
         )}
       </div>
     </div>

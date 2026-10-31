@@ -15,7 +15,7 @@ import type { VisualBrief } from "@/lib/ai/visual-brief"
 import type { StoryFrameFields } from "@/lib/ai/story-frames"
 import { timedGenerationRoute, type GenerationTimer } from "@/lib/utils/generation-timing"
 import { withDeadline, DeadlineExceededError, GENERATION_TIMED_OUT_MESSAGE } from "@/lib/utils/with-deadline"
-import { getActiveLessons } from "@/lib/ai/brand-brain"
+import { criticFixLesson, getActiveLessons } from "@/lib/ai/brand-brain"
 import { recordContentEvent } from "@/lib/usage/content-events"
 import { gateEventMeta } from "@/lib/ai/quality-gate"
 import type { TextStyle } from "@/lib/design/text-style"
@@ -41,6 +41,8 @@ const schema = z.object({
   productId: z.string().uuid().optional(),
   // False for the client's Custom color mode (flat colours, never a photo).
   brandPhotos: z.boolean().default(true),
+  // "Make it better" (components/shared/CriticPanel.tsx): the critic's fix on the last version.
+  improve: z.string().max(300).optional(),
 })
 
 export type StorySlide = StoryFrameFields & {
@@ -393,7 +395,7 @@ async function handlePost(request: Request, timer: GenerationTimer) {
     // a missing / stale one is re-derived in the background, never awaited) in
     // brand_brain; every brief and image prompt below reads it. Fail-soft.
     await artDirectionForRequest(supabase, brand)
-    const lessons = await getActiveLessons(supabase, brandId, "story")
+    const lessons = [...await getActiveLessons(supabase, brandId, "story"), ...criticFixLesson("story", parsed.data.improve)]
     // Off the topic after the gate's repair -> one regeneration (onTopicOrRegenerate);
     // fewer frames than asked for -> one regeneration (regenerateIfShort). Either
     // still failing is a clear error -- never a silent off-topic or short story.

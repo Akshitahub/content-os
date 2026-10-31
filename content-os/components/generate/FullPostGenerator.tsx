@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react"
 import { Sparkles, RefreshCw, Copy, Check, Download, Archive, Loader2, AlertCircle, Heart, MessageCircle, Send } from "lucide-react"
 import { ScheduleAction } from "@/components/shared/ScheduleAction"
+import { CriticPanel } from "@/components/shared/CriticPanel"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import Link from "next/link"
@@ -487,6 +488,15 @@ export function FullPostGenerator({ brandId, products }: Props) {
   }, [])
 
   function handleGenerate() {
+    startGeneration()
+  }
+
+  // "Make it better": a new generation with the critic's fix folded into the brief.
+  function handleImprove(fix: string) {
+    startGeneration(fix)
+  }
+
+  function startGeneration(improve?: string) {
     abortControllerRef.current?.abort()
     abortControllerRef.current = new AbortController()
     setJustSaved(false)
@@ -513,7 +523,9 @@ export function FullPostGenerator({ brandId, products }: Props) {
         productId: selectedProductId ?? undefined,
         format: "social_post",
         platform: "instagram",
-        additionalContext: additionalContext || undefined,
+        additionalContext: (improve
+          ? [additionalContext, `Make it better than the last version: ${improve}`].filter(Boolean).join("\n").slice(0, 500)
+          : additionalContext) || undefined,
         contentAngle,
       },
       {
@@ -773,6 +785,9 @@ export function FullPostGenerator({ brandId, products }: Props) {
             postDesign={postDesign}
             onPostDesignChange={setPostDesign}
             postRenderError={postRenderError}
+            postSessionId={postSessionId}
+            onImprove={handleImprove}
+            improving={isPending}
             previewMode={previewMode}
             onPreviewModeChange={setPreviewMode}
             aspectRatio={aspectRatio}
@@ -1415,6 +1430,9 @@ function FullPostResults({
   postDesign,
   onPostDesignChange,
   postRenderError,
+  postSessionId,
+  onImprove,
+  improving,
   previewMode,
   onPreviewModeChange,
   aspectRatio,
@@ -1442,6 +1460,9 @@ function FullPostResults({
   postDesign: PostDesign | null
   onPostDesignChange: (design: PostDesign) => void
   postRenderError: string | null
+  postSessionId: string | null
+  onImprove: (fix: string) => void
+  improving: boolean
   previewMode: "canvas" | "feed"
   onPreviewModeChange: (mode: "canvas" | "feed") => void
   aspectRatio: "4:5" | "1:1" | "9:16"
@@ -1504,6 +1525,19 @@ function FullPostResults({
         brandName={brandName}
         captionPreview={scheduleCaption?.text ?? caption.caption_text ?? ""}
         aspectRatio={aspectRatio}
+      />
+
+      {/* The critic: scored once the image as posted is ready. */}
+      <CriticPanel
+        brandId={brandId}
+        resultKey={postSessionId}
+        imageUrl={!imageGenerating && !flattening ? shareableImageUrl : null}
+        caption={scheduleCaption?.text ?? caption.caption_text ?? ""}
+        hook={result.hook.hook_text}
+        format="post"
+        contentType="caption"
+        onImprove={onImprove}
+        improving={improving}
       />
 
       <HookSection hook={result.hook} copied={copied} onCopy={onCopy} />

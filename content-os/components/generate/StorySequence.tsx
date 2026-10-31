@@ -13,6 +13,7 @@ import { GenerationWarning } from "@/components/shared/GenerationWarning"
 import { UsageLimitBanner } from "@/components/generate/UsageLimitBanner"
 import { TopicSuggestButton } from "@/components/shared/TopicSuggestButton"
 import { ScheduleAction } from "@/components/shared/ScheduleAction"
+import { CriticPanel } from "@/components/shared/CriticPanel"
 import { isApiError } from "@/types/api"
 import { ApiResponseError } from "@/hooks/useGeneration"
 import { STORY as STORY_CREDIT_COST, STORY_SLIDE_AI_BACKGROUND } from "@/lib/usage/credit-costs"
@@ -1230,7 +1231,9 @@ export function StorySequence({ brandId }: { brandId: string }) {
     void runStoryBackgrounds(generationIdRef.current, stories, failedBgSlides)
   }
 
-  async function generate() {
+  // `improve`: "Make it better" -- the critic's fix on the last version (a click passes an event, ignored).
+  async function generate(improve?: unknown) {
+    const improveFix = typeof improve === "string" ? improve : undefined
     if (!topic.trim()) { setError("Please enter a topic for your story sequence."); return }
     // "custom_color" is a client-only rendering mode that skips AI image
     // generation entirely, so there's nothing for SocioPosts to author a
@@ -1283,6 +1286,7 @@ export function StorySequence({ brandId }: { brandId: string }) {
           // on every frame it can; the rest get AI backgrounds below.
           productId: selectedProduct?.id,
           brandPhotos: !isCustomColorMode,
+          ...(improveFix ? { improve: improveFix } : {}),
         }),
       })
       const json = await readJsonResponse(res) as { data?: { id?: string | null; stories: StorySlide[]; caption?: StoryCaption; story_plan?: StoryPlan }; error?: { code?: string; message?: string } }
@@ -1789,6 +1793,22 @@ export function StorySequence({ brandId }: { brandId: string }) {
                     <p className="text-xs text-primary">{storyCaption.hashtags.map((h) => `#${h.replace(/^#/, "")}`).join(" ")}</p>
                   )}
                 </div>
+              )}
+
+              {/* The critic, on the opening frame as rendered plus the caption. */}
+              {stories[0]?.frame && (
+                <CriticPanel
+                  brandId={brandId}
+                  resultKey={storyRowId}
+                  imageUrl={imagesGenerating || !frameKeys[0] ? null : framePreviews[frameKeys[0]] ?? null}
+                  caption={storyCaption?.caption_text ?? ""}
+                  hook={stories[0]?.big_words ?? stories[0]?.text ?? ""}
+                  format="story"
+                  contentType="story"
+                  contentId={storyRowId}
+                  onImprove={(fix) => void generate(fix)}
+                  improving={loading}
+                />
               )}
 
               <ScheduleAction

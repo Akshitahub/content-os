@@ -14,7 +14,7 @@ import type { BrandRow } from "@/types/database"
 import { rememberBrandTypography } from "@/lib/design/brand-typography"
 import { timedGenerationRoute, type GenerationTimer } from "@/lib/utils/generation-timing"
 import { withDeadline, DeadlineExceededError, GENERATION_TIMED_OUT_MESSAGE } from "@/lib/utils/with-deadline"
-import { getActiveLessons } from "@/lib/ai/brand-brain"
+import { criticFixLesson, getActiveLessons } from "@/lib/ai/brand-brain"
 import { recordContentEvent } from "@/lib/usage/content-events"
 import { gateEventMeta } from "@/lib/ai/quality-gate"
 import { layoutCarouselText, overflowingSlides } from "@/lib/design/slide-text-layout"
@@ -28,6 +28,8 @@ const schema = z.object({
   slideCount: z.number().int().min(5).max(10).default(7),
   platform: z.enum(["instagram", "linkedin"]).default("instagram"),
   vibe: z.string().optional(),
+  // "Make it better" (components/shared/CriticPanel.tsx): the critic's fix on the last version.
+  improve: z.string().max(300).optional(),
 })
 
 // One model call for the whole sequence (60s timeout + one SDK retry), a
@@ -127,7 +129,7 @@ async function handlePost(request: Request, timer: GenerationTimer) {
     // a missing / stale one is re-derived in the background, never awaited) in
     // brand_brain; every brief and image prompt below reads it. Fail-soft.
     await artDirectionForRequest(supabase, brand)
-    const lessons = await getActiveLessons(supabase, brandId, "carousel")
+    const lessons = [...await getActiveLessons(supabase, brandId, "carousel"), ...criticFixLesson("carousel", parsed.data.improve)]
     // Off the topic after the gate's repair -> one regeneration; fewer slides
     // (CTA included) than asked for -> one regeneration. Either still failing
     // is a clear error -- never a silent off-topic or short carousel.

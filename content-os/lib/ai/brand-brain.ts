@@ -90,6 +90,12 @@ export function withLessons(prompt: string, lessons: BrandLesson[] | undefined):
   return `${prompt.slice(0, idx)}\n\n${block}\n${prompt.slice(idx)}`
 }
 
+/** "Make it better": the critic's fix on the last version, as a one-off rule for this generation only. */
+export function criticFixLesson(scope: LessonScope, fix: string | undefined): BrandLesson[] {
+  const rule = fix?.replace(/\s+/g, " ").trim().slice(0, 300)
+  return rule ? [{ id: "critic-fix", scope, kind: "do", rule: `Improve on the last version: ${rule}`, evidence_count: 1, last_seen_at: null }] : []
+}
+
 /** "image"-scope lessons as plain rules for the image-prompt writer's constraints.lessons. */
 export function imageLessonRules(lessons: BrandLesson[]): string[] {
   return lessons.map((l) => `${l.kind === "avoid" ? "Avoid" : "Do"}: ${l.rule}`)
