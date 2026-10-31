@@ -10,7 +10,7 @@
       "big_words": "ways to wear them",
       "script_line": "pick your favourite",
       "quote": null,
-      "background": "product photo"
+      "background": "candid scene from the product photo"
     },
     {
       "asked": "festive_poster",
@@ -20,7 +20,7 @@
       "big_words": "Happy Diwali",
       "script_line": "light up the festive fits",
       "quote": null,
-      "background": "product photo"
+      "background": "candid scene from the product photo"
     },
     {
       "asked": "review_card",
@@ -30,7 +30,7 @@
       "big_words": "A real customer review",
       "script_line": "",
       "quote": "A real customer review goes here",
-      "background": "product photo"
+      "background": "candid scene from the product photo"
     }
   ]
 }

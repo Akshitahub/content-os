@@ -1,0 +1,45 @@
+{
+  "brand": "SNITCH",
+  "topic": "Bday sale",
+  "frames": [
+    {
+      "frame": 1,
+      "kind": "hook",
+      "big_words": "Bday sale",
+      "script_line": "come celebrate with us",
+      "badge": null,
+      "callouts": null,
+      "quote": null,
+      "cta_label": null,
+      "seed": 41,
+      "background": "candid scene from the product photo"
+    },
+    {
+      "frame": 2,
+      "kind": "product",
+      "big_words": "Olive chinos",
+      "script_line": null,
+      "badge": null,
+      "callouts": [
+        "straight fit",
+        "the olive shade"
+      ],
+      "quote": null,
+      "cta_label": null,
+      "seed": 73,
+      "background": "candid scene from the product photo"
+    },
+    {
+      "frame": 3,
+      "kind": "cta",
+      "big_words": "Shop the sale",
+      "script_line": "before it ends",
+      "badge": null,
+      "callouts": null,
+      "quote": null,
+      "cta_label": "Shop the sale",
+      "seed": 97,
+      "background": "candid scene from the product photo"
+    }
+  ]
+}

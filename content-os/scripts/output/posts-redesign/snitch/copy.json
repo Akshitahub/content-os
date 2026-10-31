@@ -72,15 +72,15 @@
     "posts": [
       {
         "template": "bold_statement",
-        "background": "product photo"
+        "background": "candid scene from the product photo"
       },
       {
         "template": "product_focus",
-        "background": "product photo"
+        "background": "product photo as a cutout"
       },
       {
         "template": "quote_card",
-        "background": "product photo"
+        "background": "candid scene from the product photo"
       }
     ],
     "carousel": [
@@ -89,14 +89,14 @@
         "frame": "hook",
         "big_words": "Just dropped",
         "line": "the olive straight fit chinos",
-        "background": "product photo"
+        "background": "candid scene from the product photo"
       },
       {
         "slide": 2,
         "frame": "slide_photo",
         "big_words": "Olive, finally",
         "line": "A colour that works with white tees and navy shirts alike",
-        "background": "product photo"
+        "background": "candid scene from the product photo"
       },
       {
         "slide": 3,
@@ -110,7 +110,7 @@
         "frame": "slide_photo",
         "big_words": "Style it",
         "line": "Roll the hem once and pair with white sneakers",
-        "background": "product photo"
+        "background": "candid scene from the product photo"
       },
       {
         "slide": 5,
@@ -118,7 +118,7 @@
         "big_words": "Yours next",
         "line": "new in the drop",
         "cta": "Shop the chinos",
-        "background": "product photo"
+        "background": "candid scene from the product photo"
       }
     ]
   }
