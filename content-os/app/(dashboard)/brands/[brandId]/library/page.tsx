@@ -17,7 +17,7 @@ import type { Json } from "@/types/database"
 import { scoreHook, scoreColor, scoreLabel } from "@/lib/utils/content-score"
 import { cssBackgroundFromColors } from "@/components/shared/ColorWheelPicker"
 import type { StoryExportSlide } from "@/lib/utils/story-export"
-import { downloadCarouselSlidesAsImages, downloadCarouselSlidesAsPdf, type CarouselExportSlide } from "@/lib/utils/carousel-export"
+import { downloadCarouselSlidesAsImages, downloadCarouselSlidesAsPdf, exportFrameFields, type CarouselExportSlide } from "@/lib/utils/carousel-export"
 import { useBrand } from "@/hooks/useBrand"
 import { resolveBrandPalette, type BrandPalette } from "@/lib/design/color-themes"
 import { useGenerateContent } from "@/hooks/useGeneration"
@@ -676,6 +676,11 @@ interface SlideShape {
   kicker?: string | null
   highlight?: string | null
   accent_color?: string | null
+  /** Framed slides (lib/design/carousel-frames.ts). */
+  frame?: string | null
+  seed?: number | null
+  tape?: boolean | null
+  brand_mark?: boolean | null
 }
 
 // Reuses CarouselBuilder.tsx's own render pipeline (lib/utils/carousel-export.ts)
@@ -704,6 +709,7 @@ function toCarouselExportSlide(s: SlideShape, palette: BrandPalette | null = nul
     highlight: s.highlight ?? null,
     accent_color: s.accent_color ?? null,
     palette,
+    ...exportFrameFields(s),
   }
 }
 
@@ -729,7 +735,7 @@ function CarouselCard({ carousel, brandId, onOpenDetail }: { carousel: CarouselR
     e.stopPropagation()
     setDownloadError(null)
     setDownloadingPng(true)
-    const ok = await downloadCarouselSlidesAsImages(brand?.name ?? "", slides.map((sl) => toCarouselExportSlide(sl, palette)), "carousel")
+    const ok = await downloadCarouselSlidesAsImages(brand?.name ?? "", slides.map((sl) => toCarouselExportSlide(sl, palette)), "carousel", brandId)
     setDownloadingPng(false)
     if (ok === false) setDownloadError("Couldn't download slides. Please try again.")
   }
@@ -738,7 +744,7 @@ function CarouselCard({ carousel, brandId, onOpenDetail }: { carousel: CarouselR
     e.stopPropagation()
     setDownloadError(null)
     setDownloadingPdf(true)
-    const ok = await downloadCarouselSlidesAsPdf(brand?.name ?? "", slides.map((sl) => toCarouselExportSlide(sl, palette)), "carousel")
+    const ok = await downloadCarouselSlidesAsPdf(brand?.name ?? "", slides.map((sl) => toCarouselExportSlide(sl, palette)), "carousel", brandId)
     setDownloadingPdf(false)
     if (ok === false) setDownloadError("Couldn't create the PDF. Please try again.")
   }
@@ -778,20 +784,9 @@ function CarouselCard({ carousel, brandId, onOpenDetail }: { carousel: CarouselR
   // already applied to StoryCard's scheduleStorySlides below.
   const scheduleCarouselSlides: CarouselExportSlide[] = slides
     .filter((s): s is SlideShape & { type: NonNullable<SlideShape["type"]>; headline: string } => !!s.type && !!s.headline)
-    .map((s) => ({
-      palette,
-      type: s.type,
-      headline: s.headline,
-      subtext: s.subtext,
-      points: s.points,
-      ctaText: s.cta,
-      ctaHandle: s.handle,
-      background_style: s.background_style,
-      image_url: s.image_url,
-      custom_background_colors: s.custom_background_colors,
-      text_position_x: s.text_position_x,
-      text_position_y: s.text_position_y,
-    }))
+    // The same full mapping the downloads use, so a scheduled carousel
+    // renders exactly what was downloaded (fonts, layouts, frames).
+    .map((s) => toCarouselExportSlide(s, palette))
 
   function openDetail() {
     onOpenDetail({

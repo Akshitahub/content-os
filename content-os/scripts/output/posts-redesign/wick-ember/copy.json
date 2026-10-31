@@ -1,0 +1,125 @@
+{
+  "copy_source": "hand-written for this render -- the Groq daily token limit was reached; only the sample brand's own facts are used",
+  "post": {
+    "big_words": "New launch",
+    "script_line": "mogra glow is here",
+    "caption": ""
+  },
+  "carousel": [
+    {
+      "type": "cover",
+      "big_words": "Meet Mogra Glow",
+      "body": "our newest pour",
+      "frame": "hook",
+      "headline": "Meet Mogra Glow",
+      "subtext": "our newest pour",
+      "points": [],
+      "seed": 7,
+      "tape": true,
+      "brand_mark": true
+    },
+    {
+      "type": "content",
+      "big_words": "Real mogra",
+      "body": "Scented with mogra essential oil, hand-poured in small batches in Pune",
+      "frame": "slide_photo",
+      "headline": "Real mogra",
+      "subtext": "Scented with mogra essential oil, hand-poured in small batches in Pune",
+      "points": [],
+      "seed": 7926,
+      "tape": false,
+      "brand_mark": false
+    },
+    {
+      "type": "content",
+      "big_words": "40 hours",
+      "body": "Soy wax and a cotton wick for a slow, clean 40 hour burn",
+      "frame": "slide_type",
+      "headline": "40 hours",
+      "subtext": "Soy wax and a cotton wick for a slow, clean 40 hour",
+      "points": [],
+      "seed": 15845,
+      "tape": true,
+      "brand_mark": false
+    },
+    {
+      "type": "content",
+      "big_words": "Light it",
+      "body": "Trim the wick and let the first burn reach the edges",
+      "frame": "slide_photo",
+      "headline": "Light it",
+      "subtext": "Trim the wick and let the first burn reach the edges",
+      "points": [],
+      "seed": 23764,
+      "tape": false,
+      "brand_mark": false
+    },
+    {
+      "type": "cta",
+      "big_words": "Bring it home",
+      "body": "made in Pune",
+      "cta": "Shop now",
+      "frame": "cta",
+      "headline": "Bring it home",
+      "subtext": "made in Pune",
+      "points": [],
+      "seed": 31683,
+      "tape": false,
+      "brand_mark": true
+    }
+  ],
+  "renders": {
+    "posts": [
+      {
+        "template": "bold_statement",
+        "background": "sample photo p1060.jpg"
+      },
+      {
+        "template": "product_focus",
+        "background": "sample photo p1062.jpg"
+      },
+      {
+        "template": "quote_card",
+        "background": "sample photo p1080.jpg"
+      }
+    ],
+    "carousel": [
+      {
+        "slide": 1,
+        "frame": "hook",
+        "big_words": "Meet Mogra Glow",
+        "line": "our newest pour",
+        "background": "sample photo p1060.jpg"
+      },
+      {
+        "slide": 2,
+        "frame": "slide_photo",
+        "big_words": "Real mogra",
+        "line": "Scented with mogra essential oil, hand-poured in small batches in Pune",
+        "background": "sample photo p1062.jpg"
+      },
+      {
+        "slide": 3,
+        "frame": "slide_type",
+        "big_words": "40 hours",
+        "line": "Soy wax and a cotton wick for a slow, clean 40 hour",
+        "background": "brand colour (type-led)"
+      },
+      {
+        "slide": 4,
+        "frame": "slide_photo",
+        "big_words": "Light it",
+        "line": "Trim the wick and let the first burn reach the edges",
+        "background": "sample photo p1080.jpg"
+      },
+      {
+        "slide": 5,
+        "frame": "cta",
+        "big_words": "Bring it home",
+        "line": "made in Pune",
+        "cta": "Shop now",
+        "background": "sample photo p225.jpg"
+      }
+    ]
+  }
+}

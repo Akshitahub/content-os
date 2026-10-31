@@ -12,6 +12,7 @@ import { renderCarouselSlides, type CarouselExportSlide } from "@/lib/utils/caro
 import Link from "next/link"
 import { readJsonResponse } from "@/lib/utils/read-json-response"
 import type { SavedOverlayLayout } from "@/lib/utils/post-overlay-export"
+import type { PostDesign } from "@/lib/design/post-design-fields"
 
 // Extracted from five copy-pasted definitions (AdMaker.tsx,
 // FullPostGenerator.tsx, CarouselBuilder.tsx, StorySequence.tsx, and
@@ -84,6 +85,8 @@ type ScheduleActionProps =
       /** The overlay's text layout + extras (lib/design/text-layouts.ts),
        * saved with the entry so the calendar's re-edit draws the same layout. */
       overlayLayout?: SavedOverlayLayout | null
+      /** A designed post's words + seed -- the calendar re-renders it on the server. */
+      postDesign?: PostDesign | null
       carouselSlides?: undefined
       storySlides?: undefined
       imageUrls?: undefined
@@ -99,6 +102,7 @@ type ScheduleActionProps =
       overlayText?: undefined
       overlayFontId?: undefined
       overlayLayout?: undefined
+      postDesign?: undefined
       /** Real slide data, rendered server-side via
        * lib/image/carousel-compositor.ts right before scheduling — a
        * clean full-bleed 1080x1350 raster (background + headline/points/
@@ -124,6 +128,7 @@ type ScheduleActionProps =
       overlayText?: undefined
       overlayFontId?: undefined
       overlayLayout?: undefined
+      postDesign?: undefined
       carouselSlides?: undefined
       /** Real slide data, rendered server-side via
        * lib/image/story-compositor.ts right before scheduling — a clean
@@ -143,6 +148,7 @@ type ScheduleActionProps =
       overlayText?: undefined
       overlayFontId?: undefined
       overlayLayout?: undefined
+      postDesign?: undefined
       carouselSlides?: undefined
       storySlides?: undefined
       /** Already-hosted slide image URLs — scheduled directly, no render
@@ -167,6 +173,7 @@ export function ScheduleAction(props: ScheduleActionProps) {
   const overlayText = props.overlayText
   const overlayFontId = props.overlayFontId
   const overlayLayout = props.overlayLayout
+  const postDesign = props.postDesign
   const carouselSlides = props.carouselSlides
   const brandName = props.carouselSlides ? props.brandName : undefined
   const storySlides = props.storySlides
@@ -241,7 +248,7 @@ export function ScheduleAction(props: ScheduleActionProps) {
       // of a DOM screenshot -- this is the fix for a carousel scheduled
       // from Library previously publishing with no text and missing
       // slides (there was no live editor DOM to screenshot there at all).
-      const rendered = await renderCarouselSlides(brandName ?? "", carouselSlides)
+      const rendered = await renderCarouselSlides(brandName ?? "", carouselSlides, brandId)
       if (!rendered || rendered.imageUrls.length !== carouselSlides.length) {
         setErrorMsg(`Couldn't render the ${itemLabel} images. Please try again.`)
         setSubmitState("error")
@@ -275,7 +282,7 @@ export function ScheduleAction(props: ScheduleActionProps) {
         brandId, platform, imageUrl, caption, hashtags: hashtags.map((h) => h.replace(/^#+/, "")), scheduledDate: date, scheduledTime: time,
         // Only a real hosted base is re-editable later (a data: URL would
         // bloat the entry and can't be re-fetched reliably).
-        ...(baseImageUrl && /^https?:\/\//.test(baseImageUrl) ? { baseImageUrl, overlayText: overlayText ?? "", overlayFontId, ...(overlayLayout?.text_layout ? { overlayLayout } : {}) } : {}),
+        ...(baseImageUrl && /^https?:\/\//.test(baseImageUrl) ? { baseImageUrl, overlayText: overlayText ?? "", overlayFontId, ...(overlayLayout?.text_layout ? { overlayLayout } : {}), ...(postDesign ? { postDesign } : {}) } : {}),
       }
     }
 
@@ -299,7 +306,7 @@ export function ScheduleAction(props: ScheduleActionProps) {
       setErrorMsg("Network error. Please try again.")
       setSubmitState("error")
     }
-  }, [brandId, isMultiSlide, imageUrl, baseImageUrl, overlayText, overlayFontId, overlayLayout, carouselSlides, brandName, storySlides, preHostedImageUrls, contentFormat, itemLabel, platform, caption, hashtags, date, time])
+  }, [brandId, isMultiSlide, imageUrl, baseImageUrl, overlayText, overlayFontId, overlayLayout, postDesign, carouselSlides, brandName, storySlides, preHostedImageUrls, contentFormat, itemLabel, platform, caption, hashtags, date, time])
 
   const isBusy = submitState === "capturing" || submitState === "loading"
 

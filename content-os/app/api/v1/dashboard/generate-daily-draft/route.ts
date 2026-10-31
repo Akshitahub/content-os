@@ -23,6 +23,9 @@ import { getPrimaryColor } from "@/lib/design/post-card-generator"
 import { resolveTypography } from "@/lib/design/fonts"
 import { generatePostCopy } from "@/lib/ai/post-copy"
 import { artDirectionForRequest } from "@/lib/ai/art-direction"
+import { chooseFittingPhotos, photoFitItem } from "@/lib/ai/photo-fit"
+import { PHOTO_KINDS_FOR } from "@/lib/brand-photos"
+import { designAndUploadPost } from "@/lib/image/post-design"
 
 const BUCKET = "brand-images"
 
@@ -215,11 +218,21 @@ async function handlePost(request: Request, timer: GenerationTimer) {
     const colorTheme = autoPickColorTheme(colorThemes, caption.suggested_color_theme_id)
     const imagePrompt = (caption.image_prompt?.trim() || `${hook.hook_text}, ${brand.niche ?? "brand"} product`).slice(0, 500)
 
-    // No captionText -- matches Create Post's current decoupled-overlay
-    // architecture, a clean text-free background rather than a
-    // server-composited one.
+    // Real photos first, when one FITS this post (lib/ai/photo-fit.ts) --
+    // same as Full Post and Autopilot. No fit = a generated image.
+    const admin = await createAdminClient()
+    const brandPhoto = (await chooseFittingPhotos(admin, brand, {
+      kinds: PHOTO_KINDS_FOR.post,
+      items: [photoFitItem(caption.visual, imagePrompt, [hook.hook_text, caption.caption_text])],
+      label: "daily draft",
+    }))[0] ?? null
+
+    // No captionText -- a clean text-free base; the designed post is drawn
+    // on it below (lib/image/post-design.ts).
     const imageResult = await timer.step("image", withDeadline(generatePostImage({
       artDirection,
+      brandPhotoUrl: brandPhoto?.url ?? null,
+      visualBrief: caption.visual ?? undefined,
       imagePrompt,
       brandNiche: brand.niche,
       targetAudience: brand.target_audience,
@@ -240,7 +253,6 @@ async function handlePost(request: Request, timer: GenerationTimer) {
     // admin client since storage RLS expects the path to start with the
     // user's own auth uid, which brand ownership is already verified
     // above.
-    const admin = await createAdminClient()
     const image = await prepareGeneratedImage(imageResult.buffer, imageResult.mimeType, "dashboard/generate-daily-draft")
     const storagePath = `${user.id}/${brand.id}/${Date.now()}-${crypto.randomUUID()}.${image.ext}`
     const { error: uploadError } = await admin.storage
@@ -248,6 +260,13 @@ async function handlePost(request: Request, timer: GenerationTimer) {
       .upload(storagePath, image.buffer, { contentType: image.mimeType, upsert: false })
     if (uploadError) throw new Error(uploadError.message)
     const { data: publicUrlData } = admin.storage.from(BUCKET).getPublicUrl(storagePath)
+    // The post as designed (its words in the frame language); a failed
+    // render keeps the clean image.
+    const designed = await designAndUploadPost(brand, publicUrlData.publicUrl, {
+      template: caption.suggested_template, hasProduct: false, post_big_words: caption.post_big_words, post_script_line: caption.post_script_line,
+      fallbackWords: [caption.suggested_overlay_text, hook.hook_text],
+    }, "daily draft")
+    const draftImageUrl = designed?.imageUrl ?? publicUrlData.publicUrl
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { data: insertedRow, error: insertError } = await (supabase.from("daily_draft_cache") as any).insert({
@@ -256,7 +275,7 @@ async function handlePost(request: Request, timer: GenerationTimer) {
       hook_text: hook.hook_text,
       caption_text: caption.caption_text,
       hashtags: caption.hashtags,
-      image_url: publicUrlData.publicUrl,
+      image_url: draftImageUrl,
       content_project_id: contentProjectId,
       generation_failed: false,
     }).select("id").single() as { data: { id: string } | null; error: { message: string } | null }
@@ -269,7 +288,7 @@ async function handlePost(request: Request, timer: GenerationTimer) {
       hookText: hook.hook_text,
       captionText: caption.caption_text,
       hashtags: caption.hashtags,
-      imageUrl: publicUrlData.publicUrl,
+      imageUrl: draftImageUrl,
       failed: false,
     }
     return NextResponse.json({ data: draft }, { status: 200 })

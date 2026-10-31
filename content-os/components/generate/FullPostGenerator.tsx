@@ -27,6 +27,9 @@ import type { GeneratedHook, GeneratedCaption, ReelScript, CarouselContent, Blog
 import { pickTextLayout, type TextLayoutId } from "@/lib/design/text-layouts"
 import { TextLayoutPicker } from "@/components/shared/TextLayoutPicker"
 import { defaultBodyFont } from "@/lib/design/fonts"
+import { initialPostDesign, POST_DESIGN_TEMPLATES, type PostDesign } from "@/lib/design/post-design-fields"
+import { readJsonResponse } from "@/lib/utils/read-json-response"
+import { isApiError } from "@/types/api"
 
 type ContentAngle = "auto" | "problem_solution" | "quick_tip" | "myth_contrarian" | "launch_offer"
 
@@ -130,6 +133,12 @@ export function FullPostGenerator({ brandId, products }: Props) {
   // flattened Download/Schedule image.
   const [overlayFontId, setOverlayFontId] = useState<FontId>(DEFAULT_FONT_ID)
   const [flattenedImageUrl, setFlattenedImageUrl] = useState<string | null>(null)
+  // A designed post (lib/image/post-design.ts): the words drawn on the clean
+  // base in the frame language, rendered on the server into
+  // flattenedImageUrl. Null = the template draws its own text (checklist,
+  // annotated product, blank) and the overlay editor is used instead.
+  const [postDesign, setPostDesign] = useState<PostDesign | null>(null)
+  const [postRenderError, setPostRenderError] = useState<string | null>(null)
   // Canvas vs. in-feed preview toggle (Commit 4) — purely a display mode,
   // doesn't touch postImageUrl/overlayText/flattenedImageUrl at all.
   const [previewMode, setPreviewMode] = useState<"canvas" | "feed">("canvas")
@@ -192,6 +201,7 @@ export function FullPostGenerator({ brandId, products }: Props) {
 
     setImageError(null)
     setFlattenedImageUrl(null)
+    setPostDesign(null)
     // A fresh image generation (first attempt or a regenerate) is starting
     // -- any success banner still showing from a previous image belongs to
     // a now-stale result, not this one.
@@ -245,6 +255,12 @@ export function FullPostGenerator({ brandId, products }: Props) {
           setImageSource("ai")
           setOverlayText(initialOverlayText)
           setOverlayFontId(initialOverlayFont)
+          const design = initialPostDesign((caption.suggested_template as PostTemplateId) || selectedLayout, {
+            post_big_words: caption.post_big_words,
+            post_script_line: caption.post_script_line,
+            fallbackWords: [headlineOverlay, caption.suggested_overlay_text, data.hook.hook_text],
+          })
+          setPostDesign(design ? { ...design, aspect: aspectRatio } : null)
           // The image is the last piece of "the post" to finish -- this is
           // the real "done" point (and the first point creditsUsedForResult
           // is actually knowable), not right after the caption's own text
@@ -418,7 +434,7 @@ export function FullPostGenerator({ brandId, products }: Props) {
   // Never touches credits or the API — pure canvas work on an image
   // already in the browser.
   useEffect(() => {
-    if (imageSource !== "ai" || !postImageUrl) return
+    if (imageSource !== "ai" || !postImageUrl || postDesign) return
     if (!overlayText.trim()) {
       setFlattenedImageUrl(null)
       return
@@ -432,7 +448,37 @@ export function FullPostGenerator({ brandId, products }: Props) {
         .finally(() => { if (!cancelled) setFlattening(false) })
     }, 400)
     return () => { cancelled = true; clearTimeout(timer) }
-  }, [imageSource, postImageUrl, overlayText, overlayFontId, postTextStyle, overlayLayout])
+  }, [imageSource, postImageUrl, overlayText, overlayFontId, postTextStyle, overlayLayout, postDesign])
+
+  // A designed post is drawn on the server (the same renderer Autopilot and
+  // the calendar use), so the preview IS the downloaded / scheduled image.
+  // Debounced like the overlay above; drawing costs no credits.
+  useEffect(() => {
+    if (imageSource !== "ai" || !postImageUrl || !postDesign) return
+    if (!postDesign.big_words.trim()) return
+    const controller = new AbortController()
+    const timer = setTimeout(() => {
+      setFlattening(true)
+      setPostRenderError(null)
+      fetch("/api/v1/ai/post-image/render", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ brandId, baseImageUrl: postImageUrl, design: postDesign }),
+        signal: controller.signal,
+      })
+        .then(async (res) => {
+          const json: unknown = await readJsonResponse(res)
+          if (!res.ok || isApiError(json)) throw new Error(isApiError(json) ? json.error.message : "Couldn't draw the post.")
+          setFlattenedImageUrl((json as { data: { image_url: string } }).data.image_url)
+        })
+        .catch((err: unknown) => {
+          if (controller.signal.aborted) return
+          setPostRenderError(err instanceof Error ? err.message : "Couldn't draw the post.")
+        })
+        .finally(() => { if (!controller.signal.aborted) setFlattening(false) })
+    }, 500)
+    return () => { controller.abort(); clearTimeout(timer) }
+  }, [imageSource, postImageUrl, postDesign, brandId])
 
   const copy = useCallback((text: string, key: string) => {
     navigator.clipboard.writeText(text)
@@ -452,6 +498,7 @@ export function FullPostGenerator({ brandId, products }: Props) {
     setPostSessionId(null)
     setOverlayText("")
     setFlattenedImageUrl(null)
+    setPostDesign(null)
     // A brand new caption is about to replace whatever the left panel was
     // showing -- back to the plain "What do you want to post" textarea
     // (see the left column below) instead of leaving a stale authored
@@ -723,6 +770,9 @@ export function FullPostGenerator({ brandId, products }: Props) {
             onOverlayLayoutChange={(layout) => setOverlayLayout((prev) => (prev ? { ...prev, text_layout: layout, text_layout_source: "user" } : prev))}
             flattenedImageUrl={flattenedImageUrl}
             flattening={flattening}
+            postDesign={postDesign}
+            onPostDesignChange={setPostDesign}
+            postRenderError={postRenderError}
             previewMode={previewMode}
             onPreviewModeChange={setPreviewMode}
             aspectRatio={aspectRatio}
@@ -1012,6 +1062,9 @@ function PostImagePreview({
   onOverlayLayoutChange,
   downloadUrl,
   flattening,
+  postDesign,
+  onPostDesignChange,
+  postRenderError,
   previewMode,
   onPreviewModeChange,
   brandName,
@@ -1041,6 +1094,10 @@ function PostImagePreview({
    * output or the plain background URL, so it costs nothing to use. */
   downloadUrl: string
   flattening: boolean
+  /** A designed post: downloadUrl is its server render, edited by the fields below. */
+  postDesign: PostDesign | null
+  onPostDesignChange: (design: PostDesign) => void
+  postRenderError: string | null
   /** Canvas (bare graphic) vs. in-feed (wrapped in a static Instagram
    * chrome shell) — display only, never affects downloadUrl/postImageUrl.
    * Only rendered when showOverlayEditor is true (see Commit 4). */
@@ -1105,7 +1162,19 @@ function PostImagePreview({
   // draws the shared plan) -- preview = download = scheduled image; the
   // headline is edited in the field below instead of on the image.
   const layoutPreview = !!overlayLayout?.text_layout && showHeadlineEditor
-  const graphicWithOverlay = layoutPreview ? (
+  const graphicWithOverlay = postDesign ? (
+    <div className="relative w-full overflow-hidden">
+      {downloadUrl && downloadUrl !== postImageUrl ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={downloadUrl} alt={alt} className={`w-full object-contain ${flattening ? "opacity-80" : ""}`} />
+      ) : (
+        <div className="flex w-full items-center justify-center gap-2 bg-muted" style={{ aspectRatio: aspectRatio.replace(":", " / ") }}>
+          <Loader2 className="h-4 w-4 animate-spin text-violet-500" />
+          <span className="text-sm text-muted-foreground">Designing the post…</span>
+        </div>
+      )}
+    </div>
+  ) : layoutPreview ? (
     <div className="relative w-full overflow-hidden">
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img src={downloadUrl || postImageUrl} alt={alt} className={`w-full object-contain ${flattening ? "opacity-80" : ""}`} />
@@ -1232,7 +1301,7 @@ function PostImagePreview({
       {/* Headline typeface -- starts at the model's pick for this post
           (suggested_font_id); changing it only redraws the canvas, no
           credits. Only shown while there's a headline to apply it to. */}
-      {showOverlayEditor && layoutPreview && (
+      {showOverlayEditor && layoutPreview && !postDesign && (
         <div className="space-y-2">
           <textarea
             value={overlayText}
@@ -1245,7 +1314,11 @@ function PostImagePreview({
         </div>
       )}
 
-      {showOverlayEditor && showHeadlineEditor && (
+      {showOverlayEditor && postDesign && (
+        <PostDesignFields design={postDesign} onChange={onPostDesignChange} error={postRenderError} />
+      )}
+
+      {showOverlayEditor && showHeadlineEditor && !postDesign && (
         <div className="flex flex-wrap items-center gap-1.5">
           <span className="text-[11px] text-muted-foreground">Font</span>
           {resolveFonts().map((font) => (
@@ -1262,6 +1335,58 @@ function PostImagePreview({
           ))}
         </div>
       )}
+    </div>
+  )
+}
+
+const POST_DESIGN_LABEL: Record<PostDesign["template"], string> = {
+  bold_statement: "Bold",
+  product_focus: "Product",
+  quote_card: "Quote",
+  minimal: "Quiet",
+}
+
+/** The designed post's words and look -- every change re-renders on the server, no credits. */
+function PostDesignFields({ design, onChange, error }: { design: PostDesign; onChange: (design: PostDesign) => void; error: string | null }) {
+  return (
+    <div className="space-y-2">
+      <input
+        value={design.big_words}
+        onChange={(e) => onChange({ ...design, big_words: e.target.value })}
+        maxLength={80}
+        placeholder="Big words (1-4)"
+        className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-semibold focus:outline-none focus:ring-1 focus:ring-ring"
+      />
+      <input
+        value={design.script_line}
+        onChange={(e) => onChange({ ...design, script_line: e.target.value })}
+        maxLength={120}
+        placeholder="Handwritten line under them (optional)"
+        className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+      />
+      <div className="flex flex-wrap items-center gap-1.5">
+        <span className="text-[11px] text-muted-foreground">Look</span>
+        {POST_DESIGN_TEMPLATES.map((t) => (
+          <button
+            key={t}
+            type="button"
+            onClick={() => onChange({ ...design, template: t })}
+            className={`rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors ${
+              design.template === t ? "border-violet-500 bg-violet-50 text-violet-700" : "border-border text-muted-foreground hover:border-violet-300"
+            }`}
+          >
+            {POST_DESIGN_LABEL[t]}
+          </button>
+        ))}
+        <button
+          type="button"
+          onClick={() => onChange({ ...design, seed: Math.floor(Math.random() * 2 ** 30) })}
+          className="rounded-full border border-border px-2.5 py-1 text-[11px] font-medium text-muted-foreground hover:border-violet-300"
+        >
+          Shuffle
+        </button>
+      </div>
+      {error && <p className="text-xs text-destructive">{error}</p>}
     </div>
   )
 }
@@ -1287,6 +1412,9 @@ function FullPostResults({
   onOverlayLayoutChange,
   flattenedImageUrl,
   flattening,
+  postDesign,
+  onPostDesignChange,
+  postRenderError,
   previewMode,
   onPreviewModeChange,
   aspectRatio,
@@ -1311,6 +1439,9 @@ function FullPostResults({
   onOverlayLayoutChange: (layout: TextLayoutId) => void
   flattenedImageUrl: string | null
   flattening: boolean
+  postDesign: PostDesign | null
+  onPostDesignChange: (design: PostDesign) => void
+  postRenderError: string | null
   previewMode: "canvas" | "feed"
   onPreviewModeChange: (mode: "canvas" | "feed") => void
   aspectRatio: "4:5" | "1:1" | "9:16"
@@ -1337,7 +1468,11 @@ function FullPostResults({
   // Falls back to the plain background when there's no headline typed, or
   // for the product_photo/user_upload paths (which never had this
   // decoupling in the first place — their postImageUrl is already final).
-  const shareableImageUrl = (imageSource === "ai" && overlayText.trim() && flattenedImageUrl) || postImageUrl
+  // A designed post is only shareable once its render is back -- never
+  // the bare photo by accident.
+  const shareableImageUrl = imageSource === "ai" && postDesign
+    ? flattenedImageUrl
+    : (imageSource === "ai" && overlayText.trim() && flattenedImageUrl) || postImageUrl
 
   return (
     <div className="space-y-4">
@@ -1361,6 +1496,9 @@ function FullPostResults({
         onOverlayLayoutChange={onOverlayLayoutChange}
         downloadUrl={shareableImageUrl ?? postImageUrl ?? ""}
         flattening={flattening}
+        postDesign={imageSource === "ai" ? postDesign : null}
+        onPostDesignChange={onPostDesignChange}
+        postRenderError={postRenderError}
         previewMode={previewMode}
         onPreviewModeChange={onPreviewModeChange}
         brandName={brandName}
@@ -1371,7 +1509,7 @@ function FullPostResults({
       <HookSection hook={result.hook} copied={copied} onCopy={onCopy} />
       <ContentDisplay content={result.content} copied={copied} onCopy={onCopy} onSaveCaption={onSaveCaption} />
 
-      {shareableImageUrl && !imageGenerating && scheduleCaption && (
+      {shareableImageUrl && !imageGenerating && !flattening && scheduleCaption && (
         <ScheduleAction
           brandId={brandId}
           imageUrl={shareableImageUrl}
@@ -1380,7 +1518,8 @@ function FullPostResults({
           baseImageUrl={imageSource === "ai" ? postImageUrl : null}
           overlayText={overlayText}
           overlayFontId={overlayFontId}
-          overlayLayout={overlayLayout ? { ...overlayLayout, body_font_id: defaultBodyFont(overlayFontId), text_style: overlayTextStyle } : null}
+          overlayLayout={postDesign ? null : overlayLayout ? { ...overlayLayout, body_font_id: defaultBodyFont(overlayFontId), text_style: overlayTextStyle } : null}
+          postDesign={imageSource === "ai" ? postDesign : null}
           caption={scheduleCaption.text}
           hashtags={scheduleCaption.hashtags}
         />

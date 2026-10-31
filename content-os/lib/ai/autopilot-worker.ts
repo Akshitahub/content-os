@@ -39,6 +39,11 @@ import { stampPostLayout } from "@/lib/design/text-layouts"
 import { getPrimaryColor } from "@/lib/design/post-card-generator"
 import { ensureArtDirection } from "./art-direction"
 import { artDirectionFrom } from "./brand-brain"
+import { designAndUploadPost } from "@/lib/image/post-design"
+import { assignCarouselBrandPhotos } from "./carousel-photos"
+import { carouselFrameNeedsPhoto, isCarouselFrame, type CarouselFrame } from "@/lib/design/carousel-frames"
+import { renderCarouselFrame } from "@/lib/image/carousel-frames"
+import type { PostDesign } from "@/lib/design/post-design-fields"
 
 // Background Autopilot worker (supabase/migrations/057_autopilot_slot_jobs.sql).
 // A Supabase Cron job calls app/api/v1/cron/autopilot-drain every 20s while
@@ -105,7 +110,11 @@ type PreparedSlot = {
   scheduledDate: string
   isCarousel: boolean
   isReel: boolean
+  /** A post's clean, text-free image (kept as base_image_url, re-editable). */
   imageUrl: string | null
+  /** The designed post drawn on it (lib/image/post-design.ts) -- what's published. */
+  designedImageUrl: string | null
+  postDesign: PostDesign | null
   carouselHtml: string | null
   carouselSlides: { slide_number: number; headline: string; body: string; kicker?: string | null; highlight?: string | null }[]
   /** The shared generator's typed slides, with their background image_url and
@@ -312,6 +321,7 @@ async function prepareSlot(admin: Admin, job: SlotJobRow, ctx: RunContext, track
   // Post slots: AI image (clean, no text overlay -- Autopilot has no human
   // choosing on-image text). Uploaded now; referenced only if committed.
   let imageUrl: string | null = null
+  let designed: { imageUrl: string; design: PostDesign } | null = null
   if (!isReel && !isCarousel) {
     try {
       const imageStartedAt = Date.now()
@@ -351,6 +361,14 @@ async function prepareSlot(admin: Admin, job: SlotJobRow, ctx: RunContext, track
           console.error(`[autopilot-worker] slot ${job.id}: image upload failed:`, uploadError.message)
         } else {
           imageUrl = admin.storage.from(IMAGE_BUCKET).getPublicUrl(storagePath).data.publicUrl
+          // The post as designed: its 1-4 words and script line in the
+          // frame language on the clean image. No words / a failed render
+          // keeps the clean image, as before.
+          const f = generated.postDesignFields
+          designed = await designAndUploadPost(brand, imageUrl, {
+            template: f?.template, hasProduct: !!product, post_big_words: f?.post_big_words, post_script_line: f?.post_script_line,
+            fallbackWords: [f?.suggested_overlay_text, generated.hook],
+          }, `autopilot slot ${job.id}`)
         }
       } else {
         console.error(`[autopilot-worker] slot ${job.id}: image generation failed:`, imageResult.error)
@@ -378,14 +396,28 @@ async function prepareSlot(admin: Admin, job: SlotJobRow, ctx: RunContext, track
   if (isCarousel && generated.carousel && generated.carousel.slides.length >= MIN_CAROUSEL_SLIDES) {
     try {
       const imageStartedAt = Date.now()
-      carouselRichSlides = await withCarouselBackgrounds(job, ctx, generated.carousel.slides, tracker)
+      // Real brand photos first on the photo-led slides (fit 4+, no repeats);
+      // only the rest are generated.
+      const withPhotos = await assignCarouselBrandPhotos(admin, brand, generated.carousel.slides, {
+        productId: product?.id ?? null, productName: product?.name ?? null, label: `autopilot slot ${job.id} carousel`,
+      })
+      carouselRichSlides = await withCarouselBackgrounds(job, ctx, withPhotos, tracker)
       tracker.imageMs += Date.now() - imageStartedAt
       await rememberBrandTypography(admin, brand, generated.carousel.typography)
-      const rendered = await renderRichCarouselSlides(brand.name, carouselRichSlides.map((sl) => toCompositeSlide(sl, resolveBrandPalette(brand))))
+      // Framed slides (lib/design/carousel-frames.ts) through the frame
+      // compositor, anything else through the original one.
+      const palette = resolveBrandPalette(brand)
+      const rendered = carouselRichSlides.every((sl) => isCarouselFrame(sl.frame))
+        ? await Promise.all(carouselRichSlides.map(async (sl) => ({
+            png: await renderCarouselFrame({ ...sl, frame: sl.frame as CarouselFrame, headline: String(sl.headline ?? ""), subtext: (sl.subtext as string | null) ?? null, cta: (sl.cta as string | null) ?? null, image_url: (sl.image_url as string | null) ?? null, seed: sl.seed as number | null, tape: sl.tape as boolean | null, brand_mark: sl.brand_mark as boolean | null, font_id: sl.font_id as string | null },
+              { name: brand.name, logo_url: brand.logo_url, palette, fontId: generated.carousel!.typography.heading }),
+            mime: "image/jpeg",
+          })))
+        : (await renderRichCarouselSlides(brand.name, carouselRichSlides.map((sl) => toCompositeSlide(sl, palette)))).map((r) => ({ png: r.png, mime: "image/png" }))
       const uploaded: string[] = []
       for (let idx = 0; idx < rendered.length; idx++) {
         const uploadResult = await uploadMediaToStorage(
-          { kind: "buffer", buffer: rendered[idx]!.png, mimeType: "image/png" },
+          { kind: "buffer", buffer: rendered[idx]!.png, mimeType: rendered[idx]!.mime },
           `${job.brand_id}/carousel/${Date.now()}-${idx}`,
           { generatedImage: true }
         )
@@ -432,7 +464,7 @@ async function prepareSlot(admin: Admin, job: SlotJobRow, ctx: RunContext, track
   return {
     generated, mergedCaption, product,
     scheduledDate: slotScheduledDate(params.baseDate, slot.day),
-    isCarousel, isReel, imageUrl, carouselHtml, carouselSlides, carouselRichSlides, carouselImageUrls, reelScenes, reelMusicUrl,
+    isCarousel, isReel, imageUrl, designedImageUrl: designed?.imageUrl ?? null, postDesign: designed?.design ?? null, carouselHtml, carouselSlides, carouselRichSlides, carouselImageUrls, reelScenes, reelMusicUrl,
   }
 }
 
@@ -454,6 +486,8 @@ function carouselBgRole(index: number, count: number): "hook" | "cta" | "body" {
 async function withCarouselBackgrounds(job: SlotJobRow, ctx: RunContext, slides: Record<string, unknown>[], tracker: AutopilotUsageTracker): Promise<Record<string, unknown>[]> {
   const { brand, params } = ctx
   return Promise.all(slides.map(async (slide, i) => {
+    // A brand photo already placed, or a type-led frame (no photo at all).
+    if (slide.image_url || (slide.frame && !carouselFrameNeedsPhoto(slide.frame))) return slide
     const visualBrief = sanitizeVisualBrief(slide.visual)
     if (!visualBrief) return slide
     try {
@@ -546,7 +580,7 @@ async function persistSlot(admin: Admin, job: SlotJobRow, ctx: RunContext, p: Pr
     }
 
     const platformData: Record<string, unknown> = {}
-    if (p.imageUrl) platformData.image_url = p.imageUrl
+    if (p.imageUrl) platformData.image_url = p.designedImageUrl ?? p.imageUrl
     // A post's clean image + the hook's content-matched layout (lib/design/
     // text-layouts.ts): the calendar's "Edit text on image" can then put the
     // hook on it in that layout. Carousels/reels have their own visuals.
@@ -554,7 +588,8 @@ async function persistSlot(admin: Admin, job: SlotJobRow, ctx: RunContext, p: Pr
       const brand = ctx.brand
       const typography = resolveTypography(brand)
       platformData.base_image_url = p.imageUrl
-      platformData.overlay_text = ""
+      platformData.overlay_text = p.postDesign?.big_words ?? ""
+      if (p.postDesign) platformData.post_design = p.postDesign
       platformData.overlay_font_id = typography.heading
       const stamped = stampPostLayout(g as { kicker?: unknown; highlight?: unknown }, g.hook, { brand, headingFont: typography.heading, accentColor: getPrimaryColor(brand) })
       platformData.overlay_layout = { text_layout: stamped.text_layout, kicker: stamped.kicker, highlight: stamped.highlight, text_layout_source: "auto", body_font_id: typography.body, brand_color: stamped.accent_color }

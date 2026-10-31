@@ -2,6 +2,7 @@
 // -- moved out of app/api/v1/ai/carousel/generate/route.ts so Autopilot
 // (lib/ai/fastlane.ts generateSlotContent) runs the exact same steps on the
 // same generator's output instead of a second, drifting copy.
+import { finalizeCarouselFrames } from "@/lib/design/carousel-frames"
 import type { BrandRow } from "@/types/database"
 import type { CarouselBackgroundStyle } from "@/lib/design/carousel-slide-styles"
 import { toBrandPreset } from "@/lib/design/color-themes"
@@ -186,8 +187,11 @@ export function finishGeneratedCarousel(
     format: "carousel", brand, headingFont: typography.heading, accentColor: getPrimaryColor(brand), headlineKey: "headline",
     toPick: (s) => ({ role: typeof s.role === "string" ? s.role : null, slideType: s.type as "cover" | "content" | "cta", visualKind: (s.visual as { kind?: string } | undefined)?.kind ?? null }),
   })
+  // The story frame language (lib/design/carousel-frames.ts): hook, photo /
+  // type alternating, CTA -- big words + one line of at most 12 words each.
+  const framed = finalizeCarouselFrames(stamped, { ctaPhrase: (brand as BrandRow & { cta_phrase?: string | null }).cta_phrase })
   return {
-    slides: stamped,
+    slides: framed,
     typography,
     title: typeof d.title === "string" ? sanitizeCarouselText(d.title) : d.title,
     coverHook: typeof d.cover_hook === "string" ? sanitizeCarouselText(d.cover_hook) : d.cover_hook,

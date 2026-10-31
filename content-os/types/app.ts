@@ -76,6 +76,10 @@ export type GeneratedCaption = {
   /** Short on-image overlay text, or empty string if a clean text-free
    * image fits this post better — the model decides, not a toggle. */
   suggested_overlay_text?: string | null
+  /** The designed post's 1-4 display words and its handwritten script line
+   * (lib/image/post-design.ts) -- Full Post with includeImagePrompt only. */
+  post_big_words?: string | null
+  post_script_line?: string | null
   /** Only populated when suggested_template is "hard_truth_checklist" --
    * see lib/image/post-compositor.ts's buildHardTruthChecklist for how
    * these render (no AI photo, a flat off-white card). */

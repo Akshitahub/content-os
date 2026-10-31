@@ -334,6 +334,8 @@ export interface SlotContent {
   visual?: VisualBrief
   /** Posts: the image prompt built from that brief (falls back to the caption's image_prompt). */
   imagePrompt?: string
+  /** Posts: the designed post's words and template (lib/image/post-design.ts). */
+  postDesignFields?: { template: string | null; post_big_words: string | null; post_script_line: string | null; suggested_overlay_text: string | null }
   /** Carousels: the shared generator's slides after the manual route's
    * post-processing (lib/ai/carousel-postprocess.ts) -- typed slides with
    * visual briefs, typography and layouts, for per-slide backgrounds and the
@@ -594,6 +596,12 @@ async function generatePostSlot(
     gate: contentResult.gate,
     visual,
     imagePrompt,
+    postDesignFields: {
+      template: caption.suggested_template ?? null,
+      post_big_words: caption.post_big_words ?? null,
+      post_script_line: caption.post_script_line ?? null,
+      suggested_overlay_text: caption.suggested_overlay_text ?? null,
+    },
   }
 }
 

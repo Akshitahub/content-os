@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server"
 import { buildError, ErrorCodes } from "@/types/api"
 import { uploadMediaToStorage } from "@/lib/storage/upload-media"
 import { z } from "zod"
+import { postDesignSchema } from "@/lib/design/post-design-fields"
 import type { CalendarEntryRow } from "@/types/database"
 
 type RouteParams = { params: Promise<{ brandId: string; entryId: string }> }
@@ -13,6 +14,8 @@ type RouteParams = { params: Promise<{ brandId: string; entryId: string }> }
 const schema = z.object({
   overlayText: z.string().max(300),
   imageDataUrl: z.string().max(6_000_000).regex(/^data:image\/(?:png|jpeg);base64,/),
+  // A designed post: the edited words, kept so it can be re-edited again.
+  postDesign: postDesignSchema.optional(),
 })
 
 /**
@@ -44,7 +47,7 @@ export async function POST(request: Request, { params }: RouteParams) {
   if (!parsed.success) {
     return NextResponse.json(buildError(ErrorCodes.VALIDATION_ERROR, "Validation failed.", parsed.error.issues[0]?.message), { status: 400 })
   }
-  const { overlayText, imageDataUrl } = parsed.data
+  const { overlayText, imageDataUrl, postDesign } = parsed.data
 
   const { data: brand } = await supabase.from("brands").select("id").eq("id", brandId).eq("user_id", user.id).single<{ id: string }>()
   if (!brand) return NextResponse.json(buildError(ErrorCodes.BRAND_NOT_FOUND, "Brand not found."), { status: 404 })
@@ -80,6 +83,7 @@ export async function POST(request: Request, { params }: RouteParams) {
     image_url: uploadResult.publicUrl,
     hosted_image_url: uploadResult.publicUrl,
     overlay_text: overlayText,
+    ...(postDesign ? { post_design: postDesign } : {}),
   }
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data: updated, error: updateError } = await (supabase.from("calendar_entries") as any)

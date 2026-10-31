@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { noteGenerationBrand } from "@/lib/ai/provider-fallback"
-import { createClient } from "@/lib/supabase/server"
+import { createClient, createAdminClient } from "@/lib/supabase/server"
+import { assignCarouselBrandPhotos } from "@/lib/ai/carousel-photos"
 import { buildError, ErrorCodes } from "@/types/api"
 import { MODELS, classifyOpenAIError } from "@/lib/ai/models"
 import { UsageCarryingError } from "@/lib/ai/pricing"
@@ -149,7 +150,9 @@ async function handlePost(request: Request, timer: GenerationTimer) {
     // content-matched layouts -- shared with Autopilot (lib/ai/carousel-postprocess.ts).
     const realHandle = brand.instagram_handle ? `@${brand.instagram_handle}` : undefined
     const finished = finishGeneratedCarousel(d, brand, { vibe, realHandle })
-    const mergedSlides = finished.slides
+    // Real brand photos first on the photo-led slides, when one fits -- no
+    // repeats in the carousel; the builder generates only what's left.
+    const mergedSlides = await assignCarouselBrandPhotos(await createAdminClient(), brand, finished.slides, { label: "carousel" })
     const typography = finished.typography
     d.suggested_font_id = typography.heading
     // Saved to the brand on its first generation (lib/design/brand-typography.ts).

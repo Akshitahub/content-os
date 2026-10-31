@@ -6,7 +6,8 @@ import { ProductPicker, type PickedProduct } from "@/components/shared/ProductPi
 import { VibePicker, type Vibe } from "@/components/shared/VibePicker"
 import { ScheduleAction } from "@/components/shared/ScheduleAction"
 import { useBrand } from "@/hooks/useBrand"
-import { downloadCarouselSlideAsImage, downloadCarouselSlidesAsImages, type CarouselExportSlide } from "@/lib/utils/carousel-export"
+import { downloadCarouselSlideAsImage, downloadCarouselSlidesAsImages, exportFrameFields, renderCarouselSlides, type CarouselExportSlide } from "@/lib/utils/carousel-export"
+import { carouselFrameNeedsPhoto, type CarouselFrame } from "@/lib/design/carousel-frames"
 import { GenerationWarning } from "@/components/shared/GenerationWarning"
 import { UsageLimitBanner } from "@/components/generate/UsageLimitBanner"
 import { TopicSuggestButton } from "@/components/shared/TopicSuggestButton"
@@ -128,6 +129,13 @@ interface CarouselSlideRich {
   highlight?: string | null
   text_layout_source?: "auto" | "user" | null
   accent_color?: string | null
+  /** A framed slide (lib/design/carousel-frames.ts): headline = its big
+   * words, subtext = its one line. Drawn on the server (the preview is the
+   * real render); absent = the original DOM preview + compositor. */
+  frame?: CarouselFrame | null
+  seed?: number | null
+  tape?: boolean | null
+  brand_mark?: boolean | null
 }
 
 interface CtaSlide {
@@ -165,7 +173,8 @@ function toExportSlide(slide: CarouselSlideRich, ctaSlide: CtaSlide | undefined,
   return {
     type: slide.type,
     headline: slide.headline,
-    subtext: slide.type === "cover" ? slide.subtext : undefined,
+    // A framed slide's line is on every slide type.
+    subtext: slide.type === "cover" || slide.frame ? slide.subtext : undefined,
     points: slide.type === "content" ? slide.points : undefined,
     ctaText: slide.type === "cta" ? (slide.cta ?? ctaSlide?.cta) : undefined,
     ctaHandle: slide.type === "cta" ? (slide.handle ?? ctaSlide?.handle) : undefined,
@@ -185,6 +194,7 @@ function toExportSlide(slide: CarouselSlideRich, ctaSlide: CtaSlide | undefined,
     accent_color: slide.accent_color ?? null,
     // The brand's 4-role palette: the compositor's presets, scrims and dots.
     palette,
+    ...exportFrameFields(slide),
   }
 }
 
@@ -563,6 +573,92 @@ function SlidePreview({
 
 // ─── Slide editor (inline text editing) ───────────────────────────────────────
 
+/**
+ * Server renders of the framed slides (the same render the download and
+ * schedule use), refreshed 700ms after the last edit. null = still drawing.
+ */
+function useFramePreviews(brandId: string, brandName: string, exportSlides: CarouselExportSlide[]): (string | null)[] {
+  const [previews, setPreviews] = useState<Record<string, string>>({})
+  const keys = exportSlides.map((s) => (s.frame ? JSON.stringify(s) : ""))
+  const pending = keys.filter((k) => k && !previews[k])
+  const pendingKey = pending.join("\n")
+  useEffect(() => {
+    if (!pendingKey) return
+    let cancelled = false
+    const wanted = pendingKey.split("\n")
+    const timer = setTimeout(() => {
+      void renderCarouselSlides(brandName, wanted.map((k) => JSON.parse(k) as CarouselExportSlide), brandId, { preview: true }).then((out) => {
+        if (cancelled || !out) return
+        setPreviews((prev) => {
+          const next: Record<string, string> = {}
+          // Keep only what's still on screen, plus the new renders.
+          for (const k of keys) if (k && prev[k]) next[k] = prev[k]!
+          wanted.forEach((k, i) => { if (out.imageUrls[i]) next[k] = out.imageUrls[i]! })
+          return next
+        })
+      })
+    }, 700)
+    return () => { cancelled = true; clearTimeout(timer) }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingKey, brandId, brandName])
+  return keys.map((k) => (k ? previews[k] ?? null : null))
+}
+
+function FramePreview({ src, alt, thumb }: { src: string | null; alt: string; thumb?: boolean }) {
+  return src ? (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img src={src} alt={alt} className={thumb ? "h-[100px] w-[80px] object-cover" : "w-full rounded-xl"} />
+  ) : (
+    <div className={`flex items-center justify-center bg-muted ${thumb ? "h-[100px] w-[80px]" : "w-full rounded-xl"}`} style={thumb ? undefined : { aspectRatio: "4 / 5" }}>
+      <Loader2 className="h-4 w-4 animate-spin text-violet-500" />
+    </div>
+  )
+}
+
+/** A framed slide's fields: its big words, its one line, the CTA button, the font. */
+function FrameSlideEditor({ slide, onChange }: { slide: CarouselSlideRich; onChange: (updated: CarouselSlideRich) => void }) {
+  const handwritten = slide.frame === "hook" || slide.frame === "cta"
+  const input = "mt-0.5 w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+  return (
+    <div className="rounded-xl border bg-card p-4 space-y-3">
+      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Edit Slide {slide.slide_number}</p>
+      <div className="space-y-2">
+        <div>
+          <label className="text-xs text-muted-foreground">Big words (1-4)</label>
+          <input value={slide.headline} maxLength={60} onChange={(e) => onChange({ ...slide, headline: e.target.value })} className={input} />
+        </div>
+        <div>
+          <label className="text-xs text-muted-foreground">{handwritten ? "Handwritten line (up to 6 words)" : "One line (up to 12 words)"}</label>
+          <input value={slide.subtext ?? ""} maxLength={120} onChange={(e) => onChange({ ...slide, subtext: e.target.value })} className={input} />
+        </div>
+        {slide.frame === "cta" && (
+          <div>
+            <label className="text-xs text-muted-foreground">Button</label>
+            <input value={slide.cta ?? ""} maxLength={40} onChange={(e) => onChange({ ...slide, cta: e.target.value })} className={input} />
+          </div>
+        )}
+        <div>
+          <label className="text-xs text-muted-foreground">Font</label>
+          <div className="mt-1 flex flex-wrap gap-1.5">
+            {resolveFonts().map((font) => (
+              <button
+                key={font.id}
+                type="button"
+                onClick={() => onChange({ ...slide, font_id: font.id, body_font_id: null })}
+                className={`rounded-full border-2 px-2.5 py-1 text-xs font-medium transition-all ${
+                  (slide.font_id ?? DEFAULT_FONT_ID) === font.id ? "border-violet-500 bg-violet-50 text-violet-700 dark:bg-violet-950/30" : "border-border hover:border-violet-300"
+                }`}
+              >
+                {font.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function SlideEditor({
   slide,
   onChange,
@@ -822,11 +918,17 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
   const stepNumbers = carouselStepNumbers(allSlides)
   // Same layout math the compositor uses (lib/design/slide-text-layout.ts):
   // slides whose text only fits at the smallest size, or not at all.
+  // (Framed slides lay out their own few words -- not this compositor's concern.)
   const overflowSlides = useMemo(
-    () => overflowingSlides(carousel?.slides ?? [], (s) => layoutCarouselText(toExportSlide(s, carousel?.cta_slide, null, palette)).overflow),
+    () => overflowingSlides(carousel?.slides ?? [], (s) => !s.frame && layoutCarouselText(toExportSlide(s, carousel?.cta_slide, null, palette)).overflow),
     [carousel?.slides, carousel?.cta_slide]
   )
   const isLastSlide = activeSlide === allSlides.length - 1
+  const exportSlides = useMemo(
+    () => allSlides.map((s) => toExportSlide(s, carousel?.cta_slide, productImage, palette)),
+    [allSlides, carousel?.cta_slide, productImage, palette]
+  )
+  const framePreviews = useFramePreviews(brandId, brand?.name ?? "", exportSlides)
 
   // Restore from sessionStorage -- confirmed live (2026-08-29): this
   // dropped the carousel's own `id` entirely (never read from `parsed`,
@@ -1078,9 +1180,15 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
         // waits for the whole image step.
         const count = merged.slides.length
         const indices = merged.slides.map((_, i) => i)
+        const framed = merged.slides.some((s) => s.frame)
         const hookAndCta = indices.filter((i) => carouselBgRole(i, count) !== "body")
         const middle = allSlidesAiBg ? indices.filter((i) => carouselBgRole(i, count) === "body") : []
-        void runCarouselBackgrounds(merged.id ?? null, merged.slides, [...hookAndCta, ...middle]).then((finished) => {
+        // A framed carousel: only its photo-led slides that no brand photo
+        // fitted (the generate route already placed the ones that did).
+        const toGenerate = framed
+          ? indices.filter((i) => carouselFrameNeedsPhoto(merged.slides[i]?.frame) && !merged.slides[i]?.image_url)
+          : [...hookAndCta, ...middle]
+        void runCarouselBackgrounds(merged.id ?? null, merged.slides, toGenerate).then((finished) => {
           if (!finished) return
           setShowSuccess(true)
           setTimeout(() => setShowSuccess(false), 4000)
@@ -1416,6 +1524,9 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
 
               {/* Main slide preview */}
               <div className="mx-auto max-w-sm">
+                {currentSlide.frame ? (
+                  <FramePreview src={framePreviews[activeSlide] ?? null} alt={`Slide ${activeSlide + 1}: ${currentSlide.headline}`} />
+                ) : (
                 <SlidePreview
                   slide={currentSlide}
                   ctaSlide={carousel.cta_slide}
@@ -1428,6 +1539,7 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
                   backgroundImageUrl={backgroundUrlForSlide(activeSlide)}
                   onPositionCommit={(p) => updateSlide(activeSlide, { ...currentSlide, text_position_x: p.x, text_position_y: p.y })}
                 />
+                )}
               </div>
 
               {/* Thumbnail row */}
@@ -1438,6 +1550,9 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
                     onClick={() => setActiveSlide(i)}
                     className={`shrink-0 overflow-hidden rounded-lg border-2 transition-all ${activeSlide === i ? "border-violet-500 ring-2 ring-violet-200" : "border-border hover:border-violet-300"}`}
                   >
+                    {slide.frame ? (
+                      <FramePreview src={framePreviews[i] ?? null} alt={`Slide ${i + 1}`} thumb />
+                    ) : (
                     <SlidePreview
                       slide={slide}
                       ctaSlide={carousel.cta_slide}
@@ -1448,6 +1563,7 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
                       stepNumber={stepNumbers[i] ?? null}
                       backgroundImageUrl={backgroundUrlForSlide(i)}
                     />
+                    )}
                   </button>
                 ))}
               </div>
@@ -1491,10 +1607,14 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
               )}
 
               {showEditor && (
+                currentSlide.frame ? (
+                  <FrameSlideEditor slide={currentSlide} onChange={(updated) => updateSlide(activeSlide, updated)} />
+                ) : (
                 <SlideEditor
                   slide={currentSlide}
                   onChange={(updated) => updateSlide(activeSlide, updated)}
                 />
+                )
               )}
 
               {/* Hashtags */}
@@ -1507,13 +1627,13 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
               {/* Action buttons */}
               <div className="flex flex-wrap gap-2">
                 <button
-                  onClick={() => currentSlide && downloadCarouselSlideAsImage(brand?.name ?? "", toExportSlide(currentSlide, carousel.cta_slide, productImage, palette), `carousel-slide-${activeSlide + 1}`)}
+                  onClick={() => currentSlide && downloadCarouselSlideAsImage(brand?.name ?? "", toExportSlide(currentSlide, carousel.cta_slide, productImage, palette), `carousel-slide-${activeSlide + 1}`, brandId)}
                   className="flex items-center gap-1.5 rounded-full border border-input px-4 py-2 text-xs font-medium hover:bg-secondary"
                 >
                   <Image className="h-3.5 w-3.5" /> Save slide as PNG
                 </button>
                 <button
-                  onClick={() => downloadCarouselSlidesAsImages(brand?.name ?? "", allSlides.map((s) => toExportSlide(s, carousel.cta_slide, productImage, palette)), "carousel")}
+                  onClick={() => downloadCarouselSlidesAsImages(brand?.name ?? "", allSlides.map((s) => toExportSlide(s, carousel.cta_slide, productImage, palette)), "carousel", brandId)}
                   className="flex items-center gap-1.5 rounded-full border border-input px-4 py-2 text-xs font-medium hover:bg-secondary"
                 >
                   <Download className="h-3.5 w-3.5" /> Download all slides

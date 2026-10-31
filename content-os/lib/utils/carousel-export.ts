@@ -14,6 +14,7 @@
 import type { TextStyle } from "@/lib/design/text-style"
 import type { TextLayoutId } from "@/lib/design/text-layouts"
 import type { BrandPalette } from "@/lib/design/color-themes"
+import type { CarouselFrame } from "@/lib/design/carousel-frames"
 
 export interface CarouselExportSlide {
   type: "cover" | "content" | "cta"
@@ -47,6 +48,22 @@ export interface CarouselExportSlide {
   /** Uniform font-size multiplier for this slide -- see
    * CarouselSlideRich.text_size_scale's own comment. */
   text_size_scale?: number | null
+  /** A framed slide (lib/design/carousel-frames.ts) -- drawn by the story
+   * frame compositor; absent = the original compositor. */
+  frame?: CarouselFrame | null
+  seed?: number | null
+  tape?: boolean | null
+  brand_mark?: boolean | null
+}
+
+/** The frame fields of a saved slide, for an export. */
+export function exportFrameFields(s: { frame?: unknown; seed?: unknown; tape?: unknown; brand_mark?: unknown }): Pick<CarouselExportSlide, "frame" | "seed" | "tape" | "brand_mark"> {
+  return {
+    frame: s.frame === "hook" || s.frame === "slide_photo" || s.frame === "slide_type" || s.frame === "cta" ? s.frame : null,
+    seed: typeof s.seed === "number" ? s.seed : null,
+    tape: typeof s.tape === "boolean" ? s.tape : null,
+    brand_mark: typeof s.brand_mark === "boolean" ? s.brand_mark : null,
+  }
 }
 
 /** Returns one data: URL PNG per slide (imageUrls, for the download flow
@@ -54,12 +71,13 @@ export interface CarouselExportSlide {
  * (hostedUrls, for ScheduleAction.tsx to send instead of several MB of
  * base64) -- null on any failure. hostedUrls is itself null if the render
  * succeeded but any individual upload failed. */
-export async function renderCarouselSlides(brandName: string, slides: CarouselExportSlide[]): Promise<{ imageUrls: string[]; hostedUrls: string[] | null } | null> {
+export async function renderCarouselSlides(brandName: string, slides: CarouselExportSlide[], brandId?: string, opts: { preview?: boolean } = {}): Promise<{ imageUrls: string[]; hostedUrls: string[] | null } | null> {
   try {
     const res = await fetch("/api/v1/ai/carousel/render", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ brandName, slides }),
+      // brandId: framed slides draw the brand's logo and heading font from its row.
+      body: JSON.stringify({ brandName, slides, ...(brandId ? { brandId } : {}), ...(opts.preview ? { preview: true } : {}) }),
     })
     if (!res.ok) return null
     const json = await res.json() as { data?: { imageUrls?: string[]; hostedUrls?: string[] | null } }
@@ -70,31 +88,34 @@ export async function renderCarouselSlides(brandName: string, slides: CarouselEx
   }
 }
 
+/** Framed slides come back as JPEGs, the rest as PNGs. */
+const extOf = (dataUrl: string) => (dataUrl.startsWith("data:image/jpeg") ? "jpg" : "png")
+
 function triggerDownload(dataUrl: string, filename: string) {
   const link = document.createElement("a")
-  link.download = filename
+  link.download = `${filename}.${extOf(dataUrl)}`
   link.href = dataUrl
   document.body.appendChild(link)
   link.click()
   document.body.removeChild(link)
 }
 
-export async function downloadCarouselSlideAsImage(brandName: string, slide: CarouselExportSlide, filename: string): Promise<boolean> {
-  const rendered = await renderCarouselSlides(brandName, [slide])
+export async function downloadCarouselSlideAsImage(brandName: string, slide: CarouselExportSlide, filename: string, brandId?: string): Promise<boolean> {
+  const rendered = await renderCarouselSlides(brandName, [slide], brandId)
   // triggerDownload needs a data: URL to force a same-tab download, so this
   // always uses imageUrls -- never hostedUrls (a real https URL would just
   // navigate the tab there instead of downloading).
   if (!rendered || rendered.imageUrls.length === 0) return false
-  triggerDownload(rendered.imageUrls[0]!, `${filename}.png`)
+  triggerDownload(rendered.imageUrls[0]!, filename)
   return true
 }
 
-export async function downloadCarouselSlidesAsImages(brandName: string, slides: CarouselExportSlide[], filenamePrefix: string): Promise<boolean> {
-  const rendered = await renderCarouselSlides(brandName, slides)
+export async function downloadCarouselSlidesAsImages(brandName: string, slides: CarouselExportSlide[], filenamePrefix: string, brandId?: string): Promise<boolean> {
+  const rendered = await renderCarouselSlides(brandName, slides, brandId)
   if (!rendered || rendered.imageUrls.length !== slides.length) return false
   const urls = rendered.imageUrls
   for (let i = 0; i < urls.length; i++) {
-    triggerDownload(urls[i]!, `${filenamePrefix}-${i + 1}.png`)
+    triggerDownload(urls[i]!, `${filenamePrefix}-${i + 1}`)
     // Staggered the same way story-export.ts's downloadStorySlidesAsImages
     // is -- back-to-back <a download> clicks are unreliable in some
     // browsers otherwise.
@@ -108,14 +129,14 @@ export async function downloadCarouselSlidesAsImages(brandName: string, slides: 
  * a single PDF instead of triggering one <a download> per slide. jsPDF is
  * imported dynamically so it never lands in the main bundle for users who
  * never export a PDF. */
-export async function downloadCarouselSlidesAsPdf(brandName: string, slides: CarouselExportSlide[], filename: string): Promise<boolean> {
-  const rendered = await renderCarouselSlides(brandName, slides)
+export async function downloadCarouselSlidesAsPdf(brandName: string, slides: CarouselExportSlide[], filename: string, brandId?: string): Promise<boolean> {
+  const rendered = await renderCarouselSlides(brandName, slides, brandId)
   if (!rendered || rendered.imageUrls.length !== slides.length) return false
   const { jsPDF } = await import("jspdf")
   const doc = new jsPDF({ orientation: "portrait", unit: "px", format: [1080, 1350] })
   rendered.imageUrls.forEach((dataUrl, i) => {
     if (i > 0) doc.addPage([1080, 1350], "portrait")
-    doc.addImage(dataUrl, "PNG", 0, 0, 1080, 1350)
+    doc.addImage(dataUrl, extOf(dataUrl) === "jpg" ? "JPEG" : "PNG", 0, 0, 1080, 1350)
   })
   doc.save(`${filename}.pdf`)
   return true

@@ -10,6 +10,7 @@ import { flattenOverlayImage } from "@/lib/utils/post-overlay-export"
 import { isFontId } from "@/lib/design/fonts"
 import { readJsonResponse } from "@/lib/utils/read-json-response"
 import { savedOverlayLayoutSchema } from "@/lib/design/text-layouts"
+import { postDesignSchema, clampPostDesign } from "@/lib/design/post-design-fields"
 import { useAutopostPause } from "@/hooks/useAutopostPause"
 import { addDays, format } from "date-fns"
 
@@ -143,6 +144,8 @@ export function CalendarEntryPanel({ entry, onClose, onUpdate, brandId }: Calend
   // with a saved text-free base image (platform_specific_data.base_image_url).
   const [isEditingImageText, setIsEditingImageText] = useState(false)
   const [imageTextDraft, setImageTextDraft] = useState("")
+  // A designed post's handwritten line (its big words are imageTextDraft).
+  const [scriptLineDraft, setScriptLineDraft] = useState("")
   const [isSavingImageText, setIsSavingImageText] = useState(false)
   const [imageTextError, setImageTextError] = useState<string | null>(null)
 
@@ -172,7 +175,9 @@ export function CalendarEntryPanel({ entry, onClose, onUpdate, brandId }: Calend
       setShowCancelConfirm(false)
       setCancelScheduleError(null)
       const data = entry.platform_specific_data as Record<string, unknown> | null
-      setImageTextDraft(typeof data?.overlay_text === "string" ? data.overlay_text : "")
+      const design = postDesignSchema.safeParse(data?.post_design)
+      setImageTextDraft(design.success ? design.data.big_words : typeof data?.overlay_text === "string" ? data.overlay_text : "")
+      setScriptLineDraft(design.success ? design.data.script_line : "")
       setIsEditingImageText(false)
       setImageTextError(null)
     }
@@ -243,17 +248,38 @@ export function CalendarEntryPanel({ entry, onClose, onUpdate, brandId }: Calend
     setIsSavingImageText(true)
     setImageTextError(null)
     try {
-      // Same typeface the post was scheduled with; entries from before fonts
-      // were saved have none and keep the original system font.
-      const fontId = isFontId(data?.overlay_font_id) ? data.overlay_font_id : undefined
-      // And the same layout (with its text_style) when one was saved.
-      const saved = savedOverlayLayoutSchema.safeParse(data?.overlay_layout)
-      const layout = saved.success ? saved.data : null
-      const imageDataUrl = await flattenOverlayImage(baseImageUrl, imageTextDraft, { type: "image/jpeg", quality: 0.92 }, fontId, layout?.text_style ?? null, layout)
+      // A designed post is re-rendered on the server from its words (the
+      // same frame, seed and brand look); an overlay post is redrawn here.
+      const savedDesign = postDesignSchema.safeParse(data?.post_design)
+      let imageDataUrl: string
+      let postDesign: typeof savedDesign.data | undefined
+      if (savedDesign.success) {
+        if (!imageTextDraft.trim()) { setImageTextError("Add the words for the image."); return }
+        postDesign = clampPostDesign({ ...savedDesign.data, big_words: imageTextDraft, script_line: scriptLineDraft })
+        const renderRes = await fetch("/api/v1/ai/post-image/render", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ brandId, baseImageUrl, design: postDesign }),
+        })
+        const renderJson: unknown = await readJsonResponse(renderRes)
+        if (!renderRes.ok || isApiError(renderJson)) {
+          setImageTextError(isApiError(renderJson) ? renderJson.error.message : "Couldn't update the image text. Please try again.")
+          return
+        }
+        imageDataUrl = (renderJson as { data: { image_url: string } }).data.image_url
+      } else {
+        // Same typeface the post was scheduled with; entries from before fonts
+        // were saved have none and keep the original system font.
+        const fontId = isFontId(data?.overlay_font_id) ? data.overlay_font_id : undefined
+        // And the same layout (with its text_style) when one was saved.
+        const saved = savedOverlayLayoutSchema.safeParse(data?.overlay_layout)
+        const layout = saved.success ? saved.data : null
+        imageDataUrl = await flattenOverlayImage(baseImageUrl, imageTextDraft, { type: "image/jpeg", quality: 0.92 }, fontId, layout?.text_style ?? null, layout)
+      }
       const res = await fetch(`/api/v1/brands/${brandId}/calendar/${entry.id}/image-text`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ overlayText: imageTextDraft, imageDataUrl }),
+        body: JSON.stringify({ overlayText: postDesign ? postDesign.big_words : imageTextDraft, imageDataUrl, ...(postDesign ? { postDesign } : {}) }),
       })
       const json: unknown = await readJsonResponse(res)
       if (!res.ok || isApiError(json)) {
@@ -566,9 +592,18 @@ export function CalendarEntryPanel({ entry, onClose, onUpdate, brandId }: Calend
                             onChange={(e) => setImageTextDraft(e.target.value)}
                             maxLength={300}
                             rows={2}
-                            placeholder="Text on the image (leave empty for no text)"
+                            placeholder={platformData?.post_design ? "Big words on the image (1-4 words)" : "Text on the image (leave empty for no text)"}
                             className="w-full resize-none rounded-md border bg-background px-2 py-1.5 text-sm"
                           />
+                          {!!platformData?.post_design && (
+                            <input
+                              value={scriptLineDraft}
+                              onChange={(e) => setScriptLineDraft(e.target.value)}
+                              maxLength={120}
+                              placeholder="Handwritten line under them (optional)"
+                              className="w-full rounded-md border bg-background px-2 py-1.5 text-sm"
+                            />
+                          )}
                           <p className="text-xs text-muted-foreground">Uses the same image. No new generation, no credits.</p>
                           <div className="flex gap-2">
                             <Button size="sm" disabled={isSavingImageText} onClick={saveImageText}>

@@ -1,5 +1,10 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
+import type { BrandRow } from "@/types/database"
+import { renderCarouselFrame } from "@/lib/image/carousel-frames"
+import { CAROUSEL_FRAMES } from "@/lib/design/carousel-frames"
+import { resolveBrandPalette } from "@/lib/design/color-themes"
+import { resolveTypography } from "@/lib/design/fonts"
 import { buildError, ErrorCodes } from "@/types/api"
 import { renderRichCarouselSlides, type CarouselCompositeSlide } from "@/lib/image/carousel-compositor"
 import { uploadMediaToStorage } from "@/lib/storage/upload-media"
@@ -70,11 +75,21 @@ const slideSchema = z.object({
   // Uniform font-size multiplier for this slide -- see
   // CarouselCompositeSlide.text_size_scale's own comment.
   text_size_scale: z.number().min(0.7).max(1.5).nullish(),
+  // A framed slide (lib/design/carousel-frames.ts) -- drawn by the story
+  // frame compositor instead; absent = the original compositor.
+  frame: z.enum(CAROUSEL_FRAMES).nullish(),
+  seed: z.number().int().min(0).max(2 ** 31).nullish(),
+  tape: z.boolean().nullish(),
+  brand_mark: z.boolean().nullish(),
 })
 // Matches CarouselBuilder.tsx's slideCount cap.
 const schema = z.object({
   brandName: z.string().max(200).default(""),
+  // Framed slides take the brand's palette, heading font and logo from its row.
+  brandId: z.string().uuid().optional(),
   slides: z.array(slideSchema).min(1).max(10),
+  // The builder's live preview: render only, nothing uploaded.
+  preview: z.boolean().optional(),
 })
 
 export async function POST(request: Request) {
@@ -94,10 +109,38 @@ export async function POST(request: Request) {
     return NextResponse.json(buildError(ErrorCodes.VALIDATION_ERROR, "Validation failed.", parsed.error.issues[0]?.message), { status: 400 })
   }
 
+  const { slides, brandId, preview } = parsed.data
+  let brand: BrandRow | null = null
+  if (brandId && slides.some((s) => s.frame)) {
+    const { data } = await supabase.from("brands").select("*").eq("id", brandId).eq("user_id", user.id).single<BrandRow>()
+    brand = data
+  }
+
   try {
-    const rendered = await renderRichCarouselSlides(parsed.data.brandName, parsed.data.slides.map((s) => ({ ...s, palette: parsePalette(s.palette) })) as CarouselCompositeSlide[])
+    // Framed slides are JPEGs from the frame compositor; the rest PNGs from
+    // the original one (in one batch, so its per-carousel layout holds).
+    const legacyIdx = slides.map((s, i) => (s.frame ? -1 : i)).filter((i) => i >= 0)
+    const legacy = legacyIdx.length > 0
+      ? await renderRichCarouselSlides(parsed.data.brandName, legacyIdx.map((i) => ({ ...slides[i]!, palette: parsePalette(slides[i]!.palette) })) as CarouselCompositeSlide[])
+      : []
+    const framed = await Promise.all(slides.map((s) => {
+      if (!s.frame) return null
+      const palette = parsePalette(s.palette) ?? (brand ? resolveBrandPalette(brand) : null)
+      if (!palette) throw new Error("A framed slide needs the brand palette")
+      return renderCarouselFrame({ ...s, frame: s.frame, cta: s.ctaText }, {
+        name: brand?.name ?? parsed.data.brandName, logo_url: brand?.logo_url ?? null, palette,
+        fontId: brand ? resolveTypography(brand).heading : "anton",
+      })
+    }))
+    const rendered = slides.map((_, i) => {
+      const f = framed[i]
+      if (f) return { png: f, mime: "image/jpeg", warnings: [] as string[] }
+      const r = legacy[legacyIdx.indexOf(i)]!
+      return { png: r.png, mime: "image/png", warnings: r.warnings as string[] }
+    })
     const buffers = rendered.map((r) => r.png)
-    const imageUrls = buffers.map((buf) => `data:image/png;base64,${buf.toString("base64")}`)
+    const imageUrls = rendered.map((r) => `data:${r.mime};base64,${r.png.toString("base64")}`)
+    if (preview) return NextResponse.json({ data: { imageUrls, hostedUrls: null, warnings: rendered.map((r) => r.warnings) } })
     // Upload in parallel so the schedule path can send small hosted URLs
     // instead of shuttling several MB of base64 back through the browser
     // and re-uploading it — imageUrls (data: URLs) stays as-is so the
@@ -105,7 +148,7 @@ export async function POST(request: Request) {
     // (carousel-export.ts's downloadCarouselSlideAsImage/
     // downloadCarouselSlidesAsImages) is untouched.
     const hostedResults = await Promise.all(
-      buffers.map((buf, i) => uploadMediaToStorage({ kind: "buffer", buffer: buf, mimeType: "image/png" }, `carousel-renders/${user.id}-${Date.now()}-${i}`, { generatedImage: true }))
+      buffers.map((buf, i) => uploadMediaToStorage({ kind: "buffer", buffer: buf, mimeType: rendered[i]!.mime }, `carousel-renders/${user.id}-${Date.now()}-${i}`, { generatedImage: true }))
     )
     const hostedUrls = hostedResults.every(r => "publicUrl" in r) ? hostedResults.map(r => (r as { publicUrl: string }).publicUrl) : null
     // warnings[i]: ["text_overflow"] when slide i's text only fits past the smallest size.

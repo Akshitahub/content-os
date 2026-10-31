@@ -1,3 +1,4 @@
+import { carouselFrameRules } from "@/lib/design/carousel-frames"
 import type { BrandRow } from "@/types/database"
 import { NO_TEXT_BEARING_SUBJECTS_RULE, VISUAL_KINDS, sanitizeVisualBrief, artDirectionBriefRules } from "./visual-brief"
 import { buildPastExamplesBlock, buildSuggestedFontField, buildTopicSubjectBlock, QUALITY_BAR } from "./prompts"
@@ -78,6 +79,8 @@ INFORMATION DEPTH — the most common failure is slides that only name a topic (
 
 ON-IMAGE EXTRAS — every slide object (and cta_slide) may add:
 ${kickerHighlightRule()}
+
+${carouselFrameRules()}
 
 VISUAL DIRECTION — every slide object (and cta_slide) gets a "visual" brief for its image:
 - "kind": one of ${VISUAL_KINDS.join(" | ")}.

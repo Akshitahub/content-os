@@ -1,0 +1,125 @@
+{
+  "copy_source": "hand-written for this render -- the Groq daily token limit was reached; only the product's own name and the topic are used",
+  "post": {
+    "big_words": "New launch",
+    "script_line": "olive straight fit chinos",
+    "caption": ""
+  },
+  "carousel": [
+    {
+      "type": "cover",
+      "big_words": "Just dropped",
+      "body": "the olive straight fit chinos",
+      "frame": "hook",
+      "headline": "Just dropped",
+      "subtext": "the olive straight fit chinos",
+      "points": [],
+      "seed": 7,
+      "tape": true,
+      "brand_mark": true
+    },
+    {
+      "type": "content",
+      "big_words": "Olive, finally",
+      "body": "A colour that works with white tees and navy shirts alike",
+      "frame": "slide_photo",
+      "headline": "Olive, finally",
+      "subtext": "A colour that works with white tees and navy shirts alike",
+      "points": [],
+      "seed": 7926,
+      "tape": false,
+      "brand_mark": false
+    },
+    {
+      "type": "content",
+      "big_words": "Straight fit",
+      "body": "Not skinny, not baggy -- a clean line from hip to hem",
+      "frame": "slide_type",
+      "headline": "Straight fit",
+      "subtext": "Not skinny, not baggy -- a clean line from hip to hem",
+      "points": [],
+      "seed": 15845,
+      "tape": true,
+      "brand_mark": false
+    },
+    {
+      "type": "content",
+      "big_words": "Style it",
+      "body": "Roll the hem once and pair with white sneakers",
+      "frame": "slide_photo",
+      "headline": "Style it",
+      "subtext": "Roll the hem once and pair with white sneakers",
+      "points": [],
+      "seed": 23764,
+      "tape": false,
+      "brand_mark": false
+    },
+    {
+      "type": "cta",
+      "big_words": "Yours next",
+      "body": "new in the drop",
+      "cta": "Shop the chinos",
+      "frame": "cta",
+      "headline": "Yours next",
+      "subtext": "new in the drop",
+      "points": [],
+      "seed": 31683,
+      "tape": false,
+      "brand_mark": true
+    }
+  ],
+  "renders": {
+    "posts": [
+      {
+        "template": "bold_statement",
+        "background": "product photo"
+      },
+      {
+        "template": "product_focus",
+        "background": "product photo"
+      },
+      {
+        "template": "quote_card",
+        "background": "product photo"
+      }
+    ],
+    "carousel": [
+      {
+        "slide": 1,
+        "frame": "hook",
+        "big_words": "Just dropped",
+        "line": "the olive straight fit chinos",
+        "background": "product photo"
+      },
+      {
+        "slide": 2,
+        "frame": "slide_photo",
+        "big_words": "Olive, finally",
+        "line": "A colour that works with white tees and navy shirts alike",
+        "background": "product photo"
+      },
+      {
+        "slide": 3,
+        "frame": "slide_type",
+        "big_words": "Straight fit",
+        "line": "Not skinny, not baggy -- a clean line from hip to hem",
+        "background": "brand colour (type-led)"
+      },
+      {
+        "slide": 4,
+        "frame": "slide_photo",
+        "big_words": "Style it",
+        "line": "Roll the hem once and pair with white sneakers",
+        "background": "product photo"
+      },
+      {
+        "slide": 5,
+        "frame": "cta",
+        "big_words": "Yours next",
+        "line": "new in the drop",
+        "cta": "Shop the chinos",
+        "background": "product photo"
+      }
+    ]
+  }
+}
