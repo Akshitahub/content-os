@@ -7,7 +7,8 @@ import {
   IMAGE_BUCKET, MIN_CAROUSEL_SLIDES, type AutopilotUsageTracker,
 } from "./fastlane"
 import { attemptsCostUsd, generatePostImage } from "./post-image-pipeline"
-import { PHOTO_KINDS_FOR, takeBrandPhotos } from "@/lib/brand-photos"
+import { PHOTO_KINDS_FOR } from "@/lib/brand-photos"
+import { chooseFittingPhotos, photoFitItem } from "./photo-fit"
 import { runWithGenerationContext } from "./provider-fallback"
 import { generateCarouselHtml } from "@/lib/design/post-card-generator"
 import { DEFAULT_POST_TEMPLATE_ID } from "@/lib/design/post-templates"
@@ -316,9 +317,14 @@ async function prepareSlot(admin: Admin, job: SlotJobRow, ctx: RunContext, track
       const imageStartedAt = Date.now()
       // The caption's visual brief drives the image: its scene is the prompt
       // and the brief itself goes along (product-reference and split rules).
-      // Real photos first (lib/brand-photos.ts) -- the slot's product's own,
-      // least used first, so a month of posts rotates through them.
-      const brandPhoto = (await takeBrandPhotos(admin, brand, { productId: product?.id ?? null, kinds: PHOTO_KINDS_FOR.post, count: 1 }))[0] ?? null
+      // Real photos first, when one FITS this post's brief and copy
+      // (lib/ai/photo-fit.ts, fit 4+; never another product's photo) --
+      // least used first among equals, so a month of posts rotates.
+      const brandPhoto = (await chooseFittingPhotos(admin, brand, {
+        productId: product?.id ?? null, productName: product?.name ?? null, kinds: PHOTO_KINDS_FOR.post,
+        items: [photoFitItem(generated.visual, generated.imagePrompt || generated.visual_direction, [generated.hook, generated.caption])],
+        label: `autopilot slot ${job.id}`,
+      }))[0] ?? null
       const imageResult = await generatePostImage({
         artDirection: artDirectionFrom(brand),
         brandPhotoUrl: brandPhoto?.url ?? null,

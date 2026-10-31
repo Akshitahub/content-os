@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server"
 import { noteGenerationBrand } from "@/lib/ai/provider-fallback"
 import { createAdminClient, createClient } from "@/lib/supabase/server"
-import { PHOTO_KINDS_FOR, download, takeBrandPhotos } from "@/lib/brand-photos"
+import { PHOTO_KINDS_FOR, download } from "@/lib/brand-photos"
+import { chooseFittingPhotos, photoFitItem } from "@/lib/ai/photo-fit"
 import { buildError, ErrorCodes } from "@/types/api"
 import { generateStorySlideBackground, type StoryVibe } from "@/lib/ai/story-slide-background"
 import { VISUAL_KINDS, briefUsesProductReference, sanitizeVisualBrief } from "@/lib/ai/visual-brief"
@@ -132,10 +133,12 @@ async function handlePost(request: Request, timer: GenerationTimer) {
   if (!brand) return NextResponse.json(buildError(ErrorCodes.BRAND_NOT_FOUND, "Brand not found."), { status: 404 })
   noteGenerationBrand(brand.id, user.id)
 
-  // A real brand photo first (lib/brand-photos.ts) -- free, nothing generated.
-  // Only when the brand has none left for this sequence is an image generated.
-  const photo = (await takeBrandPhotos(await createAdminClient(), brand, {
-    productId: parsed.data.productId ?? null, kinds: PHOTO_KINDS_FOR.story, count: 1, exclude: parsed.data.excludePhotoIds,
+  // A brand photo first when one FITS this frame's brief (lib/ai/photo-fit.ts,
+  // fit 4+) -- free, nothing generated; never one the sequence already uses.
+  // Otherwise the image is generated from the brief.
+  const photo = (await chooseFittingPhotos(await createAdminClient(), brand, {
+    productId: parsed.data.productId ?? null, kinds: PHOTO_KINDS_FOR.story, exclude: parsed.data.excludePhotoIds,
+    items: [photoFitItem(visualBrief, customPrompt, [])], label: `story-frame role=${role}`,
   }))[0]
   if (photo) {
     const bytes = await download(photo.url)

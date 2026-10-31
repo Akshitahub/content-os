@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server"
 import { noteGenerationBrand } from "@/lib/ai/provider-fallback"
 import { createClient, createAdminClient } from "@/lib/supabase/server"
-import { PHOTO_KINDS_FOR, takeBrandPhotos } from "@/lib/brand-photos"
+import { PHOTO_KINDS_FOR } from "@/lib/brand-photos"
+import { chooseFittingPhotos, photoFitItem } from "@/lib/ai/photo-fit"
 import { generatePostImageSchema } from "@/lib/validations/ai"
 import { attemptsCostUsd, generatePostImage, type ImageGenerationAttempt } from "@/lib/ai/post-image-pipeline"
 import { resolveColorThemes, findColorTheme } from "@/lib/design/color-themes"
@@ -160,14 +161,18 @@ async function handlePost(request: Request, timer: GenerationTimer) {
   // Brand art direction (lib/ai/art-direction.ts): the cached one, never
   // awaited -- a missing / stale one is re-derived in the background.
   const artDirection = await artDirectionForRequest(supabase, brand)
-  // Real photos first (lib/brand-photos.ts): the brand's own photo -- the
-  // product's when one is picked -- least used first, so a regenerate gets a
-  // different one. Not for the checklist card (no photo) or annotated_product
-  // (draws the product photo itself). None left = generated as before.
+  // Real photos first, when one FITS (lib/ai/photo-fit.ts): the brand's own
+  // photo whose description matches this post's brief and copy (fit 4+) --
+  // never another product's photo; least used first among equals, so a
+  // regenerate gets a different one. Not for the checklist card (no photo) or
+  // annotated_product (draws the product photo itself). No fit = generated.
   const brandPhoto = template === "hard_truth_checklist" || template === "annotated_product"
     ? null
-    : (await takeBrandPhotos(await createAdminClient(), brand, { productId: productId ?? null, kinds: PHOTO_KINDS_FOR.post, count: 1 }))[0] ?? null
-  if (brandPhoto) console.log(`[ai/post-image/generate] using brand photo ${brandPhoto.id} (no image generated)`)
+    : (await chooseFittingPhotos(await createAdminClient(), brand, {
+        productId: productId ?? null, productName: product?.name ?? null, kinds: PHOTO_KINDS_FOR.post,
+        items: [photoFitItem(visualBrief, imagePrompt, [captionText])], label: "post",
+      }))[0] ?? null
+  if (brandPhoto) console.log(`[ai/post-image/generate] using brand photo ${brandPhoto.id} fit=${brandPhoto.fit} (no image generated)`)
   let timedOut = false
   const result = await timer.step("image", withDeadline(generatePostImage({
     artDirection,

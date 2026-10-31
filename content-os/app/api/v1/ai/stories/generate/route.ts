@@ -25,7 +25,8 @@ import { getPrimaryColor } from "@/lib/design/post-card-generator"
 import { artDirectionForRequest } from "@/lib/ai/art-direction"
 import { toBrandPreset, type BrandPresetId } from "@/lib/design/color-themes"
 import { OffTopicError, onTopicOrRegenerate } from "@/lib/ai/quality-gate"
-import { PHOTO_KINDS_FOR, download, takeBrandPhotos } from "@/lib/brand-photos"
+import { PHOTO_KINDS_FOR, download } from "@/lib/brand-photos"
+import { chooseFittingPhotos, photoFitItem } from "@/lib/ai/photo-fit"
 import { createAdminClient } from "@/lib/supabase/server"
 import { computeTextStyleSafe } from "@/lib/image/text-contrast"
 import { storyTextRegion } from "@/lib/design/text-style"
@@ -268,23 +269,33 @@ function countStoryFrames(raw: string): number {
 }
 
 /**
- * One distinct brand photo per frame, in frame order (lib/brand-photos.ts
- * takeBrandPhotos; brand_images is read with the service role after the
- * brand's ownership was checked, like the photos routes). Each assigned
- * frame also gets its text_style from the photo. Frames beyond the photos
- * available keep no background_image_url. Never throws.
+ * A brand photo for each frame it FITS (lib/ai/photo-fit.ts: the frame's
+ * own brief and copy, fit 4+), never the same photo twice in the sequence
+ * and never another product's photo; brand_images is read with the service
+ * role after the brand's ownership was checked, like the photos routes.
+ * Each assigned frame also gets its text_style from the photo. Frames with
+ * no fitting photo keep no background_image_url (generated from the brief
+ * by the client). Never throws.
  */
-async function assignBrandPhotos(brand: BrandRow, stories: Record<string, unknown>[], productId: string | null): Promise<Record<string, unknown>[]> {
+async function assignBrandPhotos(brand: BrandRow, stories: Record<string, unknown>[], product: Pick<ProductRow, "id" | "name"> | null): Promise<Record<string, unknown>[]> {
   try {
     const admin = await createAdminClient()
-    const photos = await takeBrandPhotos(admin, brand, { productId, kinds: PHOTO_KINDS_FOR.story, count: stories.length })
-    if (photos.length === 0) return stories
+    const str = (v: unknown) => (typeof v === "string" ? v : null)
+    const photos = await chooseFittingPhotos(admin, brand, {
+      productId: product?.id ?? null,
+      productName: product?.name ?? null,
+      kinds: PHOTO_KINDS_FOR.story,
+      items: stories.map((s) => photoFitItem(s.visual as VisualBrief | undefined, null, [str(s.big_words), str(s.script_line), str(s.quote), str(s.text), str(s.subtext)])),
+      label: "story",
+    })
+    if (photos.every((p) => !p)) return stories
     const styles = await Promise.all(photos.map(async (p, i) => {
+      if (!p) return null
       const bytes = await download(p.url)
       const position = stories[i]?.text_position as "top" | "center" | "bottom" | undefined
       return bytes ? computeTextStyleSafe(bytes, storyTextRegion(position)) : null
     }))
-    console.log(`[ai/stories/generate] ${photos.length}/${stories.length} frame(s) use the brand's own photos`)
+    console.log(`[ai/stories/generate] ${photos.filter(Boolean).length}/${stories.length} frame(s) use a fitting brand photo`)
     return stories.map((s, i) => {
       const photo = photos[i]
       return photo ? { ...s, background_image_url: photo.url, background_image_provider: "brand_photo", brand_photo_id: photo.id, text_style: styles[i] ?? null } : s
@@ -474,7 +485,7 @@ async function handlePost(request: Request, timer: GenerationTimer) {
     // collide. Frames left without one get an AI background from the
     // client, as before. Not for checklist cards (no photo) or Custom color.
     if (brandPhotos && effectiveVibe !== "hard_truth_checklist") {
-      d.stories = await assignBrandPhotos(brand, d.stories as Record<string, unknown>[], productId ?? null)
+      d.stories = await assignBrandPhotos(brand, d.stories as Record<string, unknown>[], product)
     }
 
     // Persist (non-fatal) — matches the pattern used by every other

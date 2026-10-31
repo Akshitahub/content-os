@@ -14,7 +14,9 @@ import { MODELS, getOpenAIClient } from "@/lib/ai/models"
  *   no videos, latest 60) through its active Instagram connection.
  * Every image is copied into our storage (Instagram URLs expire -- never
  * hotlinked) and classified ONCE by one vision call: kind, quality_ok,
- * product_id. pickBrandPhotos hands generation the best unused ones.
+ * product_id and a one-line description (migration 066). rankPhotoCandidates
+ * orders them for a post (never another product's photo); lib/ai/photo-fit.ts
+ * then uses one only when its description fits the post's brief and copy.
  * Fail-soft everywhere: no photos = today's behaviour.
  */
 
@@ -39,6 +41,8 @@ export interface BrandPhoto {
   published_at: string | null
   use_count: number
   last_used_at: string | null
+  /** One plain line: what the photo shows, setting, people, product (migration 066). Null until described. */
+  description: string | null
 }
 
 const BUCKET = "brand-images"
@@ -137,10 +141,11 @@ const classificationSchema = z.object({
   kind: z.enum(PHOTO_KINDS),
   quality_ok: z.boolean(),
   product_index: z.number().int().nullable().optional(),
+  description: z.string().max(400).optional(),
   reason: z.string().optional(),
 })
 
-async function classify(url: string, products: Pick<ProductRow, "id" | "name">[]): Promise<{ kind: PhotoKind; quality_ok: boolean; product_id: string | null } | null> {
+async function classify(url: string, products: Pick<ProductRow, "id" | "name">[]): Promise<{ kind: PhotoKind; quality_ok: boolean; product_id: string | null; description: string | null } | null> {
   const productList = products.length ? products.map((p, i) => `${i}: ${p.name}`).join("\n") : "(none)"
   try {
     const res = await getOpenAIClient().chat.completions.create({
@@ -152,7 +157,7 @@ async function classify(url: string, products: Pick<ProductRow, "id" | "name">[]
         role: "user",
         content: [
           { type: "text", text: `Classify this brand photo for reuse in its social media posts. Respond with JSON only:
-{"kind": "product_only | product_in_use | person | lifestyle | flatlay | graphic_or_text", "quality_ok": true|false, "product_index": <the number of the product shown, from the list, or null>, "reason": "a few words"}
+{"kind": "product_only | product_in_use | person | lifestyle | flatlay | graphic_or_text", "quality_ok": true|false, "product_index": <the number of the product shown, from the list, or null>, "description": "one plain line: what the photo shows, the setting, any people (and what they're doing), and the product if visible -- e.g. 'a woman pouring kesar oil from a small glass bottle into her palm at a bathroom sink, morning window light'", "reason": "a few words"}
 
 kind: product_only = the product alone (packshot); product_in_use = someone using / wearing it; person = mainly a person; lifestyle = a scene or setting; flatlay = items arranged from above; graphic_or_text = a designed graphic, banner, poster, screenshot or mostly text.
 quality_ok is false for: blurry or noisy photos, screenshots, banners or images mostly covered by text or graphics, collages, low-resolution or heavily compressed images. Otherwise true.
@@ -169,10 +174,46 @@ ${productList}` },
       kind: parsed.data.kind,
       quality_ok: parsed.data.quality_ok && parsed.data.kind !== "graphic_or_text",
       product_id: p != null && p >= 0 && p < products.length ? products[p]!.id : null,
+      description: parsed.data.description?.trim() || null,
     }
   } catch (err) {
     console.error("[brand-photos] classification failed (will retry next sync):", err instanceof Error ? err.message : err)
     return null
+  }
+}
+
+// Until migration 066 adds brand_images.description, a write that includes it
+// is retried without it, and reads fall back to the columns without it.
+const isMissingDescription = (error: { message?: string } | null | undefined) => !!error?.message && /description/.test(error.message) && /column|schema cache/i.test(error.message)
+
+async function updatePhoto(db: Db, id: string, fields: Record<string, unknown>): Promise<void> {
+  const { error } = await db.from("brand_images").update(fields).eq("id", id)
+  if (isMissingDescription(error)) {
+    const { description: _d, ...rest } = fields
+    void _d
+    await db.from("brand_images").update(rest).eq("id", id)
+  }
+}
+
+const DESCRIBE_PER_RUN = 30
+
+/** Describes classified, usable photos that have no description yet. Returns how many. Never throws. */
+async function backfillDescriptions(db: Db, brandId: string): Promise<number> {
+  try {
+    const { data, error } = await db.from("brand_images").select("id, url").eq("brand_id", brandId).eq("quality_ok", true).not("classified_at", "is", null).is("description", null).limit(DESCRIBE_PER_RUN)
+    if (error || !data?.length) return 0
+    const { data: products } = await db.from("products").select("id, name").eq("brand_id", brandId)
+    let described = 0
+    for (const row of data as { id: string; url: string }[]) {
+      const result = await classify(row.url, products ?? [])
+      if (!result?.description) continue
+      const { error: updateError } = await db.from("brand_images").update({ description: result.description }).eq("id", row.id)
+      if (updateError) break
+      described++
+    }
+    return described
+  } catch {
+    return 0
   }
 }
 
@@ -182,6 +223,8 @@ export interface PhotoSyncReport {
   found: number
   added: number
   classified: number
+  /** Already-classified photos given a description this run (migration 066 backfill). */
+  described: number
   passed: number
   kinds: Partial<Record<PhotoKind, number>>
   errors: string[]
@@ -189,7 +232,7 @@ export interface PhotoSyncReport {
 
 /** Collects new photos (website and/or Instagram) and classifies every unclassified one. Never throws. */
 export async function syncBrandPhotos(db: Db, brandId: string, opts: { website?: boolean; instagram?: boolean } = { website: true, instagram: true }): Promise<PhotoSyncReport> {
-  const report: PhotoSyncReport = { found: 0, added: 0, classified: 0, passed: 0, kinds: {}, errors: [] }
+  const report: PhotoSyncReport = { found: 0, added: 0, classified: 0, described: 0, passed: 0, kinds: {}, errors: [] }
   try {
     const { data: brand } = await db.from("brands").select("id, user_id, website_url").eq("id", brandId).single() as { data: Pick<BrandRow, "id" | "user_id" | "website_url"> | null }
     if (!brand) throw new Error("brand not found")
@@ -266,10 +309,14 @@ export async function syncBrandPhotos(db: Db, brandId: string, opts: { website?:
       for (const row of pending as { id: string; url: string }[]) {
         const result = await classify(row.url, products ?? [])
         if (!result) continue
-        await db.from("brand_images").update({ ...result, classified_at: new Date().toISOString() }).eq("id", row.id)
+        await updatePhoto(db, row.id, { ...result, classified_at: new Date().toISOString() })
         report.classified++
       }
     }
+
+    // Photos classified before migration 066 get their description here
+    // (one vision call each, capped per run -- the weekly refresh finishes them).
+    report.described = await backfillDescriptions(db, brandId)
 
     const { data: all } = await db.from("brand_images").select("kind, quality_ok").eq("brand_id", brandId)
     for (const r of (all ?? []) as { kind: PhotoKind | null; quality_ok: boolean | null }[]) {
@@ -316,53 +363,50 @@ export async function refreshStaleBrandPhotos(db: Db, opts: { limit?: number } =
 
 // ─── Picking ───────────────────────────────────────────────────────────────
 
-/**
- * The brand's best photos for a use: quality_ok, of the wanted kinds (in
- * preference order), for the product when one is given, least used first --
- * skipping photos the brand itself posted in the last 30 days. [] when
- * there are none (or 064 hasn't run).
- */
-export async function pickBrandPhotos(db: Db, brand: Pick<BrandRow, "id">, opts: { productId?: string | null; kinds: PhotoKind[]; count: number; exclude?: string[] }): Promise<BrandPhoto[]> {
+const PHOTO_COLUMNS = "id, brand_id, url, kind, quality_ok, product_id, source, published_at, use_count, last_used_at"
+
+/** The brand's usable photos of the wanted kinds (quality_ok, active), with descriptions when 066 has run. [] on any error. */
+export async function loadBrandPhotos(db: Db, brand: Pick<BrandRow, "id">, kinds: PhotoKind[]): Promise<BrandPhoto[]> {
   try {
-    let query = db.from("brand_images").select("id, brand_id, url, kind, quality_ok, product_id, source, published_at, use_count, last_used_at")
-      .eq("brand_id", brand.id).eq("quality_ok", true).eq("is_active", true).in("kind", opts.kinds)
-    if (opts.productId) query = query.eq("product_id", opts.productId)
-    const { data, error } = await query.limit(200)
+    const query = (cols: string) => db.from("brand_images").select(cols).eq("brand_id", brand.id).eq("quality_ok", true).eq("is_active", true).in("kind", kinds).limit(300)
+    let { data, error } = await query(`${PHOTO_COLUMNS}, description`)
+    if (isMissingDescription(error)) ({ data, error } = await query(PHOTO_COLUMNS))
     if (error) return []
-    const cooldown = Date.now() - OWN_POST_COOLDOWN_DAYS * 86_400_000
-    const exclude = new Set(opts.exclude ?? [])
-    return (data as BrandPhoto[])
-      .filter((p) => !exclude.has(p.id))
-      .filter((p) => !(p.source === "instagram" && p.published_at && Date.parse(p.published_at) > cooldown))
-      .sort((a, b) =>
-        a.use_count - b.use_count
-        || opts.kinds.indexOf(a.kind!) - opts.kinds.indexOf(b.kind!)
-        || (Date.parse(a.last_used_at ?? "1970-01-01") - Date.parse(b.last_used_at ?? "1970-01-01")))
-      .slice(0, opts.count)
+    return ((data ?? []) as BrandPhoto[]).map((p) => ({ ...p, description: p.description ?? null }))
   } catch {
     return []
   }
 }
 
 /**
- * Distinct real photos for one piece of content (a story sequence, a post):
- * the product's own photos first when a product is given, then any photo of
- * the wanted kinds -- never one already in `exclude`, never the same one
- * twice. Marked used, so the next piece prefers others. [] when there are
- * none; the caller then generates. Never throws.
+ * Candidate photos for one post / frame, best first (pure):
+ * - with a product: that product's own photos first, then photos tied to NO
+ *   product -- a photo of a different product is never a candidate (a
+ *   kesar-oil post never gets the ghee jar);
+ * - without one: photos tied to no product (person, lifestyle, flatlay)
+ *   before any product's photo;
+ * - then least used, the kinds' preference order, least recently used --
+ *   never one in `exclude`, never the brand's own Instagram post from the
+ *   last 30 days.
  */
-export async function takeBrandPhotos(db: Db, brand: Pick<BrandRow, "id">, opts: { productId?: string | null; kinds: PhotoKind[]; count: number; exclude?: string[] }): Promise<BrandPhoto[]> {
-  if (opts.count <= 0) return []
-  const picked: BrandPhoto[] = opts.productId ? await pickBrandPhotos(db, brand, opts) : []
-  if (picked.length < opts.count) {
-    picked.push(...await pickBrandPhotos(db, brand, {
-      kinds: opts.kinds,
-      count: opts.count - picked.length,
-      exclude: [...(opts.exclude ?? []), ...picked.map((p) => p.id)],
-    }))
-  }
-  if (picked.length > 0) await markBrandPhotosUsed(db, picked)
-  return picked
+export function rankPhotoCandidates(rows: BrandPhoto[], opts: { productId?: string | null; kinds: PhotoKind[]; exclude?: string[]; now?: number }): BrandPhoto[] {
+  const cooldown = (opts.now ?? Date.now()) - OWN_POST_COOLDOWN_DAYS * 86_400_000
+  const exclude = new Set(opts.exclude ?? [])
+  const productTier = (p: BrandPhoto) => (opts.productId ? (p.product_id === opts.productId ? 0 : 1) : (p.product_id ? 1 : 0))
+  return rows
+    .filter((p) => !exclude.has(p.id))
+    .filter((p) => !(opts.productId && p.product_id && p.product_id !== opts.productId))
+    .filter((p) => !(p.source === "instagram" && p.published_at && Date.parse(p.published_at) > cooldown))
+    .sort((a, b) =>
+      productTier(a) - productTier(b)
+      || a.use_count - b.use_count
+      || opts.kinds.indexOf(a.kind!) - opts.kinds.indexOf(b.kind!)
+      || (Date.parse(a.last_used_at ?? "1970-01-01") - Date.parse(b.last_used_at ?? "1970-01-01")))
+}
+
+/** The best `count` candidates, without a fit check (scripts / previews). Read-only. */
+export async function pickBrandPhotos(db: Db, brand: Pick<BrandRow, "id">, opts: { productId?: string | null; kinds: PhotoKind[]; count: number; exclude?: string[] }): Promise<BrandPhoto[]> {
+  return rankPhotoCandidates(await loadBrandPhotos(db, brand, opts.kinds), opts).slice(0, opts.count)
 }
 
 /** Records that photos were used, so the next pick prefers others. Never throws. */

@@ -556,7 +556,7 @@ export interface GeneratePostImageOptions {
    * is raised to "medium" when productImageUrl is set. */
   quality?: ImageQuality
   /** The brand's own photo to use as the background (lib/brand-photos.ts
-   * takeBrandPhotos) -- real photos first. Set = no image is generated; the
+   * + lib/ai/photo-fit.ts) -- a real photo that fits the post first. Set = no image is generated; the
    * photo goes through the same text-style / compositing / resize steps.
    * Unreachable = generated as usual. */
   brandPhotoUrl?: string | null
