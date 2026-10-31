@@ -13,6 +13,9 @@ import type { StoryFrameFields } from "@/lib/ai/story-frames"
 
 /** A story-frame slide also carries its frame copy (lib/ai/story-frames.ts). */
 export interface StoryExportSlide extends StoryFrameFields {
+  /** Story frames: the brand mark on the hook / cta frames (logo, or name). */
+  brand_name?: string | null
+  logo_url?: string | null
   type: "hook" | "reveal" | "buildup" | "cta"
   text: string
   subtext: string

@@ -86,6 +86,10 @@ const slideSchema = z.object({
   cta_label: z.string().max(40).nullish(),
   seed: z.number().int().min(0).max(2 ** 31).nullish(),
   tape: z.boolean().nullish(),
+  brand_mark: z.boolean().nullish(),
+  // Brand mark on the hook / cta frames: the logo, or the name without one.
+  brand_name: z.string().max(80).nullish(),
+  logo_url: z.string().max(2000).nullish(),
 })
 // Matches the generate route's own storyCount cap (1-10). preview: the
 // editor's live preview -- rendered, never uploaded.

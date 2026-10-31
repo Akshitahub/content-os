@@ -25,7 +25,10 @@ export const BIG_WORDS_MAX = 3
 export const SCRIPT_LINE_MAX = 6
 export const CALLOUT_MAX_WORDS = 4
 export const BADGE_MAX_WORDS = 3
-export const CTA_LABEL_MAX = 3
+/** The button names the action plus the offer when there is one -- "Grab yours at 40% off". */
+export const CTA_LABEL_MAX = 5
+/** A topic this short is its own core phrase -- the hook must say it ("Bday sale" -> "BDAY SALE"). */
+export const TOPIC_CORE_MAX_WORDS = 3
 /** No sentence over this many words anywhere in a story frame. */
 export const SENTENCE_MAX = 8
 
@@ -42,6 +45,8 @@ export interface StoryFrameFields {
   seed?: number | null
   /** Draw a tape strip on this frame (decided once per sequence, so a frame renders the same alone). */
   tape?: boolean | null
+  /** Draw the brand's logo / name on this frame -- the opening hook and the cta, decided once per sequence. */
+  brand_mark?: boolean | null
 }
 
 export interface StoryFrameContext {
@@ -56,6 +61,8 @@ export interface StoryFrameContext {
   numberSource: string
   /** The brand's CTA phrase, the cta frame's default button label. */
   ctaPhrase: string
+  /** The topic's own words when it's short (<= TOPIC_CORE_MAX_WORDS) -- the hook must contain them. */
+  topicCore: string | null
 }
 
 export function storyFrameContext(brand: BrandRow, product: ProductRow | null, topic: string): StoryFrameContext {
@@ -68,7 +75,14 @@ export function storyFrameContext(brand: BrandRow, product: ProductRow | null, t
     productName: product?.name?.trim() || null,
     numberSource: `${topic} ${productNumbers}`,
     ctaPhrase: b.cta_phrase?.trim() || "Shop now",
+    topicCore: topicCorePhrase(topic),
   }
+}
+
+/** The topic itself when it's a short phrase ("Bday sale", "new launch"), else null. */
+export function topicCorePhrase(topic: string): string | null {
+  const words = (topic.trim().replace(/[.!?,;:]+$/, "").match(/\S+/g) ?? [])
+  return words.length > 0 && words.length <= TOPIC_CORE_MAX_WORDS ? words.join(" ") : null
 }
 
 const wordsOf = (s: string | null | undefined) => (s?.trim().match(/\S+/g) ?? [])
@@ -102,8 +116,8 @@ export function storyFrameRules(ctx: StoryFrameContext, count: number): string {
   const allowed = allowedMiddleFrames(ctx)
   return `FRAMES — every frame is a full-screen photo with a few words layered on it, like a real Instagram story from a good brand. Frame order: ${frameSlots(count, allowed).map((f, i) => `${i + 1}: ${f}`).join(", ")}.
 Each story object has a "frame" and ONLY that frame's fields:
-- hook: "big_words" (1-${BIG_WORDS_MAX} words, huge on screen) + "script_line" (a handwritten aside, max ${SCRIPT_LINE_MAX} words).
-${allowed.includes("offer") ? `- offer: "badge" (the real number or discount, max ${BADGE_MAX_WORDS} words, e.g. "30% OFF" -- ONLY a number that appears in the topic or product data above) + "big_words" (max ${BIG_WORDS_MAX} words) + optional "script_line".\n` : ""}${allowed.includes("product") ? `- product: "big_words" (max ${BIG_WORDS_MAX} words, e.g. the product's name -- it goes on a tape label) + "callouts": exactly 2 short handwritten notes (max ${CALLOUT_MAX_WORDS} words each) naming real facts from the product / brand context above.\n` : ""}${allowed.includes("proof") ? `- proof: "quote" -- copied word for word from the customer quote in the topic (max ${SENTENCE_MAX} words), never invented or reworded.\n` : ""}- cta: "big_words" (max ${BIG_WORDS_MAX} words) + "cta_label" (the button: "${ctx.ctaPhrase}", "Remind me", "Get yours" or similar, max ${CTA_LABEL_MAX} words) + optional "script_line" (max ${SCRIPT_LINE_MAX} words).
+- hook: "big_words" (1-${BIG_WORDS_MAX} words, huge on screen) + "script_line" (a handwritten aside, max ${SCRIPT_LINE_MAX} words).${ctx.topicCore ? ` The hook's big_words MUST contain the topic's own words "${ctx.topicCore}" (e.g. topic "Bday sale" -> "Bday sale", not just "Birthday").` : ""}
+${allowed.includes("offer") ? `- offer: "badge" (the real number or discount, max ${BADGE_MAX_WORDS} words, e.g. "30% OFF" -- ONLY a number that appears in the topic or product data above) + "big_words" (max ${BIG_WORDS_MAX} words) + optional "script_line".\n` : ""}${allowed.includes("product") ? `- product: "big_words" (max ${BIG_WORDS_MAX} words, e.g. the product's name -- it goes on a tape label) + "callouts": exactly 2 short handwritten notes (max ${CALLOUT_MAX_WORDS} words each) naming real facts from the product / brand context above.\n` : ""}${allowed.includes("proof") ? `- proof: "quote" -- copied word for word from the customer quote in the topic (max ${SENTENCE_MAX} words), never invented or reworded.\n` : ""}- cta: "big_words" (max ${BIG_WORDS_MAX} words) + "cta_label" (the button, max ${CTA_LABEL_MAX} words: the action plus the offer when there is one -- "Shop the sale", "Grab yours at 40% off" -- never a bare "${ctx.ctaPhrase}" when the story has an offer) + optional "script_line" (max ${SCRIPT_LINE_MAX} words).
 Rules:
 - EVERY frame except proof has its own "big_words", and no two frames repeat the same big_words -- each one moves the story on (a detail, a feeling, a reason to care).
 - No sentence over ${SENTENCE_MAX} words anywhere. Fragments beat sentences.
@@ -117,7 +131,7 @@ const EXAMPLE_BY_FRAME: Record<StoryFrame, Record<string, unknown>> = {
   offer: { frame: "offer", badge: "30% OFF", big_words: "Everything", script_line: "till Sunday" },
   product: { frame: "product", big_words: "Meet Glow", callouts: ["hand-poured soy wax", "burns 40 hours"] },
   proof: { frame: "proof", quote: "my room smells like home now" },
-  cta: { frame: "cta", big_words: "Don't miss it", cta_label: "Shop now", script_line: "link's right here" },
+  cta: { frame: "cta", big_words: "Don't miss it", cta_label: "Shop the sale", script_line: "link's right here" },
 }
 
 /** One example frame object for a slot (its first allowed frame). */
@@ -182,6 +196,8 @@ export function finalizeStoryFrames(stories: Record<string, unknown>[], ctx: Sto
     }
     if (frame === "cta") ctaLabel = clampWords(str(s.cta_label), CTA_LABEL_MAX) || clampWords(ctx.ctaPhrase, CTA_LABEL_MAX)
     if (frame === "hook" && !bigWords) bigWords = fallbackWords
+    // The first hook says the topic's own words when the topic is short.
+    if (i === 0 && ctx.topicCore && !normalize(bigWords).includes(normalize(ctx.topicCore))) bigWords = clampWords(ctx.topicCore, BIG_WORDS_MAX)
 
     const primary = frame === "proof" ? quote : bigWords
     const secondary = frame === "offer" ? [badge, scriptLine].filter(Boolean).join(", ") : frame === "product" ? callouts.join(", ") : frame === "cta" ? [ctaLabel, scriptLine].filter(Boolean).join(", ") : scriptLine
@@ -204,8 +220,20 @@ export function finalizeStoryFrames(stories: Record<string, unknown>[], ctx: Sto
     }
   })
 
+  // The cta's button names the offer when the story has a real one: an offer
+  // badge whose number the label doesn't already carry is appended.
+  const offerBadge = out.find((s) => s.frame === "offer" && typeof s.badge === "string")?.badge as string | undefined
+  const withOffer = out.map((s) => {
+    if (s.frame !== "cta" || !offerBadge || typeof s.cta_label !== "string") return s
+    const label = s.cta_label
+    if (numbersIn(offerBadge).every((n) => numbersIn(label).includes(n))) return s
+    const action = clampWords(label, CTA_LABEL_MAX - wordsOf(offerBadge).length - 1) || "Shop"
+    const ctaLabel = `${action} at ${offerBadge.toLowerCase()}`
+    return { ...s, cta_label: ctaLabel, subtext: [ctaLabel, s.script_line].filter(Boolean).join(", ") }
+  })
+
   // A tape strip on at least one frame: the product frame's torn-tape label
   // counts; without one, the hook gets a strip.
-  const hasProductFrame = out.some((s) => s.frame === "product")
-  return out.map((s, i) => ({ ...s, tape: s.frame === "product" || (!hasProductFrame && i === 0) }))
+  const hasProductFrame = withOffer.some((s) => s.frame === "product")
+  return withOffer.map((s, i) => ({ ...s, tape: s.frame === "product" || (!hasProductFrame && i === 0), brand_mark: i === 0 || s.frame === "cta" }))
 }

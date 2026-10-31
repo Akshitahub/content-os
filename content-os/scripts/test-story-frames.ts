@@ -34,9 +34,16 @@ const ordered = finalizeStoryFrames([{ frame: "cta", big_words: "a" }, { frame: 
 check("first frame is hook, last is cta", ordered[0]!.frame === "hook" && ordered[2]!.frame === "cta", ordered.map((s) => s.frame))
 
 // Word limits.
-const long = finalizeStoryFrames([{ frame: "hook", big_words: "one two three four five", script_line: "a b c d e f g h i" }], plain)[0]!
+const longTopic = storyFrameContext(brand, null, "everything we're planning for our birthday week")
+const long = finalizeStoryFrames([{ frame: "hook", big_words: "one two three four five", script_line: "a b c d e f g h i" }], longTopic)[0]!
 check("big_words capped at 3 words", long.big_words === "one two three", long.big_words)
 check("script_line capped at 6 words", long.script_line === "a b c d e f", long.script_line)
+
+// The hook keeps a short topic's own words.
+const synonym = finalizeStoryFrames([{ frame: "hook", big_words: "Birthday", script_line: "come celebrate" }, { frame: "cta", big_words: "y" }], plain)[0]!
+check("short topic: hook says 'Bday sale', not just 'Birthday'", synonym.big_words === "Bday sale", synonym.big_words)
+const kept = finalizeStoryFrames([{ frame: "hook", big_words: "Bday sale is on" }, { frame: "cta", big_words: "y" }], plain)[0]!
+check("short topic: a hook already containing it is kept", kept.big_words === "Bday sale is", kept.big_words)
 
 // Offer: the badge number must come from the topic / product.
 const invented = finalizeStoryFrames([{ frame: "hook", big_words: "x" }, { frame: "offer", badge: "50% OFF", big_words: "All" }, { frame: "cta", big_words: "y" }], rich)
@@ -45,6 +52,12 @@ const real = finalizeStoryFrames([{ frame: "hook", big_words: "x" }, { frame: "o
 check("real discount -> offer kept", real[1]!.frame === "offer" && real[1]!.badge === "30% OFF", real[1])
 const noNumberStory = finalizeStoryFrames([{ frame: "hook", big_words: "x" }, { frame: "offer", badge: "30% OFF", big_words: "All" }, { frame: "cta", big_words: "y" }], plain)
 check("offer in a story with no numbers -> hook", noNumberStory[1]!.frame === "hook", noNumberStory[1]!.frame)
+
+// The cta names a real offer.
+const ctaOffer = finalizeStoryFrames([{ frame: "hook", big_words: "Bday sale" }, { frame: "offer", badge: "30% OFF", big_words: "All" }, { frame: "cta", big_words: "y", cta_label: "Grab yours" }], rich)
+check("cta label gets the real offer: 'Grab yours at 30% off'", ctaOffer[2]!.cta_label === "Grab yours at 30% off", ctaOffer[2]!.cta_label)
+const ctaHasIt = finalizeStoryFrames([{ frame: "hook", big_words: "Bday sale" }, { frame: "offer", badge: "30% OFF", big_words: "All" }, { frame: "cta", big_words: "y", cta_label: "Take 30% off now" }], rich)
+check("cta label already naming the offer is kept", ctaHasIt[2]!.cta_label === "Take 30% off now", ctaHasIt[2]!.cta_label)
 
 // Product: 2 grounded callouts or it's a hook.
 const grounded = finalizeStoryFrames([{ frame: "hook", big_words: "x" }, { frame: "product", big_words: "Mogra Glow", callouts: ["soy wax", "40 hour burn"] }, { frame: "cta", big_words: "y" }], rich)
@@ -71,6 +84,9 @@ check("tape on the product frame", grounded[1]!.tape === true && grounded[0]!.ta
 check("tape on the hook without a product frame", ordered[0]!.tape === true, ordered.map((s) => s.tape))
 const again = finalizeStoryFrames(grounded, rich)
 check("finalize is idempotent (seeds and frames kept)", JSON.stringify(again.map((s) => [s.frame, s.seed])) === JSON.stringify(grounded.map((s) => [s.frame, s.seed])))
+
+// Brand mark: the opening hook and the cta only.
+check("brand mark on the first frame and the cta only", JSON.stringify(ordered.map((s) => s.brand_mark)) === JSON.stringify([true, false, true]), ordered.map((s) => s.brand_mark))
 
 // Mirror: text / subtext carry the copy.
 check("cta mirrors its button into subtext", String(ordered[2]!.subtext).startsWith("Shop now"), ordered[2]!.subtext)

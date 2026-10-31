@@ -76,7 +76,10 @@ const STORY_BG_PRESET_LABELS: Record<(typeof BRAND_PRESET_IDS)[number], string> 
 // time. productImageSource is safe to always pass regardless of slide
 // type — the compositor itself gates whether it's actually used (reveal/
 // cta, or hook for a single-slide sequence), same as the live preview.
-function toExportSlide(story: StorySlide, productImageSource: string | null | undefined, palette: BrandPalette | null = null): StoryExportSlide {
+/** The brand mark story frames draw on the hook / cta frames. */
+type BrandMark = { name: string; logo_url: string | null }
+
+function toExportSlide(story: StorySlide, productImageSource: string | null | undefined, palette: BrandPalette | null = null, mark: BrandMark | null = null): StoryExportSlide {
   return {
     type: story.type,
     text: story.text,
@@ -121,6 +124,9 @@ function toExportSlide(story: StorySlide, productImageSource: string | null | un
     cta_label: story.cta_label ?? null,
     seed: story.seed ?? null,
     tape: story.tape ?? null,
+    brand_mark: story.brand_mark ?? null,
+    brand_name: mark?.name ?? null,
+    logo_url: mark?.logo_url ?? null,
   }
 }
 
@@ -837,10 +843,13 @@ function StoryFrameCard({
   index,
   previewUrl,
   palette,
+  mark,
   backgroundFailed = false,
   onRetryBackground,
   onUpdateSlide,
 }: {
+  /** The brand mark the hook / cta frames carry. */
+  mark: BrandMark | null
   story: StorySlide & { frame: StoryFrame }
   index: number
   /** The frame compositor's render of this exact slide; null while it renders. */
@@ -900,7 +909,7 @@ function StoryFrameCard({
         </button>
         <button onClick={async () => {
           setDlErr(false)
-          const ok = await downloadStorySlideAsImage(toExportSlide(story, null, palette), `story-${index + 1}`)
+          const ok = await downloadStorySlideAsImage(toExportSlide(story, null, palette, mark), `story-${index + 1}`)
           if (!ok) setDlErr(true)
         }}
           className="flex items-center gap-1 rounded-full border px-3 py-1.5 text-[11px] font-medium hover:bg-secondary">
@@ -933,7 +942,8 @@ export function StorySequence({ brandId }: { brandId: string }) {
   const storySteps = storyStepNumbers(stories)
   // Frame previews (StoryFrameCard): keyed by each frame's export data, so an
   // unchanged frame is never re-rendered and an edited one is.
-  const frameExports = useMemo(() => stories.map((st) => (st.frame ? toExportSlide(st, null, palette) : null)), [stories, palette])
+  const brandMark = useMemo<BrandMark | null>(() => (brand ? { name: brand.name, logo_url: brand.logo_url ?? null } : null), [brand])
+  const frameExports = useMemo(() => stories.map((st) => (st.frame ? toExportSlide(st, null, palette, brandMark) : null)), [stories, palette, brandMark])
   const frameKeys = useMemo(() => frameExports.map((e) => (e ? JSON.stringify(e) : null)), [frameExports])
   const [framePreviews, setFramePreviews] = useState<Record<string, string>>({})
   useEffect(() => {
@@ -1703,7 +1713,7 @@ export function StorySequence({ brandId }: { brandId: string }) {
                   </button>
                   <button onClick={async () => {
                     setSaveAllErr(false)
-                    const exportSlides = stories.map((s, i) => toExportSlide(s, selectedProduct?.imageUrl ?? uploadedImages[i]?.preview, palette))
+                    const exportSlides = stories.map((s, i) => toExportSlide(s, selectedProduct?.imageUrl ?? uploadedImages[i]?.preview, palette, brandMark))
                     const ok = await downloadStorySlidesAsImages(exportSlides, "story-sequence")
                     if (!ok) setSaveAllErr(true)
                   }}
@@ -1731,6 +1741,7 @@ export function StorySequence({ brandId }: { brandId: string }) {
                     index={i}
                     previewUrl={frameKeys[i] ? framePreviews[frameKeys[i]!] ?? null : null}
                     palette={palette}
+                    mark={brandMark}
                     backgroundFailed={failedBgSlides.includes(i) && !imagesGenerating}
                     onRetryBackground={retryFailedBackgrounds}
                     onUpdateSlide={(updates) => updateSlide(i, updates)}
@@ -1782,7 +1793,7 @@ export function StorySequence({ brandId }: { brandId: string }) {
 
               <ScheduleAction
                 brandId={brandId}
-                storySlides={stories.map((s, i) => toExportSlide(s, selectedProduct?.imageUrl ?? uploadedImages[i]?.preview, palette))}
+                storySlides={stories.map((s, i) => toExportSlide(s, selectedProduct?.imageUrl ?? uploadedImages[i]?.preview, palette, brandMark))}
                 contentFormat="story"
                 itemLabel="story"
                 caption={storyCaption?.caption_text || stories[0]?.text || ""}

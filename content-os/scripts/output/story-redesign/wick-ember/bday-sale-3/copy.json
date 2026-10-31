@@ -5,37 +5,37 @@
     {
       "frame": 1,
       "kind": "hook",
-      "big_words": "Birthday",
-      "script_line": "feel the glow",
+      "big_words": "Bday sale",
+      "script_line": "and you're invited",
       "badge": null,
       "callouts": null,
       "quote": null,
       "cta_label": null,
+      "seed": 1036739590,
       "background": "brand photo"
     },
     {
       "frame": 2,
-      "kind": "product",
-      "big_words": "Handmade scent",
+      "kind": "hook",
+      "big_words": "Candle Bliss",
       "script_line": null,
       "badge": null,
-      "callouts": [
-        "soy wax",
-        "natural oils"
-      ],
+      "callouts": null,
       "quote": null,
       "cta_label": null,
+      "seed": 1036747509,
       "background": "brand photo"
     },
     {
       "frame": 3,
       "kind": "cta",
-      "big_words": "Grab yours",
-      "script_line": "tap to celebrate",
+      "big_words": "Grab Yours",
+      "script_line": "link is right here",
       "badge": null,
       "callouts": null,
       "quote": null,
-      "cta_label": "Shop now",
+      "cta_label": "Shop the Bday sale",
+      "seed": 1036755428,
       "background": "brand photo"
     }
   ]

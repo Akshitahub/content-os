@@ -7,6 +7,8 @@
 //
 //   npx tsx scripts/render-story-redesign.ts --brand <brandId> [--brand <brandId>] [--product <productId>] [--no-ai]
 //   npx tsx scripts/render-story-redesign.ts --sample [--photos <dir>] [--no-ai]
+//   ... [--only <brand name part>] [--topic "Bday sale"] [--count 3]   (one set)
+//   ... --from-copy   (re-render each set's saved copy.json, no model call)
 //
 // --brand reads real brands READ-ONLY: photos are picked, never marked used,
 // and nothing is saved. --sample uses two built-in brands with no database
@@ -38,14 +40,19 @@ const brandIds = arg("--brand")
 const productId = arg("--product")[0] ?? null
 const SAMPLE = process.argv.includes("--sample")
 const NO_AI = process.argv.includes("--no-ai")
+// --from-copy: re-render a set's saved copy.json (no text model call) -- the
+// copy goes through the current frame rules and compositor again.
+const FROM_COPY = process.argv.includes("--from-copy")
 const photosDir = arg("--photos")[0]
 if (!brandIds.length && !SAMPLE) {
   console.error("usage: npx tsx scripts/render-story-redesign.ts --brand <brandId> [--brand <brandId>] [--product <id>] [--no-ai]\n       npx tsx scripts/render-story-redesign.ts --sample [--photos <dir>] [--no-ai]")
   process.exit(1)
 }
 
-const TOPICS = ["Bday sale", "new launch"]
-const COUNTS = [3, 5]
+// --topic / --count render just one set (saves the text model's daily budget).
+const TOPICS = arg("--topic").length ? arg("--topic") : ["Bday sale", "new launch"]
+const COUNTS = arg("--count").length ? arg("--count").map(Number) : [3, 5]
+const onlyBrand = arg("--only")[0]?.toLowerCase()
 const OUT = join(process.cwd(), "scripts/output/story-redesign")
 const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40)
 
@@ -87,6 +94,7 @@ async function withRateLimitRetry<T>(call: () => Promise<T>): Promise<T> {
 
 async function main() {
   const { requestStorySequence } = await import("@/lib/ai/story-sequence-generator")
+  const { finalizeStoryFrames, storyFrameContext } = await import("@/lib/ai/story-frames")
   const { renderStorySlides } = await import("@/lib/image/story-compositor")
   const { generateStorySlideBackground } = await import("@/lib/ai/story-slide-background")
   const { pickBrandPhotos, PHOTO_KINDS_FOR } = await import("@/lib/brand-photos")
@@ -109,7 +117,7 @@ async function main() {
     }
   }
 
-  for (const { brand, product, photos } of cases) {
+  for (const { brand, product, photos } of cases.filter((c) => !onlyBrand || c.brand.name.toLowerCase().includes(onlyBrand))) {
     console.log(`\n=== ${brand.name}: ${photos.length} brand photo(s)${product ? `, product "${product.name}"` : ""} ===`)
     const palette = resolveBrandPalette(brand)
     const fontId = resolveTypography(brand).heading
@@ -118,9 +126,16 @@ async function main() {
         const dir = join(OUT, slug(brand.name), `${slug(topic)}-${count}`)
         mkdirSync(dir, { recursive: true })
         const started = Date.now()
-        const { raw } = await withRateLimitRetry(() => requestStorySequence(brand, topic, count, undefined, [], [], undefined, product))
-        const data = JSON.parse(raw) as { stories?: Record<string, unknown>[] }
-        const stories = (data.stories ?? []).slice(0, count)
+        let stories: Record<string, unknown>[]
+        if (FROM_COPY) {
+          const saved = JSON.parse(readFileSync(join(dir, "copy.json"), "utf-8")) as { frames: Record<string, unknown>[] }
+          const asStories = saved.frames.map((f) => ({ frame: f.kind, big_words: f.big_words, script_line: f.script_line, badge: f.badge, callouts: f.callouts, quote: f.quote, cta_label: f.cta_label, ...(typeof f.seed === "number" ? { seed: f.seed } : {}) }))
+          stories = finalizeStoryFrames(asStories, storyFrameContext(brand, product, topic))
+        } else {
+          const { raw } = await withRateLimitRetry(() => requestStorySequence(brand, topic, count, undefined, [], [], undefined, product))
+          const data = JSON.parse(raw) as { stories?: Record<string, unknown>[] }
+          stories = (data.stories ?? []).slice(0, count)
+        }
         // Brand photos first, one per frame, never repeated in the sequence.
         const slides = await Promise.all(stories.map(async (s, i) => {
           const photo = photos[i] ?? null
@@ -134,7 +149,7 @@ async function main() {
               source = "AI photo"
             } else source = `palette (AI photo failed: ${bg.error.slice(0, 120)})`
           }
-          return { slide: { ...s, background_image_url: url, palette, font_id: fontId } as Record<string, unknown>, source }
+          return { slide: { ...s, background_image_url: url, palette, font_id: fontId, brand_name: brand.name, logo_url: brand.logo_url ?? null } as Record<string, unknown>, source }
         }))
         const rendered = await renderStorySlides(slides.map((x) => x.slide) as never)
         const thumbs: Buffer[] = []
@@ -146,7 +161,7 @@ async function main() {
           .composite(thumbs.map((b, i) => ({ input: b, left: i * 370, top: 0 }))).jpeg({ quality: 85 }).toFile(join(dir, "sheet.jpg"))
         const copy = slides.map((x, i) => {
           const s = x.slide as Record<string, unknown>
-          return { frame: i + 1, kind: s.frame, big_words: s.big_words, script_line: s.script_line, badge: s.badge, callouts: s.callouts, quote: s.quote, cta_label: s.cta_label, background: x.source }
+          return { frame: i + 1, kind: s.frame, big_words: s.big_words, script_line: s.script_line, badge: s.badge, callouts: s.callouts, quote: s.quote, cta_label: s.cta_label, seed: s.seed, background: x.source }
         })
         writeFileSync(join(dir, "copy.json"), JSON.stringify({ brand: brand.name, topic, frames: copy }, null, 2))
         console.log(`  ${topic} x${count} (${Date.now() - started}ms): ${copy.map((c) => `${c.kind}[${c.background.split(" (")[0]}]`).join(" -> ")}`)

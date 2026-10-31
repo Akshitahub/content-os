@@ -5,7 +5,7 @@ import { getFont, getFontPath, handArrow, measureTextWidth } from "@/lib/image/p
 import { regionLuminance, type RegionStats } from "@/lib/image/text-contrast"
 import { bestContrast, ensureContrast, hexContrast, hexLuminance, mixHex, AA_BODY, AA_GRAPHIC } from "@/lib/design/contrast-math"
 import { FONT_FAMILY_NAME, DEFAULT_FONT_ID, isFontId, type FontId } from "@/lib/design/fonts"
-import { NEUTRAL_PALETTE, type BrandPalette } from "@/lib/design/color-themes"
+import { NEUTRAL_PALETTE, paletteRoles, type BrandPalette } from "@/lib/design/color-themes"
 import { sanitizeTextForCompositing } from "@/lib/image/sanitize-text-for-compositing"
 import type { StoryFrame, StoryFrameFields } from "@/lib/ai/story-frames"
 
@@ -18,7 +18,12 @@ import type { StoryFrame, StoryFrameFields } from "@/lib/ai/story-frames"
  * text. Small rotations / offsets and the photo grain come from the
  * frame's seed, so a frame renders the same every time -- the editor
  * preview, a download and the published image are this one render.
- * Colours come from the brand's 4-role palette (resolveBrandPalette).
+ * Colours come from the brand's 4-role palette (resolveBrandPalette): the
+ * script lines, callouts and arrows in pop or accent (whichever reads over
+ * the strip of photo they sit on), the tape label and pill button on the
+ * accent band, and the hook's last display line in accent / pop -- or white
+ * with an accent underline when neither reads. The hook and cta frames carry
+ * the brand's logo (or its name) small, inside the safe area.
  */
 
 const W = 1080
@@ -36,6 +41,9 @@ export interface StoryFrameSlide extends StoryFrameFields {
   background_image_url?: string | null
   font_id?: FontId | null
   palette?: BrandPalette | null
+  /** Brand presence on the hook and cta frames: the logo, or the name in the heading font without one. */
+  brand_name?: string | null
+  logo_url?: string | null
 }
 
 // ─── Small utilities ────────────────────────────────────────────────────────
@@ -195,7 +203,7 @@ interface Block {
  * longest line wouldn't fit the width. Anchored to the top or bottom of
  * `zone`, left-aligned or centred, rotated a couple of degrees.
  */
-function displayBlock(f: Fonts, words: string, zone: { y0: number; y1: number }, anchor: Zone, ink: Ink, rnd: () => number, heightShare = 0.3): Block {
+function displayBlock(f: Fonts, words: string, zone: { y0: number; y1: number }, anchor: Zone, ink: Ink, rnd: () => number, heightShare = 0.3, accent?: { color: string | null; underline: string }): Block {
   const raw = displayCase(f.displayId, words).split(/\s+/).filter(Boolean)
   const lines: string[] = []
   for (const w of raw) {
@@ -218,12 +226,18 @@ function displayBlock(f: Fonts, words: string, zone: { y0: number; y1: number },
   const angle = (rnd() < 0.5 ? -1 : 1) * (0.8 + rnd() * 1.8)
   const cx = left + blockW / 2
   const cy = top + blockH / 2
+  // The brand-colour word: the last line in accent / pop when it reads, else
+  // white with an accent underline beneath it.
+  const last = lines.length - 1
+  let underline = ""
   const text = lines.map((l, i) => {
     const x = centred ? left + (blockW - widths[i]!) / 2 : left
     const y = top + size * (i * lh + 0.86)
-    return `<text x="${r1(x)}" y="${r1(y)}" font-family="${family(f.displayId)}" font-size="${size}" font-weight="700" fill="${ink.color}">${esc(l)}</text>`
+    const fill = accent && i === last && accent.color ? accent.color : ink.color
+    if (accent && i === last && !accent.color) underline = `<rect x="${r1(x)}" y="${r1(y + size * 0.08)}" width="${r1(widths[i]!)}" height="${r1(Math.max(10, size * 0.09))}" rx="${r1(size * 0.04)}" fill="${accent.underline}"/>`
+    return `<text x="${r1(x)}" y="${r1(y)}" font-family="${family(f.displayId)}" font-size="${size}" font-weight="700" fill="${fill}">${esc(l)}</text>`
   }).join("")
-  return { svg: `<g transform="rotate(${r1(angle)} ${r1(cx)} ${r1(cy)})" filter="url(#${ink.filter})">${text}</g>`, top, bottom: top + blockH, left, right: left + blockW }
+  return { svg: `<g transform="rotate(${r1(angle)} ${r1(cx)} ${r1(cy)})" filter="url(#${ink.filter})">${underline}${text}</g>`, top, bottom: top + blockH, left, right: left + blockW }
 }
 
 /** One handwritten line in the script face, rotated a few degrees. */
@@ -241,15 +255,25 @@ function scriptLine(f: Fonts, text: string, x: number, y: number, color: string,
   }
 }
 
-/** The script line's colour: the brand pop when it clears 3:1 against the photo it crosses, else the ink. */
-function scriptColor(p: BrandPalette, ink: Ink, stats: RegionStats | null): string {
-  if (!stats) return hexContrast(p.pop, p.deep) >= AA_GRAPHIC ? p.pop : ink.color
-  const L = hexLuminance(p.pop)
-  // Light text crosses the region's brightest parts, dark text its darkest.
+/** Whether `color` clears 3:1 against the photo strip it crosses (light text vs its brightest parts, dark vs its darkest). */
+function readsOver(color: string, ink: Ink, stats: RegionStats | null, fallbackBg: string): boolean {
+  if (!stats) return hexContrast(color, fallbackBg) >= AA_GRAPHIC
+  const L = hexLuminance(color)
   const against = ink.light ? stats.high : stats.low
   const ratio = (Math.max(L, against) + 0.05) / (Math.min(L, against) + 0.05)
-  const sameSide = ink.light ? L > against : L < against
-  return sameSide && ratio >= AA_GRAPHIC ? p.pop : ink.color
+  return (ink.light ? L > against : L < against) && ratio >= AA_GRAPHIC
+}
+
+/** A brand colour for script lines / arrows / an accent word: pop, then accent, whichever reads; else null. */
+function brandColorOver(p: BrandPalette, ink: Ink, stats: RegionStats | null): string | null {
+  // Without a photo the frame is the palette gradient (deep into accent).
+  const bg = mixHex(p.deep, p.accent, 0.3)
+  return [p.pop, p.accent].find((c) => readsOver(c, ink, stats, bg)) ?? null
+}
+
+/** The script line's colour: the brand's pop or accent when one reads over the photo it crosses, else the ink. */
+function scriptColor(p: BrandPalette, ink: Ink, stats: RegionStats | null): string {
+  return brandColorOver(p, ink, stats) ?? ink.color
 }
 
 /** Clamp a text block's vertical span into the safe area. */
@@ -282,6 +306,45 @@ interface Ctx {
   rnd: () => number
   stats: Record<Zone, RegionStats | null>
   bands: (RegionStats | null)[]
+  /** The brand's logo as an embeddable PNG, or its name -- hook and cta frames only. */
+  mark: { logo: { uri: string; w: number; h: number } | null; name: string } | null
+}
+
+const MARK_MAX_W = 240
+const MARK_MAX_H = 84
+
+/** The logo fitted into the mark box as a PNG data URI; null if it can't be read. */
+async function logoMark(url: string | null | undefined): Promise<{ uri: string; w: number; h: number } | null> {
+  if (!url) return null
+  const bytes = await fetchImage(url)
+  if (!bytes) return null
+  try {
+    const png = await sharp(bytes).resize(MARK_MAX_W, MARK_MAX_H, { fit: "inside", withoutEnlargement: false }).png().toBuffer()
+    const meta = await sharp(png).metadata()
+    return { uri: `data:image/png;base64,${png.toString("base64")}`, w: meta.width ?? MARK_MAX_W, h: meta.height ?? MARK_MAX_H }
+  } catch {
+    return null
+  }
+}
+
+/**
+ * The brand mark, small and clean: the logo, else the name in the heading
+ * font, inked for the strip it sits on. (x, y) = top-left of its box;
+ * `align` "end" puts its right edge at x.
+ */
+function brandMark(ctx: Ctx, x: number, y: number, align: "start" | "middle" | "end" = "start"): string {
+  if (!ctx.mark) return ""
+  if (ctx.mark.logo) {
+    const { uri, w, h } = ctx.mark.logo
+    const lx = align === "end" ? x - w : align === "middle" ? x - w / 2 : x
+    return `<image href="${uri}" x="${r1(lx)}" y="${r1(y)}" width="${w}" height="${h}" filter="url(#drop)"/>`
+  }
+  const name = clean(ctx.mark.name)
+  if (!name) return ""
+  let size = 46
+  while (size > 30 && measureTextWidth(ctx.f.display, name, size) > MARK_MAX_W * 1.6) size -= 2
+  const { ink } = inkAt(ctx, y, y + size)
+  return `<text x="${r1(x)}" y="${r1(y + size * 0.86)}" text-anchor="${align}" font-family="${family(ctx.f.displayId)}" font-size="${size}" font-weight="700" fill="${ink.color}" filter="url(#${ink.filter})">${esc(displayCase(ctx.f.displayId, name))}</text>`
 }
 
 /** Ink + stats for the text span [y0, y1]. */
@@ -308,10 +371,14 @@ function calmZone(ctx: Ctx, prefer?: Zone): Zone {
 function hookFrame(ctx: Ctx, s: StoryFrameSlide): string {
   const zone = calmZone(ctx)
   const ink = inkFor(ctx.stats[zone], ctx.p)
-  const block = displayBlock(ctx.f, clean(s.big_words) || clean(s.text), ZONES[zone], zone, ink, ctx.rnd)
+  // Every sequence has a hook, so its last display line carries the brand colour.
+  const accent = { color: brandColorOver(ctx.p, ink, ctx.stats[zone]), underline: ctx.p.accent }
+  const block = displayBlock(ctx.f, clean(s.big_words) || clean(s.text), ZONES[zone], zone, ink, ctx.rnd, 0.3, accent)
   const scriptY = zone === "top" ? clampY(block.bottom + 130) : clampY(block.top - 50)
   const script = scriptAt(ctx, s.script_line ?? "", block.left + 18 + Math.round(ctx.rnd() * 60), scriptY, 96)
-  return block.svg + script.svg + (s.tape ? tapeStrip(zone === "top" ? W - 210 : 220, zone === "top" ? H - SAFE - 40 : SAFE + 40, 330, 92, zone === "top" ? -24 : -32, ctx.p.base, ctx.rnd) : "")
+  // The mark sits in the corner away from the words; the tape in the other corner.
+  const mark = zone === "top" ? brandMark(ctx, SIDE, H - SAFE - 30 - MARK_MAX_H) : brandMark(ctx, W - SIDE, SAFE + 30, "end")
+  return block.svg + script.svg + mark + (s.tape ? tapeStrip(zone === "top" ? W - 210 : 220, zone === "top" ? H - SAFE - 40 : SAFE + 40, 330, 92, zone === "top" ? -24 : -32, ctx.p.base, ctx.rnd) : "")
 }
 
 function offerFrame(ctx: Ctx, s: StoryFrameSlide): string {
@@ -359,9 +426,10 @@ function productFrame(ctx: Ctx, s: StoryFrameSlide): string {
     const right = i === 1
     const x = right ? W - SIDE - Math.round(ctx.rnd() * 30) : SIDE + Math.round(ctx.rnd() * 30)
     const y0 = right ? Math.round(H * 0.66) + Math.round(ctx.rnd() * 60) : SAFE + 120 + Math.round(ctx.rnd() * 60)
-    const { ink } = inkAt(ctx, y0 - size, y0 + lines.length * size)
+    const { ink, stats } = inkAt(ctx, y0 - size, y0 + lines.length * size)
+    const color = scriptColor(ctx.p, ink, stats)
     const angle = (right ? 1 : -1) * (2 + ctx.rnd() * 3)
-    const text = lines.map((l, k) => `<text x="${x}" y="${y0 + k * size * 1.02}" text-anchor="${right ? "end" : "start"}" font-family="${family(SCRIPT_FONT)}" font-size="${size}" font-weight="700" fill="${ink.color}">${esc(l)}</text>`).join("")
+    const text = lines.map((l, k) => `<text x="${x}" y="${y0 + k * size * 1.02}" text-anchor="${right ? "end" : "start"}" font-family="${family(SCRIPT_FONT)}" font-size="${size}" font-weight="700" fill="${color}">${esc(l)}</text>`).join("")
     const tx = right ? x - lw : x
     out.push(`<g transform="rotate(${r1(angle)} ${r1(tx + lw / 2)} ${y0})" filter="url(#${ink.filter})">${text}</g>`)
     // Arrow from just past the text toward the product, stopping short of it.
@@ -370,7 +438,7 @@ function productFrame(ctx: Ctx, s: StoryFrameSlide): string {
     const t = targets[i]!
     const ex = sx + (t.x - sx) * 0.62
     const ey = sy + (t.y - sy) * 0.62
-    out.push(arrow(sx, sy, ex, ey, right ? -55 : 55, ink.color, ink.filter))
+    out.push(arrow(sx, sy, ex, ey, right ? -55 : 55, color, ink.filter))
   })
   // The torn-tape label with the display words, low on the frame.
   const label = displayCase(ctx.f.displayId, clean(s.big_words) || clean(s.text))
@@ -383,8 +451,8 @@ function productFrame(ctx: Ctx, s: StoryFrameSlide): string {
     const cx = SIDE + w / 2 + Math.round(ctx.rnd() * 40)
     const cy = H - SAFE - h / 2 - 150 - Math.round(ctx.rnd() * 50)
     const angle = (ctx.rnd() < 0.5 ? -1 : 1) * (2 + ctx.rnd() * 3)
-    const tapeFill = mixHex(ctx.p.base, "#ffffff", 0.35)
-    const textColor = ensureContrast(ctx.p.deep, tapeFill, AA_BODY)
+    // The accent band and its text colour (paletteRoles), like the pill.
+    const { band: tapeFill, bandText: textColor } = paletteRoles(ctx.p)
     out.push(`<g transform="rotate(${r1(angle)} ${r1(cx)} ${r1(cy)})">${tapeStrip(cx, cy, w, h, 0, tapeFill, ctx.rnd, 0.94)}<text x="${r1(cx)}" y="${r1(cy + fs * 0.34)}" text-anchor="middle" font-family="${family(ctx.f.displayId)}" font-size="${fs}" font-weight="700" fill="${textColor}">${esc(label)}</text></g>`)
   }
   return out.join("")
@@ -423,25 +491,27 @@ function ctaFrame(ctx: Ctx, s: StoryFrameSlide): string {
   const inkTop = inkFor(ctx.stats.top, ctx.p)
   const block = displayBlock(ctx.f, clean(s.big_words) || clean(s.text), ZONES.top, "top", inkTop, ctx.rnd, 0.24)
   const label = clean(s.cta_label) || "Shop now"
-  let fs = 54
-  while (fs > 38 && measureTextWidth(ctx.f.box, label, fs) > W - SIDE * 2 - 160) fs -= 2
+  // ~1.5x the first version (54px / 124px): the button is the frame's point.
+  let fs = 80
+  while (fs > 48 && measureTextWidth(ctx.f.box, label, fs) > W - SIDE * 2 - 190) fs -= 2
   const tw = measureTextWidth(ctx.f.box, label, fs)
-  const pw = tw + 130
-  const ph = 124
+  const pw = tw + 190
+  const ph = 186
   const px = (W - pw) / 2
-  const py = H - SAFE - ph - 120 - Math.round(ctx.rnd() * 40)
-  const pillFill = "#ffffff"
-  const pillInk = ensureContrast(ctx.p.deep, pillFill, AA_BODY)
+  // Room under the pill for the brand mark, still inside the safe area.
+  const py = H - SAFE - ph - 140 - Math.round(ctx.rnd() * 30)
+  const { band: pillFill, bandText: pillInk } = paletteRoles(ctx.p)
   const pill = `<g filter="url(#drop)"><rect x="${r1(px)}" y="${r1(py)}" width="${r1(pw)}" height="${ph}" rx="${ph / 2}" fill="${pillFill}"/></g><text x="${W / 2}" y="${r1(py + ph / 2 + fs * 0.36)}" text-anchor="middle" font-family="${family(BOX_FONT)}" font-size="${fs}" font-weight="700" fill="${pillInk}">${esc(label)}</text>`
   // The script line above-left, its arrow curving down to the pill.
-  const sy = clampY(py - 230 - Math.round(ctx.rnd() * 40))
+  const sy = clampY(py - 250 - Math.round(ctx.rnd() * 40))
   const sx = SIDE + 10 + Math.round(ctx.rnd() * 40)
   const script = scriptAt(ctx, s.script_line ?? "", sx, sy, 92)
   const startX = s.script_line ? sx + Math.min(script.width, 360) * 0.5 : sx + 120
   const startY = sy + 40
   const arrowInk = inkAt(ctx, startY, py + ph)
   const arrowSvg = arrow(startX, startY, px - 18, py + ph * 0.35, -70, s.script_line ? script.color : arrowInk.ink.color, arrowInk.ink.filter)
-  return block.svg + script.svg + arrowSvg + pill + (s.tape ? tapeStrip(W - 200, H - SAFE - 20, 300, 86, 28, ctx.p.base, ctx.rnd) : "")
+  const mark = brandMark(ctx, W / 2, py + ph + 36, "middle")
+  return block.svg + script.svg + arrowSvg + pill + mark + (s.tape ? tapeStrip(W - 200, H - SAFE - 20, 300, 86, 28, ctx.p.base, ctx.rnd) : "")
 }
 
 const DRAW: Record<StoryFrame, (ctx: Ctx, s: StoryFrameSlide) => string> = {
@@ -467,7 +537,10 @@ export async function renderStoryFrame(slide: StoryFrameSlide): Promise<Buffer> 
       }
     : { top: null, bottom: null }
   const bands = photo ? await bandStats(base) : Array<RegionStats | null>(BANDS).fill(null)
-  const ctx: Ctx = { f: { displayId, display, script, box }, p, rnd, stats, bands }
+  // The opening hook and the cta (brand_mark, stamped per sequence); a slide from before the flag: any hook / cta.
+  const wantsMark = (slide.brand_mark ?? (slide.frame === "hook" || slide.frame === "cta")) && !!(slide.logo_url || slide.brand_name)
+  const mark = wantsMark ? { logo: await logoMark(slide.logo_url), name: slide.brand_name ?? "" } : null
+  const ctx: Ctx = { f: { displayId, display, script, box }, p, rnd, stats, bands, mark }
   const svg = `<svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg">${FILTERS}${(DRAW[slide.frame] ?? hookFrame)(ctx, slide)}</svg>`
   const overlay = Buffer.from(new Resvg(svg, { font: { fontFiles, loadSystemFonts: false, defaultFontFamily: FONT_FAMILY_NAME[displayId] } }).render().asPng())
   // JPEG: a grainy full-bleed photo is ~5MB as PNG and well under 1MB as

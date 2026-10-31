@@ -507,6 +507,9 @@ function backingRect(x: number, y: number, w: number, h: number, style: TextStyl
 /** Story-frame slides (`frame` set, lib/ai/story-frames.ts) render through
  * lib/image/story-frame-compositor.ts; everything else as before. */
 export interface StoryCompositeSlide extends StoryFrameFields {
+  /** Story frames: the brand mark on the hook / cta frames (logo, or name). */
+  brand_name?: string | null
+  logo_url?: string | null
   type: "hook" | "reveal" | "buildup" | "cta"
   text: string
   subtext: string

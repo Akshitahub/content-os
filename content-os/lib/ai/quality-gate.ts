@@ -138,7 +138,7 @@ Report problems with these checks:
 - visual_mismatch: the visual brief doesn't show what that item's copy says, or its kind contradicts its must_show, or it centres on something that carries readable text (a screen, document, sign, calendar, chart), or (when a brand art direction is given) it ignores the brand palette or uses a scene from its never-list.
 - generic: a line with no concrete information -- a slogan that says nothing specific.
 - duplicate: two items with the same angle, subject or visual (report it on the later item).
-${topic ? `- off_topic: the item is about a different subject, occasion, offer or product than the POST TOPIC -- e.g. a styling tip when the topic is a sale. Items that serve the topic (its hook, a benefit, a step, the CTA for it) are on topic; judge the copy, not the visual alone.\n` : ""}
+${topic ? `- off_topic: the item is about a different subject, occasion, offer or product than the POST TOPIC -- e.g. a styling tip when the topic is a sale. Items that serve the topic (its hook, a benefit, a step, the CTA for it) are on topic; judge the copy, not the visual alone.${(topic.trim().match(/\S+/g) ?? []).length <= 3 ? ` The topic is a short phrase, so the FIRST item must use its own words ("${topic.trim()}") -- a synonym or a fragment of it (e.g. "Birthday" for "Bday sale") is off_topic.` : ""}\n` : ""}
 Return {"issues":[{"item": <the [index] above>, "check": "unsupported_claim | visual_mismatch | ${topic ? "off_topic | " : ""}generic | duplicate", "detail": "short: what is wrong", "fix_hint": "short: how to fix it"}]}. Empty array if everything passes. Only report real problems.`
 }
 
