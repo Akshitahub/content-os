@@ -1092,7 +1092,9 @@ function slidePhotoFrame(ctx: Ctx, s: StoryFrameSlide): string {
   // Leave room for the body under the words.
   // The last display line in the brand colour, as on the hook.
   const accent = { color: brandColorOver(ctx.p, ink, ctx.stats[zone]), underline: ctx.p.accent }
-  const block = displayBlock(cv, ctx.f, clean(s.big_words) || clean(s.text), zone === "top" ? z : { y0: z.y0, y1: z.y1 - 170 }, zone, ink, ctx.rnd, 0.2, accent)
+  // Room for the body under the words, wherever they sit (a short band beside the subject included).
+  const bodyRoom = s.body ? 190 : 0
+  const block = displayBlock(cv, ctx.f, clean(s.big_words) || clean(s.text), zone === "top" && !cv.single ? z : { y0: z.y0, y1: Math.max(z.y0 + 80, z.y1 - bodyRoom) }, cv.single ? "top" : zone, ink, ctx.rnd, 0.2, accent)
   const at = besideBlock(block, 4)
   const body = bodyLines(ctx, s.body ?? "", at.x, block.bottom + 18, ink.color, ink.filter, at.anchor)
   return block.svg + body.svg
