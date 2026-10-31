@@ -1,3 +1,4 @@
+import { detectSubjects, type SubjectBox } from "@/lib/image/subject-boxes"
 import { createHash } from "crypto"
 import { after } from "next/server"
 import sharp from "sharp"
@@ -185,13 +186,49 @@ ${productList}` },
 // Until migration 066 adds brand_images.description, a write that includes it
 // is retried without it, and reads fall back to the columns without it.
 const isMissingDescription = (error: { message?: string } | null | undefined) => !!error?.message && /description/.test(error.message) && /column|schema cache/i.test(error.message)
+// Same for migration 067's subject_boxes.
+const isMissingSubjectBoxes = (error: { message?: string } | null | undefined) => !!error?.message && /subject_boxes/.test(error.message) && /column|schema cache/i.test(error.message)
 
 async function updatePhoto(db: Db, id: string, fields: Record<string, unknown>): Promise<void> {
-  const { error } = await db.from("brand_images").update(fields).eq("id", id)
-  if (isMissingDescription(error)) {
-    const { description: _d, ...rest } = fields
-    void _d
-    await db.from("brand_images").update(rest).eq("id", id)
+  let next = fields
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const { error } = await db.from("brand_images").update(next).eq("id", id)
+    if (isMissingDescription(error) && "description" in next) {
+      const { description: _d, ...rest } = next
+      void _d
+      next = rest
+    } else if (isMissingSubjectBoxes(error) && "subject_boxes" in next) {
+      const { subject_boxes: _b, ...rest } = next
+      void _b
+      next = rest
+    } else return
+  }
+}
+
+/** Where the photo's subject is (faces, torsos, hips, the product) -- one vision call, else the local pass. */
+async function subjectBoxesFor(url: string): Promise<SubjectBox[] | null> {
+  const bytes = await download(url)
+  return bytes ? detectSubjects(url, bytes) : null
+}
+
+const SUBJECTS_PER_RUN = 30
+
+/** Finds the subject boxes of usable photos classified before migration 067. Never throws. */
+async function backfillSubjectBoxes(db: Db, brandId: string): Promise<number> {
+  try {
+    const { data, error } = await db.from("brand_images").select("id, url").eq("brand_id", brandId).eq("quality_ok", true).not("classified_at", "is", null).is("subject_boxes", null).limit(SUBJECTS_PER_RUN)
+    if (error || !data?.length) return 0
+    let found = 0
+    for (const row of data as { id: string; url: string }[]) {
+      const boxes = await subjectBoxesFor(row.url)
+      if (!boxes) continue
+      const { error: updateError } = await db.from("brand_images").update({ subject_boxes: boxes }).eq("id", row.id)
+      if (updateError) break
+      found++
+    }
+    return found
+  } catch {
+    return 0
   }
 }
 
@@ -223,6 +260,8 @@ export interface PhotoSyncReport {
   found: number
   added: number
   classified: number
+  /** Already-classified photos given subject boxes this run (migration 067 backfill). */
+  subjects: number
   /** Already-classified photos given a description this run (migration 066 backfill). */
   described: number
   passed: number
@@ -232,7 +271,7 @@ export interface PhotoSyncReport {
 
 /** Collects new photos (website and/or Instagram) and classifies every unclassified one. Never throws. */
 export async function syncBrandPhotos(db: Db, brandId: string, opts: { website?: boolean; instagram?: boolean } = { website: true, instagram: true }): Promise<PhotoSyncReport> {
-  const report: PhotoSyncReport = { found: 0, added: 0, classified: 0, described: 0, passed: 0, kinds: {}, errors: [] }
+  const report: PhotoSyncReport = { found: 0, added: 0, classified: 0, described: 0, subjects: 0, passed: 0, kinds: {}, errors: [] }
   try {
     const { data: brand } = await db.from("brands").select("id, user_id, website_url").eq("id", brandId).single() as { data: Pick<BrandRow, "id" | "user_id" | "website_url"> | null }
     if (!brand) throw new Error("brand not found")
@@ -309,7 +348,9 @@ export async function syncBrandPhotos(db: Db, brandId: string, opts: { website?:
       for (const row of pending as { id: string; url: string }[]) {
         const result = await classify(row.url, products ?? [])
         if (!result) continue
-        await updatePhoto(db, row.id, { ...result, classified_at: new Date().toISOString() })
+        // Usable photos: where their subject is, so text never covers it (migration 067).
+        const subjectBoxes = result.quality_ok ? await subjectBoxesFor(row.url) : null
+        await updatePhoto(db, row.id, { ...result, ...(subjectBoxes ? { subject_boxes: subjectBoxes } : {}), classified_at: new Date().toISOString() })
         report.classified++
       }
     }
@@ -317,6 +358,7 @@ export async function syncBrandPhotos(db: Db, brandId: string, opts: { website?:
     // Photos classified before migration 066 get their description here
     // (one vision call each, capped per run -- the weekly refresh finishes them).
     report.described = await backfillDescriptions(db, brandId)
+    report.subjects = await backfillSubjectBoxes(db, brandId)
 
     const { data: all } = await db.from("brand_images").select("kind, quality_ok").eq("brand_id", brandId)
     for (const r of (all ?? []) as { kind: PhotoKind | null; quality_ok: boolean | null }[]) {

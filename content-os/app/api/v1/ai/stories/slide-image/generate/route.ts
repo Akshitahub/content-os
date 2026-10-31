@@ -1,3 +1,4 @@
+import { recordGeneratedSubjects } from "@/lib/image/subject-boxes"
 import { NextResponse } from "next/server"
 import { noteGenerationBrand } from "@/lib/ai/provider-fallback"
 import { createAdminClient, createClient } from "@/lib/supabase/server"
@@ -235,6 +236,8 @@ async function handlePost(request: Request, timer: GenerationTimer) {
     })
     return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Image generated but upload to storage failed."), { status: 500 })
   }
+  // Where its subject is, found once now, so text is never set on it (lib/image/subject-boxes.ts).
+  await recordGeneratedSubjects(uploadResult.publicUrl, result.buffer)
 
   console.log(`[ai/stories/slide-image/generate] role=${role} plan=${plan} provider=${provider} latencyMs=${latencyMs}`)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

@@ -1,3 +1,4 @@
+import { recordGeneratedSubjects } from "@/lib/image/subject-boxes"
 import { NextResponse } from "next/server"
 import { noteGenerationBrand } from "@/lib/ai/provider-fallback"
 import { createClient, createAdminClient } from "@/lib/supabase/server"
@@ -268,6 +269,8 @@ async function handlePost(request: Request, timer: GenerationTimer) {
   }
 
   const { data: publicUrlData } = admin.storage.from(BUCKET).getPublicUrl(storagePath)
+  // Where its subject is, found once now, so text is never set on it (lib/image/subject-boxes.ts).
+  await recordGeneratedSubjects(publicUrlData.publicUrl, image.buffer)
   const latencyMs = Date.now() - startTime
 
   // model_used and provider both now record the real provider that

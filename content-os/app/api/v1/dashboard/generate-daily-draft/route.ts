@@ -1,3 +1,4 @@
+import { recordGeneratedSubjects } from "@/lib/image/subject-boxes"
 import { NextResponse } from "next/server"
 import { noteGenerationBrand } from "@/lib/ai/provider-fallback"
 import { createClient, createAdminClient } from "@/lib/supabase/server"
@@ -261,6 +262,8 @@ async function handlePost(request: Request, timer: GenerationTimer) {
       .upload(storagePath, image.buffer, { contentType: image.mimeType, upsert: false })
     if (uploadError) throw new Error(uploadError.message)
     const { data: publicUrlData } = admin.storage.from(BUCKET).getPublicUrl(storagePath)
+    // Where its subject is, found once now, so text is never set on it (lib/image/subject-boxes.ts).
+    await recordGeneratedSubjects(publicUrlData.publicUrl, image.buffer)
     // The post as designed (its words in the frame language); a failed
     // render keeps the clean image.
     const designed = await designAndUploadPost(brand, publicUrlData.publicUrl, {

@@ -1,3 +1,4 @@
+import { recordGeneratedSubjects } from "@/lib/image/subject-boxes"
 import { NextResponse } from "next/server"
 import { noteGenerationBrand } from "@/lib/ai/provider-fallback"
 import { createClient } from "@/lib/supabase/server"
@@ -234,6 +235,8 @@ async function handlePost(request: Request, timer: GenerationTimer) {
     })
     return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Image generated but upload to storage failed."), { status: 500 })
   }
+  // Where its subject is, found once now, so text is never set on it (lib/image/subject-boxes.ts).
+  await recordGeneratedSubjects(uploadResult.publicUrl, result.buffer)
 
   // Logged per call (not just on failure) so per-carousel image-call
   // latency/cost is queryable via ai_generation_logs as usage grows — a

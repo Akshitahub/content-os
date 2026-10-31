@@ -8,6 +8,7 @@ import { FONT_FAMILY_NAME, DEFAULT_FONT_ID, isFontId, type FontId } from "@/lib/
 import { NEUTRAL_PALETTE, paletteRoles, type BrandPalette } from "@/lib/design/color-themes"
 import { sanitizeTextForCompositing } from "@/lib/image/sanitize-text-for-compositing"
 import type { StoryFrame, StoryFrameFields } from "@/lib/ai/story-frames"
+import { resolveSubjectBoxes, type SubjectBox } from "@/lib/image/subject-boxes"
 
 /** Feed post designs (lib/design/post-templates.ts bold_statement / product_focus / quote_card / minimal). */
 export type PostFrame = "post_bold" | "post_product" | "post_quote" | "post_minimal" | "post_listicle" | "post_festive" | "post_review"
@@ -40,6 +41,8 @@ export interface FrameCanvas {
   safeTop: number
   safeBottom: number
   side: number
+  /** A text region cut out of a bigger canvas (around the subject): one zone, the whole region. */
+  single?: boolean
 }
 
 /** Stories: 1080x1920; Instagram's profile row and reply bar cover ~250px at the top and bottom. */
@@ -61,6 +64,8 @@ export interface StoryFrameSlide extends Omit<StoryFrameFields, "frame"> {
   /** Brand presence on the hook and cta frames: the logo, or the name in the heading font without one. */
   brand_name?: string | null
   logo_url?: string | null
+  /** Where the photo's subject is (lib/image/subject-boxes.ts); absent = stored or detected at render. */
+  subject_boxes?: SubjectBox[] | null
 }
 
 // ─── Small utilities ────────────────────────────────────────────────────────
@@ -109,35 +114,165 @@ function wrap(font: fontkit.Font, text: string, size: number, maxW: number): str
   return lines
 }
 
-// ─── Background: photo (cover) or the palette, plus grain ──────────────────
+// ─── Background: the photo placed around its subject, plus grain ───────────
 
-async function background(slide: StoryFrameSlide, p: BrandPalette, rnd: () => number, cv: FrameCanvas): Promise<{ base: Buffer; photo: boolean }> {
-  const src = slide.background_image_url ? await fetchImage(slide.background_image_url) : null
-  let base: Buffer | null = null
-  if (src) {
-    try {
-      base = await sharp(src).rotate().resize(cv.w, cv.h, { fit: "cover", position: "attention" }).removeAlpha().png().toBuffer()
-    } catch {
-      base = null
-    }
+/** A rectangle on the canvas, in pixels. */
+export interface Rect { x0: number; y0: number; x1: number; y1: number }
+/**
+ * How the frame is laid out around the photo's subject:
+ * full = no subject found, the whole canvas (as always);
+ * free = text in the largest subject-free part of the full-bleed photo;
+ * split = the photo in a column, the text on a brand-colour panel beside it;
+ * band = the photo below / above, the text on a brand-colour band.
+ */
+export type FrameLayout = "full" | "free" | "split" | "band"
+
+interface Composed {
+  base: Buffer
+  photo: boolean
+  /** The subject boxes on the canvas, margin included. */
+  subjects: Rect[]
+  /** Where every piece of text goes. */
+  region: Rect
+  layout: FrameLayout
+}
+
+/** Clear space kept between text and the subject. */
+const SUBJECT_MARGIN = 0.04
+
+const rw = (r: Rect) => r.x1 - r.x0
+const rh = (r: Rect) => r.y1 - r.y0
+export const rectsIntersect = (a: Rect, b: Rect) => a.x0 < b.x1 && b.x0 < a.x1 && a.y0 < b.y1 && b.y0 < a.y1
+
+/** The palette gradient (no photo): deep into accent, never a flat preset. */
+function paletteGradient(p: BrandPalette, cv: FrameCanvas): Buffer {
+  const svg = `<svg width="${cv.w}" height="${cv.h}" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="g" x1="0" y1="0" x2="0.35" y2="1"><stop offset="0%" stop-color="${p.deep}"/><stop offset="100%" stop-color="${mixHex(p.deep, p.accent, 0.55)}"/></linearGradient></defs><rect width="${cv.w}" height="${cv.h}" fill="url(#g)"/></svg>`
+  return Buffer.from(new Resvg(svg).render().asPng())
+}
+
+/**
+ * The photo covering `area`, cropped so its subject stays in frame (centred
+ * on it); without a subject, sharp's attention crop. Returns the image and
+ * the subject boxes in canvas pixels, margin added.
+ */
+async function placePhoto(src: Buffer, srcW: number, srcH: number, boxes: SubjectBox[], area: Rect, cv: FrameCanvas): Promise<{ img: Buffer; subjects: Rect[] }> {
+  const aw = rw(area), ah = rh(area)
+  if (boxes.length === 0) {
+    return { img: await sharp(src).resize(aw, ah, { fit: "cover", position: "attention" }).removeAlpha().png().toBuffer(), subjects: [] }
   }
-  const photo = !!base
-  if (!base) {
-    // No photo: the palette, deep into accent, never a flat preset.
-    const svg = `<svg width="${cv.w}" height="${cv.h}" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="g" x1="0" y1="0" x2="0.35" y2="1"><stop offset="0%" stop-color="${p.deep}"/><stop offset="100%" stop-color="${mixHex(p.deep, p.accent, 0.55)}"/></linearGradient></defs><rect width="${cv.w}" height="${cv.h}" fill="url(#g)"/></svg>`
-    base = Buffer.from(new Resvg(svg).render().asPng())
-  }
-  // Light film grain (seeded), overlay-blended around mid grey.
+  const scale = Math.max(aw / srcW, ah / srcH)
+  const sw = Math.round(srcW * scale), sh = Math.round(srcH * scale)
+  const ux0 = Math.min(...boxes.map((b) => b.x)), ux1 = Math.max(...boxes.map((b) => b.x + b.w))
+  const uy0 = Math.min(...boxes.map((b) => b.y)), uy1 = Math.max(...boxes.map((b) => b.y + b.h))
+  const left = Math.max(0, Math.min(sw - aw, Math.round(((ux0 + ux1) / 2) * sw - aw / 2)))
+  const top = Math.max(0, Math.min(sh - ah, Math.round(((uy0 + uy1) / 2) * sh - ah / 2)))
+  const img = await sharp(src).resize(sw, sh).extract({ left, top, width: aw, height: ah }).removeAlpha().png().toBuffer()
+  const m = Math.round(SUBJECT_MARGIN * cv.w)
+  const subjects = boxes
+    .map((b) => ({
+      x0: Math.max(area.x0, area.x0 + b.x * sw - left - m),
+      y0: Math.max(area.y0, area.y0 + b.y * sh - top - m),
+      x1: Math.min(area.x1, area.x0 + (b.x + b.w) * sw - left + m),
+      y1: Math.min(area.y1, area.y0 + (b.y + b.h) * sh - top + m),
+    }))
+    .filter((r) => r.x1 > r.x0 && r.y1 > r.y0)
+    .map((r) => ({ x0: Math.round(r.x0), y0: Math.round(r.y0), x1: Math.round(r.x1), y1: Math.round(r.y1) }))
+  return { img, subjects }
+}
+
+/** The part of a region text may use: inside the safe area. */
+function usable(r: Rect, cv: FrameCanvas): Rect {
+  return { x0: r.x0, y0: Math.max(r.y0, cv.safeTop), x1: r.x1, y1: Math.min(r.y1, cv.h - cv.safeBottom) }
+}
+
+/** A region holds the text at a readable size: a full-width band 30%+ of the height, or a column 40%+ wide and 55%+ tall. */
+function fitsText(r: Rect, cv: FrameCanvas): boolean {
+  const u = usable(r, cv)
+  if (rw(u) <= 0 || rh(u) <= 0) return false
+  const band = rw(u) >= cv.w * 0.9 && rh(u) >= cv.h * 0.3
+  const column = rw(u) >= cv.w * 0.4 && rh(u) >= cv.h * 0.55
+  return band || column
+}
+
+/** The largest subject-free region that fits the text, or null. */
+export function freeRegion(subjects: Rect[], cv: FrameCanvas): Rect | null {
+  if (subjects.length === 0) return { x0: 0, y0: 0, x1: cv.w, y1: cv.h }
+  const u = { x0: Math.min(...subjects.map((r) => r.x0)), y0: Math.min(...subjects.map((r) => r.y0)), x1: Math.max(...subjects.map((r) => r.x1)), y1: Math.max(...subjects.map((r) => r.y1)) }
+  const candidates: Rect[] = [
+    { x0: 0, y0: 0, x1: cv.w, y1: u.y0 },
+    { x0: 0, y0: u.y1, x1: cv.w, y1: cv.h },
+    { x0: 0, y0: 0, x1: u.x0, y1: cv.h },
+    { x0: u.x1, y0: 0, x1: cv.w, y1: cv.h },
+  ]
+  const fits = candidates.filter((r) => fitsText(r, cv) && !subjects.some((sub) => rectsIntersect(r, sub)))
+  if (fits.length === 0) return null
+  return fits.reduce((a, b) => (rw(usable(b, cv)) * rh(usable(b, cv)) > rw(usable(a, cv)) * rh(usable(a, cv)) ? b : a))
+}
+
+/** Light film grain (seeded), overlay-blended around mid grey. */
+async function withGrain(base: Buffer, amount: number, rnd: () => number, cv: FrameCanvas): Promise<Buffer> {
   const grain = Buffer.alloc(cv.w * cv.h * 3)
-  const amount = photo ? 22 : 16
   for (let i = 0; i < cv.w * cv.h; i++) {
     const v = 128 + Math.round((rnd() - 0.5) * 2 * amount)
     grain[i * 3] = v
     grain[i * 3 + 1] = v
     grain[i * 3 + 2] = v
   }
-  const withGrain = await sharp(base).composite([{ input: grain, raw: { width: cv.w, height: cv.h, channels: 3 }, blend: "overlay" }]).png().toBuffer()
-  return { base: withGrain, photo }
+  return sharp(base).composite([{ input: grain, raw: { width: cv.w, height: cv.h, channels: 3 }, blend: "overlay" }]).png().toBuffer()
+}
+
+/**
+ * The frame's background and where its text goes. The photo is placed
+ * around its subject (faces, torsos, hips, the product -- lib/image/
+ * subject-boxes.ts); text goes only in the largest subject-free region.
+ * When none holds the text at a readable size, the layout changes instead
+ * of covering the subject: a tall subject gets the photo in a column with
+ * the text on a brand-colour panel beside it (split), a wide one the text
+ * on a band above or below it (band).
+ */
+async function compose(slide: StoryFrameSlide, p: BrandPalette, rnd: () => number, cv: FrameCanvas): Promise<Composed> {
+  const full: Rect = { x0: 0, y0: 0, x1: cv.w, y1: cv.h }
+  const raw = slide.background_image_url ? await fetchImage(slide.background_image_url) : null
+  let oriented: { data: Buffer; info: sharp.OutputInfo } | null = null
+  if (raw) {
+    try {
+      oriented = await sharp(raw).rotate().png().toBuffer({ resolveWithObject: true })
+    } catch {
+      oriented = null
+    }
+  }
+  if (!oriented) return { base: await withGrain(paletteGradient(p, cv), 16, rnd, cv), photo: false, subjects: [], region: full, layout: "full" }
+
+  const src = oriented.data
+  const { width: W, height: H } = oriented.info
+  const boxes = await resolveSubjectBoxes(slide.background_image_url, src, slide.subject_boxes)
+  const placed = await placePhoto(src, W, H, boxes, full, cv)
+  const free = freeRegion(placed.subjects, cv)
+  if (free) {
+    const base = await withGrain(placed.img, 22, rnd, cv)
+    return { base, photo: true, subjects: placed.subjects, region: free, layout: placed.subjects.length ? "free" : "full" }
+  }
+
+  // No room beside the subject: re-lay the frame out around it.
+  const ux0 = Math.min(...placed.subjects.map((r) => r.x0)), ux1 = Math.max(...placed.subjects.map((r) => r.x1))
+  const uy0 = Math.min(...placed.subjects.map((r) => r.y0)), uy1 = Math.max(...placed.subjects.map((r) => r.y1))
+  const tall = uy1 - uy0 > (ux1 - ux0) * 1.1
+  let panel: Rect, area: Rect
+  if (tall) {
+    const pw = Math.round(cv.w * 0.46)
+    const panelLeft = (ux0 + ux1) / 2 > cv.w / 2
+    panel = panelLeft ? { x0: 0, y0: 0, x1: pw, y1: cv.h } : { x0: cv.w - pw, y0: 0, x1: cv.w, y1: cv.h }
+    area = panelLeft ? { x0: pw, y0: 0, x1: cv.w, y1: cv.h } : { x0: 0, y0: 0, x1: cv.w - pw, y1: cv.h }
+  } else {
+    const bh = Math.round(cv.h * 0.4)
+    const bandTop = (uy0 + uy1) / 2 > cv.h / 2
+    panel = bandTop ? { x0: 0, y0: 0, x1: cv.w, y1: bh } : { x0: 0, y0: cv.h - bh, x1: cv.w, y1: cv.h }
+    area = bandTop ? { x0: 0, y0: bh, x1: cv.w, y1: cv.h } : { x0: 0, y0: 0, x1: cv.w, y1: cv.h - bh }
+  }
+  const inArea = await placePhoto(src, W, H, boxes, area, cv)
+  const canvas = await sharp({ create: { width: cv.w, height: cv.h, channels: 3, background: p.base } })
+    .composite([{ input: inArea.img, left: area.x0, top: area.y0 }]).png().toBuffer()
+  return { base: await withGrain(canvas, 18, rnd, cv), photo: true, subjects: inArea.subjects, region: panel, layout: tall ? "split" : "band" }
 }
 
 /** A flat brand-colour canvas with light grain (type-led carousel slides). */
@@ -157,6 +292,11 @@ async function flatBackground(color: string, rnd: () => number, cv: FrameCanvas)
 
 type Zone = "top" | "bottom"
 function zones(cv: FrameCanvas): Record<Zone, { y0: number; y1: number }> {
+  // A region beside the subject is already the calm part: all of it, either way.
+  if (cv.single) {
+    const all = { y0: cv.safeTop + 10, y1: cv.h - cv.safeBottom - 10 }
+    return { top: all, bottom: all }
+  }
   return {
     top: { y0: cv.safeTop + 30, y1: Math.round(cv.h * 0.5) },
     bottom: { y0: Math.round(cv.h * 0.5), y1: cv.h - cv.safeBottom - 30 },
@@ -178,10 +318,10 @@ function inkFor(stats: RegionStats | null, p: BrandPalette): Ink {
 
 const BANDS = 8
 
-/** The photo's luminance per horizontal band. */
-async function bandStats(base: Buffer): Promise<(RegionStats | null)[]> {
+/** The photo's luminance per horizontal band of `area` (fractions of the canvas). */
+async function bandStats(base: Buffer, area = { x: 0, y: 0, w: 1, h: 1 }): Promise<(RegionStats | null)[]> {
   const out: (RegionStats | null)[] = []
-  for (let i = 0; i < BANDS; i++) out.push(await regionLuminance(base, { x: 0.04, y: i / BANDS, w: 0.92, h: 1 / BANDS }).catch(() => null))
+  for (let i = 0; i < BANDS; i++) out.push(await regionLuminance(base, { x: area.x + area.w * 0.04, y: area.y + (area.h * i) / BANDS, w: area.w * 0.92, h: area.h / BANDS }).catch(() => null))
   return out
 }
 
@@ -276,13 +416,25 @@ function displayBlock(cv: FrameCanvas, f: Fonts, words: string, zone: { y0: numb
 function scriptLine(cv: FrameCanvas, f: Fonts, text: string, x: number, y: number, color: string, filter: string, rnd: () => number, size = 88, anchor: "start" | "end" = "start"): { svg: string; width: number } {
   const t = clean(text)
   if (!t) return { svg: "", width: 0 }
+  // From where it starts to the frame's edge; too long for one line at a
+  // readable size (a narrow region beside the subject) -> two lines.
+  const room = Math.max(120, (anchor === "end" ? x : cv.w - x) - cv.side)
   let s = size
-  while (s > 56 && measureTextWidth(f.script, t, s) > cv.w - cv.side * 2) s -= 4
-  const width = measureTextWidth(f.script, t, s)
+  while (s > 56 && measureTextWidth(f.script, t, s) > room) s -= 4
+  let lines = [t]
+  if (measureTextWidth(f.script, t, s) > room) {
+    s = Math.max(48, s)
+    lines = wrap(f.script, t, s, room).slice(0, 2)
+    while (s > 40 && lines.some((l) => measureTextWidth(f.script, l, s) > room)) { s -= 4; lines = wrap(f.script, t, s, room).slice(0, 2) }
+  }
+  const width = Math.max(...lines.map((l) => measureTextWidth(f.script, l, s)))
   const angle = (rnd() < 0.5 ? -1 : 1) * (2 + rnd() * 3)
   const ax = anchor === "end" ? x - width : x
+  // A wrapped line in the lower half grows upward, away from what sits under it.
+  const firstY = y > cv.h / 2 ? y - (lines.length - 1) * s * 0.98 : y
+  const svgLines = lines.map((l, i) => `<text x="${r1(ax)}" y="${r1(firstY + i * s * 0.98)}" font-family="${family(SCRIPT_FONT)}" font-size="${s}" font-weight="700" fill="${color}">${esc(l)}</text>`).join("")
   return {
-    svg: `<g transform="rotate(${r1(angle)} ${r1(ax + width / 2)} ${r1(y)})" filter="url(#${filter})"><text x="${r1(ax)}" y="${r1(y)}" font-family="${family(SCRIPT_FONT)}" font-size="${s}" font-weight="700" fill="${color}">${esc(t)}</text></g>`,
+    svg: `<g transform="rotate(${r1(angle)} ${r1(ax + width / 2)} ${r1(y)})" filter="url(#${filter})">${svgLines}</g>`,
     width,
   }
 }
@@ -532,11 +684,12 @@ function ctaFrame(ctx: Ctx, s: StoryFrameSlide): string {
   const block = displayBlock(cv, ctx.f, clean(s.big_words) || clean(s.text), zones(cv).top, "top", inkTop, ctx.rnd, 0.24)
   const label = clean(s.cta_label) || "Shop now"
   // ~1.5x the first version (54px / 124px): the button is the frame's point.
+  // The padding shrinks with the type, so the pill always fits its frame.
   let fs = 80
-  while (fs > 48 && measureTextWidth(ctx.f.box, label, fs) > cv.w - cv.side * 2 - 190) fs -= 2
+  while (fs > 36 && measureTextWidth(ctx.f.box, label, fs) + fs * 2.4 > cv.w - cv.side * 2) fs -= 2
   const tw = measureTextWidth(ctx.f.box, label, fs)
-  const pw = tw + 190
-  const ph = 186
+  const pw = Math.min(tw + fs * 2.4, cv.w - cv.side * 2)
+  const ph = Math.round(fs * 2.3)
   const px = (cv.w - pw) / 2
   // Room under the pill for the brand mark, still inside the safe area.
   const py = cv.h - cv.safeBottom - ph - 140 - Math.round(ctx.rnd() * 30)
@@ -694,8 +847,12 @@ function postReviewFrame(ctx: Ctx, s: StoryFrameSlide): string {
 function bodyLines(ctx: Ctx, text: string, x: number, y: number, color: string, filter: string | null, align: "start" | "middle" = "start"): { svg: string; height: number } {
   const t = clean(text)
   if (!t) return { svg: "", height: 0 }
-  const size = 46
-  const lines = wrap(ctx.f.box, t, size, ctx.cv.w - ctx.cv.side * 2 - 40).slice(0, 3)
+  // Smaller in a narrow region rather than cut: every word stays.
+  const maxW = Math.max(160, ctx.cv.w - ctx.cv.side - x - 20)
+  let size = 46
+  let lines = wrap(ctx.f.box, t, size, maxW)
+  while (size > 32 && lines.length > 3) { size -= 2; lines = wrap(ctx.f.box, t, size, maxW) }
+  lines = lines.slice(0, 4)
   const lh = size * 1.3
   const svg = lines.map((l, i) => `<text x="${r1(x)}" y="${r1(y + size + i * lh)}" text-anchor="${align}" font-family="${family(BOX_FONT)}" font-size="${size}" font-weight="700" fill="${color}"${filter ? ` filter="url(#${filter})"` : ""}>${esc(l)}</text>`).join("")
   return { svg, height: lines.length * lh + size * 0.3 }
@@ -748,28 +905,63 @@ export function renderStoryFrame(slide: StoryFrameSlide): Promise<Buffer> {
   return renderFrame(slide, STORY_CANVAS)
 }
 
-/** Renders one frame on `cv` to a JPEG. Throws only if the canvas itself can't be drawn. */
-export async function renderFrame(slide: StoryFrameSlide, cv: FrameCanvas): Promise<Buffer> {
+/** What renderFrame draws, in layers -- scripts/test-text-placement.ts checks the text layer against the subject. */
+export interface FrameLayers {
+  base: Buffer
+  /** The text, stickers, tape and mark only (transparent PNG, canvas size). */
+  overlay: Buffer
+  subjects: Rect[]
+  region: Rect
+  layout: FrameLayout
+}
+
+/** The frame as layers: its background, its text layer, and where the subject and text region are. */
+export async function renderFrameLayers(slide: StoryFrameSlide, cv: FrameCanvas): Promise<FrameLayers> {
   const p = slide.palette ?? NEUTRAL_PALETTE
   const rnd = prng(typeof slide.seed === "number" ? slide.seed : 1)
   const displayId: FontId = isFontId(slide.font_id) ? slide.font_id : DEFAULT_FONT_ID
   const { display, script, box, fontFiles } = await loadFonts(displayId)
-  const { base, photo } = slide.frame === "slide_type" ? await flatBackground(p.base, rnd, cv) : await background(slide, p, rnd, cv)
+  const composed: Composed = slide.frame === "slide_type"
+    ? { ...(await flatBackground(p.base, rnd, cv)), subjects: [], region: { x0: 0, y0: 0, x1: cv.w, y1: cv.h }, layout: "full" }
+    : await compose(slide, p, rnd, cv)
+  const { base, photo, region, layout } = composed
+  // The frame draws on its region as if it were the canvas: full = the
+  // canvas itself; otherwise a sub-canvas keeping what's left of the safe area.
+  const sub: FrameCanvas = layout === "full" ? cv : {
+    w: rw(region),
+    h: rh(region),
+    safeTop: Math.max(0, cv.safeTop - region.y0) + 24,
+    safeBottom: Math.max(0, region.y1 - (cv.h - cv.safeBottom)) + 24,
+    side: 36,
+    single: true,
+  }
+  const frac = { x: region.x0 / cv.w, y: region.y0 / cv.h, w: rw(region) / cv.w, h: rh(region) / cv.h }
   // Where text sits and how it's inked depends on the photo under it.
   const stats = photo
-    ? {
-        top: await regionLuminance(base, { x: 0.05, y: cv.safeTop / cv.h, w: 0.9, h: 0.36 }).catch(() => null),
-        bottom: await regionLuminance(base, { x: 0.05, y: 0.5, w: 0.9, h: 0.36 }).catch(() => null),
-      }
+    ? layout === "full"
+      ? {
+          top: await regionLuminance(base, { x: 0.05, y: cv.safeTop / cv.h, w: 0.9, h: 0.36 }).catch(() => null),
+          bottom: await regionLuminance(base, { x: 0.05, y: 0.5, w: 0.9, h: 0.36 }).catch(() => null),
+        }
+      : await (async () => { const all = await regionLuminance(base, { x: frac.x + frac.w * 0.04, y: frac.y + frac.h * 0.04, w: frac.w * 0.92, h: frac.h * 0.92 }).catch(() => null); return { top: all, bottom: all } })()
     : { top: null, bottom: null }
-  const bands = photo ? await bandStats(base) : Array<RegionStats | null>(BANDS).fill(null)
+  const bands = photo ? await bandStats(base, frac) : Array<RegionStats | null>(BANDS).fill(null)
   // The opening hook and the cta (brand_mark, stamped per sequence); a slide from before the flag: any hook / cta.
   const isPost = slide.frame.startsWith("post_")
   const wantsMark = (isPost || (slide.brand_mark ?? (slide.frame === "hook" || slide.frame === "cta"))) && !!(slide.logo_url || slide.brand_name)
   const mark = wantsMark ? { logo: await logoMark(slide.logo_url), name: slide.brand_name ?? "" } : null
-  const ctx: Ctx = { cv, f: { displayId, display, script, box }, p, rnd, stats, bands, mark }
-  const svg = `<svg width="${cv.w}" height="${cv.h}" xmlns="http://www.w3.org/2000/svg">${FILTERS}${(DRAW[slide.frame] ?? hookFrame)(ctx, slide)}</svg>`
+  const ctx: Ctx = { cv: sub, f: { displayId, display, script, box }, p, rnd, stats, bands, mark }
+  const drawn = (DRAW[slide.frame] ?? hookFrame)(ctx, slide)
+  // Anything drawn past the region's edge is clipped -- text never reaches the subject.
+  const body = layout === "full" ? drawn : `<clipPath id="region"><rect x="0" y="0" width="${rw(region)}" height="${rh(region)}"/></clipPath><g transform="translate(${region.x0} ${region.y0})" clip-path="url(#region)">${drawn}</g>`
+  const svg = `<svg width="${cv.w}" height="${cv.h}" xmlns="http://www.w3.org/2000/svg">${FILTERS}${body}</svg>`
   const overlay = Buffer.from(new Resvg(svg, { font: { fontFiles, loadSystemFonts: false, defaultFontFamily: FONT_FAMILY_NAME[displayId] } }).render().asPng())
+  return { base, overlay, subjects: composed.subjects, region, layout }
+}
+
+/** Renders one frame on `cv` to a JPEG. Throws only if the canvas itself can't be drawn. */
+export async function renderFrame(slide: StoryFrameSlide, cv: FrameCanvas): Promise<Buffer> {
+  const { base, overlay } = await renderFrameLayers(slide, cv)
   // JPEG: a grainy full-bleed photo is ~5MB as PNG and well under 1MB as
   // JPEG -- the preview, downloads and publishing all carry this one image.
   return sharp(base).composite([{ input: overlay, top: 0, left: 0 }]).jpeg({ quality: 90, mozjpeg: true }).toBuffer()

@@ -1,3 +1,4 @@
+import { recordGeneratedSubjects } from "@/lib/image/subject-boxes"
 import { after } from "next/server"
 import type { SupabaseClient } from "@supabase/supabase-js"
 import { createAdminClient } from "@/lib/supabase/server"
@@ -510,6 +511,8 @@ async function makeAutopilotPost(admin: Admin, job: SlotJobRow, ctx: RunContext,
       return none
     }
     const imageUrl = admin.storage.from(IMAGE_BUCKET).getPublicUrl(storagePath).data.publicUrl
+    // Where its subject is, found once now, so text is never set on it (lib/image/subject-boxes.ts).
+    await recordGeneratedSubjects(imageUrl, image.buffer)
 
     // The post as designed: its 1-4 words and script line in the frame
     // language on the clean image, in up to bestOf looks.
@@ -589,6 +592,7 @@ async function withCarouselBackgrounds(job: SlotJobRow, ctx: RunContext, slides:
         console.error(`[autopilot-worker] slot ${job.id}: slide ${i + 1} background upload failed:`, upload.error)
         return slide
       }
+      await recordGeneratedSubjects(upload.publicUrl, result.buffer)
       const textStyle = await computeTextStyleSafe(result.buffer, carouselTextRegion({ x: slide.text_position_x as number | undefined, y: slide.text_position_y as number | undefined }))
       return { ...slide, image_url: upload.publicUrl, background_image_provider: result.provider, text_style: textStyle }
     } catch (err) {
