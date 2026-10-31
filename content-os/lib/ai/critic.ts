@@ -75,7 +75,7 @@ ${buildBrandContext(brand)}
 Score each criterion 1-10 with ONE short reason (max 15 words) about THIS post:
 ${criteria}
 
-Also "single_photo": false if the image is a collage, has several panels or frames, or shows the same person more than once (a deliberate two-half comparison with different subjects is fine) -- otherwise true.
+Also "single_photo": judge the PHOTOGRAPH only -- the post's own design (its type, a solid brand-colour panel or band beside or above the photo, the logo) is not a panel. false if the photograph itself is a collage, a grid, several photos side by side, or shows the same person more than once (a deliberate two-half comparison with different subjects is fine) -- otherwise true.
 
 Then "top_fix": the single change that would raise the score most, as one plain instruction (max 20 words) -- e.g. "Use a photo of the chinos being worn; the flat studio shot doesn't match the street-style caption".
 
