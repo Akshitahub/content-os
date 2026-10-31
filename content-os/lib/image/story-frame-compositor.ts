@@ -179,8 +179,10 @@ async function placePhoto(src: Buffer, srcW: number, srcH: number, allBoxes: Sub
   const aw = rw(area), ah = rh(area)
   // The subject, not a bystander: a person box far smaller than the main
   // one is background (a passer-by); products always count.
-  const biggest = Math.max(0, ...allBoxes.map((b) => b.w * b.h))
-  const boxes = allBoxes.filter((b) => b.label === "product" || b.w * b.h >= biggest * 0.12)
+  // A small box inside the main subject (its face, its hips) is part of it.
+  const main = allBoxes.reduce<SubjectBox | null>((a, b) => (!a || b.w * b.h > a.w * a.h ? b : a), null)
+  const overlapsMain = (b: SubjectBox) => !!main && b.x < main.x + main.w && main.x < b.x + b.w && b.y < main.y + main.h && main.y < b.y + b.h
+  const boxes = allBoxes.filter((b) => b.label === "product" || overlapsMain(b) || b.w * b.h >= (main ? main.w * main.h : 0) * 0.12)
   if (boxes.length === 0) {
     return { img: await sharp(src).resize(aw, ah, { fit: "cover", position: "attention" }).removeAlpha().png().toBuffer(), subjects: [] }
   }
@@ -188,7 +190,11 @@ async function placePhoto(src: Buffer, srcW: number, srcH: number, allBoxes: Sub
   const sw = Math.round(srcW * scale), sh = Math.round(srcH * scale)
   const ux0 = Math.min(...boxes.map((b) => b.x)), ux1 = Math.max(...boxes.map((b) => b.x + b.w))
   const uy0 = Math.min(...boxes.map((b) => b.y)), uy1 = Math.max(...boxes.map((b) => b.y + b.h))
-  const left = Math.max(0, Math.min(sw - aw, Math.round(((ux0 + ux1) / 2) * sw - aw / 2)))
+  // The crop centres on the subject -- on the face when there is one, so a
+  // narrow column never cuts through it.
+  const face = boxes.filter((b) => b.label === "face").sort((a, b) => b.w * b.h - a.w * a.h)[0]
+  const cxFrac = face ? face.x + face.w / 2 : (ux0 + ux1) / 2
+  const left = Math.max(0, Math.min(sw - aw, Math.round(cxFrac * sw - aw / 2)))
   const top = Math.max(0, Math.min(sh - ah, Math.round(((uy0 + uy1) / 2) * sh - ah / 2)))
   const img = await sharp(src).resize(sw, sh).extract({ left, top, width: aw, height: ah }).removeAlpha().png().toBuffer()
   const m = Math.round(SUBJECT_MARGIN * cv.w)
