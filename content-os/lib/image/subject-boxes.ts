@@ -150,7 +150,7 @@ export async function detectSubjectsVision(imageUrl: string): Promise<SubjectBox
       messages: [{
         role: "user",
         content: [
-          { type: "text", text: `Text will be set on this photo and must never cover the subject. Return a bounding box for every person's face, torso and hips (separately), and for every product. Boxes are [x, y, width, height] as fractions of the image (0-1), generous rather than tight. JSON only: {"subjects": [{"label": "face | torso | hips | product", "box": [x, y, w, h]}]}` },
+          { type: "text", text: `Text will be set on this photo and must never cover the subject. Return a bounding box for every person's whole body ("person", head to feet as visible), their face, torso and hips (separately), and every product. Boxes are [x, y, width, height] as fractions of the image (0-1), generous rather than tight. JSON only: {"subjects": [{"label": "person | face | torso | hips | product", "box": [x, y, w, h]}]}` },
           { type: "image_url", image_url: { url: imageUrl } },
         ],
       }],

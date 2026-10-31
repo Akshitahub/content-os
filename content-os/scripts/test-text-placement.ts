@@ -2,8 +2,11 @@
 // lib/image/subject-boxes.ts): every frame kind, on the story and the feed
 // canvas, over synthetic photos -- a tall model on a studio background, a
 // small product, a wide subject, a busy scene with given boxes, a scene left
-// to the local detector. Fails if any visible pixel of the text layer
-// (text, stickers, tape, the mark) falls inside a subject box.
+// to the local detector. Fails if any visible glyph pixel of the text layer
+// (text, the badge, the pill, the mark -- rendered without its soft glow)
+// falls inside a subject box, or outside Instagram's safe area: the 3:4
+// profile-grid crop of a 4:5 post (34px a side) and a story's top / bottom
+// 250px under Instagram's own UI.
 //   npx tsx scripts/test-text-placement.ts
 import assert from "node:assert/strict"
 import sharp from "sharp"
@@ -38,7 +41,8 @@ async function scene(subject?: { x: number; y: number; w: number; h: number }): 
 }
 
 async function main() {
-  const { renderFrameLayers, rectsIntersect, STORY_CANVAS, FEED_CANVAS } = await import("@/lib/image/story-frame-compositor")
+  const { renderFrameLayers, rectsIntersect, fitHeadline, STORY_CANVAS, FEED_CANVAS } = await import("@/lib/image/story-frame-compositor")
+  const { getFont } = await import("@/lib/image/post-compositor")
   const { resolveBrandPalette } = await import("@/lib/design/color-themes")
   const palette = resolveBrandPalette({ primary_color: "#1f4d3a", color_palette: ["#e9dcc6"], brand_brain: null, vibe: null } as never)
 
@@ -49,6 +53,18 @@ async function main() {
     for (const r of subjects) {
       for (let y = Math.max(0, r.y0); y < Math.min(info.height, r.y1); y++) {
         for (let x = Math.max(0, r.x0); x < Math.min(info.width, r.x1); x++) if (data[(y * info.width + x) * 4 + 3]! > 60) hits++
+      }
+    }
+    return hits
+  }
+  /** Visible text-layer pixels outside the safe rectangle. */
+  async function outsideSafe(overlay: Buffer, safe: { x0: number; y0: number; x1: number; y1: number }): Promise<number> {
+    const { data, info } = await sharp(overlay).ensureAlpha().raw().toBuffer({ resolveWithObject: true })
+    let hits = 0
+    for (let y = 0; y < info.height; y++) {
+      for (let x = 0; x < info.width; x++) {
+        if ((x >= safe.x0 && x < safe.x1 && y >= safe.y0 && y < safe.y1)) continue
+        if (data[(y * info.width + x) * 4 + 3]! > 60) hits++
       }
     }
     return hits
@@ -93,13 +109,16 @@ async function main() {
       await test(`${cvName}: ${photoName} -- no text on the subject in any frame`, async () => {
         for (const [i, f] of frames.entries()) {
           const treatment = photoName === cutoutPhoto.name ? {} : { photo_treatment: "full" }
-          const layers = await renderFrameLayers({ ...f, seed: 11 + i * 31, palette, brand_name: "SNITCH", background_image_url: url, ...treatment, ...(url === given.url ? { subject_boxes: given.boxes } : {}) } as never, cv)
+          const layers = await renderFrameLayers({ ...f, seed: 11 + i * 31, palette, brand_name: "SNITCH", background_image_url: url, ...treatment, ...(url === given.url ? { subject_boxes: given.boxes } : {}) } as never, cv, { plain: true })
           layouts.add(layers.layout)
           assert.ok(layers.subjects.length > 0, `${f.frame}: no subject found`)
           assert.ok(!layers.subjects.some((s) => rectsIntersect(s, layers.region)), `${f.frame}: the text region overlaps the subject`)
           assert.ok(await visible(layers.overlay) > 500, `${f.frame}: nothing drawn`)
           const hits = await overlap(layers.overlay, layers.subjects)
           assert.equal(hits, 0, `${f.frame} (${layers.layout}): ${hits} text pixels on the subject`)
+          const safe = cvName === "story" ? { x0: 34, y0: 250, x1: cv.w - 34, y1: cv.h - 250 } : { x0: 34, y0: 24, x1: cv.w - 34, y1: cv.h - 24 }
+          const out = await outsideSafe(layers.overlay, safe)
+          assert.equal(out, 0, `${f.frame} (${layers.layout}): ${out} text pixels outside the safe area`)
         }
       })
     }
@@ -109,6 +128,33 @@ async function main() {
     assert.ok(layouts.has("split"), [...layouts].join(","))
     assert.ok(layouts.has("band") || layouts.has("free"), [...layouts].join(","))
     assert.ok(layouts.has("cutout"), [...layouts].join(","))
+  })
+
+  await test("headline: at most 3 lines, balanced, sized to fill", async () => {
+    const font = await getFont("anton")
+    const fit = fitHeadline(font, "anton", "Linen that stays crisp till 6pm", 900, 600)
+    assert.ok(fit.lines.length >= 1 && fit.lines.length <= 3, fit.lines.join(" / "))
+    const widths = fit.lines.map((l) => font.layout(l).advanceWidth)
+    if (fit.lines.length > 1) assert.ok(Math.min(...widths) / Math.max(...widths) > 0.45, `unbalanced: ${fit.lines.join(" / ")}`)
+    const long = fitHeadline(font, "anton", "one two three four five six seven eight nine", 900, 600)
+    assert.ok(long.lines.length <= 3)
+    assert.ok(fitHeadline(font, "anton", "Bday sale", 900, 600).size > fitHeadline(font, "anton", "Bday sale", 450, 600).size)
+  })
+
+  await test("text aligns to its region: left region left, right region right", async () => {
+    const left = await renderFrameLayers({ frame: "post_bold", big_words: "Crisp till 6pm", seed: 4, palette, background_image_url: photos["tall model, studio"], photo_treatment: "full", subject_boxes: [{ x: 0.58, y: 0.05, w: 0.38, h: 0.9, label: "person" }] } as never, FEED_CANVAS)
+    assert.equal(left.region.x0, 0)
+    const right = await renderFrameLayers({ frame: "post_bold", big_words: "Crisp till 6pm", seed: 4, palette, background_image_url: photos["tall model, studio"], photo_treatment: "full", subject_boxes: [{ x: 0.04, y: 0.05, w: 0.38, h: 0.9, label: "person" }] } as never, FEED_CANVAS)
+    assert.equal(right.region.x1, FEED_CANVAS.w)
+    // Leftmost / rightmost glyph pixels hug the region's own edge.
+    const edges = async (png: Buffer) => {
+      const { data, info } = await sharp(png).ensureAlpha().raw().toBuffer({ resolveWithObject: true })
+      let lo = info.width, hi = 0
+      for (let y = 0; y < info.height; y++) for (let x = 0; x < info.width; x++) if (data[(y * info.width + x) * 4 + 3]! > 60) { lo = Math.min(lo, x); hi = Math.max(hi, x) }
+      return { lo, hi }
+    }
+    assert.ok((await edges(left.overlay)).lo < left.region.x0 + 90)
+    assert.ok((await edges(right.overlay)).hi > right.region.x1 - 90)
   })
 
   await test("no photo: the whole canvas, as before", async () => {

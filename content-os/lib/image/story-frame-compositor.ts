@@ -43,7 +43,11 @@ export interface FrameCanvas {
   side: number
   /** A text region cut out of a bigger canvas (around the subject): one zone, the whole region. */
   single?: boolean
+  /** How text aligns in this region: left in a left region, right in a right one, centred in a full-width band. */
+  align?: Align
 }
+
+export type Align = "start" | "middle" | "end"
 
 /** Stories: 1080x1920; Instagram's profile row and reply bar cover ~250px at the top and bottom. */
 export const STORY_CANVAS: FrameCanvas = { w: 1080, h: 1920, safeTop: 250, safeBottom: 250, side: 72 }
@@ -199,17 +203,34 @@ function usable(r: Rect, cv: FrameCanvas): Rect {
   return { x0: r.x0, y0: Math.max(r.y0, cv.safeTop), x1: r.x1, y1: Math.min(r.y1, cv.h - cv.safeBottom) }
 }
 
-/** A region holds the text at a readable size: a full-width band 30%+ of the height, or a column 40%+ wide and 55%+ tall. */
-function fitsText(r: Rect, cv: FrameCanvas): boolean {
+/** The smallest headline size that still reads: feed posts / slides, story frames. */
+export const READABLE_HEADLINE_PX = { feed: 64, story: 84 } as const
+const readablePx = (cv: FrameCanvas) => (cv.h >= 1900 ? READABLE_HEADLINE_PX.story : READABLE_HEADLINE_PX.feed)
+
+/** The headline size a region allows (lib/image/story-frame-compositor.ts displayBlock's own fit). */
+export type HeadlineMeasure = (w: number, h: number) => number
+
+/**
+ * A region holds the text readably: room for the script / body beside the
+ * headline, and -- measured with the real words -- the headline at a
+ * readable size. Without a measure, the old size rule.
+ */
+function textSize(r: Rect, cv: FrameCanvas, measure?: HeadlineMeasure): number {
   const u = usable(r, cv)
-  if (rw(u) <= 0 || rh(u) <= 0) return false
-  const band = rw(u) >= cv.w * 0.9 && rh(u) >= cv.h * 0.3
-  const column = rw(u) >= cv.w * 0.4 && rh(u) >= cv.h * 0.55
-  return band || column
+  if (rw(u) < cv.w * 0.36 || rh(u) < cv.h * 0.24) return 0
+  if (!measure) {
+    const band = rw(u) >= cv.w * 0.9 && rh(u) >= cv.h * 0.3
+    const column = rw(u) >= cv.w * 0.4 && rh(u) >= cv.h * 0.55
+    return band || column ? readablePx(cv) : 0
+  }
+  return measure(rw(u) - 72, rh(u) * 0.42)
 }
 
-/** The largest subject-free region that fits the text, or null. */
-export function freeRegion(subjects: Rect[], cv: FrameCanvas): Rect | null {
+/**
+ * The subject-free region where the headline reads biggest (inside the safe
+ * area), or null when none holds it at a readable size.
+ */
+export function freeRegion(subjects: Rect[], cv: FrameCanvas, measure?: HeadlineMeasure): Rect | null {
   if (subjects.length === 0) return { x0: 0, y0: 0, x1: cv.w, y1: cv.h }
   const u = { x0: Math.min(...subjects.map((r) => r.x0)), y0: Math.min(...subjects.map((r) => r.y0)), x1: Math.max(...subjects.map((r) => r.x1)), y1: Math.max(...subjects.map((r) => r.y1)) }
   const candidates: Rect[] = [
@@ -218,9 +239,12 @@ export function freeRegion(subjects: Rect[], cv: FrameCanvas): Rect | null {
     { x0: 0, y0: 0, x1: u.x0, y1: cv.h },
     { x0: u.x1, y0: 0, x1: cv.w, y1: cv.h },
   ]
-  const fits = candidates.filter((r) => fitsText(r, cv) && !subjects.some((sub) => rectsIntersect(r, sub)))
-  if (fits.length === 0) return null
-  return fits.reduce((a, b) => (rw(usable(b, cv)) * rh(usable(b, cv)) > rw(usable(a, cv)) * rh(usable(a, cv)) ? b : a))
+  const sized = candidates
+    .filter((r) => !subjects.some((sub) => rectsIntersect(r, sub)))
+    .map((r) => ({ r, size: textSize(r, cv, measure) }))
+    .filter((c) => c.size >= readablePx(cv))
+  if (sized.length === 0) return null
+  return sized.reduce((a, b) => (b.size > a.size * 1.04 || (b.size >= a.size * 0.96 && rw(usable(b.r, cv)) * rh(usable(b.r, cv)) > rw(usable(a.r, cv)) * rh(usable(a.r, cv))) ? b : a)).r
 }
 
 /**
@@ -328,7 +352,7 @@ async function withGrain(base: Buffer, amount: number, rnd: () => number, cv: Fr
  * the text on a brand-colour panel beside it (split), a wide one the text
  * on a band above or below it (band).
  */
-async function compose(slide: StoryFrameSlide, p: BrandPalette, rnd: () => number, cv: FrameCanvas): Promise<Composed> {
+async function compose(slide: StoryFrameSlide, p: BrandPalette, rnd: () => number, cv: FrameCanvas, measure?: HeadlineMeasure): Promise<Composed> {
   const full: Rect = { x0: 0, y0: 0, x1: cv.w, y1: cv.h }
   const raw = slide.background_image_url ? await fetchImage(slide.background_image_url) : null
   let oriented: { data: Buffer; info: sharp.OutputInfo } | null = null
@@ -354,13 +378,13 @@ async function compose(slide: StoryFrameSlide, p: BrandPalette, rnd: () => numbe
     const subjects = [{ x0: Math.max(0, subject.x0 - m), y0: Math.max(0, subject.y0 - m), x1: Math.min(cv.w, subject.x1 + m), y1: Math.min(cv.h, subject.y1 + m) }]
     const sub = subjects[0]!
     const onRight = (sub.x0 + sub.x1) / 2 > cv.w / 2
-    const region = freeRegion(subjects, cv) ?? (onRight ? { x0: 0, y0: 0, x1: sub.x0, y1: cv.h } : { x0: sub.x1, y0: 0, x1: cv.w, y1: cv.h })
+    const region = freeRegion(subjects, cv, measure) ?? (onRight ? { x0: 0, y0: 0, x1: sub.x0, y1: cv.h } : { x0: sub.x1, y0: 0, x1: cv.w, y1: cv.h })
     return { base: await withGrain(base, 14, rnd, cv), photo: true, subjects, region, layout: "cutout" }
   }
 
   const boxes = await resolveSubjectBoxes(slide.background_image_url, src, slide.subject_boxes)
   const placed = await placePhoto(src, W, H, boxes, full, cv)
-  const free = freeRegion(placed.subjects, cv)
+  const free = freeRegion(placed.subjects, cv, measure)
   if (free) {
     const base = await withGrain(placed.img, 22, rnd, cv)
     return { base, photo: true, subjects: placed.subjects, region: free, layout: placed.subjects.length ? "free" : "full" }
@@ -480,36 +504,82 @@ interface Block {
   bottom: number
   left: number
   right: number
+  align: Align
 }
 
 /**
- * The display words, one word per line (a very short word joins the next),
- * sized so the block is ~30% of the frame height -- smaller only when the
- * longest line wouldn't fit the width. Anchored to the top or bottom of
- * `zone`, left-aligned or centred, rotated a couple of degrees.
+ * The headline's line breaks and size: at most `maxLines` lines with
+ * balanced lengths (the split that keeps the longest line shortest), at
+ * the size that fills `maxW` x `maxH` -- fewer lines unless more are
+ * clearly bigger. Exported for the tests and the region choice.
+ */
+export function fitHeadline(font: fontkit.Font, displayId: FontId, text: string, maxW: number, maxH: number, maxLines = 3): { lines: string[]; size: number } {
+  const words = displayCase(displayId, text).split(/\s+/).filter(Boolean)
+  if (words.length === 0 || maxW <= 0 || maxH <= 0) return { lines: [], size: 0 }
+  const lh = displayLineHeight(displayId)
+  const width = (line: string) => Math.max(1, measureTextWidth(font, line, 1))
+  let best = { lines: [words.join(" ")], size: 0 }
+  for (let n = 1; n <= Math.min(maxLines, words.length); n++) {
+    const lines = balancedLines(words, n, width)
+    const size = Math.min(maxW / Math.max(...lines.map(width)), maxH / (n * lh))
+    if (size > best.size * 1.06) best = { lines, size }
+  }
+  return { lines: best.lines, size: Math.floor(best.size) }
+}
+
+/** `words` in exactly `n` lines, the longest as short as possible (small DP -- headlines are short). */
+function balancedLines(words: string[], n: number, width: (line: string) => number): string[] {
+  const m = words.length
+  const seg = (i: number, j: number) => width(words.slice(i, j).join(" "))
+  // cost[k][j]: best max width putting words[0..j) on k lines.
+  const cost: number[][] = Array.from({ length: n + 1 }, () => Array(m + 1).fill(Infinity))
+  const cut: number[][] = Array.from({ length: n + 1 }, () => Array(m + 1).fill(0))
+  cost[0]![0] = 0
+  for (let k = 1; k <= n; k++) {
+    for (let j = k; j <= m; j++) {
+      for (let i = k - 1; i < j; i++) {
+        const c = Math.max(cost[k - 1]![i]!, seg(i, j))
+        if (c < cost[k]![j]!) { cost[k]![j] = c; cut[k]![j] = i }
+      }
+    }
+  }
+  const lines: string[] = []
+  let j = m
+  for (let k = n; k >= 1; k--) {
+    const i = cut[k]![j]!
+    lines.unshift(words.slice(i, j).join(" "))
+    j = i
+  }
+  return lines
+}
+
+/** Where a line placed beside a block starts and how it anchors, following the block's alignment. */
+function besideBlock(block: Block, offset: number): { x: number; anchor: Align } {
+  if (block.align === "end") return { x: block.right - offset, anchor: "end" }
+  if (block.align === "middle") return { x: (block.left + block.right) / 2, anchor: "middle" }
+  return { x: block.left + offset, anchor: "start" }
+}
+
+/**
+ * The display words: at most 3 lines with balanced lengths, sized to fill
+ * the zone (up to `heightShare` of the frame -- more in a region cut out
+ * beside the subject, which is all the headline's), aligned to the region
+ * (cv.align: left, right or centred), anchored to the zone's top or bottom
+ * and rotated a couple of degrees.
  */
 function displayBlock(cv: FrameCanvas, f: Fonts, words: string, zone: { y0: number; y1: number }, anchor: Zone, ink: Ink, rnd: () => number, heightShare = 0.3, accent?: { color: string | null; underline: string }): Block {
-  const raw = displayCase(f.displayId, words).split(/\s+/).filter(Boolean)
-  const lines: string[] = []
-  for (const w of raw) {
-    const prev = lines[lines.length - 1]
-    // Only a tiny word ("a", "of", "&") rides on the next line -- the words stay huge.
-    if (prev && (prev.length <= 2 || w.length <= 2)) lines[lines.length - 1] = `${prev} ${w}`
-    else lines.push(w)
-  }
+  const share = cv.single ? Math.max(heightShare, 0.42) : heightShare
+  const maxW = cv.w - cv.side * 2 - 12
+  const { lines, size } = fitHeadline(f.display, f.displayId, words, maxW, Math.min(cv.h * share, zone.y1 - zone.y0))
   const lh = displayLineHeight(f.displayId)
-  const maxW = cv.w - cv.side * 2
-  const byHeight = (cv.h * heightShare) / (lines.length * lh)
-  const byWidth = Math.min(...lines.map((l) => maxW / Math.max(1, measureTextWidth(f.display, l, 1))))
-  const size = Math.floor(Math.min(byHeight, byWidth, (zone.y1 - zone.y0) / (lines.length * lh)))
   const blockH = lines.length * size * lh
   const widths = lines.map((l) => measureTextWidth(f.display, l, size))
-  const blockW = Math.max(...widths)
-  const centred = rnd() < 0.45
-  const jitterX = Math.round((rnd() - 0.5) * 40)
-  const left = centred ? (cv.w - blockW) / 2 + jitterX : cv.side + Math.max(0, Math.round(rnd() * 34))
+  const blockW = widths.length ? Math.max(...widths) : 0
+  const align: Align = cv.align ?? "start"
+  const jitter = Math.max(0, Math.round(rnd() * 24))
+  const left = align === "middle" ? (cv.w - blockW) / 2 : align === "end" ? cv.w - cv.side - blockW - jitter : cv.side + jitter
   const top = anchor === "top" ? zone.y0 + Math.round(rnd() * 30) : zone.y1 - blockH - Math.round(rnd() * 30)
-  const angle = (rnd() < 0.5 ? -1 : 1) * (0.8 + rnd() * 1.8)
+  const angle = (rnd() < 0.5 ? -1 : 1) * (0.6 + rnd() * 1.2)
   const cx = left + blockW / 2
   const cy = top + blockH / 2
   // The brand-colour word: the last line in accent / pop when it reads, else
@@ -517,22 +587,22 @@ function displayBlock(cv: FrameCanvas, f: Fonts, words: string, zone: { y0: numb
   const last = lines.length - 1
   let underline = ""
   const text = lines.map((l, i) => {
-    const x = centred ? left + (blockW - widths[i]!) / 2 : left
+    const x = align === "middle" ? left + (blockW - widths[i]!) / 2 : align === "end" ? left + blockW - widths[i]! : left
     const y = top + size * (i * lh + 0.86)
     const fill = accent && i === last && accent.color ? accent.color : ink.color
     if (accent && i === last && !accent.color) underline = `<rect x="${r1(x)}" y="${r1(y + size * 0.08)}" width="${r1(widths[i]!)}" height="${r1(Math.max(10, size * 0.09))}" rx="${r1(size * 0.04)}" fill="${accent.underline}"/>`
     return `<text x="${r1(x)}" y="${r1(y)}" font-family="${family(f.displayId)}" font-size="${size}" font-weight="700" fill="${fill}">${esc(l)}</text>`
   }).join("")
-  return { svg: `<g transform="rotate(${r1(angle)} ${r1(cx)} ${r1(cy)})" filter="url(#${ink.filter})">${underline}${text}</g>`, top, bottom: top + blockH, left, right: left + blockW }
+  return { svg: `<g transform="rotate(${r1(angle)} ${r1(cx)} ${r1(cy)})" filter="url(#${ink.filter})">${underline}${text}</g>`, top, bottom: top + blockH, left, right: left + blockW, align }
 }
 
 /** One handwritten line in the script face, rotated a few degrees. */
-function scriptLine(cv: FrameCanvas, f: Fonts, text: string, x: number, y: number, color: string, filter: string, rnd: () => number, size = 88, anchor: "start" | "end" = "start"): { svg: string; width: number } {
+function scriptLine(cv: FrameCanvas, f: Fonts, text: string, x: number, y: number, color: string, filter: string, rnd: () => number, size = 88, anchor: Align = "start"): { svg: string; width: number } {
   const t = clean(text)
   if (!t) return { svg: "", width: 0 }
   // From where it starts to the frame's edge; too long for one line at a
   // readable size (a narrow region beside the subject) -> two lines.
-  const room = Math.max(120, (anchor === "end" ? x : cv.w - x) - cv.side)
+  const room = Math.max(120, anchor === "middle" ? cv.w - cv.side * 2 : (anchor === "end" ? x : cv.w - x) - cv.side)
   let s = size
   while (s > 56 && measureTextWidth(f.script, t, s) > room) s -= 4
   let lines = [t]
@@ -543,10 +613,12 @@ function scriptLine(cv: FrameCanvas, f: Fonts, text: string, x: number, y: numbe
   }
   const width = Math.max(...lines.map((l) => measureTextWidth(f.script, l, s)))
   const angle = (rnd() < 0.5 ? -1 : 1) * (2 + rnd() * 3)
-  const ax = anchor === "end" ? x - width : x
+  const ax = anchor === "end" ? x - width : anchor === "middle" ? x - width / 2 : x
   // A wrapped line in the lower half grows upward, away from what sits under it.
-  const firstY = y > cv.h / 2 ? y - (lines.length - 1) * s * 0.98 : y
-  const svgLines = lines.map((l, i) => `<text x="${r1(ax)}" y="${r1(firstY + i * s * 0.98)}" font-family="${family(SCRIPT_FONT)}" font-size="${s}" font-weight="700" fill="${color}">${esc(l)}</text>`).join("")
+  // Then the whole thing inside the safe area -- glyphs rise ~0.8 of the size above the baseline.
+  const grown = y > cv.h / 2 ? y - (lines.length - 1) * s * 0.98 : y
+  const firstY = Math.min(Math.max(grown, cv.safeTop + s * 0.85), cv.h - cv.safeBottom - s * 0.3 - (lines.length - 1) * s * 0.98)
+  const svgLines = lines.map((l, i) => `<text x="${r1(anchor === "end" ? ax + width - measureTextWidth(f.script, l, s) : anchor === "middle" ? ax + (width - measureTextWidth(f.script, l, s)) / 2 : ax)}" y="${r1(firstY + i * s * 0.98)}" font-family="${family(SCRIPT_FONT)}" font-size="${s}" font-weight="700" fill="${color}">${esc(l)}</text>`).join("")
   return {
     svg: `<g transform="rotate(${r1(angle)} ${r1(ax + width / 2)} ${r1(y)})" filter="url(#${filter})">${svgLines}</g>`,
     width,
@@ -650,11 +722,17 @@ function inkAt(ctx: Ctx, y0: number, y1: number): { ink: Ink; stats: RegionStats
 }
 
 /** A script line at (x, y), inked for the strip it sits on. */
-function scriptAt(ctx: Ctx, text: string, x: number, y: number, size = 88): { svg: string; width: number; color: string; filter: string } {
+function scriptAt(ctx: Ctx, text: string, x: number, y: number, size = 88, anchor: Align = "start"): { svg: string; width: number; color: string; filter: string } {
   const { cv } = ctx
   const { ink, stats } = inkAt(ctx, y - size, y + size * 0.3)
   const color = scriptColor(ctx.p, ink, stats)
-  return { ...scriptLine(cv, ctx.f, text, x, y, color, ink.filter, ctx.rnd, size), color, filter: ink.filter }
+  return { ...scriptLine(cv, ctx.f, text, x, y, color, ink.filter, ctx.rnd, size, anchor), color, filter: ink.filter }
+}
+
+/** A script line beside a display block, aligned with it. */
+function scriptBeside(ctx: Ctx, block: Block, text: string, offset: number, y: number, size = 88): { svg: string; width: number; color: string; filter: string } {
+  const { x, anchor } = besideBlock(block, offset)
+  return scriptAt(ctx, text, x, y, size, anchor)
 }
 
 /** The calmer of the two zones for the main text (lower luminance spread). */
@@ -673,7 +751,7 @@ function hookFrame(ctx: Ctx, s: StoryFrameSlide): string {
   const accent = { color: brandColorOver(ctx.p, ink, ctx.stats[zone]), underline: ctx.p.accent }
   const block = displayBlock(cv, ctx.f, clean(s.big_words) || clean(s.text), zones(cv)[zone], zone, ink, ctx.rnd, 0.3, accent)
   const scriptY = zone === "top" ? clampY(cv, block.bottom + 130) : clampY(cv, block.top - 50)
-  const script = scriptAt(ctx, s.script_line ?? "", block.left + 18 + Math.round(ctx.rnd() * 60), scriptY, 96)
+  const script = scriptBeside(ctx, block, s.script_line ?? "", 18 + Math.round(ctx.rnd() * 40), scriptY, 96)
   // The mark sits in the corner away from the words.
   const mark = zone === "top" ? brandMark(ctx, cv.side, cv.h - cv.safeBottom - 30 - MARK_MAX_H) : brandMark(ctx, cv.w - cv.side, cv.safeTop + 30, "end")
   return block.svg + script.svg + mark
@@ -685,14 +763,17 @@ function offerFrame(ctx: Ctx, s: StoryFrameSlide): string {
   const zone = calmZone(ctx, "bottom")
   const ink = inkFor(ctx.stats[zone], ctx.p)
   const block = displayBlock(cv, ctx.f, clean(s.big_words) || clean(s.text), zones(cv)[zone], zone, ink, ctx.rnd, 0.22)
-  const r = 205
-  const bx = ctx.rnd() < 0.5 ? cv.w - cv.side - r - Math.round(ctx.rnd() * 30) : cv.side + r + Math.round(ctx.rnd() * 30)
+  // Sized to the frame (a narrow region beside the subject included), and
+  // kept inside it with room for its tilt and shadow.
+  const r = Math.max(110, Math.min(205, (cv.w - cv.side * 2) / 2 - 24))
+  const inset = cv.side + r + 14
+  const bx = Math.min(cv.w - inset, Math.max(inset, ctx.rnd() < 0.5 ? cv.w - inset - Math.round(ctx.rnd() * 30) : inset + Math.round(ctx.rnd() * 30)))
   const by = zone === "bottom" ? cv.safeTop + r + 60 + Math.round(ctx.rnd() * 60) : cv.h - cv.safeBottom - r - 60 - Math.round(ctx.rnd() * 60)
   const fill = ctx.p.pop
   const ink2 = bestContrast(fill, ["#ffffff", ctx.p.deep, "#111111"])
   const words = displayCase(ctx.f.displayId, clean(s.badge)).split(/\s+/).filter(Boolean)
   // No real offer, no badge (story-frames.ts only keeps a number the topic / product gives).
-  if (words.length === 0) return block.svg + scriptAt(ctx, s.script_line ?? "", block.left + 24, zone === "top" ? clampY(cv, block.bottom + 120) : clampY(cv, block.top - 46), 88).svg
+  if (words.length === 0) return block.svg + scriptBeside(ctx, block, s.script_line ?? "", 24, zone === "top" ? clampY(cv, block.bottom + 120) : clampY(cv, block.top - 46), 88).svg
   // Number on top, the rest below -- each line fitted inside the circle.
   const lines = words.length > 1 ? [words[0]!, words.slice(1).join(" ")] : words
   const sizes = lines.map((l, i) => Math.floor(Math.min((i === 0 ? 1.55 : 1.25) * r / Math.max(1, measureTextWidth(ctx.f.display, l, 1)), i === 0 ? r * 0.82 : r * 0.42)))
@@ -707,7 +788,7 @@ function offerFrame(ctx: Ctx, s: StoryFrameSlide): string {
   const angle = (ctx.rnd() < 0.5 ? -1 : 1) * (7 + ctx.rnd() * 7)
   const badge = `<g transform="rotate(${r1(angle)} ${bx} ${by})" filter="url(#drop)"><circle cx="${bx}" cy="${by}" r="${r}" fill="${fill}"/><circle cx="${bx}" cy="${by}" r="${r - 18}" fill="none" stroke="${ink2}" stroke-opacity="0.55" stroke-width="4" stroke-dasharray="10 12"/>${text}</g>`
   const scriptY = zone === "top" ? clampY(cv, block.bottom + 120) : clampY(cv, block.top - 46)
-  const script = scriptAt(ctx, s.script_line ?? "", block.left + 24, scriptY, 88)
+  const script = scriptBeside(ctx, block, s.script_line ?? "", 24, scriptY, 88)
   return badge + block.svg + script.svg
 }
 
@@ -717,16 +798,18 @@ function productFrame(ctx: Ctx, s: StoryFrameSlide): string {
   // Two handwritten callouts, upper-left and lower-right, arrows curving in
   // toward the middle of the photo where the product is.
   const callouts = (s.callouts ?? []).map(clean).filter(Boolean).slice(0, 2)
-  const size = 86
-  const maxW = 700
+  // Within the frame's width (a narrow region beside the subject included).
+  const maxW = Math.min(700, cv.w - cv.side * 2 - 20)
+  const size = maxW < 520 ? 64 : 86
   const targets = [{ x: cv.w * 0.47, y: cv.h * 0.43 }, { x: cv.w * 0.55, y: cv.h * 0.58 }]
   callouts.forEach((c, i) => {
     // Two lines only when one won't fit -- then split near the middle, never one word alone.
     const full = measureTextWidth(ctx.f.script, c, size)
-    const lines = full <= maxW ? [c] : wrap(ctx.f.script, c, size, Math.max(full / 2 + 40, 260)).slice(0, 2)
+    const lines = full <= maxW ? [c] : wrap(ctx.f.script, c, size, Math.min(maxW, Math.max(full / 2 + 40, 260))).slice(0, 2)
     const lw = Math.max(...lines.map((l) => measureTextWidth(ctx.f.script, l, size)))
     const right = i === 1
-    const x = right ? cv.w - cv.side - Math.round(ctx.rnd() * 30) : cv.side + Math.round(ctx.rnd() * 30)
+    // In from the margin: the script face overhangs its advance width.
+    const x = right ? cv.w - cv.side - 14 - Math.round(ctx.rnd() * 30) : cv.side + Math.round(ctx.rnd() * 30)
     const y0 = right ? Math.round(cv.h * 0.66) + Math.round(ctx.rnd() * 60) : cv.safeTop + 120 + Math.round(ctx.rnd() * 60)
     const { ink, stats } = inkAt(ctx, y0 - size, y0 + lines.length * size)
     const color = scriptColor(ctx.p, ink, stats)
@@ -745,15 +828,15 @@ function productFrame(ctx: Ctx, s: StoryFrameSlide): string {
   // The display words, low on the frame -- plain type, no label behind them.
   const label = displayCase(ctx.f.displayId, clean(s.big_words) || clean(s.text))
   if (label) {
+    // Fits the frame (a narrow region beside the subject included), aligned to it.
     let fs = 104
-    while (fs > 60 && measureTextWidth(ctx.f.display, label, fs) > cv.w - cv.side * 2 - 120) fs -= 4
+    while (fs > 36 && measureTextWidth(ctx.f.display, label, fs) > cv.w - cv.side * 2 - 16) fs -= 4
     const tw = measureTextWidth(ctx.f.display, label, fs)
-    const w = tw + 110
     const h = fs * 1.42
-    const cx = cv.side + w / 2 + Math.round(ctx.rnd() * 40)
+    const align = cv.align ?? "start"
+    const cx = align === "middle" ? cv.w / 2 : align === "end" ? cv.w - cv.side - tw / 2 : cv.side + tw / 2
     const cy = cv.h - cv.safeBottom - h / 2 - 150 - Math.round(ctx.rnd() * 50)
-    const angle = (ctx.rnd() < 0.5 ? -1 : 1) * (2 + ctx.rnd() * 3)
-    // The accent band and its text colour (paletteRoles), like the pill.
+    const angle = (ctx.rnd() < 0.5 ? -1 : 1) * (1 + ctx.rnd() * 1.5)
     const { ink } = inkAt(ctx, cy - h / 2, cy + h / 2)
     out.push(`<g transform="rotate(${r1(angle)} ${r1(cx)} ${r1(cy)})"><text x="${r1(cx)}" y="${r1(cy + fs * 0.34)}" text-anchor="middle" font-family="${family(ctx.f.displayId)}" font-size="${fs}" font-weight="700" fill="${ink.color}" filter="url(#${ink.filter})">${esc(label)}</text></g>`)
   }
@@ -767,7 +850,8 @@ function proofFrame(ctx: Ctx, s: StoryFrameSlide): string {
   const padX = 32
   // Wrapped to the frame (a narrow region beside the subject included),
   // smaller rather than clipped.
-  const maxW = Math.min(840, cv.w - cv.side * 2 - padX * 2 - 20)
+  // Room for the box padding and its small sideways nudge.
+  const maxW = Math.min(840, cv.w - cv.side * 2 - padX * 2 - 70)
   let size = 74
   let lines = wrap(ctx.f.box, quote, size, maxW)
   while (size > 40 && (lines.length > 6 || lines.some((l) => measureTextWidth(ctx.f.box, l, size) > maxW))) { size -= 4; lines = wrap(ctx.f.box, quote, size, maxW) }
@@ -777,7 +861,7 @@ function proofFrame(ctx: Ctx, s: StoryFrameSlide): string {
   const zone = calmZone(ctx, "top")
   const totalH = lines.length * lineH
   const top = clampY(cv, zone === "top" ? Math.round(cv.h * 0.3) : Math.round(cv.h * 0.56)) + Math.round(ctx.rnd() * 40)
-  const cx = cv.w / 2 + Math.round((ctx.rnd() - 0.5) * 60)
+  const cx = cv.w / 2 + Math.round((ctx.rnd() - 0.5) * 40)
   const rects: string[] = []
   const texts: string[] = []
   lines.forEach((l, i) => {
@@ -789,7 +873,8 @@ function proofFrame(ctx: Ctx, s: StoryFrameSlide): string {
   const angle = (ctx.rnd() < 0.5 ? -1 : 1) * (1 + ctx.rnd() * 1.5)
   const widest = Math.max(...lines.map((l) => measureTextWidth(ctx.f.box, l, size)))
   const markColor = ensureContrast(ctx.p.pop, "#202020", AA_GRAPHIC)
-  const mark = `<text x="${r1(cx - widest / 2 - padX - 10)}" y="${r1(top + 40)}" font-family="${family(SCRIPT_FONT)}" font-size="240" font-weight="700" fill="${markColor}" filter="url(#drop)">&#8220;</text>`
+  // The big quote glyph rises ~0.8 of its size above its baseline: kept inside the safe area.
+  const mark = `<text x="${r1(Math.max(cv.side, cx - widest / 2 - padX - 10))}" y="${r1(Math.max(top + 40, cv.safeTop + 200))}" font-family="${family(SCRIPT_FONT)}" font-size="240" font-weight="700" fill="${markColor}" filter="url(#drop)">&#8220;</text>`
   return `<g transform="rotate(${r1(angle)} ${r1(cx)} ${r1(top + totalH / 2)})"><g filter="url(#drop)">${rects.join("")}</g>${texts.join("")}</g>${mark}`
 }
 
@@ -832,7 +917,7 @@ function postProductFrame(ctx: Ctx, s: StoryFrameSlide): string {
   const accent = { color: brandColorOver(ctx.p, ink, ctx.stats[zone]), underline: ctx.p.accent }
   const block = displayBlock(cv, ctx.f, clean(s.big_words) || clean(s.text), zones(cv)[zone], zone, ink, ctx.rnd, 0.2, accent)
   const scriptY = zone === "top" ? clampY(cv, block.bottom + 100) : clampY(cv, block.top - 40)
-  const script = scriptAt(ctx, s.script_line ?? "", block.left + 10, scriptY, 84)
+  const script = scriptBeside(ctx, block, s.script_line ?? "", 10, scriptY, 84)
   const mark = zone === "top" ? brandMark(ctx, cv.side, cv.h - cv.safeBottom - MARK_MAX_H) : brandMark(ctx, cv.w - cv.side, cv.safeTop + 20, "end")
   return block.svg + script.svg + mark
 }
@@ -848,7 +933,7 @@ function postQuoteFrame(ctx: Ctx, s: StoryFrameSlide): string {
   const markColor = brandColorOver(ctx.p, ink, ctx.stats[zone]) ?? ink.color
   const quote = `<text x="${r1(block.left - 10)}" y="${r1(block.top + 40)}" font-family="${family(SCRIPT_FONT)}" font-size="260" font-weight="700" fill="${markColor}" filter="url(#${ink.filter})">&#8220;</text>`
   const scriptY = zone === "top" ? clampY(cv, block.bottom + 110) : clampY(cv, block.top - 40)
-  const script = scriptAt(ctx, s.script_line ?? "", block.left + 30, scriptY, 84)
+  const script = scriptBeside(ctx, block, s.script_line ?? "", 30, scriptY, 84)
   const mark = zone === "top" ? brandMark(ctx, cv.side, cv.h - cv.safeBottom - MARK_MAX_H) : brandMark(ctx, cv.w - cv.side, cv.safeTop + 30, "end")
   return quote + block.svg + script.svg + mark
 }
@@ -861,7 +946,7 @@ function postMinimalFrame(ctx: Ctx, s: StoryFrameSlide): string {
   const color = brandColorOver(ctx.p, ink, ctx.stats[zone])
   const block = displayBlock(cv, ctx.f, clean(s.big_words) || clean(s.text), zones(cv)[zone], zone, color ? { ...ink, color } : ink, ctx.rnd, 0.13, color ? undefined : { color: null, underline: ctx.p.accent })
   const scriptY = zone === "top" ? clampY(cv, block.bottom + 80) : clampY(cv, block.top - 30)
-  const script = scriptAt(ctx, s.script_line ?? "", block.left + 6, scriptY, 64)
+  const script = scriptBeside(ctx, block, s.script_line ?? "", 6, scriptY, 64)
   const mark = zone === "top" ? brandMark(ctx, cv.side, cv.h - cv.safeBottom - MARK_MAX_H) : brandMark(ctx, cv.w - cv.side, cv.safeTop + 20, "end")
   return block.svg + script.svg + mark
 }
@@ -881,11 +966,16 @@ function postListicleFrame(ctx: Ctx, s: StoryFrameSlide): string {
   const z = zones(cv)[zone]
   const numSize = Math.round(Math.min(cv.h * 0.2, (cv.w - cv.side * 2) * 0.5))
   const top = z.y0 + 10
-  const num = `<text x="${r1(cv.side)}" y="${r1(top + numSize * 0.86)}" font-family="${family(ctx.f.displayId)}" font-size="${numSize}" font-weight="700" fill="${color}" filter="url(#${ink.filter})">${esc(clean(s.badge) || String(items.length))}</text>`
+  // Aligned with the region like the headline; in from the margin for the numeral's overhang.
+  const numW = measureTextWidth(ctx.f.display, clean(s.badge) || String(items.length), numSize)
+  const align = cv.align ?? "start"
+  const numX = align === "end" ? cv.w - cv.side - 10 - numW : align === "middle" ? (cv.w - numW) / 2 : cv.side + 10
+  const num = `<text x="${r1(numX)}" y="${r1(top + numSize * 0.86)}" font-family="${family(ctx.f.displayId)}" font-size="${numSize}" font-weight="700" fill="${color}" filter="url(#${ink.filter})">${esc(clean(s.badge) || String(items.length))}</text>`
   const block = displayBlock(cv, ctx.f, clean(s.big_words) || clean(s.text), { y0: top + numSize + 10, y1: z.y1 }, "top", ink, ctx.rnd, 0.16)
   let y = block.bottom + 26
   const list = items.slice(0, 7).map((item, i) => {
-    const line = bodyLines(ctx, `${i + 1}. ${item}`, cv.side + 4, y, ink.color, ink.filter)
+    const at = besideBlock(block, 4)
+    const line = bodyLines(ctx, `${i + 1}. ${item}`, at.x, y, ink.color, ink.filter, at.anchor)
     y += line.height + 6
     return line.svg
   }).join("")
@@ -907,8 +997,9 @@ function postFestiveFrame(ctx: Ctx, s: StoryFrameSlide): string {
   const kickerSize = 56
   const label = displayCase(ctx.f.displayId, clean(s.badge))
   const block = displayBlock(cv, ctx.f, clean(s.big_words) || clean(s.text), { y0: z.y0 + (label ? kickerSize + 30 : 0), y1: z.y1 }, "top", ink, ctx.rnd, 0.24, accent)
-  const kicker = label ? `<text x="${r1(block.left)}" y="${r1(block.top - 24)}" font-family="${family(ctx.f.displayId)}" font-size="${kickerSize}" font-weight="700" letter-spacing="4" fill="${accent.color ?? ink.color}" filter="url(#${ink.filter})">${esc(label)}</text>` : ""
-  const script = scriptAt(ctx, s.script_line ?? "", block.left + 24, clampY(cv, block.bottom + 100), 84)
+  const kickerAt = besideBlock(block, 0)
+  const kicker = label ? `<text x="${r1(kickerAt.x)}" y="${r1(block.top - 24)}" text-anchor="${kickerAt.anchor}" font-family="${family(ctx.f.displayId)}" font-size="${kickerSize}" font-weight="700" letter-spacing="4" fill="${accent.color ?? ink.color}" filter="url(#${ink.filter})">${esc(label)}</text>` : ""
+  const script = scriptBeside(ctx, block, s.script_line ?? "", 24, clampY(cv, block.bottom + 100), 84)
   const mark = brandMark(ctx, cv.w - cv.side, cv.h - cv.safeBottom - MARK_MAX_H, "end")
   return kicker + block.svg + script.svg + mark
 }
@@ -931,11 +1022,11 @@ function postReviewFrame(ctx: Ctx, s: StoryFrameSlide): string {
 // ─── Carousel middle slides (1080x1350) ─────────────────────────────────────
 
 /** Body text (<= 12 words) as up to 3 short lines in the clean face. */
-function bodyLines(ctx: Ctx, text: string, x: number, y: number, color: string, filter: string | null, align: "start" | "middle" = "start"): { svg: string; height: number } {
+function bodyLines(ctx: Ctx, text: string, x: number, y: number, color: string, filter: string | null, align: Align = "start"): { svg: string; height: number } {
   const t = clean(text)
   if (!t) return { svg: "", height: 0 }
   // Smaller in a narrow region rather than cut: every word stays.
-  const maxW = Math.max(160, ctx.cv.w - ctx.cv.side - x - 20)
+  const maxW = Math.max(160, align === "middle" ? ctx.cv.w - ctx.cv.side * 2 : align === "end" ? x - ctx.cv.side - 20 : ctx.cv.w - ctx.cv.side - x - 20)
   let size = 46
   let lines = wrap(ctx.f.box, t, size, maxW)
   while (size > 32 && lines.length > 3) { size -= 2; lines = wrap(ctx.f.box, t, size, maxW) }
@@ -955,7 +1046,8 @@ function slidePhotoFrame(ctx: Ctx, s: StoryFrameSlide): string {
   // The last display line in the brand colour, as on the hook.
   const accent = { color: brandColorOver(ctx.p, ink, ctx.stats[zone]), underline: ctx.p.accent }
   const block = displayBlock(cv, ctx.f, clean(s.big_words) || clean(s.text), zone === "top" ? z : { y0: z.y0, y1: z.y1 - 170 }, zone, ink, ctx.rnd, 0.2, accent)
-  const body = bodyLines(ctx, s.body ?? "", block.left + 4, block.bottom + 18, ink.color, ink.filter)
+  const at = besideBlock(block, 4)
+  const body = bodyLines(ctx, s.body ?? "", at.x, block.bottom + 18, ink.color, ink.filter, at.anchor)
   return block.svg + body.svg
 }
 
@@ -968,7 +1060,8 @@ function slideTypeFrame(ctx: Ctx, s: StoryFrameSlide): string {
   // Pop first (deepened / lifted to read on the base), then accent.
   const accentColor = [ctx.p.pop, ensureContrast(ctx.p.pop, bg, AA_GRAPHIC + 0.5), ctx.p.accent].find((c) => hexContrast(c, bg) >= AA_GRAPHIC + 0.5) ?? null
   const block = displayBlock(cv, ctx.f, clean(s.big_words) || clean(s.text), { y0: cv.safeTop + 140, y1: Math.round(cv.h * 0.66) }, "top", ink, ctx.rnd, 0.28, { color: accentColor, underline: ctx.p.accent })
-  const body = bodyLines(ctx, s.body ?? "", block.left + 4, block.bottom + 30, roles.inkMuted, null)
+  const at = besideBlock(block, 4)
+  const body = bodyLines(ctx, s.body ?? "", at.x, block.bottom + 30, roles.inkMuted, null, at.anchor)
   return block.svg + body.svg
 }
 
@@ -1005,14 +1098,14 @@ export interface FrameLayers {
 }
 
 /** The frame as layers: its background, its text layer, and where the subject and text region are. */
-export async function renderFrameLayers(slide: StoryFrameSlide, cv: FrameCanvas): Promise<FrameLayers> {
+export async function renderFrameLayers(slide: StoryFrameSlide, cv: FrameCanvas, opts: { plain?: boolean } = {}): Promise<FrameLayers> {
   const p = slide.palette ?? NEUTRAL_PALETTE
   const rnd = prng(typeof slide.seed === "number" ? slide.seed : 1)
   const displayId: FontId = frameDisplayFont(isFontId(slide.font_id) ? slide.font_id : DEFAULT_FONT_ID)
   const { display, script, box, fontFiles } = await loadFonts(displayId)
   const composed: Composed = slide.frame === "slide_type"
     ? { ...(await flatBackground(p.base, rnd, cv)), subjects: [], region: { x0: 0, y0: 0, x1: cv.w, y1: cv.h }, layout: "full" }
-    : await compose(slide, p, rnd, cv)
+    : await compose(slide, p, rnd, cv, (w, h) => fitHeadline(display, displayId, clean(slide.big_words) || clean(slide.text) || clean(slide.quote), w, h).size)
   const { base, photo, region, layout } = composed
   // The frame draws on its region as if it were the canvas: full = the
   // canvas itself; otherwise a sub-canvas keeping what's left of the safe area.
@@ -1021,8 +1114,11 @@ export async function renderFrameLayers(slide: StoryFrameSlide, cv: FrameCanvas)
     h: rh(region),
     safeTop: Math.max(0, cv.safeTop - region.y0) + 24,
     safeBottom: Math.max(0, region.y1 - (cv.h - cv.safeBottom)) + 24,
-    side: 36,
+    // Room for the headline's small rotation inside the safe edge.
+    side: 44,
     single: true,
+    // Left in a left region, right in a right one, centred in a full-width band.
+    align: region.x0 <= 1 && region.x1 < cv.w - 1 ? "start" : region.x0 > 1 && region.x1 >= cv.w - 1 ? "end" : "middle",
   }
   const frac = { x: region.x0 / cv.w, y: region.y0 / cv.h, w: rw(region) / cv.w, h: rh(region) / cv.h }
   // Where text sits and how it's inked depends on the photo under it.
@@ -1040,7 +1136,9 @@ export async function renderFrameLayers(slide: StoryFrameSlide, cv: FrameCanvas)
   const wantsMark = (isPost || (slide.brand_mark ?? (slide.frame === "hook" || slide.frame === "cta"))) && !!(slide.logo_url || slide.brand_name)
   const mark = wantsMark ? { logo: await logoMark(slide.logo_url), name: slide.brand_name ?? "" } : null
   const ctx: Ctx = { cv: sub, f: { displayId, display, script, box }, p, rnd, stats, bands, mark }
-  const drawn = (DRAW[slide.frame] ?? hookFrame)(ctx, slide)
+  const raw = (DRAW[slide.frame] ?? hookFrame)(ctx, slide)
+  // The tests measure the glyphs themselves, without their soft shadow / glow.
+  const drawn = opts.plain ? raw.replace(/ filter="url\(#[a-z]+\)"/g, "") : raw
   // Anything drawn past the region's edge is clipped -- text never reaches the subject.
   const body = layout === "full" ? drawn : `<clipPath id="region"><rect x="0" y="0" width="${rw(region)}" height="${rh(region)}"/></clipPath><g transform="translate(${region.x0} ${region.y0})" clip-path="url(#region)">${drawn}</g>`
   const svg = `<svg width="${cv.w}" height="${cv.h}" xmlns="http://www.w3.org/2000/svg">${FILTERS}${body}</svg>`
