@@ -43,6 +43,8 @@ const SAMPLE = process.argv.includes("--sample")
 const FROM_COPY = process.argv.includes("--from-copy")
 const photosDir = arg("--photos")[0]
 const TOPIC = arg("--topic")[0] ?? "new launch"
+// --no-scenes: skip the candid-scene generation for catalogue photos (cutouts only).
+const SCENES = !process.argv.includes("--no-scenes")
 if (!brandIds.length && !SAMPLE) {
   console.error("usage: npx tsx scripts/render-posts-redesign.ts --brand <brandId> [--product <id>] [--topic t]\n       npx tsx scripts/render-posts-redesign.ts --sample [--photos <dir>]")
   process.exit(1)
@@ -89,6 +91,9 @@ async function main() {
   const { generateCarouselWithRetry } = await import("@/lib/ai/carousel-generator")
   const { finishGeneratedCarousel } = await import("@/lib/ai/carousel-postprocess")
   const { renderPostDesign } = await import("@/lib/image/post-design")
+  const { isCatalogueShot, isLifestyleTemplate, candidSceneDirection } = await import("@/lib/ai/catalogue-photos")
+  const { generatePostImage } = await import("@/lib/ai/post-image-pipeline")
+  const { resolveColorThemes } = await import("@/lib/design/color-themes")
   const { renderCarouselFrame } = await import("@/lib/image/carousel-frames")
   const { carouselFrameNeedsPhoto, finalizeCarouselFrames } = await import("@/lib/design/carousel-frames")
   const { initialPostDesign } = await import("@/lib/design/post-design-fields")
@@ -120,6 +125,22 @@ async function main() {
     console.log(`\n=== ${brand.name}: ${photos.length} photo(s)${product ? `, product "${product.name}"` : ""} ===`)
     const palette = resolveBrandPalette(brand)
     const typography = resolveTypography(brand)
+    /**
+     * A catalogue photo where a scene is wanted (lifestyle posts, photo-led
+     * slides): the real candid scene with the photo as the product reference
+     * (lib/ai/catalogue-photos.ts); if that can't be made, the photo itself --
+     * drawn as a cutout. Returns the background and what it is.
+     */
+    const sceneOr = async (photo: Photo | null, seed: number): Promise<{ url: string | null; source: string }> => {
+      if (!photo) return { url: null, source: "palette" }
+      if (!SCENES || !(await isCatalogueShot(photo.url))) return { url: photo.url, source: photo.source }
+      const scene = await generatePostImage({
+        imagePrompt: candidSceneDirection(seed), productImageUrl: photo.url, brandNiche: brand.niche, targetAudience: brand.target_audience,
+        template: "bold_statement", colorTheme: resolveColorThemes(brand)[0]!, logoUrl: null, plan: "pro", isInternalUnlimitedUser: true, quality: "low", aspectRatio: "4:5",
+      }).catch((err: unknown) => ({ success: false as const, error: err instanceof Error ? err.message : String(err), attempts: [] }))
+      if (scene.success) return { url: `data:${scene.mimeType};base64,${scene.buffer.toString("base64")}`, source: `candid scene from the ${photo.source}` }
+      return { url: photo.url, source: `${photo.source} as a cutout (scene failed: ${scene.error.slice(0, 90)})` }
+    }
 
     let copy: SavedCopy
     if (FROM_COPY) {
@@ -144,11 +165,13 @@ async function main() {
     const thumbs: Buffer[] = []
     const postLog: Record<string, unknown>[] = []
     for (const [i, template] of POST_TEMPLATES.entries()) {
-      const photo = photos[i % Math.max(1, photos.length)] ?? null
-      const jpg = await renderPostDesign(brand, photo?.url ?? null, { template, big_words: copy.post.big_words, script_line: copy.post.script_line, seed: 11 + i * 101 }, "4:5")
+      const pick = photos[i % Math.max(1, photos.length)] ?? null
+      // A product post shows the product (a cutout); the others want a scene.
+      const photo = isLifestyleTemplate(template) ? await sceneOr(pick, i) : { url: pick?.url ?? null, source: pick ? `${pick.source}${await isCatalogueShot(pick.url) ? " as a cutout" : ""}` : "palette" }
+      const jpg = await renderPostDesign(brand, photo.url, { template, big_words: copy.post.big_words, script_line: copy.post.script_line, seed: 11 + i * 101 }, "4:5")
       writeFileSync(join(dir, `post-${template}.jpg`), jpg)
       thumbs.push(await sharp(jpg).resize(432, 540).jpeg({ quality: 85 }).toBuffer())
-      postLog.push({ template, background: photo?.source ?? "palette" })
+      postLog.push({ template, background: photo.source })
     }
 
     // Carousel: photo-led slides take the next unused photo -- no repeats.
@@ -156,7 +179,8 @@ async function main() {
     const slideLog: Record<string, unknown>[] = []
     const slideThumbs: Buffer[] = []
     for (const [i, s] of copy.carousel.entries()) {
-      const photo = carouselFrameNeedsPhoto(s.frame) && next < photos.length ? photos[next++]! : null
+      // One source photo per slide, never repeated in the carousel.
+      const photo = carouselFrameNeedsPhoto(s.frame) && next < photos.length ? await sceneOr(photos[next++]!, i) : null
       const jpg = await renderCarouselFrame({
         frame: s.frame as never, headline: String(s.headline ?? ""), subtext: (s.subtext as string | null) ?? null, cta: (s.cta as string | null) ?? null,
         image_url: photo?.url ?? null, seed: s.seed as number, tape: s.tape as boolean, brand_mark: s.brand_mark as boolean, font_id: s.font_id as string,

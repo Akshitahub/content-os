@@ -1,3 +1,4 @@
+import { isLifestyleTemplate, postImageFromBrandPhoto } from "@/lib/ai/catalogue-photos"
 import { recordGeneratedSubjects } from "@/lib/image/subject-boxes"
 import { after } from "next/server"
 import type { SupabaseClient } from "@supabase/supabase-js"
@@ -7,7 +8,7 @@ import {
   generateSlotContent, normalizeReelScenes, submitAutopilotReel, trackUsage,
   IMAGE_BUCKET, MIN_CAROUSEL_SLIDES, type AutopilotUsageTracker,
 } from "./fastlane"
-import { attemptsCostUsd, generatePostImage } from "./post-image-pipeline"
+import { attemptsCostUsd } from "./post-image-pipeline"
 import { PHOTO_KINDS_FOR } from "@/lib/brand-photos"
 import { chooseFittingPhotos, photoFitItem } from "./photo-fit"
 import { runWithGenerationContext } from "./provider-fallback"
@@ -479,11 +480,12 @@ async function makeAutopilotPost(admin: Admin, job: SlotJobRow, ctx: RunContext,
     const brandPhoto = (await chooseFittingPhotos(admin, brand, {
       productId: product?.id ?? null, productName: product?.name ?? null, kinds: PHOTO_KINDS_FOR.post,
       items: [photoFitItem(generated.visual, generated.imagePrompt || generated.visual_direction, [generated.hook, generated.caption])],
-      label: `autopilot slot ${job.id}`,
+      label: `autopilot slot ${job.id}`, format: "post",
     }))[0] ?? null
-    const imageResult = await generatePostImage({
+    // A catalogue shot on a lifestyle post -> a candid scene with it as the
+    // product reference (lib/ai/catalogue-photos.ts); else the photo as is.
+    const imageResult = await postImageFromBrandPhoto({
       artDirection: artDirectionFrom(brand),
-      brandPhotoUrl: brandPhoto?.url ?? null,
       imagePrompt: generated.imagePrompt || generated.visual_direction || "professional product photography",
       visualBrief: generated.visual,
       brandNiche: brand.niche,
@@ -495,7 +497,7 @@ async function makeAutopilotPost(admin: Admin, job: SlotJobRow, ctx: RunContext,
       isInternalUnlimitedUser: params.isInternalUnlimitedUser,
       // Autopilot post backgrounds get text on top -- "low" is enough.
       quality: "low",
-    })
+    }, brandPhoto?.url ?? null, { lifestyle: isLifestyleTemplate(generated.postDesignFields?.template), label: `autopilot slot ${job.id}` })
     trackUsage(tracker, undefined, attemptsCostUsd(imageResult.attempts))
     tracker.imageMs += Date.now() - imageStartedAt
     if (!imageResult.success) {
@@ -572,7 +574,11 @@ async function withCarouselBackgrounds(job: SlotJobRow, ctx: RunContext, slides:
     // A brand photo already placed, or a type-led frame (no photo at all).
     if (slide.image_url || (slide.frame && !carouselFrameNeedsPhoto(slide.frame))) return slide
     const visualBrief = sanitizeVisualBrief(slide.visual)
-    if (!visualBrief) return slide
+    // A catalogue brand photo picked for the slide: the product reference for
+    // its candid scene; the slide's photo (a cutout) if that fails.
+    const ref = typeof slide.product_reference_url === "string" ? slide.product_reference_url : null
+    const keepRef = () => (ref ? { ...slide, image_url: ref, background_image_provider: "brand_photo", text_style: null } : slide)
+    if (!visualBrief && !ref) return slide
     try {
       const result = await generateCarouselSlideBackground({
         brand,
@@ -580,24 +586,26 @@ async function withCarouselBackgrounds(job: SlotJobRow, ctx: RunContext, slides:
         isInternalUnlimitedUser: params.isInternalUnlimitedUser,
         role: carouselBgRole(i, slides.length),
         visualBrief,
+        productImageUrl: ref,
+        userDirection: typeof slide.scene_direction === "string" ? slide.scene_direction : undefined,
         quality: "low",
       })
       trackUsage(tracker, undefined, attemptsCostUsd(result.attempts))
       if (!result.success) {
         console.error(`[autopilot-worker] slot ${job.id}: slide ${i + 1} background failed, keeping its flat style:`, result.error)
-        return slide
+        return keepRef()
       }
       const upload = await uploadMediaToStorage({ kind: "buffer", buffer: result.buffer, mimeType: result.mimeType }, `${job.brand_id}/carousel-slides`, { generatedImage: true })
       if ("error" in upload) {
         console.error(`[autopilot-worker] slot ${job.id}: slide ${i + 1} background upload failed:`, upload.error)
-        return slide
+        return keepRef()
       }
       await recordGeneratedSubjects(upload.publicUrl, result.buffer)
       const textStyle = await computeTextStyleSafe(result.buffer, carouselTextRegion({ x: slide.text_position_x as number | undefined, y: slide.text_position_y as number | undefined }))
       return { ...slide, image_url: upload.publicUrl, background_image_provider: result.provider, text_style: textStyle }
     } catch (err) {
       console.error(`[autopilot-worker] slot ${job.id}: slide ${i + 1} background error, keeping its flat style:`, err instanceof Error ? err.message : err)
-      return slide
+      return keepRef()
     }
   }))
 }

@@ -1,3 +1,4 @@
+import { isLifestyleTemplate, postImageFromBrandPhoto } from "@/lib/ai/catalogue-photos"
 import { recordGeneratedSubjects } from "@/lib/image/subject-boxes"
 import { NextResponse } from "next/server"
 import { noteGenerationBrand } from "@/lib/ai/provider-fallback"
@@ -171,13 +172,14 @@ async function handlePost(request: Request, timer: GenerationTimer) {
     ? null
     : (await chooseFittingPhotos(await createAdminClient(), brand, {
         productId: productId ?? null, productName: product?.name ?? null, kinds: PHOTO_KINDS_FOR.post,
-        items: [photoFitItem(visualBrief, imagePrompt, [captionText])], label: "post",
+        items: [photoFitItem(visualBrief, imagePrompt, [captionText])], label: "post", format: "post",
       }))[0] ?? null
   if (brandPhoto) console.log(`[ai/post-image/generate] using brand photo ${brandPhoto.id} fit=${brandPhoto.fit} (no image generated)`)
   let timedOut = false
-  const result = await timer.step("image", withDeadline(generatePostImage({
+  // A catalogue shot on a lifestyle post -> a candid scene with it as the
+  // product reference (lib/ai/catalogue-photos.ts); else the photo as is.
+  const result = await timer.step("image", withDeadline(postImageFromBrandPhoto({
     artDirection,
-    brandPhotoUrl: brandPhoto?.url ?? null,
     imagePrompt,
     brandNiche: brand.niche,
     targetAudience: brand.target_audience,
@@ -203,7 +205,7 @@ async function handlePost(request: Request, timer: GenerationTimer) {
     brandName: brand.name,
     ctaText: (brand as BrandRow & { cta_phrase?: string | null }).cta_phrase ?? null,
     visualBrief,
-  }), deadlineAt - Date.now(), "post image")).catch((err): Awaited<ReturnType<typeof generatePostImage>> => {
+  }, brandPhoto?.url ?? null, { lifestyle: isLifestyleTemplate(template), label: "post" }), deadlineAt - Date.now(), "post image")).catch((err): Awaited<ReturnType<typeof generatePostImage>> => {
     // Deadline hit (or an unexpected throw): treated exactly like a failed
     // generation below -- logged and refunded.
     timedOut = err instanceof DeadlineExceededError

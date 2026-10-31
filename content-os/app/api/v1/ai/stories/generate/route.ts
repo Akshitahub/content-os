@@ -1,3 +1,4 @@
+import { candidSceneDirection, isCatalogueShot } from "@/lib/ai/catalogue-photos"
 import { NextResponse } from "next/server"
 import { noteGenerationBrand } from "@/lib/ai/provider-fallback"
 import { createClient } from "@/lib/supabase/server"
@@ -104,6 +105,11 @@ export type StorySlide = StoryFrameFields & {
    * sequence gets a different one; sent back as the slide-image route's
    * excludePhotoIds so a regenerated frame never repeats one. */
   brand_photo_id?: string | null
+  /** A catalogue (studio) brand photo picked for this slide: the product
+   * reference for its generated candid scene (lib/ai/catalogue-photos.ts),
+   * and the slide's photo -- as a cutout -- if that scene can't be made. */
+  product_reference_url?: string | null
+  scene_direction?: string | null
   /** "Custom color" mode (see components/shared/VibePicker.tsx +
    * ColorWheelPicker) -- an exact user-picked flat/gradient, applied
    * uniformly to every slide when active. Client-only, same as
@@ -289,6 +295,7 @@ async function assignBrandPhotos(brand: BrandRow, stories: Record<string, unknow
       kinds: PHOTO_KINDS_FOR.story,
       items: stories.map((s) => photoFitItem(s.visual as VisualBrief | undefined, null, [str(s.big_words), str(s.script_line), str(s.quote), str(s.text), str(s.subtext)])),
       label: "story",
+      format: "story",
     })
     if (photos.every((p) => !p)) return stories
     const styles = await Promise.all(photos.map(async (p, i) => {
@@ -298,9 +305,15 @@ async function assignBrandPhotos(brand: BrandRow, stories: Record<string, unknow
       return bytes ? computeTextStyleSafe(bytes, storyTextRegion(position)) : null
     }))
     console.log(`[ai/stories/generate] ${photos.filter(Boolean).length}/${stories.length} frame(s) use a fitting brand photo`)
+    const catalogue = await Promise.all(photos.map((p) => (p ? isCatalogueShot(p.url) : false)))
     return stories.map((s, i) => {
       const photo = photos[i]
-      return photo ? { ...s, background_image_url: photo.url, background_image_provider: "brand_photo", brand_photo_id: photo.id, text_style: styles[i] ?? null } : s
+      if (!photo) return s
+      // A catalogue shot isn't used full-bleed: it becomes the product
+      // reference for this frame's generated candid scene.
+      return catalogue[i]
+        ? { ...s, product_reference_url: photo.url, scene_direction: candidSceneDirection(i), brand_photo_id: photo.id }
+        : { ...s, background_image_url: photo.url, background_image_provider: "brand_photo", brand_photo_id: photo.id, text_style: styles[i] ?? null }
     })
   } catch (err) {
     console.error("[ai/stories/generate] couldn't assign brand photos (non-fatal):", err instanceof Error ? err.message : err)

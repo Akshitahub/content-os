@@ -1,3 +1,4 @@
+import { insertContentEvents } from "@/lib/usage/content-events"
 import { detectSubjects, type SubjectBox } from "@/lib/image/subject-boxes"
 import { createHash } from "crypto"
 import { after } from "next/server"
@@ -452,10 +453,12 @@ export async function pickBrandPhotos(db: Db, brand: Pick<BrandRow, "id">, opts:
 }
 
 /** Records that photos were used, so the next pick prefers others. Never throws. */
-export async function markBrandPhotosUsed(db: Db, photos: Pick<BrandPhoto, "id" | "use_count">[]): Promise<void> {
+export async function markBrandPhotosUsed(db: Db, photos: Pick<BrandPhoto, "id" | "use_count" | "brand_id">[], format: "post" | "carousel" | "story" = "post"): Promise<void> {
   try {
     const now = new Date().toISOString()
     await Promise.all(photos.map((p) => db.from("brand_images").update({ use_count: p.use_count + 1, last_used_at: now }).eq("id", p.id)))
+    // One event per use: the 7-day cap on posts (lib/ai/photo-fit.ts) counts these.
+    await insertContentEvents(db, photos.map((p) => ({ userId: null, brandId: p.brand_id, contentType: "post_image" as const, event: "photo_used" as const, meta: { photo_id: p.id, format } })))
   } catch (err) {
     console.error("[brand-photos] couldn't record use (non-fatal):", err instanceof Error ? err.message : err)
   }

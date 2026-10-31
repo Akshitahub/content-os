@@ -1,3 +1,4 @@
+import { candidSceneDirection, isCatalogueShot } from "./catalogue-photos"
 import type { BrandRow } from "@/types/database"
 import { PHOTO_KINDS_FOR } from "@/lib/brand-photos"
 import { chooseFittingPhotos, photoFitItem } from "./photo-fit"
@@ -24,11 +25,17 @@ export async function assignCarouselBrandPhotos(
     productId: opts.productId ?? null, productName: opts.productName ?? null, kinds: PHOTO_KINDS_FOR.post,
     items: wanted.map(({ s }) => photoFitItem(sanitizeVisualBrief(s.visual) ?? null, null, [s.headline as string | undefined, s.subtext as string | undefined])),
     label: opts.label,
+    format: "carousel",
   })
   const out = [...slides]
-  wanted.forEach(({ i }, k) => {
+  await Promise.all(wanted.map(async ({ i }, k) => {
     const photo = photos[k]
-    if (photo) out[i] = { ...out[i], image_url: photo.url, background_image_provider: "brand_photo", text_style: null }
-  })
+    if (!photo) return
+    // A catalogue shot isn't used full-bleed: it becomes the product
+    // reference for this slide's generated candid scene.
+    out[i] = await isCatalogueShot(photo.url)
+      ? { ...out[i], product_reference_url: photo.url, scene_direction: candidSceneDirection(i) }
+      : { ...out[i], image_url: photo.url, background_image_provider: "brand_photo", text_style: null }
+  }))
   return out
 }

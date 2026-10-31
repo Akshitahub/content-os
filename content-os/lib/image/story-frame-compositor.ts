@@ -8,7 +8,7 @@ import { FONT_FAMILY_NAME, DEFAULT_FONT_ID, isFontId, type FontId } from "@/lib/
 import { NEUTRAL_PALETTE, paletteRoles, type BrandPalette } from "@/lib/design/color-themes"
 import { sanitizeTextForCompositing } from "@/lib/image/sanitize-text-for-compositing"
 import type { StoryFrame, StoryFrameFields } from "@/lib/ai/story-frames"
-import { resolveSubjectBoxes, type SubjectBox } from "@/lib/image/subject-boxes"
+import { plainBackgroundColor, resolveSubjectBoxes, type SubjectBox } from "@/lib/image/subject-boxes"
 
 /** Feed post designs (lib/design/post-templates.ts bold_statement / product_focus / quote_card / minimal). */
 export type PostFrame = "post_bold" | "post_product" | "post_quote" | "post_minimal" | "post_listicle" | "post_festive" | "post_review"
@@ -66,6 +66,8 @@ export interface StoryFrameSlide extends Omit<StoryFrameFields, "frame"> {
   logo_url?: string | null
   /** Where the photo's subject is (lib/image/subject-boxes.ts); absent = stored or detected at render. */
   subject_boxes?: SubjectBox[] | null
+  /** "full" keeps a studio / catalogue shot full-bleed; default: cut out onto the brand colour. */
+  photo_treatment?: "cutout" | "full" | null
 }
 
 // ─── Small utilities ────────────────────────────────────────────────────────
@@ -122,10 +124,11 @@ export interface Rect { x0: number; y0: number; x1: number; y1: number }
  * How the frame is laid out around the photo's subject:
  * full = no subject found, the whole canvas (as always);
  * free = text in the largest subject-free part of the full-bleed photo;
+ * cutout = a studio / catalogue shot's subject cut out onto the brand colour, the text beside it;
  * split = the photo in a column, the text on a brand-colour panel beside it;
  * band = the photo below / above, the text on a brand-colour band.
  */
-export type FrameLayout = "full" | "free" | "split" | "band"
+export type FrameLayout = "full" | "free" | "cutout" | "split" | "band"
 
 interface Composed {
   base: Buffer
@@ -209,6 +212,90 @@ export function freeRegion(subjects: Rect[], cv: FrameCanvas): Rect | null {
   return fits.reduce((a, b) => (rw(usable(b, cv)) * rh(usable(b, cv)) > rw(usable(a, cv)) * rh(usable(a, cv)) ? b : a))
 }
 
+/**
+ * A studio / catalogue shot's subject without its plain background: the
+ * background is everything connected to the photo's edge in (nearly) the
+ * border colour -- so a white shirt inside the subject stays. Returns the
+ * subject as an RGBA PNG trimmed to it, or null if nothing is left.
+ */
+async function cutOut(src: Buffer, bg: [number, number, number]): Promise<{ png: Buffer; w: number; h: number } | null> {
+  const SAMPLE = 360
+  const { data, info } = await sharp(src).resize({ width: SAMPLE }).removeAlpha().raw().toBuffer({ resolveWithObject: true })
+  const w = info.width, h = info.height
+  const isBg = new Uint8Array(w * h)
+  // Studio backdrops fall off gently (vignette, floor): the fill follows
+  // small steps from pixel to pixel, within a looser bound of the border colour.
+  const toBg = (i: number) => Math.max(Math.abs(data[i * 3]! - bg[0]), Math.abs(data[i * 3 + 1]! - bg[1]), Math.abs(data[i * 3 + 2]! - bg[2]))
+  const step = (i: number, j: number) => Math.max(Math.abs(data[i * 3]! - data[j * 3]!), Math.abs(data[i * 3 + 1]! - data[j * 3 + 1]!), Math.abs(data[i * 3 + 2]! - data[j * 3 + 2]!))
+  const stack: number[] = []
+  const seed = (i: number) => { if (!isBg[i] && toBg(i) <= 8) { isBg[i] = 1; stack.push(i) } }
+  const grow = (from: number, j: number) => { if (!isBg[j] && step(from, j) <= 3 && toBg(j) <= 40) { isBg[j] = 1; stack.push(j) } }
+  for (let x = 0; x < w; x++) { seed(x); seed((h - 1) * w + x) }
+  for (let y = 0; y < h; y++) { seed(y * w); seed(y * w + w - 1) }
+  while (stack.length) {
+    const i = stack.pop()!
+    const x = i % w, y = (i / w) | 0
+    if (x > 0) grow(i, i - 1)
+    if (x < w - 1) grow(i, i + 1)
+    if (y > 0) grow(i, i - w)
+    if (y < h - 1) grow(i, i + w)
+  }
+  let x0 = w, y0 = h, x1 = -1, y1 = -1
+  const alpha = Buffer.alloc(w * h)
+  for (let i = 0; i < w * h; i++) {
+    // Faint floor shadow / halo next to the backdrop goes too; the box is
+    // what clearly differs from it.
+    if (isBg[i] || toBg(i) <= 12) continue
+    alpha[i] = 255
+    if (toBg(i) <= 30) continue
+    const x = i % w, y = (i / w) | 0
+    if (x < x0) x0 = x
+    if (x > x1) x1 = x
+    if (y < y0) y0 = y
+    if (y > y1) y1 = y
+  }
+  if (x1 < x0 || (x1 - x0) * (y1 - y0) < w * h * 0.02) return null
+  const meta = await sharp(src).metadata()
+  const W = meta.width!, H = meta.height!
+  // A soft edge, at full size.
+  const mask = await sharp(alpha, { raw: { width: w, height: h, channels: 1 } }).blur(0.8).resize(W, H).extractChannel(0).raw().toBuffer()
+  const rgb = await sharp(src).removeAlpha().raw().toBuffer()
+  const px = Buffer.alloc(W * H * 4)
+  for (let i = 0; i < W * H; i++) {
+    px[i * 4] = rgb[i * 3]!
+    px[i * 4 + 1] = rgb[i * 3 + 1]!
+    px[i * 4 + 2] = rgb[i * 3 + 2]!
+    px[i * 4 + 3] = mask[i]!
+  }
+  const rgba = await sharp(px, { raw: { width: W, height: H, channels: 4 } }).png().toBuffer()
+  const left = Math.floor((x0 / w) * W), top = Math.floor((y0 / h) * H)
+  const width = Math.min(W - left, Math.ceil(((x1 - x0 + 1) / w) * W)), height = Math.min(H - top, Math.ceil(((y1 - y0 + 1) / h) * H))
+  return { png: await sharp(rgba).extract({ left, top, width, height }).png().toBuffer(), w: width, h: height }
+}
+
+/**
+ * The cutout layout: the brand colour, the cut-out subject standing on one
+ * side (the seed picks which) with a soft floor shadow, the other side free
+ * for the text -- the annotated_product look for catalogue photography.
+ */
+async function cutoutCanvas(cut: { png: Buffer; w: number; h: number }, p: BrandPalette, rnd: () => number, cv: FrameCanvas): Promise<{ base: Buffer; subject: Rect }> {
+  const right = rnd() < 0.6
+  // Room for a 40% text column beside it, margin included.
+  const areaW = Math.round(cv.w * 0.52)
+  const maxH = cv.h - cv.safeTop - Math.round(cv.safeBottom * 0.4)
+  const scale = Math.min(areaW / cut.w, maxH / cut.h)
+  const sw = Math.max(1, Math.round(cut.w * scale)), sh = Math.max(1, Math.round(cut.h * scale))
+  const left = right ? cv.w - sw - Math.round(cv.w * 0.02) : Math.round(cv.w * 0.02)
+  const top = cv.h - Math.round(cv.safeBottom * 0.4) - sh
+  const img = await sharp(cut.png).resize(sw, sh).png().toBuffer()
+  const floor = mixHex(p.base, p.deep, 0.35)
+  const shadow = `<svg width="${cv.w}" height="${cv.h}" xmlns="http://www.w3.org/2000/svg"><defs><filter id="b"><feGaussianBlur stdDeviation="22"/></filter></defs><ellipse cx="${left + sw / 2}" cy="${top + sh - 6}" rx="${sw * 0.42}" ry="${Math.max(18, sh * 0.025)}" fill="${floor}" fill-opacity="0.55" filter="url(#b)"/></svg>`
+  const wash = `<svg width="${cv.w}" height="${cv.h}" xmlns="http://www.w3.org/2000/svg"><defs><radialGradient id="g" cx="${right ? 0.7 : 0.3}" cy="0.45" r="0.8"><stop offset="0%" stop-color="${mixHex(p.base, "#ffffff", 0.35)}"/><stop offset="100%" stop-color="${p.base}"/></radialGradient></defs><rect width="${cv.w}" height="${cv.h}" fill="url(#g)"/></svg>`
+  const base = await sharp(Buffer.from(new Resvg(wash).render().asPng()))
+    .composite([{ input: Buffer.from(new Resvg(shadow).render().asPng()) }, { input: img, left, top }]).png().toBuffer()
+  return { base, subject: { x0: left, y0: top, x1: left + sw, y1: top + sh } }
+}
+
 /** Light film grain (seeded), overlay-blended around mid grey. */
 async function withGrain(base: Buffer, amount: number, rnd: () => number, cv: FrameCanvas): Promise<Buffer> {
   const grain = Buffer.alloc(cv.w * cv.h * 3)
@@ -245,6 +332,21 @@ async function compose(slide: StoryFrameSlide, p: BrandPalette, rnd: () => numbe
 
   const src = oriented.data
   const { width: W, height: H } = oriented.info
+
+  // A studio / catalogue shot is never used full-bleed: its subject is cut
+  // out onto the brand colour, the text beside it.
+  const plain = slide.photo_treatment === "full" ? null : await plainBackgroundColor(src).catch(() => null)
+  const cut = plain ? await cutOut(src, plain).catch((err) => { console.error("[story-frame-compositor] cutout failed (full-bleed instead):", err instanceof Error ? err.message : err); return null }) : null
+  if (cut) {
+    const { base, subject } = await cutoutCanvas(cut, p, rnd, cv)
+    const m = Math.round(SUBJECT_MARGIN * cv.w)
+    const subjects = [{ x0: Math.max(0, subject.x0 - m), y0: Math.max(0, subject.y0 - m), x1: Math.min(cv.w, subject.x1 + m), y1: Math.min(cv.h, subject.y1 + m) }]
+    const sub = subjects[0]!
+    const onRight = (sub.x0 + sub.x1) / 2 > cv.w / 2
+    const region = freeRegion(subjects, cv) ?? (onRight ? { x0: 0, y0: 0, x1: sub.x0, y1: cv.h } : { x0: sub.x1, y0: 0, x1: cv.w, y1: cv.h })
+    return { base: await withGrain(base, 14, rnd, cv), photo: true, subjects, region, layout: "cutout" }
+  }
+
   const boxes = await resolveSubjectBoxes(slide.background_image_url, src, slide.subject_boxes)
   const placed = await placePhoto(src, W, H, boxes, full, cv)
   const free = freeRegion(placed.subjects, cv)

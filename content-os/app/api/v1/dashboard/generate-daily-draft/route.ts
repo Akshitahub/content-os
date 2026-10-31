@@ -1,3 +1,4 @@
+import { isLifestyleTemplate, postImageFromBrandPhoto } from "@/lib/ai/catalogue-photos"
 import { recordGeneratedSubjects } from "@/lib/image/subject-boxes"
 import { NextResponse } from "next/server"
 import { noteGenerationBrand } from "@/lib/ai/provider-fallback"
@@ -5,7 +6,7 @@ import { createClient, createAdminClient } from "@/lib/supabase/server"
 import { getISTDateString } from "@/lib/utils/ist"
 import { checkAndIncrementUsage, refundGenerationUsage, logGenerationOutcome } from "@/lib/usage/check-and-increment-usage"
 import { POST as POST_CREDIT_COST } from "@/lib/usage/credit-costs"
-import { generatePostImage, attemptsCostUsd } from "@/lib/ai/post-image-pipeline"
+import { attemptsCostUsd } from "@/lib/ai/post-image-pipeline"
 import { UsageCarryingError, addTextUsage, sumCostUsd, type TextUsage } from "@/lib/ai/pricing"
 import { autoPickColorTheme, autoPickableThemes, resolveColorThemes } from "@/lib/design/color-themes"
 import { DEFAULT_POST_TEMPLATE_ID, type PostTemplateId } from "@/lib/design/post-templates"
@@ -226,14 +227,13 @@ async function handlePost(request: Request, timer: GenerationTimer) {
     const brandPhoto = (await chooseFittingPhotos(admin, brand, {
       kinds: PHOTO_KINDS_FOR.post,
       items: [photoFitItem(caption.visual, imagePrompt, [hook.hook_text, caption.caption_text])],
-      label: "daily draft",
+      label: "daily draft", format: "post",
     }))[0] ?? null
 
     // No captionText -- a clean text-free base; the designed post is drawn
     // on it below (lib/image/post-design.ts).
-    const imageResult = await timer.step("image", withDeadline(generatePostImage({
+    const imageResult = await timer.step("image", withDeadline(postImageFromBrandPhoto({
       artDirection,
-      brandPhotoUrl: brandPhoto?.url ?? null,
       visualBrief: caption.visual ?? undefined,
       imagePrompt,
       brandNiche: brand.niche,
@@ -246,7 +246,7 @@ async function handlePost(request: Request, timer: GenerationTimer) {
       isInternalUnlimitedUser: isInternalUnlimited(user.id),
       productImageUrl: null,
       aspectRatio: "4:5",
-    }), requestStartedAt + ROUTE_DEADLINE_MS - Date.now(), "daily draft image"))
+    }, brandPhoto?.url ?? null, { lifestyle: isLifestyleTemplate(caption.suggested_template), label: "daily draft" }), requestStartedAt + ROUTE_DEADLINE_MS - Date.now(), "daily draft image"))
     imageProvider = imageResult.attempts[imageResult.attempts.length - 1]?.provider ?? null
     costUsd = sumCostUsd(costUsd, attemptsCostUsd(imageResult.attempts))
     if (!imageResult.success) throw new Error(imageResult.error)

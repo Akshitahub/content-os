@@ -82,14 +82,18 @@ async function main() {
     "wide subject, studio": await studio([{ x: 0.05, y: 0.42, w: 0.9, h: 0.22 }]),
     "busy scene, detected": await scene({ x: 0.3, y: 0.25, w: 0.4, h: 0.5 }),
   }
+  // Studio shots are cut out onto the brand colour by default (catalogue
+  // photography); "full" keeps them full-bleed to exercise the split / band layouts.
+  const cutoutPhoto = { name: "tall model, studio, cut out", url: photos["tall model, studio"] }
   const given = { url: await scene(), boxes: [{ x: 0.5, y: 0.1, w: 0.18, h: 0.14, label: "face" as const }, { x: 0.42, y: 0.24, w: 0.34, h: 0.4, label: "torso" as const }, { x: 0.44, y: 0.62, w: 0.3, h: 0.16, label: "hips" as const }] }
 
   const layouts = new Set<string>()
   for (const [cvName, cv] of [["story", STORY_CANVAS], ["feed", FEED_CANVAS]] as const) {
-    for (const [photoName, url] of [...Object.entries(photos), ["busy scene, given face/torso/hips boxes", given.url] as const]) {
+    for (const [photoName, url] of [...Object.entries(photos), ["busy scene, given face/torso/hips boxes", given.url] as const, [cutoutPhoto.name, cutoutPhoto.url] as const]) {
       await test(`${cvName}: ${photoName} -- no text on the subject in any frame`, async () => {
         for (const [i, f] of frames.entries()) {
-          const layers = await renderFrameLayers({ ...f, seed: 11 + i * 31, palette, brand_name: "SNITCH", background_image_url: url, ...(url === given.url ? { subject_boxes: given.boxes } : {}) } as never, cv)
+          const treatment = photoName === cutoutPhoto.name ? {} : { photo_treatment: "full" }
+          const layers = await renderFrameLayers({ ...f, seed: 11 + i * 31, palette, brand_name: "SNITCH", background_image_url: url, ...treatment, ...(url === given.url ? { subject_boxes: given.boxes } : {}) } as never, cv)
           layouts.add(layers.layout)
           assert.ok(layers.subjects.length > 0, `${f.frame}: no subject found`)
           assert.ok(!layers.subjects.some((s) => rectsIntersect(s, layers.region)), `${f.frame}: the text region overlaps the subject`)
@@ -104,6 +108,7 @@ async function main() {
   await test("a tall subject with no room beside it gets the split layout, a wide one the band", async () => {
     assert.ok(layouts.has("split"), [...layouts].join(","))
     assert.ok(layouts.has("band") || layouts.has("free"), [...layouts].join(","))
+    assert.ok(layouts.has("cutout"), [...layouts].join(","))
   })
 
   await test("no photo: the whole canvas, as before", async () => {

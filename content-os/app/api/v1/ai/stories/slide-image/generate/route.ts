@@ -1,3 +1,4 @@
+import { candidSceneDirection, isCatalogueShot } from "@/lib/ai/catalogue-photos"
 import { recordGeneratedSubjects } from "@/lib/image/subject-boxes"
 import { NextResponse } from "next/server"
 import { noteGenerationBrand } from "@/lib/ai/provider-fallback"
@@ -33,6 +34,9 @@ const schema = z.object({
   // sequence already uses -- a frame never repeats one.
   productId: z.string().uuid().optional(),
   excludePhotoIds: z.array(z.string().uuid()).max(20).optional(),
+  // productImageUrl is already this frame's catalogue brand photo: generate
+  // its scene, don't pick another photo.
+  referenceIsBrandPhoto: z.boolean().optional(),
   // SocioPosts-authored (and possibly user-edited) visual scene from the
   // new prompt-writing stage -- see lib/ai/story-slide-background.ts's
   // GenerateStorySlideBackgroundOptions.customPrompt.
@@ -137,11 +141,16 @@ async function handlePost(request: Request, timer: GenerationTimer) {
   // A brand photo first when one FITS this frame's brief (lib/ai/photo-fit.ts,
   // fit 4+) -- free, nothing generated; never one the sequence already uses.
   // Otherwise the image is generated from the brief.
-  const photo = (await chooseFittingPhotos(await createAdminClient(), brand, {
+  const photo = parsed.data.referenceIsBrandPhoto ? null : (await chooseFittingPhotos(await createAdminClient(), brand, {
     productId: parsed.data.productId ?? null, kinds: PHOTO_KINDS_FOR.story, exclude: parsed.data.excludePhotoIds,
-    items: [photoFitItem(visualBrief, customPrompt, [])], label: `story-frame role=${role}`,
+    items: [photoFitItem(visualBrief, customPrompt, [])], label: `story-frame role=${role}`, format: "story",
   }))[0]
-  if (photo) {
+  // A catalogue shot isn't used full-bleed: it's the product reference for a
+  // candid scene (lib/ai/catalogue-photos.ts), and the frame's photo -- as a
+  // cutout -- if that scene can't be made.
+  const catalogue = photo && await isCatalogueShot(photo.url) ? photo : null
+  const catalogueUrl = catalogue?.url ?? (parsed.data.referenceIsBrandPhoto ? productImageUrl ?? null : null)
+  if (photo && !catalogue) {
     const bytes = await download(photo.url)
     const textStyle = bytes ? await computeTextStyleSafe(bytes, storyTextRegion(textPosition)) : null
     console.log(`[ai/stories/slide-image/generate] role=${role} using brand photo ${photo.id} (no image generated)`)
@@ -159,7 +168,7 @@ async function handlePost(request: Request, timer: GenerationTimer) {
   // to — so it charges here too. Checked and charged up front, same
   // pattern as every other paid generation route, refunded below if
   // generation or upload ends up failing.
-  const isChargeable = role === "body" || !!effectiveProductImageUrl
+  const isChargeable = role === "body" || !!effectiveProductImageUrl || !!catalogueUrl
   let usageLogId: string | null = null
   if (isChargeable) {
     const usageCheck = await checkAndIncrementUsage(user.id, STORY_SLIDE_AI_BACKGROUND, "story_slide_bg_body")
@@ -177,11 +186,12 @@ async function handlePost(request: Request, timer: GenerationTimer) {
     plan,
     isInternalUnlimitedUser: isUnlimited,
     role,
-    productImageUrl: effectiveProductImageUrl,
+    productImageUrl: catalogueUrl ?? effectiveProductImageUrl,
     textPosition,
     customPrompt,
-    visualBrief,
-    userDirection: parsed.data.userDirection,
+    // The catalogue scene is ours; a brief whose kind skips the product reference would drop it.
+    visualBrief: catalogueUrl ? undefined : visualBrief,
+    userDirection: catalogueUrl ? (catalogue ? candidSceneDirection() : parsed.data.userDirection) : parsed.data.userDirection,
     // Text is composited over slide backgrounds, so "low" is enough --
     // raised to "medium" automatically when a product photo is attached.
     quality: "low",
@@ -203,6 +213,10 @@ async function handlePost(request: Request, timer: GenerationTimer) {
       JSON.stringify(result.attempts.map((a) => ({ attempt: a.attemptNumber, variant: a.promptVariant, reason: a.failureReason, message: a.errorMessage ?? null })))
     )
     if (isChargeable) await refundGenerationUsage(supabase, user.id, STORY_SLIDE_AI_BACKGROUND, usageLogId)
+    if (catalogueUrl) {
+      // The scene failed: the catalogue photo itself, drawn as a cutout.
+      return NextResponse.json({ data: { public_url: catalogueUrl, role, provider: "brand_photo", photo_id: catalogue?.id ?? null, text_style: null } }, { status: 200 })
+    }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await (supabase.from("ai_generation_logs") as any).insert({
       user_id: user.id, brand_id: brandId, feature: `story_slide_bg_${role}`, model: "unknown",

@@ -204,7 +204,8 @@ async function fetchSlideBackgroundResult(
   // The picked product's id (its own brand photos first) and the brand
   // photos the sequence already uses -- the route tries a real photo first.
   productId?: string,
-  excludePhotoIds?: string[]
+  excludePhotoIds?: string[],
+  referenceIsBrandPhoto?: boolean
 ): Promise<SlideBackgroundOutcome> {
   try {
     const res = await fetch("/api/v1/ai/stories/slide-image/generate", {
@@ -216,7 +217,7 @@ async function fetchSlideBackgroundResult(
       // optional, not nullable.
       // visualBrief: this frame's own scene (non-hook frames) -- see
       // lib/ai/story-slide-background.ts. Omitted when the frame has none.
-      body: JSON.stringify({ brandId, vibe, role, productImageUrl: productImageUrl ?? undefined, textPosition, customPrompt: customPrompt || undefined, visualBrief, userDirection: userDirection || undefined, productId, excludePhotoIds: excludePhotoIds?.length ? excludePhotoIds : undefined }),
+      body: JSON.stringify({ brandId, vibe, role, productImageUrl: productImageUrl ?? undefined, textPosition, customPrompt: customPrompt || undefined, visualBrief, userDirection: userDirection || undefined, productId, excludePhotoIds: excludePhotoIds?.length ? excludePhotoIds : undefined, ...(referenceIsBrandPhoto ? { referenceIsBrandPhoto: true } : {}) }),
     })
     if (!res.ok) {
       // The server's reason travels with the failure -- shown on the slide, never a silent flat background.
@@ -1181,22 +1182,25 @@ export function StorySequence({ brandId }: { brandId: string }) {
         // before); body slides only on "reveal" -- PhoneStory never shows
         // the product on "buildup" slides.
         const usesProduct = role !== "body" || (slide.type === "reveal" && !!selectedProduct)
+        // A catalogue brand photo picked for the frame is its product reference.
+        const ref = slide.product_reference_url ?? null
         return {
           key: i,
           run: () => fetchSlideBackgroundResult(
             brandId,
             vibe,
             role,
-            usesProduct ? (selectedProduct?.imageUrl ?? null) : undefined,
+            ref ?? (usesProduct ? (selectedProduct?.imageUrl ?? null) : undefined),
             // A frame with its own brief keeps its text region calm too --
             // its scene isn't the abstract centre-calm default.
             role !== "body" || usesProduct || slide.visual ? slide.text_position : undefined,
             visualPrompt,
             slide.visual,
             // The user's own typed scene text, never the AI-expanded prompt.
-            visualPromptSeedRef.current,
+            slide.scene_direction ?? visualPromptSeedRef.current,
             selectedProduct?.id,
-            usedPhotoIds
+            usedPhotoIds,
+            !!ref
           ),
         }
       }),
@@ -1346,7 +1350,9 @@ export function StorySequence({ brandId }: { brandId: string }) {
         const indices = savedStories.map((_, i) => i).filter((i) => !savedStories[i]!.background_image_url)
         const hookAndCta = indices.filter((i) => storyBgRole(savedStories[i]!) !== "body")
         const middle = allSlidesAiBg ? indices.filter((i) => storyBgRole(savedStories[i]!) === "body") : []
-        void runStoryBackgrounds(genId, savedStories, [...hookAndCta, ...middle]).then((finished) => {
+        // Frames with a catalogue photo always get their scene made.
+        const withRef = indices.filter((i) => savedStories[i]!.product_reference_url && !hookAndCta.includes(i) && !middle.includes(i))
+        void runStoryBackgrounds(genId, savedStories, [...hookAndCta, ...middle, ...withRef]).then((finished) => {
           if (!finished) return
           setShowSuccess(true)
           setTimeout(() => setShowSuccess(false), 4000)

@@ -91,6 +91,30 @@ export async function scorePhotoFit(item: PhotoFitItem, candidates: Pick<BrandPh
   }
 }
 
+/** A post may reuse a brand photo at most this many times per brand per 7 days. */
+export const POST_WEEKLY_CAP = 2
+
+/** Photos posts have already used POST_WEEKLY_CAP times in the last 7 days ("photo_used" content events). Never throws. */
+export async function photosAtWeeklyCap(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  db: any,
+  brandId: string,
+): Promise<string[]> {
+  try {
+    const since = new Date(Date.now() - 7 * 86_400_000).toISOString()
+    const { data, error } = await db.from("content_events").select("meta").eq("brand_id", brandId).eq("event", "photo_used").gte("created_at", since).limit(2000)
+    if (error) return []
+    const counts = new Map<string, number>()
+    for (const row of (data ?? []) as { meta: { photo_id?: string; format?: string } | null }[]) {
+      if (row.meta?.format !== "post" || !row.meta.photo_id) continue
+      counts.set(row.meta.photo_id, (counts.get(row.meta.photo_id) ?? 0) + 1)
+    }
+    return [...counts].filter(([, n]) => n >= POST_WEEKLY_CAP).map(([id]) => id)
+  } catch {
+    return []
+  }
+}
+
 /**
  * One photo (or null = generate) per item, in order: each item scores its
  * own top candidates and takes the best that fits, never a photo an earlier
@@ -101,11 +125,17 @@ export async function chooseFittingPhotos(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   db: any,
   brand: Pick<BrandRow, "id">,
-  opts: { productId?: string | null; productName?: string | null; kinds: PhotoKind[]; items: PhotoFitItem[]; exclude?: string[]; label: string },
+  opts: {
+    productId?: string | null; productName?: string | null; kinds: PhotoKind[]; items: PhotoFitItem[]; exclude?: string[]; label: string
+    /** "post": the same photo at most POST_WEEKLY_CAP times per brand per 7 days across posts. */
+    format?: "post" | "carousel" | "story"
+  },
 ): Promise<((BrandPhoto & { fit: number }) | null)[]> {
   try {
     const rows = await loadBrandPhotos(db, brand, opts.kinds)
-    const used = new Set(opts.exclude ?? [])
+    // Within one carousel / story a photo is used once (excluded as it's
+    // picked); across posts, at most twice a week.
+    const used = new Set([...(opts.exclude ?? []), ...(opts.format === "post" ? await photosAtWeeklyCap(db, brand.id) : [])])
     const chosen: ((BrandPhoto & { fit: number }) | null)[] = []
     for (const [i, item] of opts.items.entries()) {
       const candidates = rankPhotoCandidates(rows, { productId: opts.productId, kinds: opts.kinds, exclude: [...used] }).slice(0, FIT_CANDIDATES)
@@ -126,7 +156,7 @@ export async function chooseFittingPhotos(
       }
     }
     const picked = chosen.filter((p): p is BrandPhoto & { fit: number } => !!p)
-    if (picked.length > 0) await markBrandPhotosUsed(db, picked)
+    if (picked.length > 0) await markBrandPhotosUsed(db, picked, opts.format ?? "post")
     return chosen
   } catch (err) {
     console.error(`[photo-fit] ${opts.label}: photo choice failed (generating instead):`, err instanceof Error ? err.message : err)

@@ -137,6 +137,11 @@ interface CarouselSlideRich {
   seed?: number | null
   tape?: boolean | null
   brand_mark?: boolean | null
+  /** A catalogue (studio) brand photo picked for this slide: the product
+   * reference for its generated candid scene (lib/ai/catalogue-photos.ts),
+   * and the slide's photo -- as a cutout -- if that scene can't be made. */
+  product_reference_url?: string | null
+  scene_direction?: string | null
 }
 
 interface CtaSlide {
@@ -1076,7 +1081,11 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
         const role = carouselBgRole(i, count)
         // productImageUrl/slideType only actually sent when a product is
         // selected -- fetchSlideBackgroundResult drops a null productImageUrl.
-        return { key: i, run: () => fetchSlideBackgroundResult(brandId, vibe, role, productImage ?? undefined, productImage ? SLIDE_TYPE_FOR_BG_ROLE[role] : undefined, visualPrompt, slides[i]?.visual, visualPromptSeedRef.current, { x: slides[i]?.text_position_x, y: slides[i]?.text_position_y }) }
+        // A catalogue brand photo picked for the slide is its product
+        // reference, with a candid real-life scene direction.
+        const ref = slides[i]?.product_reference_url ?? null
+        const product = ref ?? productImage
+        return { key: i, run: () => fetchSlideBackgroundResult(brandId, vibe, role, product ?? undefined, product ? SLIDE_TYPE_FOR_BG_ROLE[role] : undefined, visualPrompt, slides[i]?.visual, slides[i]?.scene_direction ?? visualPromptSeedRef.current, { x: slides[i]?.text_position_x, y: slides[i]?.text_position_y }) }
       }),
       { onProgress: (settled, total) => { if (isCurrent()) setBgProgress({ settled, total }) }, isCancelled: () => !isCurrent() }
     )
@@ -1087,9 +1096,16 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
     if (outOfCredits.length > 0) {
       setBodyBgWarning(`Ran out of credits — ${outOfCredits.length} slide background${outOfCredits.length === 1 ? "" : "s"} weren't generated and kept their flat color.`)
     }
-    if (succeeded.size > 0) {
+    // A slide whose scene couldn't be made keeps its catalogue photo -- drawn
+    // as a cutout on the brand colour, never full-bleed.
+    const fallbacks = indices.filter((i) => !succeeded.has(i) && slides[i]?.product_reference_url)
+    if (succeeded.size > 0 || fallbacks.length > 0) {
       setCarousel((prev) => (prev && prev.id === carouselId
-        ? { ...prev, slides: repickCarouselLayouts(prev.slides.map((s, i) => { const bg = succeeded.get(i); return bg ? { ...s, image_url: bg.url, background_image_provider: bg.provider, text_style: bg.text_style ?? null } : s }), brand?.vibe) }
+        ? { ...prev, slides: repickCarouselLayouts(prev.slides.map((s, i) => {
+            const bg = succeeded.get(i)
+            if (bg) return { ...s, image_url: bg.url, background_image_provider: bg.provider, text_style: bg.text_style ?? null }
+            return fallbacks.includes(i) ? { ...s, image_url: s.product_reference_url, background_image_provider: "brand_photo" as const, text_style: null } : s
+          }), brand?.vibe) }
         : prev))
     }
     return true
