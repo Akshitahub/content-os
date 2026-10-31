@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { BrandDetailTabs } from "@/components/brands/BrandDetailTabs"
 import { BrandBrainSection } from "@/components/brands/BrandBrainSection"
 import { BrandLookSection } from "@/components/brands/BrandLookSection"
+import { BrandLogoSection } from "@/components/brands/BrandLogoSection"
 import { BrandPhotosStrip } from "@/components/brands/BrandPhotosStrip"
 import type { Metadata } from "next"
 import type { BrandRow } from "@/types/database"
@@ -164,6 +165,7 @@ export default async function BrandDetailPage({ params }: PageProps) {
 
             <BrandBrainSection brandId={brandId} />
             <BrandLookSection brandId={brandId} />
+            <BrandLogoSection brandId={brandId} />
             <BrandPhotosStrip brandId={brandId} />
           </div>
         </>

@@ -16,6 +16,9 @@ export interface StoryExportSlide extends StoryFrameFields {
   /** Story frames: the brand mark on the hook / cta frames (logo, or name). */
   brand_name?: string | null
   logo_url?: string | null
+  logo_variant_url?: string | null
+  logo_position?: "auto" | "top-left" | "top-right" | "bottom-left" | "bottom-right" | null
+  show_logo?: boolean | null
   type: "hook" | "reveal" | "buildup" | "cta"
   text: string
   subtext: string

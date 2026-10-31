@@ -113,6 +113,11 @@ export async function PUT(request: Request, { params }: RouteParams) {
       ;({ data: updated, error } = await runUpdate(rest))
     }
 
+    // Migration 068 not run yet: the logo options can't be saved.
+    if (error && /logo_on_posts|logo_position/.test(error.message) && /column|schema cache/i.test(error.message)) {
+      return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Logo options aren't available yet -- database migration 068 hasn't been run."), { status: 503 })
+    }
+
     if (error) {
       console.error(`[brands/${brandId}] PUT update error:`, error)
       return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Failed to update brand.", error.message), { status: 500 })

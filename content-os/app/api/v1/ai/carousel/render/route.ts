@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import type { BrandRow } from "@/types/database"
 import { renderCarouselFrame } from "@/lib/image/carousel-frames"
+import { frameLogo } from "@/lib/design/logo-settings"
 import { CAROUSEL_FRAMES } from "@/lib/design/carousel-frames"
 import { resolveBrandPalette } from "@/lib/design/color-themes"
 import { resolveTypography } from "@/lib/design/fonts"
@@ -128,7 +129,7 @@ export async function POST(request: Request) {
       const palette = parsePalette(s.palette) ?? (brand ? resolveBrandPalette(brand) : null)
       if (!palette) throw new Error("A framed slide needs the brand palette")
       return renderCarouselFrame({ ...s, frame: s.frame, cta: s.ctaText }, {
-        name: brand?.name ?? parsed.data.brandName, logo_url: brand?.logo_url ?? null, palette,
+        name: brand?.name ?? parsed.data.brandName, ...(brand ? frameLogo(brand) : { logo_url: null }), palette,
         fontId: brand ? resolveTypography(brand).heading : "anton",
       })
     }))

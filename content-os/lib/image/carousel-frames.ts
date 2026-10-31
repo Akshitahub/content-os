@@ -3,6 +3,7 @@ import { isFontId, type FontId } from "@/lib/design/fonts"
 import { FEED_CANVAS, renderFrame, type FrameKind } from "@/lib/image/story-frame-compositor"
 import type { CarouselFrame } from "@/lib/design/carousel-frames"
 import type { SubjectBox } from "@/lib/image/subject-boxes"
+import { frameLogo, type FrameLogo } from "@/lib/design/logo-settings"
 
 /**
  * One framed carousel slide (lib/design/carousel-frames.ts) drawn at
@@ -28,7 +29,7 @@ const KIND: Record<CarouselFrame, FrameKind> = { hook: "hook", slide_photo: "sli
 /** The slide as a JPEG. Throws only if the canvas itself can't be drawn. */
 export function renderCarouselFrame(
   s: CarouselFrameSlide,
-  brand: { name: string; logo_url?: string | null; palette: BrandPalette; fontId: FontId },
+  brand: { name: string; logo_url?: string | null; palette: BrandPalette; fontId: FontId } & Partial<FrameLogo>,
 ): Promise<Buffer> {
   const handwritten = s.frame === "hook" || s.frame === "cta"
   return renderFrame({
@@ -45,6 +46,6 @@ export function renderCarouselFrame(
     palette: brand.palette,
     font_id: isFontId(s.font_id) ? s.font_id : brand.fontId,
     brand_name: brand.name,
-    logo_url: brand.logo_url ?? null,
+    ...frameLogo(brand),
   }, FEED_CANVAS)
 }

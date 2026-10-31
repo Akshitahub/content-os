@@ -149,6 +149,12 @@ export type Database = {
           brand_values: string[]
           color_palette: Json
           logo_url: string | null
+          /** The logo's contrast variant (light for a dark logo, dark for a light one) -- migration 068. */
+          logo_variant_url?: string | null
+          /** Show the logo on posts / slides / frames (default true) -- migration 068. */
+          logo_on_posts?: boolean | null
+          /** auto | top-left | top-right | bottom-left | bottom-right -- migration 068. */
+          logo_position?: string | null
           website_url: string | null
           instagram_handle: string | null
           ai_persona: string | null
@@ -181,6 +187,9 @@ export type Database = {
           brand_values?: string[]
           color_palette?: Json
           logo_url?: string | null
+          logo_variant_url?: string | null
+          logo_on_posts?: boolean | null
+          logo_position?: string | null
           website_url?: string | null
           instagram_handle?: string | null
           ai_persona?: string | null
@@ -209,6 +218,9 @@ export type Database = {
           brand_values?: string[]
           color_palette?: Json
           logo_url?: string | null
+          logo_variant_url?: string | null
+          logo_on_posts?: boolean | null
+          logo_position?: string | null
           website_url?: string | null
           instagram_handle?: string | null
           ai_persona?: string | null

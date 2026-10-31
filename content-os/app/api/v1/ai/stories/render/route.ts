@@ -90,6 +90,9 @@ const slideSchema = z.object({
   // Brand mark on the hook / cta frames: the logo, or the name without one.
   brand_name: z.string().max(80).nullish(),
   logo_url: z.string().max(2000).nullish(),
+  logo_variant_url: z.string().max(2000).nullish(),
+  logo_position: z.enum(["auto", "top-left", "top-right", "bottom-left", "bottom-right"]).nullish(),
+  show_logo: z.boolean().nullish(),
 })
 // Matches the generate route's own storyCount cap (1-10). preview: the
 // editor's live preview -- rendered, never uploaded.

@@ -18,6 +18,9 @@ const brandBaseSchema = z.object({
   onboarding_type: z.string().max(50).nullish(),
   // Structured Brand Brain profile (060) -- normalized by parseBrandBrain.
   brand_brain: brandBrainSchema.optional(),
+  // Brand logo options (068): shown on posts, and its corner.
+  logo_on_posts: z.boolean().optional(),
+  logo_position: z.enum(["auto", "top-left", "top-right", "bottom-left", "bottom-right"]).optional(),
 })
 
 // The only things a new brand needs: its name, plus a website or an
@@ -41,4 +44,7 @@ export type CreateBrandInput = {
   ai_persona?: string | null
 }
 
-export type UpdateBrandInput = Partial<CreateBrandInput>
+export type UpdateBrandInput = Partial<CreateBrandInput> & {
+  logo_on_posts?: boolean
+  logo_position?: "auto" | "top-left" | "top-right" | "bottom-left" | "bottom-right"
+}

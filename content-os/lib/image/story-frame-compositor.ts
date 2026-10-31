@@ -68,6 +68,12 @@ export interface StoryFrameSlide extends Omit<StoryFrameFields, "frame"> {
   /** Brand presence on the hook and cta frames: the logo, or the name in the heading font without one. */
   brand_name?: string | null
   logo_url?: string | null
+  /** The logo's contrast variant (light for a dark logo, dark for a light one -- brands.logo_variant_url). */
+  logo_variant_url?: string | null
+  /** Where the logo goes (brands.logo_position); "auto" = the free corner farthest from the text. */
+  logo_position?: LogoPosition | null
+  /** false = no logo / name on this frame (brands.logo_on_posts). */
+  show_logo?: boolean | null
   /** Where the photo's subject is (lib/image/subject-boxes.ts); absent = stored or detected at render. */
   subject_boxes?: SubjectBox[] | null
   /** "full" keeps a studio / catalogue shot full-bleed; default: cut out onto the brand colour. */
@@ -253,7 +259,7 @@ export function freeRegion(subjects: Rect[], cv: FrameCanvas, measure?: Headline
  * border colour -- so a white shirt inside the subject stays. Returns the
  * subject as an RGBA PNG trimmed to it, or null if nothing is left.
  */
-async function cutOut(src: Buffer, bg: [number, number, number]): Promise<{ png: Buffer; w: number; h: number } | null> {
+export async function cutOut(src: Buffer, bg: [number, number, number]): Promise<{ png: Buffer; w: number; h: number } | null> {
   const SAMPLE = 360
   const { data, info } = await sharp(src).resize({ width: SAMPLE }).removeAlpha().raw().toBuffer({ resolveWithObject: true })
   const w = info.width, h = info.height
@@ -674,45 +680,94 @@ interface Ctx {
   rnd: () => number
   stats: Record<Zone, RegionStats | null>
   bands: (RegionStats | null)[]
-  /** The brand's logo as an embeddable PNG, or its name -- hook and cta frames only. */
-  mark: { logo: { uri: string; w: number; h: number } | null; name: string } | null
 }
 
-const MARK_MAX_W = 240
-const MARK_MAX_H = 84
 
-/** The logo fitted into the mark box as a PNG data URI; null if it can't be read. */
-async function logoMark(url: string | null | undefined): Promise<{ uri: string; w: number; h: number } | null> {
+export const LOGO_POSITIONS = ["auto", "top-left", "top-right", "bottom-left", "bottom-right"] as const
+export type LogoPosition = (typeof LOGO_POSITIONS)[number]
+
+/** The logo's box: about 8% of the canvas width; a wide wordmark gets up to twice that, kept as short. */
+function logoBox(cv: FrameCanvas, aspect: number): { w: number; h: number } {
+  const unit = Math.round(cv.w * 0.08)
+  const w = aspect > 2 ? Math.min(unit * 2, Math.round(unit * 0.55 * aspect)) : unit
+  return { w, h: Math.max(1, Math.round(w / aspect)) }
+}
+
+/** A logo file at its mark size, and its mean luminance (0 dark .. 1 light). Null if unreadable. */
+async function logoImage(url: string | null | undefined, cv: FrameCanvas): Promise<{ png: Buffer; w: number; h: number; lum: number } | null> {
   if (!url) return null
   const bytes = await fetchImage(url)
   if (!bytes) return null
   try {
-    const png = await sharp(bytes).resize(MARK_MAX_W, MARK_MAX_H, { fit: "inside", withoutEnlargement: false }).png().toBuffer()
-    const meta = await sharp(png).metadata()
-    return { uri: `data:image/png;base64,${png.toString("base64")}`, w: meta.width ?? MARK_MAX_W, h: meta.height ?? MARK_MAX_H }
+    const meta = await sharp(bytes).metadata()
+    const { w, h } = logoBox(cv, (meta.width ?? 1) / Math.max(1, meta.height ?? 1))
+    const png = await sharp(bytes).resize(w, h, { fit: "inside" }).ensureAlpha().png().toBuffer()
+    const { data, info } = await sharp(png).raw().toBuffer({ resolveWithObject: true })
+    let sum = 0, n = 0
+    for (let i = 0; i < data.length; i += 4) {
+      if (data[i + 3]! < 128) continue
+      sum += (0.2126 * data[i]! + 0.7152 * data[i + 1]! + 0.0722 * data[i + 2]!) / 255
+      n++
+    }
+    return { png, w: info.width, h: info.height, lum: n ? sum / n : 0.5 }
   } catch {
     return null
   }
 }
 
 /**
- * The brand mark, small and clean: the logo, else the name in the heading
- * font, inked for the strip it sits on. (x, y) = top-left of its box;
- * `align` "end" puts its right edge at x.
+ * The brand mark, placed after the text: the logo (or the brand's name
+ * without one) in a corner inside the safe area that has no text and no
+ * subject in it -- the chosen position when it's free, else ("auto") the
+ * free corner farthest from the text. No free corner = no mark (it never
+ * covers the text, a face or the product). The logo or its contrast
+ * variant, whichever reads on the photo there.
  */
-function brandMark(ctx: Ctx, x: number, y: number, align: "start" | "middle" | "end" = "start"): string {
-  if (!ctx.mark) return ""
-  if (ctx.mark.logo) {
-    const { uri, w, h } = ctx.mark.logo
-    const lx = align === "end" ? x - w : align === "middle" ? x - w / 2 : x
-    return `<image href="${uri}" x="${r1(lx)}" y="${r1(y)}" width="${w}" height="${h}" filter="url(#drop)"/>`
+async function placeMark(slide: StoryFrameSlide, overlay: Buffer, base: Buffer, subjects: Rect[], cv: FrameCanvas, displayId: FontId, display: fontkit.Font, fontFiles: string[]): Promise<Buffer> {
+  const logo = await logoImage(slide.logo_url, cv)
+  const variant = logo ? await logoImage(slide.logo_variant_url, cv) : null
+  const name = logo ? "" : clean(slide.brand_name)
+  if (!logo && !name) return overlay
+  const nameSize = Math.round(cv.w * 0.034)
+  const mw = logo ? logo.w : Math.min(Math.round(measureTextWidth(display, displayCase(displayId, name), nameSize)), Math.round(cv.w * 0.3))
+  const mh = logo ? logo.h : Math.round(nameSize * 1.1)
+  const m = Math.round(cv.w * 0.06)
+  const xs = { left: Math.max(m, 40), right: cv.w - Math.max(m, 40) - mw }
+  const ys = { top: cv.safeTop + 20, bottom: cv.h - cv.safeBottom - 20 - mh }
+  const corners: { pos: LogoPosition; r: Rect }[] = [
+    { pos: "top-left", r: { x0: xs.left, y0: ys.top, x1: xs.left + mw, y1: ys.top + mh } },
+    { pos: "top-right", r: { x0: xs.right, y0: ys.top, x1: xs.right + mw, y1: ys.top + mh } },
+    { pos: "bottom-left", r: { x0: xs.left, y0: ys.bottom, x1: xs.left + mw, y1: ys.bottom + mh } },
+    { pos: "bottom-right", r: { x0: xs.right, y0: ys.bottom, x1: xs.right + mw, y1: ys.bottom + mh } },
+  ]
+  // Where the text is: its pixels (a little margin around each corner box).
+  const { data, info } = await sharp(overlay).ensureAlpha().raw().toBuffer({ resolveWithObject: true })
+  const pad = 24
+  const busy = (r: Rect) => {
+    for (let y = Math.max(0, r.y0 - pad); y < Math.min(info.height, r.y1 + pad); y += 2) {
+      for (let x = Math.max(0, r.x0 - pad); x < Math.min(info.width, r.x1 + pad); x += 2) if (data[(y * info.width + x) * 4 + 3]! > 40) return true
+    }
+    return false
   }
-  const name = clean(ctx.mark.name)
-  if (!name) return ""
-  let size = 46
-  while (size > 30 && measureTextWidth(ctx.f.display, name, size) > MARK_MAX_W * 1.6) size -= 2
-  const { ink } = inkAt(ctx, y, y + size)
-  return `<text x="${r1(x)}" y="${r1(y + size * 0.86)}" text-anchor="${align}" font-family="${family(ctx.f.displayId)}" font-size="${size}" font-weight="700" fill="${ink.color}" filter="url(#${ink.filter})">${esc(displayCase(ctx.f.displayId, name))}</text>`
+  let sx = 0, sy = 0, n = 0
+  for (let y = 0; y < info.height; y += 6) for (let x = 0; x < info.width; x += 6) if (data[(y * info.width + x) * 4 + 3]! > 40) { sx += x; sy += y; n++ }
+  const text = n ? { x: sx / n, y: sy / n } : { x: cv.w / 2, y: cv.h / 2 }
+  const free = corners.filter((c) => !busy(c.r) && !subjects.some((sub) => rectsIntersect(c.r, sub)))
+  if (free.length === 0) return overlay
+  const wanted = slide.logo_position && slide.logo_position !== "auto" ? free.find((c) => c.pos === slide.logo_position) : undefined
+  const dist = (c: { r: Rect }) => Math.hypot((c.r.x0 + c.r.x1) / 2 - text.x, (c.r.y0 + c.r.y1) / 2 - text.y)
+  const at = wanted ?? free.reduce((a, b) => (dist(b) > dist(a) ? b : a))
+  // The photo under the corner decides light or dark.
+  const under = await regionLuminance(base, { x: at.r.x0 / cv.w, y: at.r.y0 / cv.h, w: mw / cv.w, h: mh / cv.h }).catch(() => null)
+  const bgLum = under?.mean ?? 0.5
+  if (logo) {
+    const pick = variant && Math.abs(variant.lum - bgLum) > Math.abs(logo.lum - bgLum) ? variant : logo
+    return sharp(overlay).composite([{ input: pick.png, left: Math.round(at.r.x0 + (mw - pick.w) / 2), top: Math.round(at.r.y0 + (mh - pick.h) / 2) }]).png().toBuffer()
+  }
+  const color = bgLum < 0.5 ? "#ffffff" : "#111111"
+  const svg = `<svg width="${cv.w}" height="${cv.h}" xmlns="http://www.w3.org/2000/svg"><text x="${at.r.x0}" y="${r1(at.r.y0 + nameSize * 0.9)}" font-family="${family(displayId)}" font-size="${nameSize}" font-weight="700" fill="${color}">${esc(displayCase(displayId, name))}</text></svg>`
+  const layer = Buffer.from(new Resvg(svg, { font: { fontFiles, loadSystemFonts: false, defaultFontFamily: FONT_FAMILY_NAME[displayId] } }).render().asPng())
+  return sharp(overlay).composite([{ input: layer }]).png().toBuffer()
 }
 
 /** Ink + stats for the text span [y0, y1]. */
@@ -753,8 +808,7 @@ function hookFrame(ctx: Ctx, s: StoryFrameSlide): string {
   const scriptY = zone === "top" ? clampY(cv, block.bottom + 130) : clampY(cv, block.top - 50)
   const script = scriptBeside(ctx, block, s.script_line ?? "", 18 + Math.round(ctx.rnd() * 40), scriptY, 96)
   // The mark sits in the corner away from the words.
-  const mark = zone === "top" ? brandMark(ctx, cv.side, cv.h - cv.safeBottom - 30 - MARK_MAX_H) : brandMark(ctx, cv.w - cv.side, cv.safeTop + 30, "end")
-  return block.svg + script.svg + mark
+  return block.svg + script.svg
 }
 
 function offerFrame(ctx: Ctx, s: StoryFrameSlide): string {
@@ -900,8 +954,7 @@ function ctaFrame(ctx: Ctx, s: StoryFrameSlide): string {
   const sy = clampY(cv, py - 250 - Math.round(ctx.rnd() * 40))
   const sx = cv.side + 10 + Math.round(ctx.rnd() * 40)
   const script = scriptAt(ctx, s.script_line ?? "", sx, sy, 92)
-  const mark = brandMark(ctx, cv.w / 2, py + ph + 36, "middle")
-  return block.svg + script.svg + pill + mark
+  return block.svg + script.svg + pill
 }
 
 // ─── Feed posts (1080x1350) ─────────────────────────────────────────────────
@@ -918,8 +971,7 @@ function postProductFrame(ctx: Ctx, s: StoryFrameSlide): string {
   const block = displayBlock(cv, ctx.f, clean(s.big_words) || clean(s.text), zones(cv)[zone], zone, ink, ctx.rnd, 0.2, accent)
   const scriptY = zone === "top" ? clampY(cv, block.bottom + 100) : clampY(cv, block.top - 40)
   const script = scriptBeside(ctx, block, s.script_line ?? "", 10, scriptY, 84)
-  const mark = zone === "top" ? brandMark(ctx, cv.side, cv.h - cv.safeBottom - MARK_MAX_H) : brandMark(ctx, cv.w - cv.side, cv.safeTop + 20, "end")
-  return block.svg + script.svg + mark
+  return block.svg + script.svg
 }
 
 /** quote_card: a big brand-coloured quote mark, the display words, a script line. */
@@ -934,8 +986,7 @@ function postQuoteFrame(ctx: Ctx, s: StoryFrameSlide): string {
   const quote = `<text x="${r1(block.left - 10)}" y="${r1(block.top + 40)}" font-family="${family(SCRIPT_FONT)}" font-size="260" font-weight="700" fill="${markColor}" filter="url(#${ink.filter})">&#8220;</text>`
   const scriptY = zone === "top" ? clampY(cv, block.bottom + 110) : clampY(cv, block.top - 40)
   const script = scriptBeside(ctx, block, s.script_line ?? "", 30, scriptY, 84)
-  const mark = zone === "top" ? brandMark(ctx, cv.side, cv.h - cv.safeBottom - MARK_MAX_H) : brandMark(ctx, cv.w - cv.side, cv.safeTop + 30, "end")
-  return quote + block.svg + script.svg + mark
+  return quote + block.svg + script.svg
 }
 
 /** minimal: the quiet option -- small display words in the brand colour, a small script line, the mark. */
@@ -947,8 +998,7 @@ function postMinimalFrame(ctx: Ctx, s: StoryFrameSlide): string {
   const block = displayBlock(cv, ctx.f, clean(s.big_words) || clean(s.text), zones(cv)[zone], zone, color ? { ...ink, color } : ink, ctx.rnd, 0.13, color ? undefined : { color: null, underline: ctx.p.accent })
   const scriptY = zone === "top" ? clampY(cv, block.bottom + 80) : clampY(cv, block.top - 30)
   const script = scriptBeside(ctx, block, s.script_line ?? "", 6, scriptY, 64)
-  const mark = zone === "top" ? brandMark(ctx, cv.side, cv.h - cv.safeBottom - MARK_MAX_H) : brandMark(ctx, cv.w - cv.side, cv.safeTop + 20, "end")
-  return block.svg + script.svg + mark
+  return block.svg + script.svg
 }
 
 /**
@@ -979,8 +1029,7 @@ function postListicleFrame(ctx: Ctx, s: StoryFrameSlide): string {
     y += line.height + 6
     return line.svg
   }).join("")
-  const mark = zone === "top" ? brandMark(ctx, cv.w - cv.side, cv.h - cv.safeBottom - MARK_MAX_H, "end") : brandMark(ctx, cv.w - cv.side, cv.safeTop + 20, "end")
-  return num + block.svg + list + mark
+  return num + block.svg + list
 }
 
 /**
@@ -1000,8 +1049,7 @@ function postFestiveFrame(ctx: Ctx, s: StoryFrameSlide): string {
   const kickerAt = besideBlock(block, 0)
   const kicker = label ? `<text x="${r1(kickerAt.x)}" y="${r1(block.top - 24)}" text-anchor="${kickerAt.anchor}" font-family="${family(ctx.f.displayId)}" font-size="${kickerSize}" font-weight="700" letter-spacing="4" fill="${accent.color ?? ink.color}" filter="url(#${ink.filter})">${esc(label)}</text>` : ""
   const script = scriptBeside(ctx, block, s.script_line ?? "", 24, clampY(cv, block.bottom + 100), 84)
-  const mark = brandMark(ctx, cv.w - cv.side, cv.h - cv.safeBottom - MARK_MAX_H, "end")
-  return kicker + block.svg + script.svg + mark
+  return kicker + block.svg + script.svg
 }
 
 /**
@@ -1015,8 +1063,7 @@ function postReviewFrame(ctx: Ctx, s: StoryFrameSlide): string {
   const author = clean(s.script_line)
   const by = zone === "top" ? Math.round(cv.h * 0.3) + 360 : Math.round(cv.h * 0.56) - 90
   const script = author ? scriptAt(ctx, `— ${author}`, cv.w / 2 - 120, clampY(cv, by), 72).svg : ""
-  const mark = zone === "top" ? brandMark(ctx, cv.side, cv.h - cv.safeBottom - MARK_MAX_H) : brandMark(ctx, cv.side, cv.safeTop + 20)
-  return proofFrame(ctx, { ...s, quote: clean(s.quote) || clean(s.big_words) }) + script + mark
+  return proofFrame(ctx, { ...s, quote: clean(s.quote) || clean(s.big_words) }) + script
 }
 
 // ─── Carousel middle slides (1080x1350) ─────────────────────────────────────
@@ -1131,18 +1178,20 @@ export async function renderFrameLayers(slide: StoryFrameSlide, cv: FrameCanvas,
       : await (async () => { const all = await regionLuminance(base, { x: frac.x + frac.w * 0.04, y: frac.y + frac.h * 0.04, w: frac.w * 0.92, h: frac.h * 0.92 }).catch(() => null); return { top: all, bottom: all } })()
     : { top: null, bottom: null }
   const bands = photo ? await bandStats(base, frac) : Array<RegionStats | null>(BANDS).fill(null)
-  // The opening hook and the cta (brand_mark, stamped per sequence); a slide from before the flag: any hook / cta.
+  // The mark: every post; a carousel / story's opening hook and its cta
+  // (brand_mark, stamped per sequence; a slide from before the flag: any
+  // hook / cta) -- unless the brand turned the logo off.
   const isPost = slide.frame.startsWith("post_")
-  const wantsMark = (isPost || (slide.brand_mark ?? (slide.frame === "hook" || slide.frame === "cta"))) && !!(slide.logo_url || slide.brand_name)
-  const mark = wantsMark ? { logo: await logoMark(slide.logo_url), name: slide.brand_name ?? "" } : null
-  const ctx: Ctx = { cv: sub, f: { displayId, display, script, box }, p, rnd, stats, bands, mark }
+  const wantsMark = slide.show_logo !== false && (isPost || (slide.brand_mark ?? (slide.frame === "hook" || slide.frame === "cta"))) && !!(slide.logo_url || slide.brand_name)
+  const ctx: Ctx = { cv: sub, f: { displayId, display, script, box }, p, rnd, stats, bands }
   const raw = (DRAW[slide.frame] ?? hookFrame)(ctx, slide)
   // The tests measure the glyphs themselves, without their soft shadow / glow.
   const drawn = opts.plain ? raw.replace(/ filter="url\(#[a-z]+\)"/g, "") : raw
   // Anything drawn past the region's edge is clipped -- text never reaches the subject.
   const body = layout === "full" ? drawn : `<clipPath id="region"><rect x="0" y="0" width="${rw(region)}" height="${rh(region)}"/></clipPath><g transform="translate(${region.x0} ${region.y0})" clip-path="url(#region)">${drawn}</g>`
   const svg = `<svg width="${cv.w}" height="${cv.h}" xmlns="http://www.w3.org/2000/svg">${FILTERS}${body}</svg>`
-  const overlay = Buffer.from(new Resvg(svg, { font: { fontFiles, loadSystemFonts: false, defaultFontFamily: FONT_FAMILY_NAME[displayId] } }).render().asPng())
+  const textLayer = Buffer.from(new Resvg(svg, { font: { fontFiles, loadSystemFonts: false, defaultFontFamily: FONT_FAMILY_NAME[displayId] } }).render().asPng())
+  const overlay = wantsMark ? await placeMark(slide, textLayer, base, composed.subjects, cv, displayId, display, fontFiles) : textLayer
   return { base, overlay, subjects: composed.subjects, region, layout }
 }
 

@@ -48,6 +48,7 @@ import { isSubscribed } from "@/lib/usage/trial-status"
 import { assignCarouselBrandPhotos } from "./carousel-photos"
 import { carouselFrameNeedsPhoto, isCarouselFrame, type CarouselFrame } from "@/lib/design/carousel-frames"
 import { renderCarouselFrame } from "@/lib/image/carousel-frames"
+import { frameLogo } from "@/lib/design/logo-settings"
 import type { PostDesign } from "@/lib/design/post-design-fields"
 
 // Background Autopilot worker (supabase/migrations/057_autopilot_slot_jobs.sql).
@@ -394,7 +395,7 @@ async function prepareSlot(admin: Admin, job: SlotJobRow, ctx: RunContext, track
       const rendered = carouselRichSlides.every((sl) => isCarouselFrame(sl.frame))
         ? await Promise.all(carouselRichSlides.map(async (sl) => ({
             png: await renderCarouselFrame({ ...sl, frame: sl.frame as CarouselFrame, headline: String(sl.headline ?? ""), subtext: (sl.subtext as string | null) ?? null, cta: (sl.cta as string | null) ?? null, image_url: (sl.image_url as string | null) ?? null, seed: sl.seed as number | null, tape: sl.tape as boolean | null, brand_mark: sl.brand_mark as boolean | null, font_id: sl.font_id as string | null },
-              { name: brand.name, logo_url: brand.logo_url, palette, fontId: generated.carousel!.typography.heading }),
+              { name: brand.name, ...frameLogo(brand), palette, fontId: generated.carousel!.typography.heading }),
             mime: "image/jpeg",
           })))
         : (await renderRichCarouselSlides(brand.name, carouselRichSlides.map((sl) => toCompositeSlide(sl, palette)))).map((r) => ({ png: r.png, mime: "image/png" }))

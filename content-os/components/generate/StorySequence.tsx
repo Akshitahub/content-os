@@ -13,6 +13,7 @@ import { GenerationWarning } from "@/components/shared/GenerationWarning"
 import { UsageLimitBanner } from "@/components/generate/UsageLimitBanner"
 import { TopicSuggestButton } from "@/components/shared/TopicSuggestButton"
 import { ScheduleAction } from "@/components/shared/ScheduleAction"
+import { frameLogo, type FrameLogo } from "@/lib/design/logo-settings"
 import { CriticPanel } from "@/components/shared/CriticPanel"
 import { isApiError } from "@/types/api"
 import { ApiResponseError } from "@/hooks/useGeneration"
@@ -78,7 +79,7 @@ const STORY_BG_PRESET_LABELS: Record<(typeof BRAND_PRESET_IDS)[number], string> 
 // type — the compositor itself gates whether it's actually used (reveal/
 // cta, or hook for a single-slide sequence), same as the live preview.
 /** The brand mark story frames draw on the hook / cta frames. */
-type BrandMark = { name: string; logo_url: string | null }
+type BrandMark = { name: string } & FrameLogo
 
 function toExportSlide(story: StorySlide, productImageSource: string | null | undefined, palette: BrandPalette | null = null, mark: BrandMark | null = null): StoryExportSlide {
   return {
@@ -128,6 +129,9 @@ function toExportSlide(story: StorySlide, productImageSource: string | null | un
     brand_mark: story.brand_mark ?? null,
     brand_name: mark?.name ?? null,
     logo_url: mark?.logo_url ?? null,
+    logo_variant_url: mark?.logo_variant_url ?? null,
+    logo_position: mark?.logo_position ?? null,
+    show_logo: mark?.show_logo ?? null,
   }
 }
 
@@ -944,7 +948,7 @@ export function StorySequence({ brandId }: { brandId: string }) {
   const storySteps = storyStepNumbers(stories)
   // Frame previews (StoryFrameCard): keyed by each frame's export data, so an
   // unchanged frame is never re-rendered and an edited one is.
-  const brandMark = useMemo<BrandMark | null>(() => (brand ? { name: brand.name, logo_url: brand.logo_url ?? null } : null), [brand])
+  const brandMark = useMemo<BrandMark | null>(() => (brand ? { name: brand.name, ...frameLogo(brand) } : null), [brand])
   const frameExports = useMemo(() => stories.map((st) => (st.frame ? toExportSlide(st, null, palette, brandMark) : null)), [stories, palette, brandMark])
   const frameKeys = useMemo(() => frameExports.map((e) => (e ? JSON.stringify(e) : null)), [frameExports])
   const [framePreviews, setFramePreviews] = useState<Record<string, string>>({})

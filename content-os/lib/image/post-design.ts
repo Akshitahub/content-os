@@ -5,6 +5,7 @@ import { FEED_CANVAS, STORY_CANVAS, renderFrame, type FrameCanvas, type PostFram
 import { POST_DESIGN_TEMPLATES, clampPostDesign, initialPostDesign, isPostDesignTemplate, type PostDesign, type PostDesignCaptionFields } from "@/lib/design/post-design-fields"
 import { uploadMediaToStorage } from "@/lib/storage/upload-media"
 import type { SubjectBox } from "@/lib/image/subject-boxes"
+import { frameLogo } from "@/lib/design/logo-settings"
 
 /**
  * A feed post in the story frame language (lib/image/story-frame-compositor.ts):
@@ -55,7 +56,7 @@ export async function renderPostDesign(
     palette: resolveBrandPalette(brand),
     font_id: resolveTypography(brand as BrandRow).heading,
     brand_name: brand.name,
-    logo_url: brand.logo_url ?? null,
+    ...frameLogo(brand),
   }, canvasForAspect(aspect))
 }
 
