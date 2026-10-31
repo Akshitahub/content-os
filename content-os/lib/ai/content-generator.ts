@@ -1,6 +1,7 @@
 import type { BrandRow, ProductRow } from "@/types/database"
 import type { ContentFormat, ContentFormatOutputMap, GeneratedCaption, Platform } from "@/types/app"
-import { MODELS, getTextClientFor, textProviderFor } from "./models"
+import { MODELS } from "./models"
+import { createTextCompletion } from "./provider-fallback"
 import { buildFactSource, guardCopy } from "./fact-guard"
 import { addTextUsage, sumCostUsd, textCostUsd, toTextUsage, type TextUsage } from "./pricing"
 import { runQualityGate, type GateReport } from "./quality-gate"
@@ -220,7 +221,9 @@ export async function generateContent(
   // again. Captions moved to OpenAI (MODELS.caption).
   if (format === "social_post") {
     const captionModel = MODELS.caption
-    const openai = getTextClientFor(captionModel)
+    // Each call priced at the model that answered (Groq, or OpenAI on a fallback).
+    let captionAnswered: string = captionModel
+    let captionCost: number | null = null
     const b = brand as BrandRow & { cta_phrase?: string | null }
     const ctaPhrase = b.cta_phrase || "Shop now"
     const handle = brand.instagram_handle ? `@${brand.instagram_handle}` : ""
@@ -249,7 +252,9 @@ export async function generateContent(
         // maxDuration, Vercel killed the function, and the client got a
         // non-JSON error page. 40s is the same estimate the other
         // medium-length text calls use (not measured live).
-        const res = await openai.chat.completions.create({ ...requestParams, messages: msgs }, { timeout: 40_000, maxRetries: 1 })
+        const { response: res, model: answered } = await createTextCompletion({ ...requestParams, messages: msgs }, { stage: "caption", timeout: 40_000, maxRetries: 1 })
+        captionAnswered = answered
+        captionCost = sumCostUsd(captionCost, textCostUsd(answered, toTextUsage(res.usage)))
         return { content: res.choices[0]?.message?.content ?? "{}", usage: toTextUsage(res.usage) }
     }
     // Full Post: annotated_product is allowed only with a product photo, its callouts grounded in the product / brand.
@@ -316,9 +321,9 @@ export async function generateContent(
 
     return {
       data: finalCaption,
-      model: captionModel,
+      model: captionAnswered,
       usage: addTextUsage(captionUsage, gate?.usage),
-      costUsd: sumCostUsd(textCostUsd(captionModel, captionUsage), gate?.costUsd),
+      costUsd: sumCostUsd(captionCost, gate?.costUsd),
       gate,
     }
   }
@@ -329,7 +334,8 @@ export async function generateContent(
   // are unchanged -- the output SHAPE per format never changed, only which
   // provider produced it.
   const model = MODELS.creative
-  const openai = getTextClientFor(model)
+  let answeredModel: string = model
+  let formatCost: number | null = null
   const baseMessages: ChatCompletionMessageParam[] = [
     { role: "system", content: system },
     { role: "user", content: user },
@@ -339,7 +345,7 @@ export async function generateContent(
   const callOnce = async (messages: ChatCompletionMessageParam[], timeoutMs = normalTimeoutMs): Promise<{ raw: string; usage: TextUsage | undefined }> => {
     const startTime = Date.now()
     try {
-      const response = await openai.chat.completions.create(
+      const { response, model: answered, provider } = await createTextCompletion(
         {
           model,
           reasoning_effort: reasoningEffort,
@@ -359,12 +365,14 @@ export async function generateContent(
         // 40s: calendar/[entryId]/regenerate (maxDuration 60) calls it, and
         // a longer timeout would outlive that route. Revisit all of these
         // once real latency data exists.
-        { timeout: timeoutMs, maxRetries: 1 }
+        { stage: format, timeout: timeoutMs, maxRetries: 1 }
       )
-      console.log(`[content-generator] provider=${textProviderFor(model)} model=${model} stage=${format} latencyMs=${Date.now() - startTime} success=true`)
+      answeredModel = answered
+      formatCost = sumCostUsd(formatCost, textCostUsd(answered, toTextUsage(response.usage)))
+      console.log(`[content-generator] provider=${provider} model=${answered} stage=${format} latencyMs=${Date.now() - startTime} success=true`)
       return { raw: response.choices[0]?.message?.content ?? "{}", usage: toTextUsage(response.usage) }
     } catch (err) {
-      console.error(`[content-generator] provider=${textProviderFor(model)} model=${model} stage=${format} latencyMs=${Date.now() - startTime} success=false:`, err)
+      console.error(`[content-generator] model=${model} stage=${format} latencyMs=${Date.now() - startTime} success=false:`, err)
       throw err
     }
   }
@@ -389,7 +397,7 @@ export async function generateContent(
     },
   })
 
-  return { data, model, usage, costUsd: textCostUsd(model, usage) }
+  return { data, model: answeredModel, usage, costUsd: formatCost }
 }
 
 function parseFormat(format: Exclude<ContentFormat, "social_post">, raw: string): ContentFormatOutputMap[ContentFormat] {

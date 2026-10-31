@@ -1,4 +1,5 @@
-import { MODELS, getGroqClient } from "./models"
+import { MODELS } from "./models"
+import { createTextCompletion } from "@/lib/ai/provider-fallback"
 
 function sanitizeJsonString(raw: string): string {
   return raw
@@ -29,9 +30,7 @@ export async function suggestBlogPromptImprovements(
   brandContext: { niche: string; tone_of_voice: string }
 ): Promise<BlogPromptSuggestions> {
   try {
-    const groq = getGroqClient()
-
-    const res = await groq.chat.completions.create({
+    const { response: res } = await createTextCompletion({
       model: MODELS.generation,
       temperature: 0.6,
       // GPT-OSS reasoning tokens count against max_tokens. Short advisory
@@ -63,7 +62,7 @@ Respond with this exact JSON:
 }`,
         },
       ],
-    })
+    }, { stage: "blog_prompt_optimizer", timeout: 30_000 })
 
     const raw = res.choices[0]?.message?.content ?? "{}"
     let cleaned = sanitizeJsonString(raw)

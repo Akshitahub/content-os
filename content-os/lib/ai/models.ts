@@ -105,7 +105,8 @@ let cachedGroqOpenAIClient: OpenAI | null = null
 export function getTextClientFor(model: string): OpenAI {
   if (!isGroqTextModel(model)) return getOpenAIClient()
   if (cachedGroqOpenAIClient) return cachedGroqOpenAIClient
-  cachedGroqOpenAIClient = new OpenAI({ apiKey: getApiKey(), baseURL: GROQ_BASE_URL })
+  // GROQ_BASE_URL env (optional): a proxy, or a local stand-in for scripts/test-provider-fallback.ts.
+  cachedGroqOpenAIClient = new OpenAI({ apiKey: getApiKey(), baseURL: process.env.GROQ_BASE_URL || GROQ_BASE_URL })
   return cachedGroqOpenAIClient
 }
 

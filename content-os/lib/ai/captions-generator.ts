@@ -1,10 +1,11 @@
 import type { BrandRow, ProductRow } from "@/types/database"
 import type { Platform } from "@/types/app"
 import { buildCaptionSystemPrompt, buildCaptionUserPrompt } from "./prompts"
-import { MODELS, getTextClientFor } from "./models"
+import { MODELS } from "./models"
+import { createTextCompletion } from "./provider-fallback"
 import { generateValidatedCaption, type CaptionChatMessage } from "./caption-validation"
 import { buildFactSource } from "./fact-guard"
-import { textCostUsd, toTextUsage, type TextUsage } from "./pricing"
+import { sumCostUsd, textCostUsd, toTextUsage, type TextUsage } from "./pricing"
 import type { BrandLesson } from "./brand-brain"
 
 // Captions moved from Groq to OpenAI (MODELS.caption) -- every other
@@ -26,7 +27,9 @@ export async function generateCaption(
   }
 ): Promise<{ caption: import("@/types/app").GeneratedCaption; model: string; usage: TextUsage | undefined; costUsd: number | null }> {
   const model = MODELS.caption
-  const openai = getTextClientFor(model)
+  // Each call priced at the model that answered (Groq, or OpenAI on a fallback).
+  let usedModel: string = model
+  let costUsd: number | null = null
 
   const b = brand as BrandRow & { cta_phrase?: string | null }
   const ctaPhrase = b.cta_phrase || "Shop now"
@@ -62,7 +65,9 @@ export async function generateCaption(
       // maxDuration, Vercel killed the function, and the client got a
       // non-JSON error page. 40s is the same estimate the other
       // medium-length text calls use (not measured live).
-      const res = await openai.chat.completions.create({ ...requestParams, messages: msgs }, { timeout: 40_000, maxRetries: 1 })
+      const { response: res, model: answered } = await createTextCompletion({ ...requestParams, messages: msgs }, { stage: "caption", timeout: 40_000, maxRetries: 1 })
+      usedModel = answered
+      costUsd = sumCostUsd(costUsd, textCostUsd(answered, toTextUsage(res.usage)))
       return { content: res.choices[0]?.message?.content ?? "{}", usage: toTextUsage(res.usage) }
     },
     brand,
@@ -72,5 +77,5 @@ export async function generateCaption(
     facts: buildFactSource({ brand, product: options.product, brief: [options.hookText, options.additionalContext] }),
   })
 
-  return { caption, model, usage, costUsd: textCostUsd(model, usage) }
+  return { caption, model: usedModel, usage, costUsd }
 }

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import { noteGenerationBrand } from "@/lib/ai/provider-fallback"
 import { createAdminClient, createClient } from "@/lib/supabase/server"
 import { PHOTO_KINDS_FOR, download, takeBrandPhotos } from "@/lib/brand-photos"
 import { buildError, ErrorCodes } from "@/types/api"
@@ -129,6 +130,7 @@ async function handlePost(request: Request, timer: GenerationTimer) {
 
   const { data: brand } = await supabase.from("brands").select("*").eq("id", brandId).eq("user_id", user.id).single<BrandRow>()
   if (!brand) return NextResponse.json(buildError(ErrorCodes.BRAND_NOT_FOUND, "Brand not found."), { status: 404 })
+  noteGenerationBrand(brand.id, user.id)
 
   // A real brand photo first (lib/brand-photos.ts) -- free, nothing generated.
   // Only when the brand has none left for this sequence is an image generated.

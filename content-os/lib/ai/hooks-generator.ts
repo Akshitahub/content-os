@@ -1,10 +1,11 @@
 import type { BrandRow, ProductRow } from "@/types/database"
 import type { GeneratedHook, HookType, Platform } from "@/types/app"
 import { buildHookSystemPrompt, buildHookUserPrompt, type HookPostPlan } from "./prompts"
-import { MODELS, getTextClientFor, textProviderFor } from "./models"
+import { MODELS } from "./models"
+import { createTextCompletion } from "./provider-fallback"
 import { findContentQualityIssues, sanitizeLeakedArtifacts } from "./content-quality-check"
 import { buildFactSource, guardCopy } from "./fact-guard"
-import { addTextUsage, textCostUsd, toTextUsage, type TextUsage } from "./pricing"
+import { addTextUsage, sumCostUsd, textCostUsd, toTextUsage, type TextUsage } from "./pricing"
 import type { ChatCompletionMessageParam } from "openai/resources/chat/completions"
 import type { BrandLesson } from "./brand-brain"
 
@@ -30,14 +31,15 @@ export async function generateHooks(
     postPlan?: HookPostPlan | null
   }
 ): Promise<{ hooks: GeneratedHook[]; model: string; usage: TextUsage | undefined; costUsd: number | null }> {
-  const openai = getTextClientFor(MODELS.creative)
-
   const hookTypes = options.hookTypes?.length
     ? options.hookTypes
     : (["question", "bold_statement", "story", "statistic", "controversial", "how_to"] as HookType[])
 
   const count = options.count ?? 3
   const model = MODELS.creative
+  // Each call priced at the model that answered (Groq, or OpenAI on a fallback).
+  let answeredModel: string = model
+  let costUsd: number | null = null
 
   const messages: ChatCompletionMessageParam[] = [
     { role: "system", content: buildHookSystemPrompt() },
@@ -45,9 +47,9 @@ export async function generateHooks(
   ]
   const callModel = async (msgs: ChatCompletionMessageParam[], timeoutMs = 20_000): Promise<{ raw: string; usage: TextUsage | undefined }> => {
     const startTime = Date.now()
-    let response: Awaited<ReturnType<typeof openai.chat.completions.create>>
+    let result: Awaited<ReturnType<typeof createTextCompletion>>
     try {
-      response = await openai.chat.completions.create(
+      result = await createTextCompletion(
         {
           model,
           // Speed matters here (a short brainstorming list, same reasoning
@@ -66,13 +68,16 @@ export async function generateHooks(
         // environment this was written in) -- see scripts/test-creative-stages.ts
         // for the real measurement. 20s is generous headroom over a short,
         // low-effort JSON completion; revisit once real latency data exists.
-        { timeout: timeoutMs, maxRetries: 1 }
+        { stage: "hooks", timeout: timeoutMs, maxRetries: 1 }
       )
     } catch (err) {
-      console.error(`[hooks-generator] provider=${textProviderFor(model)} model=${model} stage=hooks latencyMs=${Date.now() - startTime} success=false:`, err)
+      console.error(`[hooks-generator] model=${model} stage=hooks latencyMs=${Date.now() - startTime} success=false:`, err)
       throw err
     }
-    console.log(`[hooks-generator] provider=${textProviderFor(model)} model=${model} stage=hooks latencyMs=${Date.now() - startTime} success=true`)
+    const { response, model: answered, provider } = result
+    answeredModel = answered
+    costUsd = sumCostUsd(costUsd, textCostUsd(answered, toTextUsage(response.usage)))
+    console.log(`[hooks-generator] provider=${provider} model=${answered} stage=hooks latencyMs=${Date.now() - startTime} success=true`)
     return { raw: response.choices[0]?.message?.content ?? "{}", usage: toTextUsage(response.usage) }
   }
 
@@ -101,7 +106,7 @@ export async function generateHooks(
   const nonEmpty = guarded.filter((h) => h.hook_text)
   hooks = nonEmpty.length > 0 ? nonEmpty : guarded
 
-  return { hooks, model, usage, costUsd: textCostUsd(model, usage) }
+  return { hooks, model: answeredModel, usage, costUsd }
 }
 
 function parseHooks(raw: string): GeneratedHook[] {

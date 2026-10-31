@@ -2,7 +2,8 @@ import { NextResponse } from "next/server"
 import { z } from "zod"
 import { createClient } from "@/lib/supabase/server"
 import { buildError, ErrorCodes } from "@/types/api"
-import { getGroqClient, MODELS, classifyGroqError } from "@/lib/ai/models"
+import { MODELS, classifyGroqError } from "@/lib/ai/models"
+import { createTextCompletion } from "@/lib/ai/provider-fallback"
 import { buildTopicSuggestionSystemPrompt, buildTopicSuggestionUserPrompt } from "@/lib/ai/prompts"
 import type { BrandRow, ProductRow } from "@/types/database"
 
@@ -56,11 +57,10 @@ export async function POST(request: Request) {
     product = prod
   }
 
-  const groq = getGroqClient()
   const startTime = Date.now()
 
   try {
-    const completion = await groq.chat.completions.create({
+    const { response: completion, model: answered } = await createTextCompletion({
       model: MODELS.extraction,
       messages: [
         { role: "system", content: buildTopicSuggestionSystemPrompt() },
@@ -74,7 +74,7 @@ export async function POST(request: Request) {
       // empty content.
       reasoning_effort: "low",
       max_tokens: 800,
-    })
+    }, { stage: "topic_suggest", timeout: 30_000 })
 
     const raw = completion.choices[0]?.message?.content ?? ""
     let topics: string[] = []
@@ -91,7 +91,7 @@ export async function POST(request: Request) {
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await (supabase.from("ai_generation_logs") as any).insert({
-      user_id: user.id, brand_id: brandId, feature: "topic_suggest", model: MODELS.extraction,
+      user_id: user.id, brand_id: brandId, feature: "topic_suggest", model: answered,
       prompt_tokens: completion.usage?.prompt_tokens ?? null,
       completion_tokens: completion.usage?.completion_tokens ?? null,
       total_tokens: completion.usage?.total_tokens ?? null,

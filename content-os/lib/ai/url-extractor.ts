@@ -1,5 +1,6 @@
 import type { FetchedPage } from "@/lib/web/fetch-page"
-import { MODELS, getGroqClient } from "./models"
+import { MODELS, getApiKey } from "./models"
+import { createTextCompletion } from "@/lib/ai/provider-fallback"
 
 export class ExtractionError extends Error {}
 
@@ -99,14 +100,13 @@ export interface ExtractedBrandData {
 }
 
 export async function extractBrandFromPage(page: FetchedPage): Promise<ExtractedBrandData> {
-  let groq
   try {
-    groq = getGroqClient()
+    getApiKey()
   } catch {
     throw new ExtractionError("GROQ_API_KEY is not configured on the server.")
   }
 
-  const response = await groq.chat.completions.create({
+  const { response } = await createTextCompletion({
     model: MODELS.extraction,
     temperature: 0.3,
     // GPT-OSS reasoning tokens count against max_tokens — this was
@@ -146,7 +146,7 @@ export async function extractBrandFromPage(page: FetchedPage): Promise<Extracted
       },
       { role: "user", content: buildPageContext(page) },
     ],
-  })
+  }, { stage: "brand_extraction", timeout: 60_000 })
 
   const raw = response.choices[0]?.message?.content ?? "{}"
   let cleaned = raw.replace(/```json\n?/g, "").replace(/```\n?/g, "").replace(/[\x00-\x1F\x7F]/g, " ").trim()
@@ -203,14 +203,13 @@ export interface ExtractedProductData {
 }
 
 export async function extractProductFromPage(page: FetchedPage): Promise<ExtractedProductData> {
-  let groq
   try {
-    groq = getGroqClient()
+    getApiKey()
   } catch {
     throw new ExtractionError("GROQ_API_KEY is not configured on the server.")
   }
 
-  const response = await groq.chat.completions.create({
+  const { response } = await createTextCompletion({
     model: MODELS.extraction,
     temperature: 0.3,
     // GPT-OSS reasoning tokens count against max_tokens — this was
@@ -237,7 +236,7 @@ export async function extractProductFromPage(page: FetchedPage): Promise<Extract
       },
       { role: "user", content: buildPageContext(page) },
     ],
-  })
+  }, { stage: "product_extraction", timeout: 60_000 })
 
   const raw = response.choices[0]?.message?.content ?? "{}"
   let cleaned = raw.replace(/```json\n?/g, "").replace(/```\n?/g, "").replace(/[\x00-\x1F\x7F]/g, " ").trim()

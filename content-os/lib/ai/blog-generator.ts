@@ -1,8 +1,9 @@
 import type { BrandRow, ProductRow } from "@/types/database"
 import type { BlogPost } from "@/types/app"
 import { buildBlogArticleSystemPrompt, buildBlogArticleUserPrompt } from "./prompts"
-import { MODELS, getTextClientFor, textProviderFor } from "./models"
-import { addTextUsage, textCostUsd, toTextUsage, type TextUsage } from "./pricing"
+import { MODELS } from "./models"
+import { createTextCompletion } from "./provider-fallback"
+import { addTextUsage, sumCostUsd, textCostUsd, toTextUsage, type TextUsage } from "./pricing"
 import { buildFactSource, guardCopy } from "./fact-guard"
 import { findContentQualityIssues, sanitizeLeakedArtifacts } from "./content-quality-check"
 
@@ -31,7 +32,6 @@ export async function generateBlogPost(
   }
 ): Promise<{ post: BlogPost; model: string; usage: TextUsage | undefined; costUsd: number | null }> {
   const model = MODELS.creative
-  const openai = getTextClientFor(model)
 
   // ~3 tokens/word gives headroom for the JSON wrapper (title,
   // meta_description, tags) plus the tokenizer's real word:token ratio for
@@ -44,9 +44,9 @@ export async function generateBlogPost(
   const maxTokens = Math.max(1800, Math.round(options.wordLimit * 3))
 
   const startTime = Date.now()
-  let response: Awaited<ReturnType<typeof openai.chat.completions.create>>
+  let first: Awaited<ReturnType<typeof createTextCompletion>>
   try {
-    response = await openai.chat.completions.create(
+    first = await createTextCompletion(
       {
         model,
         // Long-form -- "medium" (gpt-5.5's own default) per the migration
@@ -63,13 +63,17 @@ export async function generateBlogPost(
       // environment this was written in) -- see scripts/test-creative-stages.ts.
       // 45s: long-form generation with a scaling token budget, plus a
       // reasoning model is generally slower than Groq's LPU inference.
-      { timeout: 45_000, maxRetries: 1 }
+      { stage: "blog_post", timeout: 45_000, maxRetries: 1 }
     )
   } catch (err) {
-    console.error(`[blog-generator] provider=${textProviderFor(model)} model=${model} stage=blog_post latencyMs=${Date.now() - startTime} success=false:`, err)
+    console.error(`[blog-generator] model=${model} stage=blog_post latencyMs=${Date.now() - startTime} success=false:`, err)
     throw err
   }
-  console.log(`[blog-generator] provider=${textProviderFor(model)} model=${model} stage=blog_post latencyMs=${Date.now() - startTime} success=true`)
+  const response = first.response
+  // Priced at the model that answered (Groq, or OpenAI on a fallback).
+  let answeredModel = first.model
+  let costUsd = textCostUsd(first.model, toTextUsage(response.usage))
+  console.log(`[blog-generator] provider=${first.provider} model=${first.model} stage=blog_post latencyMs=${Date.now() - startTime} success=true`)
 
   const raw = response.choices[0]?.message?.content ?? "{}"
   const parsed = parseBlogPost(raw)
@@ -84,7 +88,7 @@ export async function generateBlogPost(
     facts: buildFactSource({ brand, product: options.product, brief: [options.userPrompt] }),
     normalTimeoutMs: 45_000,
     retry: async (correction, timeoutMs) => {
-      const retry = await openai.chat.completions.create(
+      const { response: retry, model: answered } = await createTextCompletion(
         {
           model,
           reasoning_effort: "medium",
@@ -97,14 +101,16 @@ export async function generateBlogPost(
             { role: "user", content: correction },
           ],
         },
-        { timeout: timeoutMs, maxRetries: 1 }
+        { stage: "blog_post", timeout: timeoutMs, maxRetries: 1 }
       )
+      answeredModel = answered
+      costUsd = sumCostUsd(costUsd, textCostUsd(answered, toTextUsage(retry.usage)))
       usage = addTextUsage(usage, toTextUsage(retry.usage))
       return parseBlogPost(retry.choices[0]?.message?.content ?? "{}")
     },
   })
 
-  return { post, model, usage, costUsd: textCostUsd(model, usage) }
+  return { post, model: answeredModel, usage, costUsd }
 }
 
 // Parse + validate + artifact clean-up, shared by the first call and the

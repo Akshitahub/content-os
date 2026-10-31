@@ -1,4 +1,5 @@
-import { getTextClientFor, MODELS } from "./models"
+import { MODELS } from "./models"
+import { createTextCompletionStream } from "./provider-fallback"
 import type { BrandRow, ProductRow } from "@/types/database"
 import { briefScene, type VisualBrief, artDirectionBriefRules } from "./visual-brief"
 import type { ArtDirection } from "./brand-brain"
@@ -199,8 +200,8 @@ Respond with ONLY the prompt text, nothing else.`
  * in lib/ai, none of which have ever needed to filter one out.
  */
 export async function requestImagePromptStream(input: WriteImagePromptInput) {
-  const openai = getTextClientFor(MODELS.creative)
-  return openai.chat.completions.create(
+  // Groq first; the stream is opened on OpenAI instead when Groq can't serve it.
+  const { response } = await createTextCompletionStream(
     {
       model: MODELS.creative,
       // Speed matters here (this fires automatically on entering every
@@ -223,6 +224,7 @@ export async function requestImagePromptStream(input: WriteImagePromptInput) {
     // environment this was written in) -- see scripts/test-creative-stages.ts.
     // Streaming, so this bounds time-to-first-chunk/overall stream
     // completion, not time-to-first-byte of a single blocking response.
-    { timeout: 25_000, maxRetries: 1 }
+    { stage: "image_prompt", timeout: 25_000, maxRetries: 1 }
   )
+  return response
 }

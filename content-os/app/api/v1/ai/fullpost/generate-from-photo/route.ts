@@ -1,4 +1,5 @@
 import { NextResponse, after } from "next/server"
+import { noteGenerationBrand } from "@/lib/ai/provider-fallback"
 import { createClient } from "@/lib/supabase/server"
 import { generateFullPostFromPhotoSchema } from "@/lib/validations/ai"
 import { analyzePhotoForPost } from "@/lib/ai/vision"
@@ -67,6 +68,7 @@ async function handlePost(request: Request, timer: GenerationTimer) {
     await refundGenerationUsage(supabase, user.id, PHOTO_CAPTION, logId)
     return NextResponse.json(buildError(ErrorCodes.BRAND_NOT_FOUND, "Brand not found."), { status: 404 })
   }
+  noteGenerationBrand(brand.id, user.id)
 
   const startTime = Date.now()
 

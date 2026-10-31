@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import { noteGenerationBrand } from "@/lib/ai/provider-fallback"
 import { createClient } from "@/lib/supabase/server"
 import { buildError, ErrorCodes } from "@/types/api"
 import { generateCarouselSlideBackground, type CarouselVibe } from "@/lib/ai/carousel-slide-background"
@@ -127,6 +128,7 @@ async function handlePost(request: Request, timer: GenerationTimer) {
 
   const { data: brand } = await supabase.from("brands").select("*").eq("id", brandId).eq("user_id", user.id).single<BrandRow>()
   if (!brand) return NextResponse.json(buildError(ErrorCodes.BRAND_NOT_FOUND, "Brand not found."), { status: 404 })
+  noteGenerationBrand(brand.id, user.id)
 
   const { data: userData } = await supabase.from("users").select("plan").eq("id", user.id).single<{ plan: UserPlan }>()
   const plan: UserPlan = userData?.plan ?? "starter"

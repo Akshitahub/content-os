@@ -2,7 +2,8 @@ import { createHash } from "crypto"
 import { after } from "next/server"
 import type { ChatCompletionContentPart } from "openai/resources/chat/completions"
 import type { BrandRow, ProductRow } from "@/types/database"
-import { MODELS, getGroqClient, getOpenAIClient } from "./models"
+import { MODELS, getOpenAIClient } from "./models"
+import { createTextCompletion } from "@/lib/ai/provider-fallback"
 import { artDirectionFrom, artDirectionSchema, type ArtDirection } from "./brand-brain"
 import { buildBrandBrainLines, isMissingBrandBrainColumn, parseBrandBrain } from "@/lib/brand-brain-profile"
 import { CANDID_PHOTO_AVOID, CANDID_PHOTO_STYLE } from "./visual-brief"
@@ -185,10 +186,11 @@ export async function deriveArtDirection(brand: Brandish, products: ProductLite[
       // The larger creative model: the small scoring model fell back to stock
       // "Flat UI" palettes when it had to invent one.
       model = MODELS.creative
-      const res = await getGroqClient().chat.completions.create(
+      const { response: res, model: answered } = await createTextCompletion(
         { model, reasoning_effort: "low", max_tokens: 1500, response_format: { type: "json_object" }, messages: [{ role: "user", content: prompt }] },
-        { timeout: DERIVE_TIMEOUT_MS },
+        { stage: "art_direction", timeout: DERIVE_TIMEOUT_MS },
       )
+      model = answered
       content = res.choices[0]?.message?.content ?? "{}"
     }
     return { artDirection: finalize(JSON.parse(content), colors, sourceHash), model }

@@ -1,5 +1,6 @@
 import { z } from "zod"
-import { MODELS, getGroqClient } from "./models"
+import { MODELS } from "./models"
+import { createTextCompletion } from "@/lib/ai/provider-fallback"
 
 // Per-brand "lessons" memory (supabase/migrations/059_brand_lessons.sql):
 // feedback notes distilled into a short list of durable, general rules.
@@ -159,7 +160,7 @@ export async function decideLesson(
   const tag = `[brand-brain] brand ${input.brandId} ${input.scope}`
   try {
     const existing = await getActiveLessons(supabase, input.brandId, input.scope)
-    const res = await getGroqClient().chat.completions.create(
+    const { response: res } = await createTextCompletion(
       {
         model: MODELS.scoring,
         // GPT-OSS reasoning tokens count against max_tokens (lib/ai/models.ts).
@@ -171,7 +172,7 @@ export async function decideLesson(
           { role: "user", content: buildDistillPrompt(input, existing) },
         ],
       },
-      { timeout: 10_000 },
+      { stage: "brand_lessons", timeout: 10_000 },
     )
     const raw = res.choices[0]?.message?.content ?? ""
     let json: unknown

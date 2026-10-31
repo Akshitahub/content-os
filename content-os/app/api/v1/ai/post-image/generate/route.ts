@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import { noteGenerationBrand } from "@/lib/ai/provider-fallback"
 import { createClient, createAdminClient } from "@/lib/supabase/server"
 import { PHOTO_KINDS_FOR, takeBrandPhotos } from "@/lib/brand-photos"
 import { generatePostImageSchema } from "@/lib/validations/ai"
@@ -108,6 +109,7 @@ async function handlePost(request: Request, timer: GenerationTimer) {
   // to return 404 after the credits were already taken, with no refund.
   const { data: brand } = await supabase.from("brands").select("*").eq("id", brandId).eq("user_id", user.id).single<BrandRow>()
   if (!brand) return NextResponse.json(buildError(ErrorCodes.BRAND_NOT_FOUND, "Brand not found."), { status: 404 })
+  noteGenerationBrand(brand.id, user.id)
 
   const sessionCheck = await checkAndIncrementPostImageSession(user.id, postSessionId)
   const shouldCharge = sessionCheck.ok ? sessionCheck.shouldCharge : true

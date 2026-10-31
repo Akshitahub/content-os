@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import { noteGenerationBrand } from "@/lib/ai/provider-fallback"
 import { createClient } from "@/lib/supabase/server"
 import { buildError, ErrorCodes } from "@/types/api"
 import { MODELS, classifyOpenAIError } from "@/lib/ai/models"
@@ -76,6 +77,7 @@ async function handlePost(request: Request, timer: GenerationTimer) {
 
   const { data: brand } = await supabase.from("brands").select("*").eq("id", brandId).eq("user_id", user.id).single<BrandRow>()
   if (!brand) return NextResponse.json(buildError(ErrorCodes.BRAND_NOT_FOUND, "Brand not found."), { status: 404 })
+  noteGenerationBrand(brand.id, user.id)
 
   // Feed the brand's own past highly-rated carousels back into the prompt
   // as few-shot examples — skip entirely if none exist yet.

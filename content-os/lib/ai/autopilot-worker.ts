@@ -8,6 +8,7 @@ import {
 } from "./fastlane"
 import { attemptsCostUsd, generatePostImage } from "./post-image-pipeline"
 import { PHOTO_KINDS_FOR, takeBrandPhotos } from "@/lib/brand-photos"
+import { runWithGenerationContext } from "./provider-fallback"
 import { generateCarouselHtml } from "@/lib/design/post-card-generator"
 import { DEFAULT_POST_TEMPLATE_ID } from "@/lib/design/post-templates"
 import { resolveBrandPalette, resolveColorThemes, type BrandPalette, type ColorTheme } from "@/lib/design/color-themes"
@@ -156,7 +157,12 @@ export async function drainAutopilotQueue(): Promise<{ claimed: number }> {
   if (jobs.length === 0) return { claimed: 0 }
 
   const contexts = new Map<string, Promise<RunContext | null>>()
-  await Promise.allSettled(jobs.map((job) => processSlotJob(admin, job, contexts)))
+  // Each slot is one generation: a Groq -> OpenAI fallback inside it is
+  // recorded against its brand (lib/ai/provider-fallback.ts).
+  await Promise.allSettled(jobs.map((job) => runWithGenerationContext(
+    { route: "autopilot-slot", contentType: "caption", brandId: job.brand_id, userId: job.user_id },
+    () => processSlotJob(admin, job, contexts),
+  )))
   return { claimed: jobs.length }
 }
 

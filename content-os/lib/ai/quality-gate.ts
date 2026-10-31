@@ -1,6 +1,7 @@
 import { z } from "zod"
 import type { BrandRow, ProductRow } from "@/types/database"
-import { MODELS, getGroqClient } from "./models"
+import { MODELS } from "./models"
+import { createTextCompletion } from "@/lib/ai/provider-fallback"
 import { buildBrandContext } from "./prompts"
 import { factRetryTimeoutMs } from "./fact-guard"
 import { addTextUsage, sumCostUsd, textCostUsd, toTextUsage, type TextUsage } from "./pricing"
@@ -155,7 +156,7 @@ export async function checkCreative(params: {
   try {
     const items = itemsFor(params.format, params.data)
     if (items.length === 0) return skipped
-    const res = await getGroqClient().chat.completions.create(
+    const { response: res, model: answered } = await createTextCompletion(
       {
         model: MODELS.scoring,
         // GPT-OSS reasoning tokens count against max_tokens (lib/ai/models.ts).
@@ -167,11 +168,11 @@ export async function checkCreative(params: {
           { role: "user", content: buildPrompt(items, params.brand, params.product, (params.brief ?? []).filter((b): b is string => !!b?.trim()), params.topic?.trim() || null) },
         ],
       },
-      { timeout: 15_000 },
+      { stage: "quality_gate", timeout: 15_000 },
     )
-    // Groq's usage type differs from OpenAI's only in null-vs-undefined detail fields.
-    const usage = toTextUsage(res.usage as Parameters<typeof toTextUsage>[0])
-    const costUsd = textCostUsd(MODELS.scoring, usage)
+    const usage = toTextUsage(res.usage)
+    // Priced at the model that answered (Groq, or OpenAI on a fallback).
+    const costUsd = textCostUsd(answered, usage)
     const parsed = responseSchema.safeParse(JSON.parse(res.choices[0]?.message?.content ?? "{}"))
     if (!parsed.success) {
       console.error(`[quality-gate] ${params.format}: unparseable response (skipped)`)
@@ -179,7 +180,7 @@ export async function checkCreative(params: {
     }
     const issues = parsed.data.issues
       .filter((i): i is GateIssue => (GATE_CHECKS as readonly string[]).includes(i.check) && i.item >= 0 && i.item < items.length)
-    return { ok: !issues.some((i) => CRITICAL.has(i.check)), skipped: false, issues, model: MODELS.scoring, usage, costUsd }
+    return { ok: !issues.some((i) => CRITICAL.has(i.check)), skipped: false, issues, model: answered, usage, costUsd }
   } catch (err) {
     console.error(`[quality-gate] ${params.format}: check failed (skipped):`, err instanceof Error ? err.message : err)
     return skipped

@@ -1,4 +1,5 @@
-import { MODELS, getTextClientFor, textProviderFor } from "./models"
+import { MODELS } from "./models"
+import { createTextCompletion } from "./provider-fallback"
 import { textCostUsd, toTextUsage, type TextUsage } from "./pricing"
 
 // Shared OpenAI call for the Phase 1b creative-stages migration (story,
@@ -49,10 +50,10 @@ export async function createCreativeCompletion(params: CreativeCompletionParams)
   const model = MODELS.creative
   const startTime = Date.now()
   try {
-    // Inside the try so a missing OPENAI_API_KEY is logged as a failed
-    // call too, not just thrown past the log line.
-    const openai = getTextClientFor(model)
-    const response = await openai.chat.completions.create(
+    // Groq first; the same request on OpenAI when Groq can't serve it
+    // (lib/ai/provider-fallback.ts) -- priced and logged with the model
+    // that actually answered.
+    const { response, model: usedModel, provider } = await createTextCompletion(
       {
         model,
         reasoning_effort: params.reasoningEffort,
@@ -69,14 +70,14 @@ export async function createCreativeCompletion(params: CreativeCompletionParams)
             : []),
         ],
       },
-      { timeout: params.timeoutMs, maxRetries: 1 }
+      { stage: params.stage, timeout: params.timeoutMs, maxRetries: 1 }
     )
     const usage = toTextUsage(response.usage)
-    const costUsd = textCostUsd(model, usage)
-    console.log(`[${params.logPrefix}] provider=${textProviderFor(model)} model=${model} stage=${params.stage} latencyMs=${Date.now() - startTime} costUsd=${costUsd ?? "unknown"} success=true`)
-    return { content: response.choices[0]?.message?.content ?? null, model, usage, costUsd }
+    const costUsd = textCostUsd(usedModel, usage)
+    console.log(`[${params.logPrefix}] provider=${provider} model=${usedModel} stage=${params.stage} latencyMs=${Date.now() - startTime} costUsd=${costUsd ?? "unknown"} success=true`)
+    return { content: response.choices[0]?.message?.content ?? null, model: usedModel, usage, costUsd }
   } catch (err) {
-    console.error(`[${params.logPrefix}] provider=${textProviderFor(model)} model=${model} stage=${params.stage} latencyMs=${Date.now() - startTime} success=false:`, err)
+    console.error(`[${params.logPrefix}] model=${model} stage=${params.stage} latencyMs=${Date.now() - startTime} success=false:`, err)
     throw err
   }
 }

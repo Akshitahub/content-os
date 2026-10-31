@@ -1,4 +1,5 @@
-import { getGroqClient, MODELS } from "./models"
+import { MODELS } from "./models"
+import { createTextCompletion } from "@/lib/ai/provider-fallback"
 import type { RatedItem } from "./pattern-match"
 
 // Bounds prompt size for a brand with a long rating history -- the most
@@ -85,8 +86,7 @@ export async function buildSemanticPatternNote(newText: string, rated: RatedItem
   const neutral = rated.filter((r) => r.rating === 3)
 
   try {
-    const groq = getGroqClient()
-    const res = await groq.chat.completions.create(
+    const { response: res } = await createTextCompletion(
       {
         model: MODELS.scoring,
         temperature: 0.3,
@@ -106,7 +106,7 @@ export async function buildSemanticPatternNote(newText: string, rated: RatedItem
       // successfully -- a hung Groq call here should never stall the
       // response for long, so this is bounded well under a typical
       // request timeout rather than left to hang indefinitely.
-      { timeout: 10_000 }
+      { stage: "pattern_match", timeout: 10_000 }
     )
 
     const note = res.choices[0]?.message?.content?.trim()

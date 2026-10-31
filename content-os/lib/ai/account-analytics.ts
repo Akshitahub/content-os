@@ -1,6 +1,7 @@
 import type { BrandRow } from "@/types/database"
 import { buildBrandContext, QUALITY_BAR } from "./prompts"
-import { MODELS, getGroqClient } from "./models"
+import { MODELS } from "./models"
+import { createTextCompletion } from "@/lib/ai/provider-fallback"
 import type { AccountInsightsData, AccountMedia } from "@/lib/social/instagram-insights"
 
 export interface BestPost {
@@ -41,7 +42,6 @@ export async function generateAccountInsights(
   insights: AccountInsightsData,
   bestPosts: BestPost[]
 ): Promise<{ text: string; model: string; usage: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } | undefined }> {
-  const groq = getGroqClient()
   const model = MODELS.generation
 
   const brandContext = buildBrandContext(brand)
@@ -91,7 +91,8 @@ ${bestPostsLines}
 
 Write the INSIGHTS and SUGGESTIONS now, following the strict honesty rule above.`
 
-  const response = await groq.chat.completions.create({
+  // Groq first, the same request on OpenAI when Groq can't serve it.
+  const { response, model: answered } = await createTextCompletion({
     model,
     temperature: 0.4,
     // GPT-OSS reasoning tokens count against max_tokens. This is a strict-
@@ -104,9 +105,9 @@ Write the INSIGHTS and SUGGESTIONS now, following the strict honesty rule above.
       { role: "system", content: systemPrompt },
       { role: "user", content: userPrompt },
     ],
-  })
+  }, { stage: "account_analytics", timeout: 60_000 })
 
   const text = response.choices[0]?.message?.content?.trim() ?? "Analysis unavailable."
 
-  return { text, model, usage: response.usage ?? undefined }
+  return { text, model: answered, usage: response.usage ?? undefined }
 }

@@ -32,6 +32,8 @@ export interface ContentTypeMetrics {
   specificity: number | null
   /** Average "quality_checked" image-alignment score, 1-5 (lib/ai/image-alignment.ts, sampled). */
   alignment: number | null
+  /** Text calls Groq couldn't serve that OpenAI answered instead ("provider_fallback", lib/ai/provider-fallback.ts). */
+  providerFallbacks: number
 }
 
 export interface ContentMetricsResult {
@@ -152,6 +154,7 @@ export async function getContentMetrics(days: MetricWindow): Promise<ContentMetr
       costPerUsableItem: costUsd != null && accepted > 0 ? costUsd / accepted : null,
       specificity: ratio(specific, gated.length),
       alignment: scores.length ? scores.reduce((a, b) => a + b, 0) / scores.length : null,
+      providerFallbacks: typeEvents.filter((e) => e.event === "provider_fallback").length,
     }
   })
 

@@ -1,4 +1,5 @@
 import { NextResponse, after } from "next/server"
+import { noteGenerationBrand } from "@/lib/ai/provider-fallback"
 import { createClient, createAdminClient } from "@/lib/supabase/server"
 import { buildError, ErrorCodes } from "@/types/api"
 import { fastlaneSchema } from "@/lib/validations/fastlane"
@@ -116,6 +117,7 @@ async function handlePost(request: Request, timer: GenerationTimer) {
     if (!brand) {
       return NextResponse.json(buildError(ErrorCodes.BRAND_NOT_FOUND, "Brand not found."), { status: 404 })
     }
+    noteGenerationBrand(brand.id, user.id)
 
     // Explicit plan-based Autopilot tier — resolved from the user's actual
     // plan (PLAN_LIMITS[plan].autopilot), not inferred from credit balance.

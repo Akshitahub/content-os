@@ -16,12 +16,18 @@ import type OpenAI from "openai"
 //   (console.groq.com/docs/model/openai/gpt-oss-120b), checked 2026-10-26 --
 //   groq.com/pricing didn't render its price table that day. Reasoning
 //   tokens are billed as output, same as above.
+//   gpt-5.4 (<272K context): input $2.50, cached input $0.25, output $15.00;
+//   gpt-5.4-mini: input $0.75, cached input $0.075, output $4.50 -- OpenAI's
+//   pricing page, checked 2026-10-31 (the Groq -> OpenAI fallback models).
 // These are list prices, not our invoice -- if a request runs over 272K
 // context, or OpenAI changes prices, these numbers drift. Update this file
 // (and its date) rather than the call sites.
 const TEXT_PRICES_PER_1M: Record<string, { input: number; cachedInput: number; output: number }> = {
   "gpt-5.5": { input: 5.0, cachedInput: 0.5, output: 30.0 },
   "openai/gpt-oss-120b": { input: 0.15, cachedInput: 0.075, output: 0.6 },
+  // The OpenAI stand-ins when Groq can't serve a call (lib/ai/provider-fallback.ts).
+  "gpt-5.4": { input: 2.5, cachedInput: 0.25, output: 15.0 },
+  "gpt-5.4-mini": { input: 0.75, cachedInput: 0.075, output: 4.5 },
 }
 
 const IMAGE_PRICES_PER_1M: Record<string, { textInput: number; imageInput: number; output: number }> = {

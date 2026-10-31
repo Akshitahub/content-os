@@ -10,7 +10,19 @@
 // separately, so captionMs + imageMs can exceed totalMs. Never logs prompts
 // or generated content.
 
+import { generationFallbackCount, runWithGenerationContext } from "@/lib/ai/provider-fallback"
+
 export type GenerationStep = "caption" | "image"
+
+// content_events.content_type each route's Groq -> OpenAI fallbacks are
+// filed under (lib/ai/provider-fallback.ts, /admin/metrics).
+const ROUTE_CONTENT_TYPE: Record<string, string> = {
+  stories: "story", "story-slide-image": "story",
+  carousel: "carousel", "carousel-slide-image": "carousel",
+  fullpost: "caption", "fullpost-photo": "caption", "daily-draft": "caption", "calendar-regenerate": "caption", autopilot: "caption",
+  "post-image": "post_image",
+  "ad-maker": "ad_maker",
+}
 
 export interface GenerationTimer {
   /** Times `work` and adds it to the named step's total. Returns/throws exactly what `work` does. */
@@ -36,13 +48,20 @@ export async function timedGenerationRoute(route: string, handler: (timer: Gener
   }
   const steps = () => (Object.entries(totals) as [GenerationStep, number][]).map(([k, v]) => `${k}Ms=${v}`).join(" ")
 
-  console.log(`[gen-timing] route=${route} event=start`)
-  try {
-    const res = await handler(timer)
-    console.log(`[gen-timing] route=${route} event=end status=${res.status} totalMs=${Date.now() - startedAt} ${steps()}`.trimEnd())
-    return res
-  } catch (err) {
-    console.log(`[gen-timing] route=${route} event=end status=threw totalMs=${Date.now() - startedAt} ${steps()}`.trimEnd())
-    throw err
-  }
+  // Text calls in this request that fell over from Groq to OpenAI.
+  const fallbacks = () => (generationFallbackCount() > 0 ? ` providerFallbacks=${generationFallbackCount()}` : "")
+
+  // The request runs as one generation: a Groq -> OpenAI fallback inside it
+  // is recorded against it (the route notes its brand, noteGenerationBrand).
+  return runWithGenerationContext({ route, contentType: ROUTE_CONTENT_TYPE[route] ?? "caption" }, async () => {
+    console.log(`[gen-timing] route=${route} event=start`)
+    try {
+      const res = await handler(timer)
+      console.log(`[gen-timing] route=${route} event=end status=${res.status} totalMs=${Date.now() - startedAt} ${steps()}${fallbacks()}`.trimEnd())
+      return res
+    } catch (err) {
+      console.log(`[gen-timing] route=${route} event=end status=threw totalMs=${Date.now() - startedAt} ${steps()}${fallbacks()}`.trimEnd())
+      throw err
+    }
+  })
 }
