@@ -72,6 +72,10 @@ async function main() {
   const { initialPostDesign } = await import("@/lib/design/post-design-fields")
   const { renderPostDesign } = await import("@/lib/image/post-design")
   const { pickBrandPhotos, PHOTO_KINDS_FOR } = await import("@/lib/brand-photos")
+  const { isCatalogueShot, candidSceneDirection } = await import("@/lib/ai/catalogue-photos")
+  const { generatePostImage } = await import("@/lib/ai/post-image-pipeline")
+  const { resolveColorThemes } = await import("@/lib/design/color-themes")
+  const { detectSubjects } = await import("@/lib/image/subject-boxes")
   const sharp = (await import("sharp")).default
 
   const db = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, { auth: { persistSession: false } })
@@ -91,8 +95,23 @@ async function main() {
     const checked = finishPostTemplates({ caption_text: "", hashtags: [], cta: "", character_count: 0, ...f.caption } as GeneratedCaption, ctx)
     const design = initialPostDesign(checked.suggested_template, { ...checked, fallbackWords: [f.topic] }, 21 + i * 97)
     if (!design) throw new Error(`${f.caption.suggested_template}: no design`)
-    const photo = photos[(i + 3) % Math.max(1, photos.length)] ?? null
-    const jpg = await renderPostDesign(brand, photo?.url ?? null, design, "4:5")
+    const pick = photos[(i + 3) % Math.max(1, photos.length)] ?? null
+    // All three are lifestyle posts: a catalogue photo becomes the product
+    // reference for a candid scene (its subject found once); if that fails, a cutout.
+    let photo: { url: string; source: string } | null = pick
+    let boxes: Awaited<ReturnType<typeof detectSubjects>> | null = null
+    if (pick && await isCatalogueShot(pick.url)) {
+      const scene = await generatePostImage({
+        imagePrompt: candidSceneDirection(i + 1), productImageUrl: pick.url, brandNiche: brand.niche, targetAudience: brand.target_audience,
+        template: "bold_statement", colorTheme: resolveColorThemes(brand)[0]!, logoUrl: null, plan: "pro", isInternalUnlimitedUser: true, quality: "low", aspectRatio: "4:5",
+      }).catch((err: unknown) => ({ success: false as const, error: err instanceof Error ? err.message : String(err), attempts: [] }))
+      if (scene.success) {
+        const url = `data:${scene.mimeType};base64,${scene.buffer.toString("base64")}`
+        boxes = await detectSubjects(url, scene.buffer)
+        photo = { url, source: `candid scene from the ${pick.source}` }
+      } else photo = { url: pick.url, source: `${pick.source} as a cutout (scene failed: ${scene.error.slice(0, 90)})` }
+    }
+    const jpg = await renderPostDesign(brand, photo?.url ?? null, design, "4:5", boxes)
     writeFileSync(join(dir, `${design.template}.jpg`), jpg)
     thumbs.push(await sharp(jpg).resize(432, 540).jpeg({ quality: 85 }).toBuffer())
     log.push({ asked: f.caption.suggested_template, rendered: design.template, topic: f.topic, badge: design.badge ?? null, big_words: design.big_words, script_line: design.script_line, quote: design.quote ?? null, background: photo?.source ?? "palette" })

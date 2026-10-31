@@ -97,6 +97,8 @@ async function main() {
   const { finalizeStoryFrames, storyFrameContext } = await import("@/lib/ai/story-frames")
   const { renderStorySlides } = await import("@/lib/image/story-compositor")
   const { generateStorySlideBackground } = await import("@/lib/ai/story-slide-background")
+  const { isCatalogueShot, candidSceneDirection } = await import("@/lib/ai/catalogue-photos")
+  const { detectSubjects } = await import("@/lib/image/subject-boxes")
   const { pickBrandPhotos, PHOTO_KINDS_FOR } = await import("@/lib/brand-photos")
   const { resolveBrandPalette } = await import("@/lib/design/color-themes")
   const { resolveTypography } = await import("@/lib/design/fonts")
@@ -112,7 +114,9 @@ async function main() {
       if (!brand) throw new Error(`brand ${id} not found`)
       const { data: product } = productId ? await db.from("products").select("*").eq("id", productId).eq("brand_id", id).maybeSingle<ProductRow>() : { data: null }
       // Read-only: picked, never marked used.
-      const photos = await pickBrandPhotos(db, brand, { productId: product?.id ?? null, kinds: PHOTO_KINDS_FOR.story, count: 10 })
+      const library = await pickBrandPhotos(db, brand, { productId: product?.id ?? null, kinds: PHOTO_KINDS_FOR.story, count: 10 })
+      // No photo library: the product's own photos (catalogue shots are drawn as cutouts).
+      const photos = library.length ? library : (product?.image_urls ?? []).map((url, i) => ({ id: `product-${i}`, url }))
       cases.push({ brand, product, photos })
     }
   }
@@ -141,15 +145,27 @@ async function main() {
           const photo = photos[i] ?? null
           let url: string | null = photo?.url ?? null
           let source = photo ? "brand photo" : "palette"
+          let boxes: unknown = null
+          const role = i === 0 ? "hook" : i === stories.length - 1 ? "cta" : "body"
+          // A catalogue photo: a candid scene with it as the product
+          // reference (lib/ai/catalogue-photos.ts), its subject found once;
+          // if the scene fails, the photo itself (drawn as a cutout).
+          if (url && !NO_AI && await isCatalogueShot(url)) {
+            const bg = await generateStorySlideBackground({ brand, plan: "starter", isInternalUnlimitedUser: true, role, quality: "low", productImageUrl: url, userDirection: candidSceneDirection(i) })
+            if (bg.success) {
+              url = `data:image/png;base64,${bg.buffer.toString("base64")}`
+              boxes = await detectSubjects(url, bg.buffer)
+              source = "candid scene from the product photo"
+            } else source = `product photo as a cutout (scene failed: ${bg.error.slice(0, 90)})`
+          } else if (url && await isCatalogueShot(url)) source = "product photo as a cutout"
           if (!url && !NO_AI) {
-            const role = i === 0 ? "hook" : i === stories.length - 1 ? "cta" : "body"
             const bg = await generateStorySlideBackground({ brand, plan: "starter", isInternalUnlimitedUser: true, role, quality: "low", visualBrief: s.visual as never })
             if (bg.success) {
               url = `data:image/png;base64,${bg.buffer.toString("base64")}`
               source = "AI photo"
             } else source = `palette (AI photo failed: ${bg.error.slice(0, 120)})`
           }
-          return { slide: { ...s, background_image_url: url, palette, font_id: fontId, brand_name: brand.name, logo_url: brand.logo_url ?? null } as Record<string, unknown>, source }
+          return { slide: { ...s, background_image_url: url, ...(boxes ? { subject_boxes: boxes } : {}), palette, font_id: fontId, brand_name: brand.name, logo_url: brand.logo_url ?? null } as Record<string, unknown>, source }
         }))
         const rendered = await renderStorySlides(slides.map((x) => x.slide) as never)
         const thumbs: Buffer[] = []

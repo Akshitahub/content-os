@@ -4,6 +4,7 @@ import { resolveTypography } from "@/lib/design/fonts"
 import { FEED_CANVAS, STORY_CANVAS, renderFrame, type FrameCanvas, type PostFrame } from "@/lib/image/story-frame-compositor"
 import { POST_DESIGN_TEMPLATES, clampPostDesign, initialPostDesign, isPostDesignTemplate, type PostDesign, type PostDesignCaptionFields } from "@/lib/design/post-design-fields"
 import { uploadMediaToStorage } from "@/lib/storage/upload-media"
+import type { SubjectBox } from "@/lib/image/subject-boxes"
 
 /**
  * A feed post in the story frame language (lib/image/story-frame-compositor.ts):
@@ -37,6 +38,8 @@ export async function renderPostDesign(
   baseImageUrl: string | null,
   design: PostDesign,
   aspect?: "4:5" | "1:1" | "9:16" | null,
+  /** The photo's subject boxes when already known (lib/image/subject-boxes.ts); else stored / detected. */
+  subjectBoxes?: SubjectBox[] | null,
 ): Promise<Buffer> {
   const d = clampPostDesign(design)
   return renderFrame({
@@ -48,6 +51,7 @@ export async function renderPostDesign(
     seed: d.seed,
     tape: d.template !== "minimal",
     background_image_url: baseImageUrl,
+    subject_boxes: subjectBoxes ?? null,
     palette: resolveBrandPalette(brand),
     font_id: resolveTypography(brand as BrandRow).heading,
     brand_name: brand.name,

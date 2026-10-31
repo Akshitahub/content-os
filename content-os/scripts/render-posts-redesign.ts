@@ -19,6 +19,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 
 import { join } from "path"
 import { createClient } from "@supabase/supabase-js"
 import type { BrandRow, ProductRow } from "@/types/database"
+import type { SubjectBox } from "@/lib/image/subject-boxes"
 
 function loadEnvLocal(): void {
   const envPath = join(process.cwd(), ".env.local")
@@ -93,6 +94,7 @@ async function main() {
   const { renderPostDesign } = await import("@/lib/image/post-design")
   const { isCatalogueShot, isLifestyleTemplate, candidSceneDirection } = await import("@/lib/ai/catalogue-photos")
   const { generatePostImage } = await import("@/lib/ai/post-image-pipeline")
+  const { detectSubjects } = await import("@/lib/image/subject-boxes")
   const { resolveColorThemes } = await import("@/lib/design/color-themes")
   const { renderCarouselFrame } = await import("@/lib/image/carousel-frames")
   const { carouselFrameNeedsPhoto, finalizeCarouselFrames } = await import("@/lib/design/carousel-frames")
@@ -131,14 +133,18 @@ async function main() {
      * (lib/ai/catalogue-photos.ts); if that can't be made, the photo itself --
      * drawn as a cutout. Returns the background and what it is.
      */
-    const sceneOr = async (photo: Photo | null, seed: number): Promise<{ url: string | null; source: string }> => {
+    const sceneOr = async (photo: Photo | null, seed: number): Promise<{ url: string | null; source: string; boxes?: SubjectBox[] }> => {
       if (!photo) return { url: null, source: "palette" }
       if (!SCENES || !(await isCatalogueShot(photo.url))) return { url: photo.url, source: photo.source }
       const scene = await generatePostImage({
         imagePrompt: candidSceneDirection(seed), productImageUrl: photo.url, brandNiche: brand.niche, targetAudience: brand.target_audience,
         template: "bold_statement", colorTheme: resolveColorThemes(brand)[0]!, logoUrl: null, plan: "pro", isInternalUnlimitedUser: true, quality: "low", aspectRatio: "4:5",
       }).catch((err: unknown) => ({ success: false as const, error: err instanceof Error ? err.message : String(err), attempts: [] }))
-      if (scene.success) return { url: `data:${scene.mimeType};base64,${scene.buffer.toString("base64")}`, source: `candid scene from the ${photo.source}` }
+      if (scene.success) {
+        // Like production: the subject found once, right after generation.
+        const url = `data:${scene.mimeType};base64,${scene.buffer.toString("base64")}`
+        return { url, source: `candid scene from the ${photo.source}`, boxes: await detectSubjects(url, scene.buffer) }
+      }
       return { url: photo.url, source: `${photo.source} as a cutout (scene failed: ${scene.error.slice(0, 90)})` }
     }
 
@@ -167,8 +173,8 @@ async function main() {
     for (const [i, template] of POST_TEMPLATES.entries()) {
       const pick = photos[i % Math.max(1, photos.length)] ?? null
       // A product post shows the product (a cutout); the others want a scene.
-      const photo = isLifestyleTemplate(template) ? await sceneOr(pick, i) : { url: pick?.url ?? null, source: pick ? `${pick.source}${await isCatalogueShot(pick.url) ? " as a cutout" : ""}` : "palette" }
-      const jpg = await renderPostDesign(brand, photo.url, { template, big_words: copy.post.big_words, script_line: copy.post.script_line, seed: 11 + i * 101 }, "4:5")
+      const photo: { url: string | null; source: string; boxes?: SubjectBox[] } = isLifestyleTemplate(template) ? await sceneOr(pick, i) : { url: pick?.url ?? null, source: pick ? `${pick.source}${await isCatalogueShot(pick.url) ? " as a cutout" : ""}` : "palette" }
+      const jpg = await renderPostDesign(brand, photo.url, { template, big_words: copy.post.big_words, script_line: copy.post.script_line, seed: 11 + i * 101 }, "4:5", photo.boxes)
       writeFileSync(join(dir, `post-${template}.jpg`), jpg)
       thumbs.push(await sharp(jpg).resize(432, 540).jpeg({ quality: 85 }).toBuffer())
       postLog.push({ template, background: photo.source })
@@ -183,7 +189,7 @@ async function main() {
       const photo = carouselFrameNeedsPhoto(s.frame) && next < photos.length ? await sceneOr(photos[next++]!, i) : null
       const jpg = await renderCarouselFrame({
         frame: s.frame as never, headline: String(s.headline ?? ""), subtext: (s.subtext as string | null) ?? null, cta: (s.cta as string | null) ?? null,
-        image_url: photo?.url ?? null, seed: s.seed as number, tape: s.tape as boolean, brand_mark: s.brand_mark as boolean, font_id: s.font_id as string,
+        image_url: photo?.url ?? null, subject_boxes: photo?.boxes ?? null, seed: s.seed as number, tape: s.tape as boolean, brand_mark: s.brand_mark as boolean, font_id: s.font_id as string,
       }, { name: brand.name, logo_url: brand.logo_url, palette, fontId: typography.heading })
       writeFileSync(join(dir, `carousel-${i + 1}-${s.frame}.jpg`), jpg)
       slideThumbs.push(await sharp(jpg).resize(432, 540).jpeg({ quality: 85 }).toBuffer())

@@ -166,8 +166,12 @@ function paletteGradient(p: BrandPalette, cv: FrameCanvas): Buffer {
  * on it); without a subject, sharp's attention crop. Returns the image and
  * the subject boxes in canvas pixels, margin added.
  */
-async function placePhoto(src: Buffer, srcW: number, srcH: number, boxes: SubjectBox[], area: Rect, cv: FrameCanvas): Promise<{ img: Buffer; subjects: Rect[] }> {
+async function placePhoto(src: Buffer, srcW: number, srcH: number, allBoxes: SubjectBox[], area: Rect, cv: FrameCanvas): Promise<{ img: Buffer; subjects: Rect[] }> {
   const aw = rw(area), ah = rh(area)
+  // The subject, not a bystander: a person box far smaller than the main
+  // one is background (a passer-by); products always count.
+  const biggest = Math.max(0, ...allBoxes.map((b) => b.w * b.h))
+  const boxes = allBoxes.filter((b) => b.label === "product" || b.w * b.h >= biggest * 0.12)
   if (boxes.length === 0) {
     return { img: await sharp(src).resize(aw, ah, { fit: "cover", position: "attention" }).removeAlpha().png().toBuffer(), subjects: [] }
   }
@@ -772,9 +776,13 @@ function productFrame(ctx: Ctx, s: StoryFrameSlide): string {
 function proofFrame(ctx: Ctx, s: StoryFrameSlide): string {
   const { cv } = ctx
   const quote = clean(s.quote) || clean(s.text)
-  const size = 74
-  const lines = wrap(ctx.f.box, quote, size, 840)
   const padX = 32
+  // Wrapped to the frame (a narrow region beside the subject included),
+  // smaller rather than clipped.
+  const maxW = Math.min(840, cv.w - cv.side * 2 - padX * 2 - 20)
+  let size = 74
+  let lines = wrap(ctx.f.box, quote, size, maxW)
+  while (size > 40 && (lines.length > 6 || lines.some((l) => measureTextWidth(ctx.f.box, l, size) > maxW))) { size -= 4; lines = wrap(ctx.f.box, quote, size, maxW) }
   const lineH = size * 1.4
   const fill = "#ffffff"
   const ink = ensureContrast(ctx.p.deep, fill, AA_BODY)

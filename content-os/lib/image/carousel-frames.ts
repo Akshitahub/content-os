@@ -2,6 +2,7 @@ import type { BrandPalette } from "@/lib/design/color-themes"
 import { isFontId, type FontId } from "@/lib/design/fonts"
 import { FEED_CANVAS, renderFrame, type FrameKind } from "@/lib/image/story-frame-compositor"
 import type { CarouselFrame } from "@/lib/design/carousel-frames"
+import type { SubjectBox } from "@/lib/image/subject-boxes"
 
 /**
  * One framed carousel slide (lib/design/carousel-frames.ts) drawn at
@@ -18,6 +19,8 @@ export interface CarouselFrameSlide {
   tape?: boolean | null
   brand_mark?: boolean | null
   font_id?: FontId | string | null
+  /** The photo's subject boxes when already known; else stored / detected at render. */
+  subject_boxes?: SubjectBox[] | null
 }
 
 const KIND: Record<CarouselFrame, FrameKind> = { hook: "hook", slide_photo: "slide_photo", slide_type: "slide_type", cta: "cta" }
@@ -39,6 +42,7 @@ export function renderCarouselFrame(
     brand_mark: !!s.brand_mark,
     // A type-led slide is drawn on the brand's colour, never a photo.
     background_image_url: s.frame === "slide_type" ? null : s.image_url ?? null,
+    subject_boxes: s.subject_boxes ?? null,
     palette: brand.palette,
     font_id: isFontId(s.font_id) ? s.font_id : brand.fontId,
     brand_name: brand.name,

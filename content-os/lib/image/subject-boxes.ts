@@ -118,11 +118,15 @@ export async function detectSubjectsLocal(buf: Buffer): Promise<SubjectBox[]> {
     const peak = energy.indexOf(max)
     const part = components(mask, G, G, 1).find((c) => { const px = peak % G, py = (peak / G) | 0; return px >= c.x0 && px < c.x1 && py >= c.y0 && py < c.y1 })
     if (!part) return []
-    // At least a third of each side, centred on what was found.
+    // At least a third of each side, centred on what was found -- plus the
+    // centre column, where a scene's subject almost always is: a guess
+    // without a vision call errs toward keeping text off the middle.
     const cx = (part.x0 + part.x1) / 2 / G, cy = (part.y0 + part.y1) / 2 / G
     const w = Math.max((part.x1 - part.x0) / G, 1 / 3), h = Math.max((part.y1 - part.y0) / G, 1 / 3)
-    const box = normBox({ x: Math.max(0, cx - w / 2), y: Math.max(0, cy - h / 2), w, h, label: "subject" })
-    return box ? [box] : []
+    return [
+      normBox({ x: Math.max(0, cx - w / 2), y: Math.max(0, cy - h / 2), w, h, label: "subject" }),
+      normBox({ x: 0.22, y: 0.06, w: 0.56, h: 0.94, label: "subject" }),
+    ].filter((b): b is SubjectBox => !!b)
   } catch {
     return []
   }
@@ -138,8 +142,10 @@ export async function detectSubjectsVision(imageUrl: string): Promise<SubjectBox
   try {
     const res = await getOpenAIClient().chat.completions.create({
       model: MODELS.vision,
-      reasoning_effort: "low",
-      max_completion_tokens: 500,
+      // No reasoning: boxes are a perception task, and reasoning tokens could
+      // use up the budget and leave no answer.
+      reasoning_effort: "none",
+      max_completion_tokens: 1200,
       response_format: { type: "json_object" },
       messages: [{
         role: "user",
