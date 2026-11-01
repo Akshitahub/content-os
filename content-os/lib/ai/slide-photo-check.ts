@@ -43,7 +43,10 @@ export async function generateCheckedSlide(options: SlideOptions, copy: SlideCop
   if (!check || check.agree >= AGREE_MIN || !canRetry()) return { ...first, agree: check?.agree, checkCostUsd: check?.costUsd ?? null }
   console.log(`[slide-photo-check] ${label}: photo doesn't show the slide's point (agree ${check.agree}) -- one more try`)
   const direction = [options.userDirection, `the photo must show exactly this: ${copy.headline}${copy.body ? ` -- ${copy.body}` : ""}. Fix: ${check.fix}`].filter(Boolean).join(". ")
-  const second = await generateCarouselSlideBackground({ ...options, userDirection: direction })
+  // The retry describes the slide's point as the scene itself -- an abstract
+  // or mismatched brief is what made the first photo miss it.
+  const scene = `a real photograph that clearly shows: ${copy.headline}${copy.body ? ` -- ${copy.body}` : ""}`
+  const second = await generateCarouselSlideBackground({ ...options, visualBrief: undefined, customPrompt: options.productImageUrl ? `${options.customPrompt ?? ""} ${scene}`.trim() : scene, userDirection: direction })
   if (!second.success) return { ...first, attempts: [...first.attempts, ...second.attempts], agree: check.agree, checkCostUsd: check.costUsd }
   const recheck = await slidePhotoAgreement(options.brand, second.buffer, second.mimeType, copy, `${label} retry`)
   const cost = (check.costUsd ?? 0) + (recheck?.costUsd ?? 0)

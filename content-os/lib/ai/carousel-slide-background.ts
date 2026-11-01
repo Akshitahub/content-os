@@ -75,7 +75,7 @@ function resolveProductSafeZoneGuard(slideType?: "cover" | "content" | "cta"): s
   return "leave generous calm negative space for a text overlay"
 }
 
-function buildSlidePrompt(niche: string | null, vibe: Vibe, colors: string[], role: "hook" | "cta" | "body", productImageUrl?: string | null, slideType?: "cover" | "content" | "cta", customPrompt?: string): string {
+function buildSlidePrompt(niche: string | null, vibe: Vibe, colors: string[], role: "hook" | "cta" | "body", productImageUrl?: string | null, slideType?: "cover" | "content" | "cta", customPrompt?: string, userDirection?: string | null): string {
   // Descriptive color names, not raw hex — diffusion models reliably follow
   // "a vibrant orange-red" but ignore "#FF5733" outright, confirmed via real
   // testing (see docs/research/seedream-5-lite-evaluation.md).
@@ -91,8 +91,11 @@ function buildSlidePrompt(niche: string | null, vibe: Vibe, colors: string[], ro
   // text's (and the productImage overlay's) safe zone calm, not avoid
   // rendering text itself the way the abstract-only prompt below does.
   if (productImageUrl) {
+    // The direction (a catalogue photo's candid scene, the slide's point) is
+    // the scene -- it was dropped here when a slide had no visual brief.
     const sceneDescription = [
       trimmedCustom,
+      userDirectionLine(userDirection),
       PHOTOGRAPHY_STYLE,
       REFERENCE_IMAGE_PEOPLE_GUARD,
       niche ? `${niche} brand` : "",
@@ -323,7 +326,7 @@ export async function generateCarouselSlideBackground(
     })
   }
 
-  const prompt = withArt(buildSlidePrompt(options.brand.niche, vibe, colors, options.role, options.productImageUrl, options.slideType, options.customPrompt))
+  const prompt = withArt(buildSlidePrompt(options.brand.niche, vibe, colors, options.role, options.productImageUrl, options.slideType, options.customPrompt, options.userDirection))
   const fallbackPrompt = withArtShort(simplifySlidePrompt(vibe, options.productImageUrl, options.customPrompt))
 
   return fetchBackgroundImage(prompt, fallbackPrompt, options.plan, options.isInternalUnlimitedUser, undefined, options.productImageUrl, options.quality)
