@@ -198,6 +198,7 @@ async function handlePost(request: Request, timer: GenerationTimer) {
     aspectRatio,
     visualStyle,
     userBrief,
+    productName: product?.name ?? null,
     checklistHeadline,
     checklistHighlightedPhrase,
     checklistWrongItems,

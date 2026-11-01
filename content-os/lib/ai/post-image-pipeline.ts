@@ -245,7 +245,31 @@ export const PHOTOGRAPHY_STYLE = "professional product photography shot on a ful
 // Full Post's visual-direction picker). A flat, styled-composition look
 // rather than a photorealistic studio shot, for brands whose product
 // doesn't suit (or doesn't exist as) a physical photographed scene.
-export const EDITORIAL_GRAPHIC_STYLE = "a FLAT 2D editorial graphic layout, not a photograph: the subject drawn as clean flat shapes and simple objects on a soft paper or fabric texture background, clean geometric shapes, muted contemporary color palette, generous negative space, magazine-editorial print aesthetic — no photorealism, no photographic lighting, no depth of field, no 3D render"
+export const EDITORIAL_GRAPHIC_STYLE = "a FLAT 2D editorial graphic layout, not a photograph: the subject drawn as clean flat shapes and simple objects on a soft paper or fabric texture background, clean geometric shapes, a muted contemporary color palette for the background and shapes (the subject itself keeps its own real colours), generous negative space, magazine-editorial print aesthetic — no photorealism, no photographic lighting, no depth of field, no 3D render"
+
+/**
+ * What an editorial graphic must depict, faithfully: the post's product as
+ * the reference photo shows it, or -- with no product -- the post's own
+ * subject (a white pure-linen shirt for a linen post), in its real colour
+ * and material. The brand's colours go on the background and shapes only;
+ * a subject recoloured to the palette (an olive shirt for a white-linen
+ * post) is the failure this exists to stop.
+ */
+export function editorialSubjectLine(opts: { productName?: string | null; hasReference: boolean; topic?: string | null }): string {
+  if (opts.hasReference || opts.productName?.trim()) {
+    const name = opts.productName?.trim() ? `the ${opts.productName.trim()}` : "the product"
+    return `the graphic's subject is ${name}${opts.hasReference ? " exactly as the reference photo shows it" : ""}: its real colour, material and silhouette, never recoloured to the palette`
+  }
+  const topic = opts.topic?.replace(/\s+/g, " ").trim().slice(0, 200)
+  return topic
+    ? `the graphic's subject is exactly what this post is about -- "${topic}" -- drawn faithfully in its real colour and material (white pure linen stays white linen); the brand colours belong to the background and shapes, never to the subject`
+    : "the subject keeps its own real colours and material, never recoloured to the palette"
+}
+
+/** The reference-photo wrapper for the flat editorial look: the real product, drawn -- not a photograph of it. */
+export function wrapForEditorialReference(sceneDescription: string): string {
+  return `The attached reference photo shows the real product. Draw THAT product -- the same colour, material and silhouette, recognisably the same item -- as the subject of a flat 2D editorial graphic: ${sceneDescription}. Not a photograph and not a different product or colourway; one single composition, not a collage or before/after.`
+}
 
 /** Editorial graphic: people only when the user's own brief asks for them. */
 export const EDITORIAL_NO_PEOPLE_GUARD = "no people, no faces, no hands, no bodies -- objects and shapes only"
@@ -260,8 +284,17 @@ export const EDITORIAL_QUALITY_GUARD = "no text, no watermarks, no logos, no let
 export function editorialCore(prompt: string, allowPeople: boolean): string {
   const PHOTO = /\b(photo(?:realistic|graph(?:ic|y)?)?|candid|phone[- ]photo|dslr|depth of field|bokeh|film grain|shallow focus|lens|shot on)\b/gi
   const PERSON = /\b(man|men|woman|women|person|people|guy|girl|boy|model|he|she|his|her|him|they|someone|hands?|face|wearing|worn)\b/i
+  // A sentence about a person still names the subject ("a man wearing a
+  // white linen shirt"): the garment / object is kept, on its own.
+  const OBJECT = /\b(?:wearing|wears|in|holding|holds|carrying|with)\s+((?:an?|the|a pair of)\s+[^,.;]+)/i
+  // ...up to the next verb / preposition ("a white linen shirt walks to work" -> "a white linen shirt").
+  const STOP = /\s+(?:walks?|walking|sits?|sitting|stands?|standing|leans?|leaning|smiles?|is|are|was|as|while|and|on|at|through|into|by|near|against|holding|looking|with)\b.*$/i
   const sentences = prompt.split(/(?<=[.;])\s+/)
-  const kept = sentences.filter((s) => allowPeople || !PERSON.test(s)).map((s) => s.replace(PHOTO, "").replace(/\s{2,}/g, " ").trim()).filter(Boolean)
+  const kept = sentences.map((s) => {
+    if (allowPeople || !PERSON.test(s)) return s
+    const object = s.match(OBJECT)?.[1]?.replace(STOP, "").trim()
+    return object ? `${object}, shown on its own.` : ""
+  }).map((s) => s.replace(PHOTO, "").replace(/\s{2,}/g, " ").trim()).filter(Boolean)
   return kept.join(" ") || "the product as clean flat shapes"
 }
 
@@ -453,19 +486,21 @@ export function wrapForReferenceImage(sceneDescription: string): string {
   return `The attached reference photo shows the real product — replicate its exact appearance (shape, color, packaging, and label) faithfully into a single new photograph of this scene: ${sceneDescription}. The reference product must be clearly visible, in focus, and recognizable as the central subject — do not omit it, crop it out of frame, obscure it behind other objects, or substitute a different item in its place. Output must be ONE seamless photograph only, photographed once from a single camera angle — not a comparison, not a before/after, not a split image, not a side-by-side, not a collage, not multiple panels or frames; one continuous scene with the exact reference product naturally placed in it and clearly visible.`
 }
 
-function simplifyPrompt(prompt: string, brandNiche: string | null, hasReferenceImage: boolean, editorial = false): string {
+function simplifyPrompt(prompt: string, brandNiche: string | null, hasReferenceImage: boolean, editorial = false, subject = ""): string {
   const core = prompt.split(",")[0]?.trim() || prompt.slice(0, 150)
   const sceneDescription = [
     core,
+    subject,
     brandNiche ? `${brandNiche} brand` : "",
     resolveNicheSetting(brandNiche),
     editorial ? EDITORIAL_GRAPHIC_STYLE : CANDID_PHOTO_STYLE,
-    hasReferenceImage ? REFERENCE_IMAGE_PEOPLE_GUARD : editorial ? EDITORIAL_NO_PEOPLE_GUARD : CANDID_PEOPLE_DIRECTION,
+    hasReferenceImage && !editorial ? REFERENCE_IMAGE_PEOPLE_GUARD : editorial ? EDITORIAL_NO_PEOPLE_GUARD : CANDID_PEOPLE_DIRECTION,
     editorial ? CENTERED_COMPOSITION_GUARD : CANDID_COMPOSITION_GUARD,
     editorial ? "" : CANDID_PHOTO_GUARD,
     editorial ? EDITORIAL_QUALITY_GUARD : CANDID_QUALITY_AND_NEGATIVE_GUARD,
   ].filter(Boolean).join(", ")
-  return hasReferenceImage ? wrapForReferenceImage(sceneDescription) : sceneDescription
+  if (!hasReferenceImage) return sceneDescription
+  return editorial ? wrapForEditorialReference(sceneDescription) : wrapForReferenceImage(sceneDescription)
 }
 
 export type BackgroundImageResult =
@@ -594,6 +629,8 @@ export interface GeneratePostImageOptions {
   visualStyle?: "studio_scene" | "editorial_graphic"
   /** The user's own brief -- editorial graphic shows people only when it asks for them. */
   userBrief?: string | null
+  /** The post's product (its name) -- what an editorial graphic depicts, faithfully. */
+  productName?: string | null
   /** Only meaningful when template is "hard_truth_checklist" -- the
    * caption's own checklist_* fields (see types/app.ts's GeneratedCaption),
    * threaded straight through to lib/image/post-compositor.ts's
@@ -770,11 +807,13 @@ export async function generatePostImage(rawOptions: GeneratePostImageOptions): P
   const editorialPeople = editorial && asksForPeople(options.userBrief)
   const sceneFor = (core: string, withReference: boolean) => [
     editorial ? editorialCore(core, editorialPeople) : core,
+    // The editorial graphic depicts the post's real product / subject, never a recoloured stand-in.
+    editorial ? editorialSubjectLine({ productName: options.productName, hasReference: withReference, topic: options.userBrief ?? options.imagePrompt }) : "",
     options.brandNiche ? `${options.brandNiche} brand` : "",
     resolveNicheSetting(options.brandNiche),
     cappedTargetAudience ? `styled to appeal to ${cappedTargetAudience}` : "",
     editorial ? EDITORIAL_GRAPHIC_STYLE : candidPhotoStyle(options.artDirection),
-    withReference ? REFERENCE_IMAGE_PEOPLE_GUARD : editorial ? (editorialPeople ? NO_PEOPLE_BY_DEFAULT_GUARD : EDITORIAL_NO_PEOPLE_GUARD) : CANDID_PEOPLE_DIRECTION,
+    withReference && !editorial ? REFERENCE_IMAGE_PEOPLE_GUARD : editorial ? (editorialPeople ? NO_PEOPLE_BY_DEFAULT_GUARD : EDITORIAL_NO_PEOPLE_GUARD) : CANDID_PEOPLE_DIRECTION,
     editorial ? "" : buildNegativeGuard(options.brandNiche),
     // Only relevant when there's actually going to be a text overlay —
     // biasing every image toward a simpler lower third no longer makes
@@ -788,7 +827,8 @@ export async function generatePostImage(rawOptions: GeneratePostImageOptions): P
     artDirectionImageClause(options.artDirection, { photography: !editorial }),
   ].filter(Boolean).join(", ")
   const sceneDescription = sceneFor(cappedImagePrompt, hasReferenceImage)
-  const fullPrompt = hasReferenceImage ? wrapForReferenceImage(sceneDescription) : sceneDescription
+  const wrapReference = editorial ? wrapForEditorialReference : wrapForReferenceImage
+  const fullPrompt = hasReferenceImage ? wrapReference(sceneDescription) : sceneDescription
 
   // Passes the UNwrapped sceneDescription, not fullPrompt -- simplifyPrompt
   // extracts its "core" topic from the first comma-separated segment, and
@@ -796,7 +836,8 @@ export async function generatePostImage(rawOptions: GeneratePostImageOptions): P
   // after "reference photo", which would hijack that extraction if passed
   // the already-wrapped fullPrompt. simplifyPrompt applies the same
   // wrapping itself, once it has the real core.
-  const retryPrompt = simplifyPrompt(sceneDescription, options.brandNiche, hasReferenceImage, editorial)
+  const editorialSubject = (withReference: boolean) => (editorial ? editorialSubjectLine({ productName: options.productName, hasReference: withReference, topic: options.userBrief ?? options.imagePrompt }) : "")
+  const retryPrompt = simplifyPrompt(sceneDescription, options.brandNiche, hasReferenceImage, editorial, editorialSubject(hasReferenceImage))
   const requestedDimensions = resolvePostImageDimensions(options.aspectRatio)
   // A split brief with both halves becomes two images composited side by
   // side (lib/ai/split-layer.ts); otherwise the single prompt, as before.
@@ -812,7 +853,7 @@ export async function generatePostImage(rawOptions: GeneratePostImageOptions): P
     buildHalf: (text, side) => {
       const ref = brief && halfUsesProductReference(brief, side) ? options.productImageUrl : null
       const scene = sceneFor(`a photorealistic scene featuring ${text}, single subject centred in a narrow vertical frame`, !!ref)
-      return { prompt: ref ? wrapForReferenceImage(scene) : scene, fallbackPrompt: simplifyPrompt(scene, options.brandNiche, !!ref, editorial), productImageUrl: ref }
+      return { prompt: ref ? wrapReference(scene) : scene, fallbackPrompt: simplifyPrompt(scene, options.brandNiche, !!ref, editorial, editorialSubject(!!ref)), productImageUrl: ref }
     },
     single: () => fetchBackgroundImage(fullPrompt, retryPrompt, options.plan, options.isInternalUnlimitedUser, requestedDimensions, options.productImageUrl, options.quality),
   })
