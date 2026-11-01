@@ -115,6 +115,12 @@ export async function photosAtWeeklyCap(
   }
 }
 
+/** The best-scoring candidate, only when it fits (MIN_PHOTO_FIT or more) -- a slide / post never gets a photo under it. */
+export function pickFittingPhoto<P extends { id: string }>(scores: FitScore[], candidates: P[]): { best: FitScore | null; photo: P | null } {
+  const best = scores.reduce<FitScore | null>((top, s) => (!top || s.fit > top.fit ? s : top), null)
+  return { best, photo: best && best.fit >= MIN_PHOTO_FIT ? candidates.find((c) => c.id === best.id) ?? null : null }
+}
+
 /**
  * One photo (or null = generate) per item, in order: each item scores its
  * own top candidates and takes the best that fits, never a photo an earlier
@@ -144,8 +150,7 @@ export async function chooseFittingPhotos(
         continue
       }
       const scores = await scorePhotoFit(item, candidates, opts.productName)
-      const best = scores.reduce<FitScore | null>((top, s) => (!top || s.fit > top.fit ? s : top), null)
-      const photo = best && best.fit >= MIN_PHOTO_FIT ? candidates.find((c) => c.id === best.id) ?? null : null
+      const { best, photo } = pickFittingPhoto(scores, candidates)
       if (photo && best) {
         used.add(photo.id)
         chosen.push({ ...photo, fit: best.fit })

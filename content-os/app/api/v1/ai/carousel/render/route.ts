@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import type { BrandRow } from "@/types/database"
-import { renderCarouselFrame } from "@/lib/image/carousel-frames"
+import { renderCarouselFrame, renderCarouselFrames } from "@/lib/image/carousel-frames"
 import { frameLogo } from "@/lib/design/logo-settings"
 import { CAROUSEL_FRAMES } from "@/lib/design/carousel-frames"
 import { resolveBrandPalette } from "@/lib/design/color-themes"
@@ -82,6 +82,7 @@ const slideSchema = z.object({
   seed: z.number().int().min(0).max(2 ** 31).nullish(),
   tape: z.boolean().nullish(),
   brand_mark: z.boolean().nullish(),
+  layout_hint: z.enum(["full", "split", "type"]).nullish(),
 })
 // Matches CarouselBuilder.tsx's slideCount cap.
 const schema = z.object({
@@ -124,15 +125,22 @@ export async function POST(request: Request) {
     const legacy = legacyIdx.length > 0
       ? await renderRichCarouselSlides(parsed.data.brandName, legacyIdx.map((i) => ({ ...slides[i]!, palette: parsePalette(slides[i]!.palette) })) as CarouselCompositeSlide[])
       : []
-    const framed = await Promise.all(slides.map((s) => {
-      if (!s.frame) return null
-      const palette = parsePalette(s.palette) ?? (brand ? resolveBrandPalette(brand) : null)
-      if (!palette) throw new Error("A framed slide needs the brand palette")
-      return renderCarouselFrame({ ...s, frame: s.frame, cta: s.ctaText }, {
-        name: brand?.name ?? parsed.data.brandName, ...(brand ? frameLogo(brand) : { logo_url: null }), palette,
-        fontId: brand ? resolveTypography(brand).heading : "anton",
-      })
-    }))
+    // A whole framed carousel renders as one system (counter, swipe cue,
+    // one type scale and logo spot, the layout rhythm); a single slide alone.
+    const firstPalette = slides.map((s) => parsePalette(s.palette)).find(Boolean) ?? (brand ? resolveBrandPalette(brand) : null)
+    const frameBrand = (palette: NonNullable<typeof firstPalette>) => ({
+      name: brand?.name ?? parsed.data.brandName, ...(brand ? frameLogo(brand) : { logo_url: null }), palette,
+      fontId: brand ? resolveTypography(brand).heading : "anton" as const,
+    })
+    const allFramed = slides.length > 1 && slides.every((s) => s.frame)
+    const framed: (Buffer | null)[] = allFramed
+      ? (await renderCarouselFrames(slides.map((s) => ({ ...s, frame: s.frame!, cta: s.ctaText })), frameBrand(firstPalette ?? (() => { throw new Error("A framed slide needs the brand palette") })()))).map((r) => r.jpg)
+      : await Promise.all(slides.map((s) => {
+          if (!s.frame) return null
+          const palette = parsePalette(s.palette) ?? firstPalette
+          if (!palette) throw new Error("A framed slide needs the brand palette")
+          return renderCarouselFrame({ ...s, frame: s.frame, cta: s.ctaText }, frameBrand(palette))
+        }))
     const rendered = slides.map((_, i) => {
       const f = framed[i]
       if (f) return { png: f, mime: "image/jpeg", warnings: [] as string[] }

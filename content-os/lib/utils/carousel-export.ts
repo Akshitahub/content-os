@@ -54,11 +54,14 @@ export interface CarouselExportSlide {
   seed?: number | null
   tape?: boolean | null
   brand_mark?: boolean | null
+  /** The slide's planned layout -- full-bleed, split or type-led (lib/design/carousel-frames.ts). */
+  layout_hint?: "full" | "split" | "type" | null
 }
 
 /** The frame fields of a saved slide, for an export. */
-export function exportFrameFields(s: { frame?: unknown; seed?: unknown; tape?: unknown; brand_mark?: unknown }): Pick<CarouselExportSlide, "frame" | "seed" | "tape" | "brand_mark"> {
+export function exportFrameFields(s: { frame?: unknown; seed?: unknown; tape?: unknown; brand_mark?: unknown; layout_hint?: unknown }): Pick<CarouselExportSlide, "frame" | "seed" | "tape" | "brand_mark" | "layout_hint"> {
   return {
+    layout_hint: s.layout_hint === "full" || s.layout_hint === "split" || s.layout_hint === "type" ? s.layout_hint : null,
     frame: s.frame === "hook" || s.frame === "slide_photo" || s.frame === "slide_type" || s.frame === "cta" ? s.frame : null,
     seed: typeof s.seed === "number" ? s.seed : null,
     tape: typeof s.tape === "boolean" ? s.tape : null,

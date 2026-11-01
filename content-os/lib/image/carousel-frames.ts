@@ -1,7 +1,8 @@
 import type { BrandPalette } from "@/lib/design/color-themes"
 import { isFontId, type FontId } from "@/lib/design/fonts"
-import { FEED_CANVAS, renderFrame, type FrameKind } from "@/lib/image/story-frame-compositor"
-import type { CarouselFrame } from "@/lib/design/carousel-frames"
+import sharp from "sharp"
+import { FEED_CANVAS, renderFrame, renderFrameLayers, type FrameKind, type StoryFrameSlide } from "@/lib/image/story-frame-compositor"
+import { hasLayoutRun, type CarouselFrame, type CarouselLayout } from "@/lib/design/carousel-frames"
 import type { SubjectBox } from "@/lib/image/subject-boxes"
 import { frameLogo, type FrameLogo } from "@/lib/design/logo-settings"
 
@@ -20,19 +21,18 @@ export interface CarouselFrameSlide {
   tape?: boolean | null
   brand_mark?: boolean | null
   font_id?: FontId | string | null
+  /** The planned layout (lib/design/carousel-frames.ts carouselLayoutFor). */
+  layout_hint?: CarouselLayout | null
   /** The photo's subject boxes when already known; else stored / detected at render. */
   subject_boxes?: SubjectBox[] | null
 }
 
 const KIND: Record<CarouselFrame, FrameKind> = { hook: "hook", slide_photo: "slide_photo", slide_type: "slide_type", cta: "cta" }
 
-/** The slide as a JPEG. Throws only if the canvas itself can't be drawn. */
-export function renderCarouselFrame(
-  s: CarouselFrameSlide,
-  brand: { name: string; logo_url?: string | null; palette: BrandPalette; fontId: FontId } & Partial<FrameLogo>,
-): Promise<Buffer> {
+/** A slide as the frame compositor takes it. */
+function toFrame(s: CarouselFrameSlide, brand: { name: string; palette: BrandPalette; fontId: FontId } & Partial<FrameLogo>): StoryFrameSlide {
   const handwritten = s.frame === "hook" || s.frame === "cta"
-  return renderFrame({
+  return {
     frame: KIND[s.frame],
     big_words: s.headline,
     script_line: handwritten ? s.subtext ?? null : null,
@@ -40,12 +40,60 @@ export function renderCarouselFrame(
     cta_label: s.frame === "cta" ? s.cta ?? null : null,
     seed: s.seed ?? 1,
     brand_mark: !!s.brand_mark,
-    // A type-led slide is drawn on the brand's colour, never a photo.
-    background_image_url: s.frame === "slide_type" ? null : s.image_url ?? null,
+    background_image_url: s.image_url ?? null,
     subject_boxes: s.subject_boxes ?? null,
+    layout_hint: s.layout_hint ?? null,
     palette: brand.palette,
     font_id: isFontId(s.font_id) ? s.font_id : brand.fontId,
     brand_name: brand.name,
     ...frameLogo(brand),
-  }, FEED_CANVAS)
+  }
+}
+
+/** The slide as a JPEG. Throws only if the canvas itself can't be drawn. */
+export function renderCarouselFrame(
+  s: CarouselFrameSlide,
+  brand: { name: string; logo_url?: string | null; palette: BrandPalette; fontId: FontId } & Partial<FrameLogo>,
+): Promise<Buffer> {
+  return renderFrame(toFrame(s, brand), FEED_CANVAS)
+}
+
+/** One type scale for a carousel's headlines (px on the 1080-wide feed canvas). */
+export const CAROUSEL_HEADLINE_PX = 118
+
+/**
+ * A whole carousel in one system: the same margins and type scale, the
+ * logo in one spot (the brand's chosen corner, else bottom-left when it's
+ * free), a "2/5" counter on every slide, a subtle swipe cue on the cover,
+ * and the layout rhythm checked -- if a fallback ever leaves the same
+ * layout three slides in a row, the middle one is redrawn type-led.
+ */
+export async function renderCarouselFrames(
+  slides: CarouselFrameSlide[],
+  brand: { name: string; logo_url?: string | null; palette: BrandPalette; fontId: FontId } & Partial<FrameLogo>,
+): Promise<{ jpg: Buffer; layout: string }[]> {
+  const n = slides.length
+  const logo = frameLogo(brand)
+  const spot = logo.logo_position === "auto" ? "bottom-left" : logo.logo_position
+  const draw = async (s: CarouselFrameSlide, i: number) => {
+    const frame: StoryFrameSlide = {
+      ...toFrame(s, brand),
+      logo_position: spot,
+      type_scale: CAROUSEL_HEADLINE_PX,
+      counter: n > 1 ? `${i + 1}/${n}` : null,
+      swipe_cue: n > 1 && i === 0,
+    }
+    const layers = await renderFrameLayers(frame, FEED_CANVAS)
+    const jpg = await sharp(layers.base).composite([{ input: layers.overlay, top: 0, left: 0 }]).jpeg({ quality: 90, mozjpeg: true }).toBuffer()
+    return { jpg, layout: layers.layout === "free" || layers.layout === "full" || layers.layout === "cutout" ? "full" : layers.layout === "band" ? "split" : layers.layout }
+  }
+  const out = await Promise.all(slides.map((s, i) => draw(s, i)))
+  for (let i = 2; i < n; i++) {
+    if (hasLayoutRun(out.slice(i - 2, i + 1).map((o) => o.layout))) {
+      const mid = slides[i - 1]!
+      if (mid.frame === "hook" || mid.frame === "cta") continue
+      out[i - 1] = await draw({ ...mid, frame: "slide_type", layout_hint: "type" }, i - 1)
+    }
+  }
+  return out
 }

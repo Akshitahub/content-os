@@ -45,6 +45,8 @@ export interface FrameCanvas {
   single?: boolean
   /** How text aligns in this region: left in a left region, right in a right one, centred in a full-width band. */
   align?: Align
+  /** A carousel's shared headline size cap (one type scale across its slides). */
+  maxHeadline?: number
 }
 
 export type Align = "start" | "middle" | "end"
@@ -78,6 +80,14 @@ export interface StoryFrameSlide extends Omit<StoryFrameFields, "frame"> {
   subject_boxes?: SubjectBox[] | null
   /** "full" keeps a studio / catalogue shot full-bleed; default: cut out onto the brand colour. */
   photo_treatment?: "cutout" | "full" | null
+  /** A carousel slide's planned layout (lib/design/carousel-frames.ts): full-bleed, split, or type-led. */
+  layout_hint?: "full" | "split" | "type" | null
+  /** A small slide counter ("2/5") in a free corner. */
+  counter?: string | null
+  /** The cover's subtle "Swipe" cue in a free corner. */
+  swipe_cue?: boolean | null
+  /** The carousel's shared headline size cap, px. */
+  type_scale?: number | null
 }
 
 // ─── Small utilities ────────────────────────────────────────────────────────
@@ -145,7 +155,7 @@ export interface Rect { x0: number; y0: number; x1: number; y1: number }
  * split = the photo in a column, the text on a brand-colour panel beside it;
  * band = the photo below / above, the text on a brand-colour band.
  */
-export type FrameLayout = "full" | "free" | "cutout" | "split" | "band"
+export type FrameLayout = "full" | "free" | "cutout" | "split" | "band" | "type"
 
 interface Composed {
   base: Buffer
@@ -396,16 +406,18 @@ async function compose(slide: StoryFrameSlide, p: BrandPalette, rnd: () => numbe
 
   const boxes = await resolveSubjectBoxes(slide.background_image_url, src, slide.subject_boxes)
   const placed = await placePhoto(src, W, H, boxes, full, cv)
-  const free = freeRegion(placed.subjects, cv, measure)
+  // A slide planned as a split is one (the carousel's layout rhythm).
+  const free = slide.layout_hint === "split" ? null : freeRegion(placed.subjects, cv, measure)
   if (free) {
     const base = await withGrain(placed.img, 22, rnd, cv)
     return { base, photo: true, subjects: placed.subjects, region: free, layout: placed.subjects.length ? "free" : "full" }
   }
 
-  // No room beside the subject: re-lay the frame out around it.
-  const ux0 = Math.min(...placed.subjects.map((r) => r.x0)), ux1 = Math.max(...placed.subjects.map((r) => r.x1))
-  const uy0 = Math.min(...placed.subjects.map((r) => r.y0)), uy1 = Math.max(...placed.subjects.map((r) => r.y1))
-  const tall = uy1 - uy0 > (ux1 - ux0) * 1.1
+  // No room beside the subject (or a planned split): re-lay the frame out around it.
+  const subs = placed.subjects.length ? placed.subjects : [{ x0: cv.w * 0.3, y0: 0, x1: cv.w * 0.7, y1: cv.h }]
+  const ux0 = Math.min(...subs.map((r) => r.x0)), ux1 = Math.max(...subs.map((r) => r.x1))
+  const uy0 = Math.min(...subs.map((r) => r.y0)), uy1 = Math.max(...subs.map((r) => r.y1))
+  const tall = slide.layout_hint === "split" || uy1 - uy0 > (ux1 - ux0) * 1.1
   let panel: Rect, area: Rect
   if (tall) {
     const pw = Math.round(cv.w * 0.46)
@@ -424,18 +436,41 @@ async function compose(slide: StoryFrameSlide, p: BrandPalette, rnd: () => numbe
   return { base: await withGrain(canvas, 18, rnd, cv), photo: true, subjects: inArea.subjects, region: panel, layout: tall ? "split" : "band" }
 }
 
-/** A flat brand-colour canvas with light grain (type-led carousel slides). */
-async function flatBackground(color: string, rnd: () => number, cv: FrameCanvas): Promise<{ base: Buffer; photo: boolean }> {
-  const flat = await sharp({ create: { width: cv.w, height: cv.h, channels: 3, background: color } }).png().toBuffer()
-  const grain = Buffer.alloc(cv.w * cv.h * 3)
-  for (let i = 0; i < cv.w * cv.h; i++) {
-    const v = 128 + Math.round((rnd() - 0.5) * 2 * 12)
-    grain[i * 3] = v
-    grain[i * 3 + 1] = v
-    grain[i * 3 + 2] = v
+/**
+ * Type-led: the brand colour, the type in the top part, and below it a
+ * supporting crop of the slide's photo (centred on its subject / face) or,
+ * without one, a block in the brand's accent -- never an empty flat page.
+ */
+async function composeType(slide: StoryFrameSlide, p: BrandPalette, rnd: () => number, cv: FrameCanvas): Promise<Composed> {
+  const block: Rect = { x0: cv.side, y0: Math.round(cv.h * 0.56), x1: cv.w - cv.side, y1: cv.h - Math.round(cv.safeBottom * 0.8) }
+  const bw = rw(block), bh = rh(block), radius = 28
+  const raw = slide.background_image_url ? await fetchImage(slide.background_image_url) : null
+  let crop: Buffer | null = null
+  if (raw) {
+    try {
+      const oriented = await sharp(raw).rotate().png().toBuffer({ resolveWithObject: true })
+      const boxes = await resolveSubjectBoxes(slide.background_image_url, oriented.data, slide.subject_boxes)
+      const placed = await placePhoto(oriented.data, oriented.info.width, oriented.info.height, boxes, { x0: 0, y0: 0, x1: bw, y1: bh }, cv)
+      const mask = Buffer.from(`<svg width="${bw}" height="${bh}" xmlns="http://www.w3.org/2000/svg"><rect width="${bw}" height="${bh}" rx="${radius}" fill="#fff"/></svg>`)
+      crop = await sharp(placed.img).ensureAlpha().composite([{ input: mask, blend: "dest-in" }]).png().toBuffer()
+    } catch {
+      crop = null
+    }
   }
-  return { base: await sharp(flat).composite([{ input: grain, raw: { width: cv.w, height: cv.h, channels: 3 }, blend: "overlay" }]).png().toBuffer(), photo: false }
+  const blockSvg = crop ? "" : `<rect x="${block.x0}" y="${block.y0}" width="${bw}" height="${bh}" rx="${radius}" fill="${p.accent}"/>`
+  const canvas = await sharp({ create: { width: cv.w, height: cv.h, channels: 3, background: p.base } })
+    .composite([crop ? { input: crop, left: block.x0, top: block.y0 } : { input: Buffer.from(`<svg width="${cv.w}" height="${cv.h}" xmlns="http://www.w3.org/2000/svg">${blockSvg}</svg>`) }])
+    .png().toBuffer()
+  const m = Math.round(SUBJECT_MARGIN * cv.w)
+  return {
+    base: await withGrain(canvas, 12, rnd, cv),
+    photo: true,
+    subjects: [{ x0: block.x0, y0: block.y0 - m, x1: block.x1, y1: block.y1 }],
+    region: { x0: 0, y0: 0, x1: cv.w, y1: block.y0 - m },
+    layout: "type",
+  }
 }
+
 
 // ─── Text treatment over the photo ──────────────────────────────────────────
 
@@ -582,7 +617,10 @@ function besideBlock(block: Block, offset: number): { x: number; anchor: Align }
 function displayBlock(cv: FrameCanvas, f: Fonts, words: string, zone: { y0: number; y1: number }, anchor: Zone, ink: Ink, rnd: () => number, heightShare = 0.3, accent?: { color: string | null; underline: string }): Block {
   const share = cv.single ? Math.max(heightShare, 0.42) : heightShare
   const maxW = cv.w - cv.side * 2 - 12
-  const { lines, size } = fitHeadline(f.display, f.displayId, words, maxW, Math.min(cv.h * share, zone.y1 - zone.y0))
+  const fitted = fitHeadline(f.display, f.displayId, words, maxW, Math.min(cv.h * share, zone.y1 - zone.y0))
+  const lines = fitted.lines
+  // One type scale across a carousel: never bigger than its shared cap.
+  const size = Math.min(fitted.size, cv.maxHeadline ?? Infinity)
   const lh = displayLineHeight(f.displayId)
   const blockH = lines.length * size * lh
   const widths = lines.map((l) => measureTextWidth(f.display, l, size))
@@ -773,6 +811,43 @@ async function placeMark(slide: StoryFrameSlide, overlay: Buffer, base: Buffer, 
   const color = bgLum < 0.5 ? "#ffffff" : "#111111"
   const svg = `<svg width="${cv.w}" height="${cv.h}" xmlns="http://www.w3.org/2000/svg"><text x="${at.r.x0}" y="${r1(at.r.y0 + nameSize * 0.9)}" font-family="${family(displayId)}" font-size="${nameSize}" font-weight="700" fill="${color}">${esc(displayCase(displayId, name))}</text></svg>`
   const layer = Buffer.from(new Resvg(svg, { font: { fontFiles, loadSystemFonts: false, defaultFontFamily: FONT_FAMILY_NAME[displayId] } }).render().asPng())
+  return sharp(overlay).composite([{ input: layer }]).png().toBuffer()
+}
+
+/**
+ * A small text label (a carousel's "2/5" counter, the cover's swipe cue) in
+ * a free corner -- the preferred one when it's free, never over text, the
+ * mark or the subject; no free corner = no label.
+ */
+async function placeLabel(text: string, prefer: LogoPosition, overlay: Buffer, base: Buffer, subjects: Rect[], cv: FrameCanvas, box: fontkit.Font, fontFiles: string[], arrow = false): Promise<Buffer> {
+  const size = Math.round(cv.w * 0.026)
+  const arrowW = arrow ? Math.round(size * 1.3) : 0
+  const w = Math.round(measureTextWidth(box, text, size)) + arrowW
+  const h = Math.round(size * 1.2)
+  const m = Math.max(Math.round(cv.w * 0.06), 40)
+  const spots: Record<Exclude<LogoPosition, "auto">, Rect> = {
+    "top-left": { x0: m, y0: cv.safeTop + 20, x1: m + w, y1: cv.safeTop + 20 + h },
+    "top-right": { x0: cv.w - m - w, y0: cv.safeTop + 20, x1: cv.w - m, y1: cv.safeTop + 20 + h },
+    "bottom-left": { x0: m, y0: cv.h - cv.safeBottom - 20 - h, x1: m + w, y1: cv.h - cv.safeBottom - 20 },
+    "bottom-right": { x0: cv.w - m - w, y0: cv.h - cv.safeBottom - 20 - h, x1: cv.w - m, y1: cv.h - cv.safeBottom - 20 },
+  }
+  const { data, info } = await sharp(overlay).ensureAlpha().raw().toBuffer({ resolveWithObject: true })
+  const busy = (r: Rect) => {
+    for (let y = Math.max(0, r.y0 - 16); y < Math.min(info.height, r.y1 + 16); y += 2) {
+      for (let x = Math.max(0, r.x0 - 16); x < Math.min(info.width, r.x1 + 16); x += 2) if (data[(y * info.width + x) * 4 + 3]! > 40) return true
+    }
+    return false
+  }
+  const order = [prefer, "top-right", "bottom-right", "top-left", "bottom-left"] as Exclude<LogoPosition, "auto">[]
+  const pos = order.find((o) => o !== ("auto" as string) && !busy(spots[o]) && !subjects.some((sub) => rectsIntersect(spots[o], sub)))
+  if (!pos) return overlay
+  const r = spots[pos]
+  const under = await regionLuminance(base, { x: r.x0 / cv.w, y: r.y0 / cv.h, w: w / cv.w, h: h / cv.h }).catch(() => null)
+  const color = (under?.mean ?? 0.5) < 0.5 ? "#ffffff" : "#1a1a1a"
+  const tw = w - arrowW
+  const arrowSvg = arrow ? `<path d="M${r.x0 + tw + 8} ${r.y0 + h * 0.55} h${arrowW - 14} m-${size * 0.35} -${size * 0.3} l${size * 0.35} ${size * 0.3} l-${size * 0.35} ${size * 0.3}" stroke="${color}" stroke-width="${Math.max(2, size * 0.09)}" fill="none" stroke-linecap="round" stroke-linejoin="round"/>` : ""
+  const svg = `<svg width="${cv.w}" height="${cv.h}" xmlns="http://www.w3.org/2000/svg"><text x="${r.x0}" y="${r1(r.y0 + size * 0.95)}" font-family="${family(BOX_FONT)}" font-size="${size}" font-weight="700" fill="${color}" fill-opacity="0.85">${esc(text)}</text>${arrowSvg}</svg>`
+  const layer = Buffer.from(new Resvg(svg, { font: { fontFiles, loadSystemFonts: false, defaultFontFamily: FONT_FAMILY_NAME[BOX_FONT] } }).render().asPng())
   return sharp(overlay).composite([{ input: layer }]).png().toBuffer()
 }
 
@@ -1106,7 +1181,7 @@ function slidePhotoFrame(ctx: Ctx, s: StoryFrameSlide): string {
   return block.svg + body.svg
 }
 
-/** Type-led: no photo -- the brand's base colour, big deep-ink words with an accent line, the body, a tape strip. */
+/** Type-led: the brand's base colour, big deep-ink words with the pop highlight, the supporting line (the crop / colour block sits below). */
 function slideTypeFrame(ctx: Ctx, s: StoryFrameSlide): string {
   const { cv } = ctx
   const roles = paletteRoles(ctx.p)
@@ -1114,9 +1189,11 @@ function slideTypeFrame(ctx: Ctx, s: StoryFrameSlide): string {
   const ink: Ink = { color: roles.ink, filter: "glow", light: false }
   // Pop first (deepened / lifted to read on the base), then accent.
   const accentColor = [ctx.p.pop, ensureContrast(ctx.p.pop, bg, AA_GRAPHIC + 0.5), ctx.p.accent].find((c) => hexContrast(c, bg) >= AA_GRAPHIC + 0.5) ?? null
-  const block = displayBlock(cv, ctx.f, clean(s.big_words) || clean(s.text), { y0: cv.safeTop + 140, y1: Math.round(cv.h * 0.66) }, "top", ink, ctx.rnd, 0.28, { color: accentColor, underline: ctx.p.accent })
+  const z = zones(cv).top
+  const bodyRoom = s.body ? 170 : 0
+  const block = displayBlock(cv, ctx.f, clean(s.big_words) || clean(s.text), { y0: z.y0, y1: Math.max(z.y0 + 80, z.y1 - bodyRoom) }, "top", ink, ctx.rnd, 0.28, { color: accentColor, underline: ctx.p.accent })
   const at = besideBlock(block, 4)
-  const body = bodyLines(ctx, s.body ?? "", at.x, block.bottom + 30, roles.inkMuted, null, at.anchor)
+  const body = bodyLines(ctx, s.body ?? "", at.x, block.bottom + 26, roles.inkMuted, null, at.anchor)
   return block.svg + body.svg
 }
 
@@ -1153,13 +1230,14 @@ export interface FrameLayers {
 }
 
 /** The frame as layers: its background, its text layer, and where the subject and text region are. */
-export async function renderFrameLayers(slide: StoryFrameSlide, cv: FrameCanvas, opts: { plain?: boolean } = {}): Promise<FrameLayers> {
+export async function renderFrameLayers(slide: StoryFrameSlide, canvas: FrameCanvas, opts: { plain?: boolean } = {}): Promise<FrameLayers> {
+  const cv: FrameCanvas = slide.type_scale ? { ...canvas, maxHeadline: slide.type_scale } : canvas
   const p = slide.palette ?? NEUTRAL_PALETTE
   const rnd = prng(typeof slide.seed === "number" ? slide.seed : 1)
   const displayId: FontId = frameDisplayFont(isFontId(slide.font_id) ? slide.font_id : DEFAULT_FONT_ID)
   const { display, script, box, fontFiles } = await loadFonts(displayId)
   const composed: Composed = slide.frame === "slide_type"
-    ? { ...(await flatBackground(p.base, rnd, cv)), subjects: [], region: { x0: 0, y0: 0, x1: cv.w, y1: cv.h }, layout: "full" }
+    ? await composeType(slide, p, rnd, cv)
     : await compose(slide, p, rnd, cv, (w, h) => fitHeadline(display, displayId, clean(slide.big_words) || clean(slide.text) || clean(slide.quote), w, h).size)
   const { base, photo, region, layout } = composed
   // The frame draws on its region as if it were the canvas: full = the
@@ -1172,6 +1250,7 @@ export async function renderFrameLayers(slide: StoryFrameSlide, cv: FrameCanvas,
     // Room for the headline's small rotation inside the safe edge.
     side: 44,
     single: true,
+    maxHeadline: cv.maxHeadline,
     // Left in a left region, right in a right one, centred in a full-width band.
     align: region.x0 <= 1 && region.x1 < cv.w - 1 ? "start" : region.x0 > 1 && region.x1 >= cv.w - 1 ? "end" : "middle",
   }
@@ -1199,7 +1278,10 @@ export async function renderFrameLayers(slide: StoryFrameSlide, cv: FrameCanvas,
   const body = layout === "full" ? drawn : `<clipPath id="region"><rect x="0" y="0" width="${rw(region)}" height="${rh(region)}"/></clipPath><g transform="translate(${region.x0} ${region.y0})" clip-path="url(#region)">${drawn}</g>`
   const svg = `<svg width="${cv.w}" height="${cv.h}" xmlns="http://www.w3.org/2000/svg">${FILTERS}${body}</svg>`
   const textLayer = Buffer.from(new Resvg(svg, { font: { fontFiles, loadSystemFonts: false, defaultFontFamily: FONT_FAMILY_NAME[displayId] } }).render().asPng())
-  const overlay = wantsMark ? await placeMark(slide, textLayer, base, composed.subjects, cv, displayId, display, fontFiles) : textLayer
+  let overlay = wantsMark ? await placeMark(slide, textLayer, base, composed.subjects, cv, displayId, display, fontFiles) : textLayer
+  // A carousel's slide counter and the cover's swipe cue, in free corners.
+  if (slide.counter) overlay = await placeLabel(slide.counter, "top-right", overlay, base, composed.subjects, cv, box, fontFiles)
+  if (slide.swipe_cue) overlay = await placeLabel("Swipe", "bottom-right", overlay, base, composed.subjects, cv, box, fontFiles, true)
   return { base, overlay, subjects: composed.subjects, region, layout }
 }
 

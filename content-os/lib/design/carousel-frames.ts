@@ -32,14 +32,36 @@ export function isCarouselFrame(v: unknown): v is CarouselFrame {
   return typeof v === "string" && (CAROUSEL_FRAMES as readonly string[]).includes(v)
 }
 
-/** Slide i of n: the hook, then photo / type alternating, then the CTA. */
+/**
+ * The carousel's three layouts: a full-bleed photo with the text in its free
+ * space, a split (photo on one side, type on the other), and type-led (the
+ * brand colour, big type, a supporting photo crop or colour block). The
+ * hook and the CTA are full-bleed; the middle slides cycle split, type,
+ * full -- so the same layout never runs three slides in a row, even when a
+ * full-bleed slide has to fall back to a split.
+ */
+export const CAROUSEL_LAYOUTS = ["full", "split", "type"] as const
+export type CarouselLayout = (typeof CAROUSEL_LAYOUTS)[number]
+const MIDDLE_CYCLE: CarouselLayout[] = ["split", "type", "full"]
+
+export function carouselLayoutFor(index: number, count: number): CarouselLayout {
+  if (index === 0 || (index === count - 1 && count > 1)) return "full"
+  return MIDDLE_CYCLE[(index - 1) % MIDDLE_CYCLE.length]!
+}
+
+/** True when the same layout runs three slides in a row anywhere in `layouts`. */
+export function hasLayoutRun(layouts: string[], run = 3): boolean {
+  return layouts.some((_, i) => i >= run - 1 && layouts.slice(i - run + 1, i + 1).every((l) => l === layouts[i]))
+}
+
+/** Slide i of n: the hook, the middle slides by their layout, then the CTA. */
 export function carouselFrameFor(index: number, count: number): CarouselFrame {
   if (index === 0) return "hook"
   if (index === count - 1 && count > 1) return "cta"
-  return index % 2 === 1 ? "slide_photo" : "slide_type"
+  return carouselLayoutFor(index, count) === "type" ? "slide_type" : "slide_photo"
 }
 
-/** Type-led slides are drawn on the brand's own colour -- no photo, nothing generated. */
+/** A generated photo is made for photo-led slides only -- a type-led slide uses a brand photo crop when one fits, else a colour block. */
 export function carouselFrameNeedsPhoto(frame: unknown): boolean {
   return frame !== "slide_type"
 }
@@ -110,6 +132,7 @@ export function finalizeCarouselFrames(slides: Record<string, unknown>[], opts: 
       ...(frame === "cta" ? { cta } : {}),
       seed: (seedBase + i * 7919) % 2 ** 30,
       brand_mark: frame === "hook" || frame === "cta",
+      layout_hint: carouselLayoutFor(i, count),
     }
   })
 }

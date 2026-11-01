@@ -2,7 +2,6 @@ import { candidSceneDirection, isCatalogueShot } from "./catalogue-photos"
 import type { BrandRow } from "@/types/database"
 import { PHOTO_KINDS_FOR } from "@/lib/brand-photos"
 import { chooseFittingPhotos, photoFitItem } from "./photo-fit"
-import { carouselFrameNeedsPhoto } from "@/lib/design/carousel-frames"
 import { sanitizeVisualBrief } from "./visual-brief"
 
 /**
@@ -19,7 +18,8 @@ export async function assignCarouselBrandPhotos(
   slides: Record<string, unknown>[],
   opts: { productId?: string | null; productName?: string | null; label: string },
 ): Promise<Record<string, unknown>[]> {
-  const wanted = slides.map((s, i) => ({ s, i })).filter(({ s }) => carouselFrameNeedsPhoto(s.frame) && !s.image_url)
+  // Every slide may take a fitting brand photo -- a type-led slide shows it as a crop.
+  const wanted = slides.map((s, i) => ({ s, i })).filter(({ s }) => !s.image_url)
   if (wanted.length === 0) return slides
   const photos = await chooseFittingPhotos(db, brand, {
     productId: opts.productId ?? null, productName: opts.productName ?? null, kinds: PHOTO_KINDS_FOR.post,

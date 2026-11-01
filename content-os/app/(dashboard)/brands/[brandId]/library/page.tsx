@@ -681,6 +681,7 @@ interface SlideShape {
   seed?: number | null
   tape?: boolean | null
   brand_mark?: boolean | null
+  layout_hint?: "full" | "split" | "type" | null
 }
 
 // Reuses CarouselBuilder.tsx's own render pipeline (lib/utils/carousel-export.ts)

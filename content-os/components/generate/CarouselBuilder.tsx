@@ -137,6 +137,8 @@ interface CarouselSlideRich {
   seed?: number | null
   tape?: boolean | null
   brand_mark?: boolean | null
+  /** The slide's planned layout (full-bleed, split, type-led). */
+  layout_hint?: "full" | "split" | "type" | null
   /** A catalogue (studio) brand photo picked for this slide: the product
    * reference for its generated candid scene (lib/ai/catalogue-photos.ts),
    * and the slide's photo -- as a cutout -- if that scene can't be made. */
