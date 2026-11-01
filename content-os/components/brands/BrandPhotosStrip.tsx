@@ -3,10 +3,11 @@
 import { Loader2, X } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { useBrandPhotos, useRemoveBrandPhoto } from "@/hooks/useBrandPhotos"
+import { PhonePhotosCard } from "./PhonePhotosCard"
 
 // "Your photos": the brand's own photos SocioPosts collected from its
-// website and Instagram (lib/brand-photos.ts). Read-only apart from removing
-// one -- never an upload prompt or a required step.
+// website and Instagram (lib/brand-photos.ts), plus any the owner sent from
+// their phone (PhonePhotosCard). Never a required step.
 
 export function BrandPhotosStrip({ brandId }: { brandId: string }) {
   const { data: photos, isLoading } = useBrandPhotos(brandId)
@@ -18,7 +19,8 @@ export function BrandPhotosStrip({ brandId }: { brandId: string }) {
         <CardTitle className="text-sm">Your photos</CardTitle>
         <CardDescription>Collected from your website and Instagram, and used in your posts and stories.</CardDescription>
       </CardHeader>
-      <CardContent>
+      <CardContent className="space-y-3">
+        <PhonePhotosCard brandId={brandId} />
         {isLoading ? (
           <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Loading…</div>
         ) : !photos?.length ? (

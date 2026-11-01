@@ -257,6 +257,59 @@ async function backfillDescriptions(db: Db, brandId: string): Promise<number> {
 
 // ─── Sync ──────────────────────────────────────────────────────────────────
 
+/** One photo classified once (kind, quality, product, description) and, when usable, where its subject is. False = the vision call failed. */
+async function classifyRow(db: Db, row: { id: string; url: string }, products: Pick<ProductRow, "id" | "name">[]): Promise<boolean> {
+  const result = await classify(row.url, products)
+  if (!result) return false
+  // Usable photos: where their subject is, so text never covers it (migration 067).
+  const subjectBoxes = result.quality_ok ? await subjectBoxesFor(row.url) : null
+  await updatePhoto(db, row.id, { ...result, ...(subjectBoxes ? { subject_boxes: subjectBoxes } : {}), classified_at: new Date().toISOString() })
+  return true
+}
+
+export type UploadResult = { ok: true; id: string } | { ok: false; reason: "limit" | "not_image" | "error" }
+
+/**
+ * A photo the owner sent from their phone (app/send-photos/[token]): copied
+ * into storage as source 'upload' and classified right after the response,
+ * exactly like a collected photo. One link takes at most `maxPerLink`;
+ * the same photo sent twice is kept once.
+ */
+export async function addUploadedPhoto(db: Db, brandId: string, linkId: string, bytes: Buffer, maxPerLink: number): Promise<UploadResult> {
+  try {
+    const { count } = await db.from("brand_images").select("id", { count: "exact", head: true }).eq("brand_id", brandId).like("external_id", `up-${linkId}-%`)
+    if ((count ?? 0) >= maxPerLink) return { ok: false, reason: "limit" }
+    const meta = await sharp(bytes).metadata().catch(() => null)
+    if (!meta?.width || !meta.height) return { ok: false, reason: "not_image" }
+    const externalId = `up-${linkId}-${createHash("sha1").update(bytes).digest("hex").slice(0, 16)}`
+    const { data: dupe } = await db.from("brand_images").select("id").eq("brand_id", brandId).eq("external_id", externalId).maybeSingle()
+    if (dupe) return { ok: true, id: dupe.id as string }
+    const { data: brand } = await db.from("brands").select("id, user_id").eq("id", brandId).single() as { data: Pick<BrandRow, "id" | "user_id"> | null }
+    if (!brand) return { ok: false, reason: "error" }
+    const copy = await storeCopy(db, brand, externalId, bytes)
+    const tooSmall = Math.max(copy.width, copy.height) < MIN_SIDE_PX
+    const { data: row, error } = await db.from("brand_images").insert({
+      brand_id: brandId, url: copy.url, storage_path: copy.path, external_id: externalId, source: "upload",
+      type: "upload", is_active: true,
+      ...(tooSmall ? { quality_ok: false, classified_at: new Date().toISOString() } : {}),
+    }).select("id").single()
+    if (error || !row) {
+      console.error("[brand-photos] upload insert failed:", error?.message)
+      return { ok: false, reason: "error" }
+    }
+    if (!tooSmall) {
+      after(async () => {
+        const { data: products } = await db.from("products").select("id, name").eq("brand_id", brandId)
+        await classifyRow(db, { id: row.id, url: copy.url }, products ?? []).catch((err) => console.error("[brand-photos] upload classify failed (non-fatal):", err instanceof Error ? err.message : err))
+      })
+    }
+    return { ok: true, id: row.id as string }
+  } catch (err) {
+    console.error("[brand-photos] upload failed:", err instanceof Error ? err.message : err)
+    return { ok: false, reason: "error" }
+  }
+}
+
 export interface PhotoSyncReport {
   found: number
   added: number
@@ -347,12 +400,7 @@ export async function syncBrandPhotos(db: Db, brandId: string, opts: { website?:
     if (pending?.length) {
       const { data: products } = await db.from("products").select("id, name").eq("brand_id", brandId)
       for (const row of pending as { id: string; url: string }[]) {
-        const result = await classify(row.url, products ?? [])
-        if (!result) continue
-        // Usable photos: where their subject is, so text never covers it (migration 067).
-        const subjectBoxes = result.quality_ok ? await subjectBoxesFor(row.url) : null
-        await updatePhoto(db, row.id, { ...result, ...(subjectBoxes ? { subject_boxes: subjectBoxes } : {}), classified_at: new Date().toISOString() })
-        report.classified++
+        if (await classifyRow(db, row, products ?? [])) report.classified++
       }
     }
 

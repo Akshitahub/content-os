@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation"
 import { ArrowRight, Loader2, CheckCircle2, Zap, Plane, Clapperboard } from "lucide-react"
 import { REELS_ENABLED } from "@/lib/constants"
 import { ComingSoonBadge } from "@/components/shared/ComingSoonBadge"
+import { PhonePhotosCard } from "@/components/brands/PhonePhotosCard"
 
 export default function DonePage() {
   const searchParams = useSearchParams()
@@ -50,6 +51,12 @@ export default function DonePage() {
           </div>
         ))}
       </div>
+
+      {brandId && (
+        <div className="mx-auto mt-8 max-w-xl text-center">
+          <PhonePhotosCard brandId={brandId} tone="dark" />
+        </div>
+      )}
 
       <div className="mt-10">
         {done ? (
