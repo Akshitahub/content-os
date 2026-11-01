@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import { recordContentEdits, slideTextEdits } from "@/lib/ai/edit-learning"
 import { createClient, createAdminClient } from "@/lib/supabase/server"
 import { buildError, ErrorCodes } from "@/types/api"
 import { z } from "zod"
@@ -93,6 +94,10 @@ export async function PUT(request: Request, { params }: Params) {
     }
     // Content events (lib/usage/content-events.ts): saved / rated / edited.
     const editedFields = update.stories ? changedFieldNames(before?.stories, update.stories, new Set(["background_image_url", "background_image_provider"])) : []
+    // Frame words the owner rewrote: learned from (lib/ai/edit-learning.ts).
+    if (update.stories) {
+      await recordContentEdits(supabase, slideTextEdits(before?.stories, update.stories).map((e) => ({ brandId, userId: user.id, surface: "story" as const, field: "headline" as const, contentType: "story", contentId: storyId, ...e })))
+    }
     recordContentEvent(supabase, [
       ...savedAndRatedEvents({ userId: user.id, brandId, contentType: "story", contentId: storyId }, update),
       ...(editedFields.length ? [{ userId: user.id, brandId, contentType: "story" as const, contentId: storyId, event: "edited" as const, meta: { fields: editedFields } }] : []),

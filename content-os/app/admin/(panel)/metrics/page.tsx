@@ -99,7 +99,7 @@ export default async function AdminMetricsPage({ searchParams }: PageProps) {
         <div>
           <h2 className="text-lg font-semibold tracking-tight">What each brand has learned</h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            From each brand&apos;s own posted results (weekly, once it has 12+ posts with engagement; saves and shares count most).
+            From each brand&apos;s own posted results (weekly, once it has 12+ posts with engagement; saves and shares count most) and from its owner&apos;s edits (every 5 real rewrites).
           </p>
         </div>
         {learned.error ? (
@@ -111,7 +111,7 @@ export default async function AdminMetricsPage({ searchParams }: PageProps) {
             {learned.brands.map((b) => (
               <div key={b.brandId} className="rounded-xl border bg-card p-4 text-sm">
                 <p className="font-semibold">{b.brandName}</p>
-                {[["Working", b.working], ["Not working", b.notWorking]].map(([label, rules]) => (rules as string[]).length > 0 && (
+                {[["Working", b.working], ["Not working", b.notWorking], ["From the owner's edits", b.fromEdits]].map(([label, rules]) => (rules as string[]).length > 0 && (
                   <div key={label as string} className="mt-2">
                     <p className="text-xs font-medium text-muted-foreground">{label as string}</p>
                     <ul className="mt-1 list-disc space-y-0.5 pl-5">{(rules as string[]).map((r) => <li key={r}>{r}</li>)}</ul>

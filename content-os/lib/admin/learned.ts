@@ -2,13 +2,15 @@ import { createAdminClient } from "@/lib/supabase/server"
 
 // /admin/metrics "What each brand has learned": per brand, its live
 // performance lessons -- what's working / what isn't, from its own posts'
-// results (lib/ai/performance-learning.ts). Plain words, newest first.
+// results (lib/ai/performance-learning.ts) -- and what its owner's edits
+// taught (lib/ai/edit-learning.ts). Plain words, newest first.
 
 export interface BrandLearned {
   brandId: string
   brandName: string
   working: string[]
   notWorking: string[]
+  fromEdits: string[]
 }
 
 export async function getLearnedByBrand(): Promise<{ brands: BrandLearned[]; error: string | null }> {
@@ -16,7 +18,7 @@ export async function getLearnedByBrand(): Promise<{ brands: BrandLearned[]; err
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data, error } = await (admin.from("brand_lessons") as any)
     .select("brand_id, kind, rule, source, expires_at, last_seen_at")
-    .eq("source", "performance")
+    .in("source", ["performance", "edits"])
     .eq("status", "active")
     .order("last_seen_at", { ascending: false })
     .limit(1000) as { data: { brand_id: string; kind: "do" | "avoid"; rule: string; source: string; expires_at?: string | null }[] | null; error: { message: string } | null }
@@ -28,8 +30,9 @@ export async function getLearnedByBrand(): Promise<{ brands: BrandLearned[]; err
   const name = new Map((brands ?? []).map((b) => [b.id, b.name]))
   const out = new Map<string, BrandLearned>()
   for (const l of live) {
-    const b = out.get(l.brand_id) ?? { brandId: l.brand_id, brandName: name.get(l.brand_id) ?? l.brand_id, working: [], notWorking: [] }
-    if (l.kind === "do") b.working.push(l.rule)
+    const b = out.get(l.brand_id) ?? { brandId: l.brand_id, brandName: name.get(l.brand_id) ?? l.brand_id, working: [], notWorking: [], fromEdits: [] }
+    if (l.source === "edits") b.fromEdits.push(l.rule)
+    else if (l.kind === "do") b.working.push(l.rule)
     else b.notWorking.push(l.rule)
     out.set(l.brand_id, b)
   }

@@ -208,9 +208,9 @@ export async function runPerformanceLearning(db: Db, brandId: string, now = Date
     const items = await collectPostedItems(db, brandId, now)
     if (items.length < MIN_ITEMS) return { status: "not_enough", items: items.length }
     const findings = attributeFindings(items)
-    const { data: existing, error } = await db.from("brand_lessons").select("id, lesson_key").eq("brand_id", brandId).eq("source", "performance") as { data: { id: string; lesson_key: string | null }[] | null; error: { message: string } | null }
+    const { data: existing, error } = await db.from("brand_lessons").select("id, lesson_key, status").eq("brand_id", brandId).eq("source", "performance") as { data: { id: string; lesson_key: string | null; status: string }[] | null; error: { message: string } | null }
     if (error) return { status: "learned", items: items.length, findings, written: 0, errors: [`brand_lessons (migration 070?): ${error.message}`] }
-    const byKey = new Map((existing ?? []).filter((l) => l.lesson_key).map((l) => [l.lesson_key!, l.id]))
+    const byKey = new Map((existing ?? []).filter((l) => l.lesson_key).map((l) => [l.lesson_key!, l]))
     const stamp = new Date(now).toISOString()
     const expires = new Date(now + LESSON_DAYS * 86_400_000).toISOString()
     let written = 0
@@ -220,7 +220,10 @@ export async function runPerformanceLearning(db: Db, brandId: string, now = Date
         last_seen_at: stamp, expires_at: expires,
         evidence: { attribute: f.attribute, value: f.value, items: f.count, gap: f.gap, out_of: items.length },
       }
-      const id = byKey.get(lessonKey(f))
+      const known = byKey.get(lessonKey(f))
+      // The owner removed this one (brand page): never brought back.
+      if (known?.status === "retired") continue
+      const id = known?.id
       const { error: writeError } = id
         ? await db.from("brand_lessons").update(row).eq("id", id)
         : await db.from("brand_lessons").insert({ ...row, brand_id: brandId, source: "performance", lesson_key: lessonKey(f) })

@@ -419,11 +419,19 @@ export function FullPostGenerator({ brandId, products }: Props) {
   // sends whatever this holds at click time, edited or not.
   const handleSaveCaption = useCallback((text: string) => {
     if (!fullPostResult || fullPostResult.content.format !== "social_post") return
+    // The owner's rewrite, learned from (lib/ai/edit-learning.ts; touch-ups are ignored there).
+    const before = (fullPostResult.content.content as GeneratedCaption).caption_text
+    if (before !== text) {
+      fetch(`/api/v1/brands/${brandId}/content-edits`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ surface: "full_post", field: "caption", before, after: text }),
+      }).catch(() => {})
+    }
     setFullPostResult({
       ...fullPostResult,
       content: { ...fullPostResult.content, content: { ...fullPostResult.content.content, caption_text: text } },
     })
-  }, [fullPostResult, setFullPostResult])
+  }, [fullPostResult, setFullPostResult, brandId])
 
   useEffect(() => {
     if (occasionContext) setAdditionalContext(occasionContext.angle)

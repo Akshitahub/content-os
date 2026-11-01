@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import { recordContentEdits } from "@/lib/ai/edit-learning"
 import { createClient } from "@/lib/supabase/server"
 import { buildError, ErrorCodes } from "@/types/api"
 import type { CalendarEntryRow, Json } from "@/types/database"
@@ -271,9 +272,9 @@ export async function PATCH(request: Request) {
   try {
     const { data: entry } = await supabase
       .from("calendar_entries")
-      .select("brand_id")
+      .select("brand_id, caption_text, status")
       .eq("id", id)
-      .single<{ brand_id: string }>()
+      .single<{ brand_id: string; caption_text: string | null; status: string }>()
     if (!entry) return NextResponse.json(buildError(ErrorCodes.NOT_FOUND, "Entry not found."), { status: 404 })
 
     const { data: brand } = await supabase
@@ -294,6 +295,12 @@ export async function PATCH(request: Request) {
 
     if (updateError) {
       return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Failed to update entry.", updateError.message), { status: 500 })
+    }
+
+    // The owner rewrote the caption before it went out: learn from it
+    // (lib/ai/edit-learning.ts -- small touch-ups are ignored).
+    if (typeof fields.caption_text === "string" && entry.caption_text && entry.status !== "published") {
+      await recordContentEdits(supabase, [{ brandId: entry.brand_id, userId: user.id, surface: "calendar", field: "caption", contentType: "calendar_entry", contentId: id, before: entry.caption_text, after: fields.caption_text }])
     }
 
     return NextResponse.json({ data: updated })

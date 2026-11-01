@@ -130,15 +130,43 @@ export type DistillInput = {
   rating: number
   note: string
   contentText: string
+  /** Instead of a rated note: the owner's own rewrites (lib/ai/edit-learning.ts), before -> after. */
+  edits?: { field: string; before: string; after: string }[]
 }
 
 const DISTILL_SYSTEM_PROMPT = "You maintain a short list of durable writing rules for one brand, learned from the brand owner's own feedback on AI-generated social media content. Respond with valid JSON only."
 
-function buildDistillPrompt(input: DistillInput, existing: BrandLesson[]): string {
+function buildEditsIntro(input: DistillInput): string {
+  const pairs = (input.edits ?? []).map((e, i) => `${i + 1}. ${e.field}\nBEFORE: """${e.before.slice(0, 700)}"""\nAFTER:  """${e.after.slice(0, 700)}"""`).join("\n\n")
+  return `Before approving or scheduling, the brand owner rewrote these ${input.edits!.length} AI-written items themselves (before -> after):
+
+${pairs}
+
+What do the rewrites have in common -- what does the owner keep changing, the same way, across several of them? A one-off fix (a single fact, a single word) is not a pattern.`
+}
+
+export function buildDistillPrompt(input: DistillInput, existing: BrandLesson[]): string {
   const label = input.scope.replace("_", " ")
   const lessonLines = existing.length
     ? existing.map((l) => `- ${l.id} | ${l.kind} | ${l.scope} | ${l.rule}`).join("\n")
     : "(none yet)"
+  if (input.edits?.length) {
+    return `${buildEditsIntro(input)}
+
+The brand's current lessons (id | kind | scope | rule):
+${lessonLines}
+
+Decide exactly ONE action:
+- "merge": the pattern is the same preference as an existing lesson above. Return {"action":"merge","lesson_id":"<an id from the list above>"}.
+- "create": the rewrites show a NEW reusable rule (seen in at least 2 of them) not already covered. Return {"action":"create","kind":"avoid" or "do","rule":"...","scope":"${input.scope}" or "all"}.
+- "skip": no shared pattern, or only factual corrections (a price, a product detail, a typo) -- facts come from the product data, not from lessons. Return {"action":"skip"}.
+
+For "create":
+- rule is ONE short, general, actionable sentence (under 25 words) about HOW to write, for future posts.
+- Never quote these items or name their products or details. Never invent a preference the rewrites don't show.
+- kind "avoid" for what the owner keeps removing, "do" for what they keep adding.
+- scope "all" when it's about the brand's writing in general (tone, language, length, emojis); otherwise "${input.scope}".`
+  }
   return `The brand owner rated this ${label} ${input.rating}/5 and wrote: "${input.note.slice(0, 1000)}"
 
 The ${label} they rated:
@@ -218,13 +246,14 @@ export async function decideLesson(
   }
 }
 
-/** Writes a decideLesson decision: merge bumps evidence_count/last_seen_at, create inserts a 'feedback_note' lesson. */
+/** Writes a decideLesson decision: merge bumps evidence_count/last_seen_at, create inserts a lesson from `source` ('feedback_note' by default, 'edits' for the owner's rewrites). */
 export async function applyLessonDecision(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   supabase: any,
   brandId: string,
   decision: LessonDecision,
   existing: BrandLesson[],
+  source: "feedback_note" | "edits" = "feedback_note",
 ): Promise<void> {
   if (decision.action === "skip") return
   if (decision.action === "merge") {
@@ -245,7 +274,7 @@ export async function applyLessonDecision(
     scope: decision.scope,
     kind: decision.kind,
     rule: decision.rule,
-    source: "feedback_note",
+    source,
   })
   if (error) console.error(`[brand-brain] lesson insert failed for brand ${brandId} (non-fatal):`, error.message)
 }
