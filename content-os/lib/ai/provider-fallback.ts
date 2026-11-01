@@ -136,8 +136,15 @@ function toOpenAIRequest<P extends { model: string; max_tokens?: number | null; 
   const { max_tokens: maxTokens, temperature: _t, top_p: _p, ...rest } = params as P & { temperature?: unknown; top_p?: unknown }
   void _t
   void _p
-  return { ...rest, model, max_completion_tokens: params.max_completion_tokens ?? maxTokens ?? undefined } as unknown as P
+  // The fallback is a reasoning model: Groq's token budget can be spent on
+  // reasoning alone and return an empty answer -- half as much again.
+  const budget = params.max_completion_tokens ?? maxTokens ?? undefined
+  return { ...rest, model, max_completion_tokens: budget ? Math.min(32_000, Math.round(budget * FALLBACK_TOKEN_FACTOR)) : undefined } as unknown as P
 }
+
+/** The OpenAI fallback's token budget and time, relative to the Groq call's (it reasons first). */
+export const FALLBACK_TOKEN_FACTOR = 1.5
+export const FALLBACK_TIMEOUT_FACTOR = 2.5
 
 let warnedNoOpenAIKey = false
 
@@ -157,7 +164,7 @@ export interface TextCompletionResult<R> {
   fallbackReason: FallbackReason | null
 }
 
-async function withFallback<R>(params: { model: string }, opts: CallOptions, call: (client: OpenAI, request: typeof params, maxRetries: number) => Promise<R>, usageOf: (r: R) => ChatCompletion["usage"] | undefined): Promise<TextCompletionResult<R>> {
+async function withFallback<R>(params: { model: string }, opts: CallOptions, call: (client: OpenAI, request: typeof params, maxRetries: number, timeout?: number) => Promise<R>, usageOf: (r: R) => ChatCompletion["usage"] | undefined): Promise<TextCompletionResult<R>> {
   const groqModel = params.model
   if (!isGroqTextModel(groqModel)) {
     return { response: await call(getTextClientFor(groqModel), params, opts.maxRetries ?? 1), model: groqModel, provider: "openai", fallbackReason: null }
@@ -196,7 +203,10 @@ async function withFallback<R>(params: { model: string }, opts: CallOptions, cal
   console.warn(`[provider-fallback] stage=${opts.stage} groq model=${groqModel} failed (${reason}: ${errText(firstErr).slice(0, 160)}) -- retrying on openai model=${fallbackModel}`)
   let response: R
   try {
-    response = await call(getOpenAIClient(), toOpenAIRequest(params, fallbackModel), opts.maxRetries ?? 1)
+    // More time (a reasoning model writing a whole carousel ran past the Groq
+    // call's 60s), and no SDK retry so the total stays inside the route's deadline.
+    const timeout = opts.timeout ? Math.round(opts.timeout * FALLBACK_TIMEOUT_FACTOR) : undefined
+    response = await call(getOpenAIClient(), toOpenAIRequest(params, fallbackModel), timeout ? 0 : opts.maxRetries ?? 1, timeout)
   } catch (err) {
     // The fallback failing too never makes things worse than before: the
     // caller gets Groq's own error, exactly as without a fallback.
@@ -214,7 +224,7 @@ export function createTextCompletion(params: ChatCompletionCreateParamsNonStream
   return withFallback(
     params,
     opts,
-    (client, request, maxRetries) => client.chat.completions.create(request as ChatCompletionCreateParamsNonStreaming, { timeout: opts.timeout, maxRetries }),
+    (client, request, maxRetries, timeout) => client.chat.completions.create(request as ChatCompletionCreateParamsNonStreaming, { timeout: timeout ?? opts.timeout, maxRetries }),
     (r) => r.usage,
   )
 }
@@ -224,7 +234,7 @@ export function createTextCompletionStream(params: ChatCompletionCreateParamsStr
   return withFallback(
     params,
     opts,
-    (client, request, maxRetries) => client.chat.completions.create(request as ChatCompletionCreateParamsStreaming, { timeout: opts.timeout, maxRetries }),
+    (client, request, maxRetries, timeout) => client.chat.completions.create(request as ChatCompletionCreateParamsStreaming, { timeout: timeout ?? opts.timeout, maxRetries }),
     () => undefined,
   )
 }

@@ -82,7 +82,8 @@ async function main() {
   check("daily limit -> reason daily_limit, model gpt-5.4", daily.fallbackReason === "daily_limit" && daily.model === "gpt-5.4", [daily.fallbackReason, daily.model])
   check("Groq tried once (no pointless wait on a daily limit)", groqCalls === 1, groqCalls)
   const sent = openaiRequests[0] ?? {}
-  check("OpenAI request adapted: max_completion_tokens, no temperature / max_tokens", sent.max_completion_tokens === 900 && !("temperature" in sent) && !("max_tokens" in sent), sent)
+  // 1.5x Groq's budget: the fallback reasons before it answers.
+  check("OpenAI request adapted: max_completion_tokens (1.5x), no temperature / max_tokens", sent.max_completion_tokens === 1350 && !("temperature" in sent) && !("max_tokens" in sent), sent)
   check("fallback counted in the generation context", daily.count === 1, daily.count)
 
   // 2. A short per-minute 429 is waited out on Groq, no fallback.
