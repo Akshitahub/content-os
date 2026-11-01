@@ -39,6 +39,16 @@ async function main() {
     assert.equal(carouselSlideIssues(d, "linen that stays crisp till 6pm").filter((i) => i.check === "unsupported_claim").length, 0)
   })
 
+  const { mergeRepaired } = await import("@/lib/ai/quality-gate")
+  test("a gate repair that returns only the changed fields keeps the rest", () => {
+    const original = { slides: [{ headline: "Linen by noon", big_words: "Linen by noon" }, { headline: "Steam, don't iron", big_words: "Steam, don't iron", subtext: "Two minutes of steam beats a hot iron" }] }
+    const repaired = { slides: [{}, { subtext: "Steam relaxes the fibres without pressing in creases", big_words: "", headline: null }] }
+    const merged = mergeRepaired("carousel", original, repaired, new Set([1])) as typeof original
+    assert.equal(merged.slides[1]!.big_words, "Steam, don't iron")
+    assert.equal(merged.slides[1]!.subtext, "Steam relaxes the fibres without pressing in creases")
+    assert.equal(merged.slides[0]!.big_words, "Linen by noon")
+  })
+
   console.log(`\n${passed} passed`)
 }
 

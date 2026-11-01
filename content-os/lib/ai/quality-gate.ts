@@ -94,16 +94,24 @@ function itemsFor(format: GateFormat, data: unknown): GateItem[] {
 }
 
 /** Puts back ONLY the failing items from the repaired output; everything else stays as first generated. */
-function mergeRepaired(format: GateFormat, original: unknown, repaired: unknown, failing: Set<number>): unknown {
+export function mergeRepaired(format: GateFormat, original: unknown, repaired: unknown, failing: Set<number>): unknown {
   const o = obj(original) ?? {}
   const r = obj(repaired) ?? {}
   if (format === "post") return failing.has(0) ? { ...o, ...r } : o
   const key = format === "carousel" ? "slides" : format === "story" ? "stories" : "variants"
   const orig = Array.isArray(o[key]) ? [...(o[key] as unknown[])] : []
   const rep = Array.isArray(r[key]) ? (r[key] as unknown[]) : []
-  for (const i of failing) if (i < orig.length && rep[i] !== undefined) orig[i] = rep[i]
+  // A repair may return only the fields it changed: every field it didn't
+  // return keeps its original (a slide never loses its headline).
+  // An empty value (null, "") in the repair never blanks a real one either.
+  const mergeItem = (a: unknown, b: unknown) => {
+    const ao = obj(a), bo = obj(b)
+    if (!ao || !bo) return b ?? a
+    return { ...ao, ...Object.fromEntries(Object.entries(bo).filter(([, v]) => v !== null && v !== undefined && v !== "")) }
+  }
+  for (const i of failing) if (i < orig.length && rep[i] !== undefined) orig[i] = mergeItem(orig[i], rep[i])
   const merged: Record<string, unknown> = { ...o, [key]: orig }
-  if (format === "carousel" && failing.has(orig.length) && r.cta_slide !== undefined) merged.cta_slide = r.cta_slide
+  if (format === "carousel" && failing.has(orig.length) && r.cta_slide !== undefined) merged.cta_slide = mergeItem(o.cta_slide, r.cta_slide)
   return merged
 }
 

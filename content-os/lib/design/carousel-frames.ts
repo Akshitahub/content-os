@@ -118,7 +118,8 @@ export function finalizeCarouselFrames(slides: Record<string, unknown>[], opts: 
   const seedBase = opts.seedBase ?? Math.floor(Math.random() * 2 ** 20)
   return slides.map((s, i) => {
     const frame = carouselFrameFor(i, count)
-    const bigWords = bigWordsFor(s) || clampSlideWords(s.headline, CAROUSEL_BIG_WORDS_MAX) || "More"
+    // No words at all: the slide's own line, never a generic label.
+    const bigWords = bigWordsFor(s) || clampSlideWords(s.headline, CAROUSEL_BIG_WORDS_MAX) || clampSlideWords(str(s.body) || str(s.subtext), CAROUSEL_BIG_WORDS_MAX) || "More"
     const line = frame === "hook" || frame === "cta"
       ? clampSlideWords(str(s.body) || str(s.subtext), CAROUSEL_SCRIPT_LINE_MAX)
       : bodyFor(s, bigWords)
