@@ -25,7 +25,7 @@ const CAROUSEL_VIBES = ["fun_playful", "clean_minimal", "bold_dramatic", "warm_c
 const schema = z.object({
   brandId: z.string().uuid(),
   // The slide's own words: the photo is checked against them (lib/ai/slide-photo-check.ts).
-  slideCopy: z.object({ headline: z.string().max(200), body: z.string().max(300).nullish() }).optional(),
+  slideCopy: z.object({ headline: z.string().max(200), body: z.string().max(300).nullish(), productName: z.string().max(200).nullish() }).optional(),
   vibe: z.enum(CAROUSEL_VIBES).optional(),
   role: z.enum(["hook", "cta", "body"]),
   productImageUrl: z.string().url().optional(),

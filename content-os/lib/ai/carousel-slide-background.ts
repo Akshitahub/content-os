@@ -75,7 +75,7 @@ function resolveProductSafeZoneGuard(slideType?: "cover" | "content" | "cta"): s
   return "leave generous calm negative space for a text overlay"
 }
 
-function buildSlidePrompt(niche: string | null, vibe: Vibe, colors: string[], role: "hook" | "cta" | "body", productImageUrl?: string | null, slideType?: "cover" | "content" | "cta", customPrompt?: string, userDirection?: string | null): string {
+function buildSlidePrompt(niche: string | null, vibe: Vibe, colors: string[], role: "hook" | "cta" | "body", productImageUrl?: string | null, slideType?: "cover" | "content" | "cta", customPrompt?: string, userDirection?: string | null, point?: SlidePoint | null): string {
   // Descriptive color names, not raw hex — diffusion models reliably follow
   // "a vibrant orange-red" but ignore "#FF5733" outright, confirmed via real
   // testing (see docs/research/seedream-5-lite-evaluation.md).
@@ -97,14 +97,15 @@ function buildSlidePrompt(niche: string | null, vibe: Vibe, colors: string[], ro
       trimmedCustom,
       userDirectionLine(userDirection),
       PHOTOGRAPHY_STYLE,
-      REFERENCE_IMAGE_PEOPLE_GUARD,
+      // With a point, the reference's own person / outfit is NOT kept.
+      point ? "" : REFERENCE_IMAGE_PEOPLE_GUARD,
       niche ? `${niche} brand` : "",
       VIBE_BACKGROUND_STYLES[vibe],
       colorNames.length > 0 ? `color palette inspired by ${colorNames.join(" and ")}` : "",
       resolveProductSafeZoneGuard(slideType),
       POST_IMAGE_QUALITY_AND_NEGATIVE_GUARD,
     ].filter(Boolean).join(", ")
-    return wrapForReferenceImage(sceneDescription)
+    return point ? wrapForStyledReference(sceneDescription, point) : wrapForReferenceImage(sceneDescription)
   }
 
   // The SocioPosts-authored (and possibly user-edited) scene, when present,
@@ -155,7 +156,7 @@ function userDirectionLine(userDirection?: string | null): string {
   return text ? `user direction: ${text}` : ""
 }
 
-function buildBriefSlidePrompt(brief: VisualBrief, niche: string | null, vibe: Vibe, colors: string[], role: "hook" | "cta" | "body", productImageUrl?: string | null, slideType?: "cover" | "content" | "cta", userDirection?: string | null): string {
+function buildBriefSlidePrompt(brief: VisualBrief, niche: string | null, vibe: Vibe, colors: string[], role: "hook" | "cta" | "body", productImageUrl?: string | null, slideType?: "cover" | "content" | "cta", userDirection?: string | null, point?: SlidePoint | null): string {
   const colorNames = colors.map(describeColor).filter((c): c is string => !!c).slice(0, 3)
   const composition = brief.composition ? `composition: ${brief.composition}` : ""
   const direction = userDirectionLine(userDirection)
@@ -165,12 +166,12 @@ function buildBriefSlidePrompt(brief: VisualBrief, niche: string | null, vibe: V
   // attached -- same reference-image path as buildSlidePrompt, with the
   // brief as the scene and the hard no-text lines added on top.
   if (productImageUrl) {
-    return wrapForReferenceImage([
+    return (point ? (scene: string) => wrapForStyledReference(scene, point) : wrapForReferenceImage)([
       briefScene(brief),
       composition || resolveProductSafeZoneGuard(slideType),
       direction,
       PHOTOGRAPHY_STYLE,
-      REFERENCE_IMAGE_PEOPLE_GUARD,
+      point ? "" : REFERENCE_IMAGE_PEOPLE_GUARD,
       niche ? `${niche} brand` : "",
       VIBE_BACKGROUND_STYLES[vibe],
       colorNames.length > 0 ? `color palette inspired by ${colorNames.join(" and ")}` : "",
@@ -183,6 +184,8 @@ function buildBriefSlidePrompt(brief: VisualBrief, niche: string | null, vibe: V
 
   return [
     briefScene(brief),
+    // The slide's point, when it names something to show (not for pure mood).
+    point && brief.kind !== "abstract_mood" ? `the photo must clearly show: ${point.show}` : "",
     composition,
     direction,
     VIBE_BACKGROUND_STYLES[vibe],
@@ -274,6 +277,24 @@ export interface GenerateCarouselSlideBackgroundOptions {
    * passes "low" (text is composited on top); raised to "medium" when
    * productImageUrl is set. */
   quality?: ImageQuality
+  /** What THIS slide's photo must show (its headline and line, e.g. "White
+   * tee -- olive chinos with a crisp white tee"), and the product's name.
+   * With a reference photo, only the product is taken from it -- the rest
+   * of its outfit and setting are replaced by the point. */
+  point?: SlidePoint | null
+}
+
+export interface SlidePoint { show: string; productName?: string | null }
+
+/**
+ * The reference-image prompt for a slide with a point: the product exactly
+ * as in the reference, and NOTHING else from it -- a styling slide shows
+ * the product worn with the item its headline names, not the catalogue
+ * shot's own shirt. Exported for scripts/test-slide-point.ts.
+ */
+export function wrapForStyledReference(sceneDescription: string, point: SlidePoint): string {
+  const product = point.productName?.trim() ? `the ${point.productName.trim()}` : "the product"
+  return `The attached reference photo shows the real product: ${product}. Reproduce ONLY ${product} exactly -- its colour, fabric, texture and cut -- in one new photograph. Do NOT copy anything else from the reference: replace the other clothing, the accessories, the pose and the setting. What this photo must clearly show, obvious at a glance: ${point.show}. When that names another item (a top, a jacket, shoes, a bag, accessories), ${product} is worn or used together with exactly that item, fully in view and unmistakable -- never the reference photo's own outfit. Scene: ${sceneDescription}. Output ONE seamless photograph from a single camera angle -- not a collage, not a split image, not a before/after; ${product} clearly visible and recognisable.`
 }
 
 /**
@@ -306,7 +327,7 @@ export async function generateCarouselSlideBackground(
   const brief = options.visualBrief
   if (brief) {
     const productImageUrl = briefUsesProductReference(brief) ? options.productImageUrl : undefined
-    const prompt = withArt(buildBriefSlidePrompt(brief, options.brand.niche, vibe, colors, options.role, productImageUrl, options.slideType, options.userDirection))
+    const prompt = withArt(buildBriefSlidePrompt(brief, options.brand.niche, vibe, colors, options.role, productImageUrl, options.slideType, options.userDirection, options.point))
     const fallbackPrompt = withArtShort(simplifyBriefSlidePrompt(brief, vibe, productImageUrl))
     // A split brief with both halves becomes two images composited side by
     // side (lib/ai/split-layer.ts); anything else is the single prompt.
@@ -316,7 +337,7 @@ export async function generateCarouselSlideBackground(
         const half = halfBrief(text)
         const ref = halfUsesProductReference(brief, side) ? options.productImageUrl : undefined
         return {
-          prompt: withArt(buildBriefSlidePrompt(half, options.brand.niche, vibe, colors, options.role, ref, options.slideType, options.userDirection)),
+          prompt: withArt(buildBriefSlidePrompt(half, options.brand.niche, vibe, colors, options.role, ref, options.slideType, options.userDirection, options.point)),
           fallbackPrompt: withArtShort(simplifyBriefSlidePrompt(half, vibe, ref)),
           productImageUrl: ref,
         }
@@ -326,7 +347,7 @@ export async function generateCarouselSlideBackground(
     })
   }
 
-  const prompt = withArt(buildSlidePrompt(options.brand.niche, vibe, colors, options.role, options.productImageUrl, options.slideType, options.customPrompt, options.userDirection))
+  const prompt = withArt(buildSlidePrompt(options.brand.niche, vibe, colors, options.role, options.productImageUrl, options.slideType, options.customPrompt, options.userDirection, options.point))
   const fallbackPrompt = withArtShort(simplifySlidePrompt(vibe, options.productImageUrl, options.customPrompt))
 
   return fetchBackgroundImage(prompt, fallbackPrompt, options.plan, options.isInternalUnlimitedUser, undefined, options.productImageUrl, options.quality)

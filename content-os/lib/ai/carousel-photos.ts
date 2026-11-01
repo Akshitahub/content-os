@@ -23,7 +23,8 @@ export async function assignCarouselBrandPhotos(
   if (wanted.length === 0) return slides
   const photos = await chooseFittingPhotos(db, brand, {
     productId: opts.productId ?? null, productName: opts.productName ?? null, kinds: PHOTO_KINDS_FOR.post,
-    items: wanted.map(({ s }) => photoFitItem(sanitizeVisualBrief(s.visual) ?? null, null, [s.headline as string | undefined, s.subtext as string | undefined])),
+    // Each slide's photo must show the item its headline names.
+    items: wanted.map(({ s }) => ({ ...photoFitItem(sanitizeVisualBrief(s.visual) ?? null, null, [s.headline as string | undefined, s.subtext as string | undefined]), headline: typeof s.headline === "string" ? s.headline : null })),
     label: opts.label,
     format: "carousel",
   })

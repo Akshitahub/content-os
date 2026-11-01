@@ -86,7 +86,7 @@ async function main() {
           visualBrief: ref ? undefined : s.visual as never,
           productImageUrl: ref,
           customPrompt: ref ? `${candidSceneDirection(i)}. This slide's point: ${s.headline} -- ${s.subtext ?? ""}` : undefined,
-        }, { headline: String(s.headline ?? ""), body: (s.subtext as string | null) ?? null }, `carousel ${slug(topic)} slide ${i + 1}`, () => true, productPhoto)
+        }, { headline: String(s.headline ?? ""), body: (s.subtext as string | null) ?? null, productName: aboutProduct ? product!.name : null }, `carousel ${slug(topic)} slide ${i + 1}`, () => true, productPhoto)
         if (bg.success && photoMissesPoint(bg.agree, i, slides.length)) {
           // Doesn't show the point even after the retry: type-led over a
           // detail of the product photo, as in production.

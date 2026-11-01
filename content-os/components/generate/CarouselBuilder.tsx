@@ -292,7 +292,7 @@ async function fetchSlideBackgroundResult(
   visualBrief?: CarouselVisualBrief,
   userDirection?: string | null,
   textPosition?: { x?: number; y?: number },
-  slideCopy?: { headline: string; body?: string | null }
+  slideCopy?: { headline: string; body?: string | null; productName?: string | null }
 ): Promise<SlideBackgroundOutcome> {
   try {
     const res = await fetch("/api/v1/ai/carousel/slide-image/generate", {
@@ -1093,7 +1093,7 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
         // reference, with a candid real-life scene direction.
         const ref = slides[i]?.product_reference_url ?? null
         const product = ref ?? productImage
-        return { key: i, run: () => fetchSlideBackgroundResult(brandId, vibe, role, product ?? undefined, product ? SLIDE_TYPE_FOR_BG_ROLE[role] : undefined, visualPrompt, slides[i]?.visual, slides[i]?.scene_direction ?? visualPromptSeedRef.current, { x: slides[i]?.text_position_x, y: slides[i]?.text_position_y }, { headline: slides[i]?.headline ?? "", body: slides[i]?.subtext ?? null }) }
+        return { key: i, run: () => fetchSlideBackgroundResult(brandId, vibe, role, product ?? undefined, product ? SLIDE_TYPE_FOR_BG_ROLE[role] : undefined, visualPrompt, slides[i]?.visual, slides[i]?.scene_direction ?? visualPromptSeedRef.current, { x: slides[i]?.text_position_x, y: slides[i]?.text_position_y }, { headline: slides[i]?.headline ?? "", body: slides[i]?.subtext ?? null, productName: selectedProduct?.name ?? null }) }
       }),
       { onProgress: (settled, total) => { if (isCurrent()) setBgProgress({ settled, total }) }, isCancelled: () => !isCurrent() }
     )

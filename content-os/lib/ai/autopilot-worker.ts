@@ -402,7 +402,7 @@ async function prepareSlot(admin: Admin, job: SlotJobRow, ctx: RunContext, track
       const withPhotos = await assignCarouselBrandPhotos(admin, brand, generated.carousel.slides, {
         productId: product?.id ?? null, productName: product?.name ?? null, label: `autopilot slot ${job.id} carousel`,
       })
-      carouselRichSlides = await withCarouselBackgrounds(job, ctx, withPhotos, tracker, product?.image_urls?.find(Boolean) ?? null)
+      carouselRichSlides = await withCarouselBackgrounds(job, ctx, withPhotos, tracker, product?.image_urls?.find(Boolean) ?? null, product?.name ?? null)
       tracker.imageMs += Date.now() - imageStartedAt
       await rememberBrandTypography(admin, brand, generated.carousel.typography)
       // Framed slides (lib/design/carousel-frames.ts) through the frame
@@ -589,7 +589,7 @@ function carouselBgRole(index: number, count: number): "hook" | "cta" | "body" {
  * its text_style; a failed slide keeps its flat background_style. Image
  * cost is tracked like the post image's.
  */
-async function withCarouselBackgrounds(job: SlotJobRow, ctx: RunContext, slides: Record<string, unknown>[], tracker: AutopilotUsageTracker, productPhoto: string | null): Promise<Record<string, unknown>[]> {
+async function withCarouselBackgrounds(job: SlotJobRow, ctx: RunContext, slides: Record<string, unknown>[], tracker: AutopilotUsageTracker, productPhoto: string | null, productName: string | null): Promise<Record<string, unknown>[]> {
   const { brand, params } = ctx
   return Promise.all(slides.map(async (slide, i) => {
     // A brand photo already placed, or a type-led frame (no photo at all).
@@ -613,7 +613,7 @@ async function withCarouselBackgrounds(job: SlotJobRow, ctx: RunContext, slides:
         productImageUrl: ref ?? productPhoto,
         userDirection: typeof slide.scene_direction === "string" ? slide.scene_direction : undefined,
         quality: "low",
-      }, { headline: String(slide.headline ?? ""), body: typeof slide.subtext === "string" ? slide.subtext : null }, `autopilot slot ${job.id} slide ${i + 1}`, () => true, ref ?? productPhoto)
+      }, { headline: String(slide.headline ?? ""), body: typeof slide.subtext === "string" ? slide.subtext : null, productName }, `autopilot slot ${job.id} slide ${i + 1}`, () => true, ref ?? productPhoto)
       if (result.checkCostUsd) trackUsage(tracker, undefined, result.checkCostUsd)
       trackUsage(tracker, undefined, attemptsCostUsd(result.attempts))
       if (!result.success) {

@@ -24,6 +24,8 @@ export interface PhotoFitItem {
   brief: string
   /** The copy on / with the image. */
   copy: string
+  /** A carousel slide's headline: the specific thing (a white tee, a blazer) its photo must show. */
+  headline?: string | null
 }
 
 export function photoFitItem(visual: VisualBrief | null | undefined, fallbackScene: string | null | undefined, copy: (string | null | undefined)[]): PhotoFitItem {
@@ -45,7 +47,7 @@ export function buildPhotoFitPrompt(item: PhotoFitItem, candidates: Pick<BrandPh
 
 POST
 ${productName ? `Product: ${productName}\n` : ""}The image must show: ${item.brief || "(no brief -- judge from the copy)"}
-Copy: ${item.copy || "(none)"}
+Copy: ${item.copy || "(none)"}${item.headline ? `\nHeadline: "${item.headline}" -- the photo must show the specific item or action this headline names (e.g. "White tee" = a white tee in view, "Add accessories" = visible accessories).` : ""}
 
 PHOTOS (what each one shows)
 ${candidates.map((c, i) => `${i}: ${c.description}`).join("\n")}
@@ -57,6 +59,7 @@ SCALE
 2 = weak: only loosely connected.
 1 = wrong: a different product than the post is about, or unrelated to the post.
 A photo of a different product, or of something the post never mentions, is never above 2.
+A photo that doesn't show the specific item the headline / copy names (the white tee, the blazer, the loafers) is never above 2, however close the rest is.
 
 Respond with JSON only: {"scores": [{"photo": <number>, "fit": <1-5>, "reason": "a few words"}]} -- one entry per photo.`
 }
