@@ -110,7 +110,8 @@ async function main() {
 
   await test("no photo anywhere: every slide stays in the palette", async () => {
     const rendered = await checkPalette(SLIDES, NEUTRAL_PALETTE, "neutral")
-    assert.equal(rendered[2]!.layout, "type")
+    // Photo-led middle slides with no photo are type-led too, never a bare gradient.
+    assert.deepEqual(rendered.slice(1, 4).map((r) => r.layout), ["type", "type", "type"])
     await checkPalette(SLIDES, { deep: "#2b1d3a", base: "#fbf6ee", accent: "#7a4bc2", pop: "#f2b33d", source: "brand_colors" }, "violet")
   })
 

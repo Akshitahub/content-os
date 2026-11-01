@@ -82,8 +82,11 @@ export async function renderCarouselFrames(
   const logo = frameLogo(brand)
   const spot = logo.logo_position === "auto" ? "bottom-left" : logo.logo_position
   const draw = async (s: CarouselFrameSlide, i: number) => {
+    // A photo-led middle slide whose photo couldn't be made (a failed or
+    // refused generation) is type-led -- never a bare gradient.
+    const slide: CarouselFrameSlide = s.frame === "slide_photo" && !s.image_url ? { ...s, frame: "slide_type", layout_hint: "type" } : s
     const frame: StoryFrameSlide = {
-      ...toFrame(s, brand),
+      ...toFrame(slide, brand),
       logo_position: spot,
       type_scale: CAROUSEL_HEADLINE_PX,
       counter: n > 1 ? `${i + 1}/${n}` : null,
