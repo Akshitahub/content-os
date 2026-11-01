@@ -68,10 +68,17 @@ export function carouselFrameNeedsPhoto(frame: unknown): boolean {
 
 const TRAILING = /^(?:and|or|but|the|a|an|of|to|for|with|in|on|at|by|your|our|is|are|that|this)$/i
 
-/** First `max` words, never ending on a dangling joiner or punctuation. */
+/** First `max` words, never ending on a dangling joiner or punctuation. A
+ * cut lands on the last phrase break when there is one ("Pick the look, own
+ * it" -> "Pick the look", never "Pick the look, own"). */
 export function clampSlideWords(s: unknown, max: number): string {
   if (typeof s !== "string") return ""
-  const words = s.replace(/\s+/g, " ").trim().split(" ").filter(Boolean).slice(0, max)
+  const all = s.replace(/\s+/g, " ").trim().split(" ").filter(Boolean)
+  let words = all.slice(0, max)
+  if (all.length > max) {
+    const brk = words.slice(0, -1).findLastIndex((w) => /[,;:.!?\-–—]$/.test(w))
+    if (brk >= 1) words = words.slice(0, brk + 1)
+  }
   while (words.length > 1 && TRAILING.test(words[words.length - 1]!.replace(/[^\w']/g, ""))) words.pop()
   return words.join(" ").replace(/[,;:\-–—]+$/, "")
 }

@@ -1,0 +1,70 @@
+{
+  "brand": "SNITCH",
+  "topic": "how to style olive chinos",
+  "payoff_type": "ways",
+  "payoff": "3 ways to style olive chinos",
+  "gate": {
+    "unsupported_claim": 0,
+    "visual_mismatch": 0,
+    "off_topic": 0,
+    "generic": 0,
+    "duplicate": 0,
+    "vague_headline": 0
+  },
+  "cover_critic": {
+    "overall": 7.6,
+    "top_fix": "Add a sharper benefit or CTA, like “5 ways to style them—shop the look, link in bio.”"
+  },
+  "slides": [
+    {
+      "slide": 1,
+      "frame": "hook",
+      "layout_hint": "full",
+      "big_words": "Olive Chinos",
+      "line": "Swipe for versatile outfits",
+      "photo": "generated for this slide",
+      "photo_agrees": 8,
+      "layout": "split"
+    },
+    {
+      "slide": 2,
+      "frame": "slide_type",
+      "layout_hint": "type",
+      "big_words": "White Tee",
+      "line": "Keeps the look fresh and effortless",
+      "photo": "brand colour",
+      "photo_agrees": 3,
+      "layout": "type"
+    },
+    {
+      "slide": 3,
+      "frame": "slide_type",
+      "layout_hint": "type",
+      "big_words": "Smart",
+      "line": "Pick blazer for office or jacket for weekend",
+      "photo": "brand colour",
+      "photo_agrees": null,
+      "layout": "type"
+    },
+    {
+      "slide": 4,
+      "frame": "slide_photo",
+      "layout_hint": "full",
+      "big_words": "Accessories",
+      "line": "Add belt, watch, and shades",
+      "photo": "generated for this slide",
+      "photo_agrees": 8,
+      "layout": "split"
+    },
+    {
+      "slide": 5,
+      "frame": "cta",
+      "layout_hint": "full",
+      "big_words": "Mix tops and accessories",
+      "line": null,
+      "photo": "generated for this slide",
+      "photo_agrees": 6,
+      "layout": "split"
+    }
+  ]
+}

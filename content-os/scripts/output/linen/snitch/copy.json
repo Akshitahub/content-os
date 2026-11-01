@@ -1,0 +1,112 @@
+{
+  "brand": "SNITCH",
+  "topic": "How to style pure linen so it doesn't look wrinkled by noon",
+  "post": {
+    "hook": "Tight fits wrinkle faster than you think.",
+    "post_big_words": "Linen that stays crisp",
+    "post_script_line": "fit changes everything",
+    "template": "hard_truth_checklist",
+    "gate": {
+      "unsupported_claim": 0,
+      "visual_mismatch": 1,
+      "off_topic": 0,
+      "generic": 0,
+      "duplicate": 0,
+      "vague_headline": 0
+    },
+    "caption": "Linen doesn’t betray you. Bad fit does.\n\nQuick fix, go one step easier in the silhouette.\nA relaxed linen shirt with straight trousers lets the fabric fall cleaner instead of pulling and bunching with every move.\nIf it’s hugging your shoulders, elbows, or waist, creases show up faster.\n\nStyle linen to drape, not cling. That’s the whole trick.\n\nLink in bio 👇\n@snitch"
+  },
+  "posts": [
+    {
+      "look": "real-photo",
+      "design": null,
+      "subjects": 4,
+      "critic": {
+        "overall": 7.3,
+        "top_fix": "Show a visibly relaxed linen fit with clearer drape, not a sleeve-adjusting pose that reads tight."
+      }
+    },
+    {
+      "look": "editorial-graphic",
+      "design": null,
+      "subjects": 6,
+      "critic": {
+        "overall": 6.3,
+        "top_fix": "Show an Indian model wearing a relaxed linen fit so the drape-versus-cling advice is visible."
+      }
+    }
+  ],
+  "carousel": {
+    "slides": [
+      {
+        "slide": 1,
+        "frame": "hook",
+        "headline": "Crisp linen",
+        "line": "Swipe for wrinkle‑free confidence",
+        "background": "generated"
+      },
+      {
+        "slide": 2,
+        "frame": "slide_photo",
+        "headline": "Sit, crease",
+        "line": "Linen reacts to pressure and moisture",
+        "background": "generated"
+      },
+      {
+        "slide": 3,
+        "frame": "slide_type",
+        "headline": "Pre‑press",
+        "line": "A fresh press gives linen a cleaner start",
+        "background": "brand colour"
+      },
+      {
+        "slide": 4,
+        "frame": "slide_photo",
+        "headline": "Smart layering",
+        "line": "Keep layers light with pure linen",
+        "background": "generated"
+      },
+      {
+        "slide": 5,
+        "frame": "cta",
+        "headline": "Start crisp, layer smart",
+        "line": null,
+        "background": "generated"
+      }
+    ],
+    "gate": {
+      "unsupported_claim": 4,
+      "visual_mismatch": 0,
+      "off_topic": 0,
+      "generic": 0,
+      "duplicate": 0,
+      "vague_headline": 0
+    },
+    "critic": {
+      "overall": 6.4,
+      "top_fix": "Use a real Indian man wearing the linen shirt in daytime to show crease-free confidence."
+    }
+  },
+  "story": {
+    "frames": [
+      {
+        "frame": "hook",
+        "big_words": "No wrinkles",
+        "script_line": "see the trick",
+        "cta_label": null
+      },
+      {
+        "frame": "hook",
+        "big_words": "Layer smart",
+        "script_line": "light shirt, inner tee",
+        "cta_label": null
+      },
+      {
+        "frame": "cta",
+        "big_words": "Shop now",
+        "script_line": "stay crisp",
+        "cta_label": "Shop linen"
+      }
+    ]
+  }
+}

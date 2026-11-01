@@ -1,4 +1,4 @@
-import { generateCheckedSlide } from "./slide-photo-check"
+import { generateCheckedSlide, photoMissesPoint } from "./slide-photo-check"
 import { isLifestyleTemplate, postImageFromBrandPhoto } from "@/lib/ai/catalogue-photos"
 import { recordGeneratedSubjects } from "@/lib/image/subject-boxes"
 import { after } from "next/server"
@@ -598,6 +598,10 @@ async function withCarouselBackgrounds(job: SlotJobRow, ctx: RunContext, slides:
       if (!result.success) {
         console.error(`[autopilot-worker] slot ${job.id}: slide ${i + 1} background failed, keeping its flat style:`, result.error)
         return keepRef()
+      }
+      if (photoMissesPoint(result.agree, i, slides.length)) {
+        console.log(`[autopilot-worker] slot ${job.id}: slide ${i + 1} photo doesn't show its point (agree ${result.agree}) -- type-led instead`)
+        return { ...slide, frame: "slide_type", layout_hint: "type" }
       }
       const upload = await uploadMediaToStorage({ kind: "buffer", buffer: result.buffer, mimeType: result.mimeType }, `${job.brand_id}/carousel-slides`, { generatedImage: true })
       if ("error" in upload) {

@@ -1,0 +1,70 @@
+{
+  "brand": "SNITCH",
+  "topic": "pure linen, no wrinkles by noon",
+  "payoff_type": "mistake_fix",
+  "payoff": "The real fix for pure linen by noon",
+  "gate": {
+    "unsupported_claim": 0,
+    "visual_mismatch": 0,
+    "off_topic": 0,
+    "generic": 0,
+    "duplicate": 0,
+    "vague_headline": 0
+  },
+  "cover_critic": {
+    "overall": 7.4,
+    "top_fix": "Add a specific fit tip or product cue to make swiping feel immediately useful."
+  },
+  "slides": [
+    {
+      "slide": 1,
+      "frame": "hook",
+      "layout_hint": "full",
+      "big_words": "Sharp by noon",
+      "line": "The fix is fit.",
+      "photo": "generated for this slide",
+      "photo_agrees": 7,
+      "layout": "split"
+    },
+    {
+      "slide": 2,
+      "frame": "slide_photo",
+      "layout_hint": "split",
+      "big_words": "Not zero creases",
+      "line": "Clean drape beats a rigid press.",
+      "photo": "generated for this slide",
+      "photo_agrees": 8,
+      "layout": "split"
+    },
+    {
+      "slide": 3,
+      "frame": "slide_type",
+      "layout_hint": "type",
+      "big_words": "Relaxed wins",
+      "line": "Tension makes wrinkles look harsher.",
+      "photo": "brand colour",
+      "photo_agrees": null,
+      "layout": "type"
+    },
+    {
+      "slide": 4,
+      "frame": "slide_photo",
+      "layout_hint": "full",
+      "big_words": "Steam, then cool",
+      "line": "Prep decides the first few hours.",
+      "photo": "generated for this slide",
+      "photo_agrees": 8,
+      "layout": "split"
+    },
+    {
+      "slide": 5,
+      "frame": "cta",
+      "layout_hint": "full",
+      "big_words": "Give linen room",
+      "line": null,
+      "photo": "generated for this slide",
+      "photo_agrees": 7,
+      "layout": "full"
+    }
+  ]
+}

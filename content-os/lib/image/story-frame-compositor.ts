@@ -457,9 +457,24 @@ async function composeType(slide: StoryFrameSlide, p: BrandPalette, rnd: () => n
       crop = null
     }
   }
+  // No photo fits: the colour block carries the point's number (slide 3/5 is
+  // point 02 -- the cover isn't a point) and a pop-colour rule, so it reads
+  // as designed rather than a missing image.
+  const point = Number(slide.counter?.split("/")[0]) - 1
+  const numeral = point >= 1 ? String(point).padStart(2, "0") : ""
+  const numSize = Math.round(bh * 0.62)
   const blockSvg = crop ? "" : `<rect x="${block.x0}" y="${block.y0}" width="${bw}" height="${bh}" rx="${radius}" fill="${p.accent}"/>`
+    + `<rect x="${block.x0 + 56}" y="${block.y0 + 56}" width="${Math.round(bw * 0.18)}" height="10" rx="5" fill="${p.pop}"/>`
+
+  let blockLayer: Buffer | null = null
+  if (!crop) {
+    const displayId: FontId = frameDisplayFont(isFontId(slide.font_id) ? slide.font_id : DEFAULT_FONT_ID)
+    const { fontFiles } = await loadFonts(displayId)
+    const num = numeral ? `<text x="${block.x1 - 48}" y="${block.y1 - 40}" text-anchor="end" font-family="${family(displayId)}" font-size="${numSize}" font-weight="700" fill="${p.base}" fill-opacity="0.16">${numeral}</text>` : ""
+    blockLayer = Buffer.from(new Resvg(`<svg width="${cv.w}" height="${cv.h}" xmlns="http://www.w3.org/2000/svg">${blockSvg}${num}</svg>`, { font: { fontFiles, loadSystemFonts: false, defaultFontFamily: FONT_FAMILY_NAME[displayId] } }).render().asPng())
+  }
   const canvas = await sharp({ create: { width: cv.w, height: cv.h, channels: 3, background: p.base } })
-    .composite([crop ? { input: crop, left: block.x0, top: block.y0 } : { input: Buffer.from(`<svg width="${cv.w}" height="${cv.h}" xmlns="http://www.w3.org/2000/svg">${blockSvg}</svg>`) }])
+    .composite([crop ? { input: crop, left: block.x0, top: block.y0 } : { input: blockLayer! }])
     .png().toBuffer()
   const m = Math.round(SUBJECT_MARGIN * cv.w)
   return {
@@ -658,8 +673,10 @@ function scriptLine(cv: FrameCanvas, f: Fonts, text: string, x: number, y: numbe
   let lines = [t]
   if (measureTextWidth(f.script, t, s) > room) {
     s = Math.max(48, s)
-    lines = wrap(f.script, t, s, room).slice(0, 2)
-    while (s > 40 && lines.some((l) => measureTextWidth(f.script, l, s) > room)) { s -= 4; lines = wrap(f.script, t, s, room).slice(0, 2) }
+    // Smaller until it's two lines -- a third line's words are never dropped.
+    lines = wrap(f.script, t, s, room)
+    while (s > 40 && (lines.length > 2 || lines.some((l) => measureTextWidth(f.script, l, s) > room))) { s -= 4; lines = wrap(f.script, t, s, room) }
+    if (lines.length > 2) lines = [lines[0]!, lines.slice(1).join(" ")]
   }
   const width = Math.max(...lines.map((l) => measureTextWidth(f.script, l, s)))
   const angle = (rnd() < 0.5 ? -1 : 1) * (2 + rnd() * 3)
@@ -819,14 +836,23 @@ async function placeMark(slide: StoryFrameSlide, overlay: Buffer, base: Buffer, 
  * a free corner -- the preferred one when it's free, never over text, the
  * mark or the subject; no free corner = no label.
  */
-async function placeLabel(text: string, prefer: LogoPosition, overlay: Buffer, base: Buffer, subjects: Rect[], cv: FrameCanvas, box: fontkit.Font, fontFiles: string[], arrow = false): Promise<Buffer> {
+async function placeLabel(text: string, prefer: LogoPosition, overlay: Buffer, base: Buffer, subjects: Rect[], cv: FrameCanvas, box: fontkit.Font, fontFiles: string[], arrow = false, region?: Rect): Promise<Buffer> {
   const size = Math.round(cv.w * 0.026)
   const arrowW = arrow ? Math.round(size * 1.3) : 0
   const w = Math.round(measureTextWidth(box, text, size)) + arrowW
   const h = Math.round(size * 1.2)
   const m = Math.max(Math.round(cv.w * 0.06), 40)
   const cx = Math.round((cv.w - w) / 2)
-  const spots: Record<Exclude<LogoPosition, "auto"> | "top-center" | "bottom-center", Rect> = {
+  // The text region's own corners too (a split's text panel, a band).
+  const rx1 = region ? Math.min(region.x1, cv.w) - m : cv.w - m
+  const rx0 = region ? Math.max(region.x0, 0) + m : m
+  const ry0 = region ? Math.max(region.y0, cv.safeTop) + 20 : cv.safeTop + 20
+  const ry1 = region ? Math.min(region.y1, cv.h - cv.safeBottom) - 20 : cv.h - cv.safeBottom - 20
+  const spots: Record<Exclude<LogoPosition, "auto"> | "top-center" | "bottom-center" | "region-top" | "region-bottom" | "region-top-start" | "region-bottom-start", Rect> = {
+    "region-top": { x0: rx1 - w, y0: ry0, x1: rx1, y1: ry0 + h },
+    "region-bottom": { x0: rx1 - w, y0: ry1 - h, x1: rx1, y1: ry1 },
+    "region-top-start": { x0: rx0, y0: ry0, x1: rx0 + w, y1: ry0 + h },
+    "region-bottom-start": { x0: rx0, y0: ry1 - h, x1: rx0 + w, y1: ry1 },
     "top-center": { x0: cx, y0: cv.safeTop + 20, x1: cx + w, y1: cv.safeTop + 20 + h },
     "bottom-center": { x0: cx, y0: cv.h - cv.safeBottom - 20 - h, x1: cx + w, y1: cv.h - cv.safeBottom - 20 },
     "top-left": { x0: m, y0: cv.safeTop + 20, x1: m + w, y1: cv.safeTop + 20 + h },
@@ -842,7 +868,7 @@ async function placeLabel(text: string, prefer: LogoPosition, overlay: Buffer, b
     return false
   }
   // The corners first, then the middle of the top / bottom edge.
-  const order = [prefer, "top-right", "bottom-right", "top-left", "bottom-left", "bottom-center", "top-center"] as (keyof typeof spots)[]
+  const order = [prefer, "top-right", "bottom-right", "top-left", "bottom-left", "region-top", "region-bottom", "region-bottom-start", "region-top-start", "bottom-center", "top-center"] as (keyof typeof spots)[]
   const pos = order.find((o) => o !== ("auto" as string) && !busy(spots[o]) && !subjects.some((sub) => rectsIntersect(spots[o], sub)))
   if (!pos) return overlay
   const r = spots[pos]
@@ -1284,8 +1310,8 @@ export async function renderFrameLayers(slide: StoryFrameSlide, canvas: FrameCan
   const textLayer = Buffer.from(new Resvg(svg, { font: { fontFiles, loadSystemFonts: false, defaultFontFamily: FONT_FAMILY_NAME[displayId] } }).render().asPng())
   let overlay = wantsMark ? await placeMark(slide, textLayer, base, composed.subjects, cv, displayId, display, fontFiles) : textLayer
   // A carousel's slide counter and the cover's swipe cue, in free corners.
-  if (slide.counter) overlay = await placeLabel(slide.counter, "top-right", overlay, base, composed.subjects, cv, box, fontFiles)
-  if (slide.swipe_cue) overlay = await placeLabel("Swipe", "bottom-right", overlay, base, composed.subjects, cv, box, fontFiles, true)
+  if (slide.counter) overlay = await placeLabel(slide.counter, "top-right", overlay, base, composed.subjects, cv, box, fontFiles, false, region)
+  if (slide.swipe_cue) overlay = await placeLabel("Swipe", "bottom-right", overlay, base, composed.subjects, cv, box, fontFiles, true, region)
   return { base, overlay, subjects: composed.subjects, region, layout }
 }
 

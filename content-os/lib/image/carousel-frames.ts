@@ -92,6 +92,12 @@ export async function renderCarouselFrames(
     if (hasLayoutRun(out.slice(i - 2, i + 1).map((o) => o.layout))) {
       const mid = slides[i - 1]!
       if (mid.frame === "hook" || mid.frame === "cta") continue
+      // Three type slides: the middle one goes split when it has a photo
+      // to show; otherwise (nothing to show) it stays as it is.
+      if (out[i]!.layout === "type") {
+        if (mid.image_url) out[i - 1] = await draw({ ...mid, frame: "slide_photo", layout_hint: "split" }, i - 1)
+        continue
+      }
       out[i - 1] = await draw({ ...mid, frame: "slide_type", layout_hint: "type" }, i - 1)
     }
   }

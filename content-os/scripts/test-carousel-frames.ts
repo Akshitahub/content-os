@@ -42,6 +42,11 @@ test("a clamp never ends on a dangling joiner", () => {
   assert.equal(s!.headline, "Light it")
 })
 
+test("a cut lands on the phrase break, never mid-phrase", () => {
+  const [, cta] = finalizeCarouselFrames([{ headline: "a" }, { headline: "Pick the look, own it" }], { seedBase: 1 })
+  assert.equal(cta!.headline, "Pick the look")
+})
+
 test("CTA label falls back to the brand's phrase", () => {
   const out = finalizeCarouselFrames([{ headline: "a" }, { headline: "Bring it home" }], { ctaPhrase: "Shop now", seedBase: 1 })
   assert.equal(out[1]!.cta, "Shop now")

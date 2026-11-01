@@ -14,6 +14,15 @@ import { generateCarouselSlideBackground } from "./carousel-slide-background"
 
 export const AGREE_MIN = 5
 
+/**
+ * A middle slide whose photo still doesn't show its point after the retry
+ * goes type-led instead (its words, a colour block) -- a designed type slide
+ * beats a photo that contradicts it. The cover and CTA keep theirs.
+ */
+export function photoMissesPoint(agree: number | undefined, index: number, count: number): boolean {
+  return agree !== undefined && agree < AGREE_MIN && index > 0 && index < count - 1
+}
+
 export interface SlideCopy { headline: string; body?: string | null }
 
 /** The critic's image/copy agreement (1-10) for a slide photo and its words; null when it can't score. */
