@@ -1,4 +1,5 @@
 import { insertContentEvents } from "@/lib/usage/content-events"
+export { photoCredit, withPhotoCredit } from "@/lib/photo-credit"
 import { detectSubjects, type SubjectBox } from "@/lib/image/subject-boxes"
 import { createHash } from "crypto"
 import { after } from "next/server"
@@ -39,13 +40,21 @@ export interface BrandPhoto {
   kind: PhotoKind | null
   quality_ok: boolean | null
   product_id: string | null
-  source: "website" | "instagram" | "upload"
+  source: "website" | "instagram" | "upload" | "ugc"
   published_at: string | null
   use_count: number
   last_used_at: string | null
   /** One plain line: what the photo shows, setting, people, product (migration 066). Null until described. */
   description: string | null
+  /** UGC only (migration 069): the creator's handle, without "@". */
+  creator_handle?: string | null
+  /** UGC only: 'granted' = the creator agreed to a repost; anything else is never used. */
+  rights_status?: "none" | "requested" | "granted" | "declined" | null
 }
+
+/** A customer photo may be used only once its creator has said yes. */
+export const usableInContent = (p: Pick<BrandPhoto, "source" | "rights_status">): boolean => p.source !== "ugc" || p.rights_status === "granted"
+
 
 const BUCKET = "brand-images"
 const MIN_SIDE_PX = 800
@@ -90,6 +99,22 @@ async function storeCopy(db: Db, brand: Pick<BrandRow, "id" | "user_id">, extern
 }
 
 // ─── Sources ───────────────────────────────────────────────────────────────
+
+type TaggedMedia = { externalId: string; url: string; publishedAt: string | null; creatorHandle: string; permalink: string | null }
+
+export const UGC_UNAVAILABLE = "Instagram is connected through Zernio, which keeps the Meta token and has no listing of media the account is tagged or mentioned in (its mentions inbox is LinkedIn-only) -- so there is no /tags or mentions call SocioPosts can make yet"
+
+/**
+ * Customer photos (UGC): Instagram media the brand is tagged or mentioned in
+ * (Graph API /{ig-user-id}/tags, plus mentions). Not reachable today -- see
+ * UGC_UNAVAILABLE; the sync reports it and moves on (owners are never asked
+ * to reconnect for it). When a source exists it returns its items here and
+ * syncBrandPhotos stores them as source 'ugc', rights_status 'none'.
+ */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- the account a future source reads
+async function taggedMedia(_zernioAccountId: string): Promise<{ ok: true; items: TaggedMedia[] } | { ok: false; skipped: string }> {
+  return { ok: false, skipped: UGC_UNAVAILABLE }
+}
 
 /** The brand's website images (absolute URLs), from its home page. */
 async function websiteImageUrls(websiteUrl: string): Promise<string[]> {
@@ -321,18 +346,20 @@ export interface PhotoSyncReport {
   passed: number
   kinds: Partial<Record<PhotoKind, number>>
   errors: string[]
+  /** Customer photos: how many were found, or why none could be fetched. */
+  ugc: { found: number } | { skipped: string } | null
 }
 
 /** Collects new photos (website and/or Instagram) and classifies every unclassified one. Never throws. */
 export async function syncBrandPhotos(db: Db, brandId: string, opts: { website?: boolean; instagram?: boolean } = { website: true, instagram: true }): Promise<PhotoSyncReport> {
-  const report: PhotoSyncReport = { found: 0, added: 0, classified: 0, described: 0, subjects: 0, passed: 0, kinds: {}, errors: [] }
+  const report: PhotoSyncReport = { found: 0, added: 0, classified: 0, described: 0, subjects: 0, passed: 0, kinds: {}, errors: [], ugc: null }
   try {
     const { data: brand } = await db.from("brands").select("id, user_id, website_url").eq("id", brandId).single() as { data: Pick<BrandRow, "id" | "user_id" | "website_url"> | null }
     if (!brand) throw new Error("brand not found")
     const { data: existing } = await db.from("brand_images").select("id, url, external_id, source, classified_at").eq("brand_id", brandId)
     const known = new Set<string>((existing ?? []).map((r: { external_id: string | null; url: string }) => r.external_id ?? `web-${hash(r.url)}`))
 
-    const candidates: { externalId: string; url: string; source: "website" | "instagram"; publishedAt: string | null }[] = []
+    const candidates: { externalId: string; url: string; source: "website" | "instagram" | "ugc"; publishedAt: string | null; creatorHandle?: string; permalink?: string | null }[] = []
     if (opts.website && brand.website_url) {
       try {
         for (const url of await websiteImageUrls(brand.website_url)) candidates.push({ externalId: `web-${hash(url)}`, url, source: "website", publishedAt: null })
@@ -347,6 +374,13 @@ export async function syncBrandPhotos(db: Db, brandId: string, opts: { website?:
           for (const img of await instagramImages(conn.zernio_account_id)) candidates.push({ ...img, source: "instagram" })
         } catch (err) {
           report.errors.push(`instagram: ${err instanceof Error ? err.message : String(err)}`)
+        }
+        const tagged = await taggedMedia(conn.zernio_account_id)
+        if (tagged.ok) {
+          for (const m of tagged.items) candidates.push({ ...m, source: "ugc" })
+          report.ugc = { found: tagged.items.length }
+        } else {
+          report.ugc = { skipped: tagged.skipped }
         }
       }
     }
@@ -363,7 +397,9 @@ export async function syncBrandPhotos(db: Db, brandId: string, opts: { website?:
         const tooSmall = Math.max(copy.width, copy.height) < MIN_SIDE_PX
         const { error } = await db.from("brand_images").insert({
           brand_id: brandId, url: copy.url, storage_path: copy.path, external_id: c.externalId, source: c.source,
-          published_at: c.publishedAt, type: c.source === "instagram" ? "instagram" : "website", is_active: true,
+          published_at: c.publishedAt, type: c.source === "website" ? "website" : "instagram", is_active: true,
+          // A customer's photo: never used until its creator says yes.
+          ...(c.source === "ugc" ? { creator_handle: c.creatorHandle, permalink: c.permalink ?? null, rights_status: "none" } : {}),
           // Under 800px is rejected outright -- no vision call spent on it.
           ...(tooSmall ? { quality_ok: false, classified_at: new Date().toISOString() } : {}),
         })
@@ -460,10 +496,13 @@ const PHOTO_COLUMNS = "id, brand_id, url, kind, quality_ok, product_id, source, 
 export async function loadBrandPhotos(db: Db, brand: Pick<BrandRow, "id">, kinds: PhotoKind[]): Promise<BrandPhoto[]> {
   try {
     const query = (cols: string) => db.from("brand_images").select(cols).eq("brand_id", brand.id).eq("quality_ok", true).eq("is_active", true).in("kind", kinds).limit(300)
-    let { data, error } = await query(`${PHOTO_COLUMNS}, description`)
+    let { data, error } = await query(`${PHOTO_COLUMNS}, description, creator_handle, rights_status`)
+    // Before migration 069 (no UGC can exist yet) / 066.
+    if (error) ({ data, error } = await query(`${PHOTO_COLUMNS}, description`))
     if (isMissingDescription(error)) ({ data, error } = await query(PHOTO_COLUMNS))
     if (error) return []
-    return ((data ?? []) as BrandPhoto[]).map((p) => ({ ...p, description: p.description ?? null }))
+    // Customer photos only with the creator's yes -- never otherwise.
+    return ((data ?? []) as BrandPhoto[]).filter(usableInContent).map((p) => ({ ...p, description: p.description ?? null }))
   } catch {
     return []
   }
@@ -476,20 +515,26 @@ export async function loadBrandPhotos(db: Db, brand: Pick<BrandRow, "id">, kinds
  *   kesar-oil post never gets the ghee jar);
  * - without one: photos tied to no product (person, lifestyle, flatlay)
  *   before any product's photo;
+ * - a customer photo (UGC) only once its creator said yes; with
+ *   `preferUgc` (review cards, lifestyle posts, stories) those come first;
  * - then least used, the kinds' preference order, least recently used --
  *   never one in `exclude`, never the brand's own Instagram post from the
  *   last 30 days.
  */
-export function rankPhotoCandidates(rows: BrandPhoto[], opts: { productId?: string | null; kinds: PhotoKind[]; exclude?: string[]; now?: number }): BrandPhoto[] {
+export function rankPhotoCandidates(rows: BrandPhoto[], opts: { productId?: string | null; kinds: PhotoKind[]; exclude?: string[]; now?: number; preferUgc?: boolean }): BrandPhoto[] {
   const cooldown = (opts.now ?? Date.now()) - OWN_POST_COOLDOWN_DAYS * 86_400_000
   const exclude = new Set(opts.exclude ?? [])
   const productTier = (p: BrandPhoto) => (opts.productId ? (p.product_id === opts.productId ? 0 : 1) : (p.product_id ? 1 : 0))
+  // Review cards, lifestyle posts and stories: a customer's own (granted) photo first.
+  const ugcTier = (p: BrandPhoto) => (opts.preferUgc && p.source === "ugc" ? 0 : 1)
   return rows
+    .filter(usableInContent)
     .filter((p) => !exclude.has(p.id))
     .filter((p) => !(opts.productId && p.product_id && p.product_id !== opts.productId))
     .filter((p) => !(p.source === "instagram" && p.published_at && Date.parse(p.published_at) > cooldown))
     .sort((a, b) =>
-      productTier(a) - productTier(b)
+      ugcTier(a) - ugcTier(b)
+      || productTier(a) - productTier(b)
       || a.use_count - b.use_count
       || opts.kinds.indexOf(a.kind!) - opts.kinds.indexOf(b.kind!)
       || (Date.parse(a.last_used_at ?? "1970-01-01") - Date.parse(b.last_used_at ?? "1970-01-01")))

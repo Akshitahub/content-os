@@ -8,6 +8,7 @@ import { BrandBrainSection } from "@/components/brands/BrandBrainSection"
 import { BrandLookSection } from "@/components/brands/BrandLookSection"
 import { BrandLogoSection } from "@/components/brands/BrandLogoSection"
 import { BrandPhotosStrip } from "@/components/brands/BrandPhotosStrip"
+import { CustomerPhotosStrip } from "@/components/brands/CustomerPhotosStrip"
 import type { Metadata } from "next"
 import type { BrandRow } from "@/types/database"
 
@@ -167,6 +168,7 @@ export default async function BrandDetailPage({ params }: PageProps) {
             <BrandLookSection brandId={brandId} />
             <BrandLogoSection brandId={brandId} />
             <BrandPhotosStrip brandId={brandId} />
+            <CustomerPhotosStrip brandId={brandId} />
           </div>
         </>
       </BrandDetailTabs>

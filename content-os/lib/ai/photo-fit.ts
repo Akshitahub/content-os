@@ -135,6 +135,8 @@ export async function chooseFittingPhotos(
     productId?: string | null; productName?: string | null; kinds: PhotoKind[]; items: PhotoFitItem[]; exclude?: string[]; label: string
     /** "post": the same photo at most POST_WEEKLY_CAP times per brand per 7 days across posts. */
     format?: "post" | "carousel" | "story"
+    /** Review cards, lifestyle posts and stories: a customer's granted photo first. */
+    preferUgc?: boolean
   },
 ): Promise<((BrandPhoto & { fit: number }) | null)[]> {
   try {
@@ -144,7 +146,7 @@ export async function chooseFittingPhotos(
     const used = new Set([...(opts.exclude ?? []), ...(opts.format === "post" ? await photosAtWeeklyCap(db, brand.id) : [])])
     const chosen: ((BrandPhoto & { fit: number }) | null)[] = []
     for (const [i, item] of opts.items.entries()) {
-      const candidates = rankPhotoCandidates(rows, { productId: opts.productId, kinds: opts.kinds, exclude: [...used] }).slice(0, FIT_CANDIDATES)
+      const candidates = rankPhotoCandidates(rows, { productId: opts.productId, kinds: opts.kinds, exclude: [...used], preferUgc: opts.preferUgc }).slice(0, FIT_CANDIDATES)
       if (candidates.length === 0) {
         chosen.push(null)
         continue

@@ -24,6 +24,8 @@ export async function GET(_request: Request, { params }: Params) {
     .eq("brand_id", brandId)
     .eq("is_active", true)
     .eq("quality_ok", true)
+    // Customers' photos have their own strip (customer-photos).
+    .neq("source", "ugc")
     .order("created_at", { ascending: false })
     .limit(60)
   // Before migration 064 the columns don't exist yet -- no photos, not an error.

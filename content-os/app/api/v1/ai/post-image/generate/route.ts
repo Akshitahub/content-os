@@ -1,4 +1,5 @@
-import { isLifestyleTemplate, postImageFromBrandPhoto } from "@/lib/ai/catalogue-photos"
+import { isLifestyleTemplate, postImageFromBrandPhoto, prefersCustomerPhoto } from "@/lib/ai/catalogue-photos"
+import { photoCredit } from "@/lib/photo-credit"
 import { recordGeneratedSubjects } from "@/lib/image/subject-boxes"
 import { NextResponse } from "next/server"
 import { noteGenerationBrand } from "@/lib/ai/provider-fallback"
@@ -174,6 +175,7 @@ async function handlePost(request: Request, timer: GenerationTimer) {
     : (await chooseFittingPhotos(await createAdminClient(), brand, {
         productId: productId ?? null, productName: product?.name ?? null, kinds: PHOTO_KINDS_FOR.post,
         items: [photoFitItem(visualBrief, imagePrompt, [captionText])], label: "post", format: "post",
+        preferUgc: prefersCustomerPhoto(template),
       }))[0] ?? null
   if (brandPhoto) console.log(`[ai/post-image/generate] using brand photo ${brandPhoto.id} fit=${brandPhoto.fit} (no image generated)`)
   let timedOut = false
@@ -207,7 +209,7 @@ async function handlePost(request: Request, timer: GenerationTimer) {
     brandName: brand.name,
     ctaText: (brand as BrandRow & { cta_phrase?: string | null }).cta_phrase ?? null,
     visualBrief,
-  }, brandPhoto?.url ?? null, { lifestyle: isLifestyleTemplate(template), label: "post" }), deadlineAt - Date.now(), "post image")).catch((err): Awaited<ReturnType<typeof generatePostImage>> => {
+  }, brandPhoto?.url ?? null, { lifestyle: brandPhoto?.source !== "ugc" && isLifestyleTemplate(template), label: "post" }), deadlineAt - Date.now(), "post image")).catch((err): Awaited<ReturnType<typeof generatePostImage>> => {
     // Deadline hit (or an unexpected throw): treated exactly like a failed
     // generation below -- logged and refunded.
     timedOut = err instanceof DeadlineExceededError
@@ -366,6 +368,8 @@ async function handlePost(request: Request, timer: GenerationTimer) {
       // How to draw text over this image (FullPost overlay preview + export).
       text_style: result.textStyle ?? null,
       warnings: result.warnings ?? [],
+      // A customer's photo: the caption credits them ("📸 @handle").
+      photo_credit: photoCredit(brandPhoto),
     },
   }, { status: 200 })
 }

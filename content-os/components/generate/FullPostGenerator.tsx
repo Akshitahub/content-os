@@ -13,6 +13,7 @@ import { DEFAULT_POST_TEMPLATE_ID } from "@/lib/design/post-templates"
 import type { PostTemplateId } from "@/lib/design/post-templates"
 import { autoPickColorTheme, resolveColorThemes } from "@/lib/design/color-themes"
 import { useGenerateFullPost, useGeneratePostImage } from "@/hooks/useGeneration"
+import { withCreditLine } from "@/lib/photo-credit"
 import { POST as POST_CREDIT_COST } from "@/lib/usage/credit-costs"
 import { useGenerationStore } from "@/stores/generationStore"
 import { usePromptWriter } from "@/hooks/usePromptWriter"
@@ -253,6 +254,11 @@ export function FullPostGenerator({ brandId, products }: Props) {
       },
       {
         onSuccess: (imgData) => {
+          // A customer's photo: the caption credits them ("📸 @handle").
+          const credited = imgData.photo_credit && data.content.format === "social_post"
+            ? { ...data, content: { ...data.content, content: { ...data.content.content, caption_text: withCreditLine((data.content.content as GeneratedCaption).caption_text, imgData.photo_credit) } } } as typeof data
+            : data
+          if (credited !== data) setFullPostResult(credited)
           setPostImageUrl(imgData.public_url)
           setPostTextStyle(imgData.text_style ?? null)
           // A busy image moves an auto layout to one with its own backing.
@@ -281,7 +287,7 @@ export function FullPostGenerator({ brandId, products }: Props) {
           // A new version of this session's post (scored by the critic below).
           const key = `${sessionId}:${++versionCounter.current}`
           setVersions((prev) => [...prev, {
-            key, sessionId, result: data, imageUrl: imgData.public_url, textStyle: imgData.text_style ?? null,
+            key, sessionId, result: credited, imageUrl: imgData.public_url, textStyle: imgData.text_style ?? null,
             overlayText: initialOverlayText, overlayFontId: initialOverlayFont, design: finalDesign, score: null, topFix: null, reasons: [],
           }])
           setVersionKey(key)
@@ -298,7 +304,7 @@ export function FullPostGenerator({ brandId, products }: Props) {
         },
       }
     )
-  }, [brandId, selectedProductId, selectedLayout, effectiveColorThemeId, colorThemes, aspectRatio, visualStyle, headlineOverlay, generatePostImageMutate, promptWriter, brand?.vibe, additionalContext])
+  }, [brandId, selectedProductId, selectedLayout, effectiveColorThemeId, colorThemes, aspectRatio, visualStyle, headlineOverlay, generatePostImageMutate, promptWriter, brand?.vibe, additionalContext, setFullPostResult])
 
   // Kicks off the prompt-writing stage instead of generating the image
   // immediately -- fired both right after a fresh caption generation

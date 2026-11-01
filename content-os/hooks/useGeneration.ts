@@ -60,6 +60,8 @@ export type GeneratedPostImage = {
   image_prompt: string
   /** How to draw the overlay headline over this image (lib/design/text-style.ts). */
   text_style?: TextStyle | null
+  /** "📸 @handle" when the image is a customer's (granted) photo -- the caption credits them. */
+  photo_credit?: string | null
 }
 
 function throwApiError(json: unknown, fallback: string): never {

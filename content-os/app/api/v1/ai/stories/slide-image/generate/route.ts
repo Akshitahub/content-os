@@ -143,7 +143,7 @@ async function handlePost(request: Request, timer: GenerationTimer) {
   // Otherwise the image is generated from the brief.
   const photo = parsed.data.referenceIsBrandPhoto ? null : (await chooseFittingPhotos(await createAdminClient(), brand, {
     productId: parsed.data.productId ?? null, kinds: PHOTO_KINDS_FOR.story, exclude: parsed.data.excludePhotoIds,
-    items: [photoFitItem(visualBrief, customPrompt, [])], label: `story-frame role=${role}`, format: "story",
+    items: [photoFitItem(visualBrief, customPrompt, [])], label: `story-frame role=${role}`, format: "story", preferUgc: true,
   }))[0]
   // A catalogue shot isn't used full-bleed: it's the product reference for a
   // candid scene (lib/ai/catalogue-photos.ts), and the frame's photo -- as a

@@ -1,4 +1,5 @@
-import { isLifestyleTemplate, postImageFromBrandPhoto } from "@/lib/ai/catalogue-photos"
+import { isLifestyleTemplate, postImageFromBrandPhoto, prefersCustomerPhoto } from "@/lib/ai/catalogue-photos"
+import { photoCredit, withCreditLine } from "@/lib/photo-credit"
 import { recordGeneratedSubjects } from "@/lib/image/subject-boxes"
 import { NextResponse } from "next/server"
 import { noteGenerationBrand } from "@/lib/ai/provider-fallback"
@@ -227,7 +228,7 @@ async function handlePost(request: Request, timer: GenerationTimer) {
     const brandPhoto = (await chooseFittingPhotos(admin, brand, {
       kinds: PHOTO_KINDS_FOR.post,
       items: [photoFitItem(caption.visual, imagePrompt, [hook.hook_text, caption.caption_text])],
-      label: "daily draft", format: "post",
+      label: "daily draft", format: "post", preferUgc: prefersCustomerPhoto(caption.suggested_template),
     }))[0] ?? null
 
     // No captionText -- a clean text-free base; the designed post is drawn
@@ -246,7 +247,7 @@ async function handlePost(request: Request, timer: GenerationTimer) {
       isInternalUnlimitedUser: isInternalUnlimited(user.id),
       productImageUrl: null,
       aspectRatio: "4:5",
-    }, brandPhoto?.url ?? null, { lifestyle: isLifestyleTemplate(caption.suggested_template), label: "daily draft" }), requestStartedAt + ROUTE_DEADLINE_MS - Date.now(), "daily draft image"))
+    }, brandPhoto?.url ?? null, { lifestyle: brandPhoto?.source !== "ugc" && isLifestyleTemplate(caption.suggested_template), label: "daily draft" }), requestStartedAt + ROUTE_DEADLINE_MS - Date.now(), "daily draft image"))
     imageProvider = imageResult.attempts[imageResult.attempts.length - 1]?.provider ?? null
     costUsd = sumCostUsd(costUsd, attemptsCostUsd(imageResult.attempts))
     if (!imageResult.success) throw new Error(imageResult.error)
@@ -271,6 +272,8 @@ async function handlePost(request: Request, timer: GenerationTimer) {
       fallbackWords: [caption.suggested_overlay_text, hook.hook_text],
     }, "daily draft")
     const draftImageUrl = designed?.imageUrl ?? publicUrlData.publicUrl
+    // A customer's photo is credited in the caption ("📸 @handle").
+    caption.caption_text = withCreditLine(caption.caption_text, photoCredit(brandPhoto))
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { data: insertedRow, error: insertError } = await (supabase.from("daily_draft_cache") as any).insert({

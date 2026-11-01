@@ -1,5 +1,6 @@
 import { generateCheckedSlide, photoMissesPoint } from "./slide-photo-check"
-import { isLifestyleTemplate, postImageFromBrandPhoto } from "@/lib/ai/catalogue-photos"
+import { photoCredit, withCreditLine } from "@/lib/photo-credit"
+import { isLifestyleTemplate, postImageFromBrandPhoto, prefersCustomerPhoto } from "@/lib/ai/catalogue-photos"
 import { recordGeneratedSubjects } from "@/lib/image/subject-boxes"
 import { after } from "next/server"
 import type { SupabaseClient } from "@supabase/supabase-js"
@@ -360,6 +361,8 @@ async function prepareSlot(admin: Admin, job: SlotJobRow, ctx: RunContext, track
     }
     imageUrl = post.imageUrl
     designed = post.designed
+    // A customer's photo is credited in the caption ("📸 @handle").
+    mergedCaption = withCreditLine(mergedCaption, post.photoCredit)
     critic = post.critic ? toSavedCritic(post.critic, { candidates: post.candidates, regenerated }) : null
   }
 
@@ -461,7 +464,7 @@ async function prepareSlot(admin: Admin, job: SlotJobRow, ctx: RunContext, track
   }
 }
 
-type AutopilotPost = { imageUrl: string | null; designed: { imageUrl: string; design: PostDesign } | null; critic: CriticResult | null; candidates: number }
+type AutopilotPost = { imageUrl: string | null; designed: { imageUrl: string; design: PostDesign } | null; critic: CriticResult | null; candidates: number; photoCredit?: string | null }
 
 /**
  * One post: a fitting brand photo or a generated image (clean, uploaded),
@@ -483,6 +486,7 @@ async function makeAutopilotPost(admin: Admin, job: SlotJobRow, ctx: RunContext,
       productId: product?.id ?? null, productName: product?.name ?? null, kinds: PHOTO_KINDS_FOR.post,
       items: [photoFitItem(generated.visual, generated.imagePrompt || generated.visual_direction, [generated.hook, generated.caption])],
       label: `autopilot slot ${job.id}`, format: "post",
+      preferUgc: prefersCustomerPhoto(generated.postDesignFields?.template),
     }))[0] ?? null
     // A catalogue shot on a lifestyle post -> a candid scene with it as the
     // product reference (lib/ai/catalogue-photos.ts); else the photo as is.
@@ -499,7 +503,7 @@ async function makeAutopilotPost(admin: Admin, job: SlotJobRow, ctx: RunContext,
       isInternalUnlimitedUser: params.isInternalUnlimitedUser,
       // Autopilot post backgrounds get text on top -- "low" is enough.
       quality: "low",
-    }, brandPhoto?.url ?? null, { lifestyle: isLifestyleTemplate(generated.postDesignFields?.template), label: `autopilot slot ${job.id}` })
+    }, brandPhoto?.url ?? null, { lifestyle: brandPhoto?.source !== "ugc" && isLifestyleTemplate(generated.postDesignFields?.template), label: `autopilot slot ${job.id}` })
     trackUsage(tracker, undefined, attemptsCostUsd(imageResult.attempts))
     tracker.imageMs += Date.now() - imageStartedAt
     if (!imageResult.success) {
@@ -548,6 +552,7 @@ async function makeAutopilotPost(admin: Admin, job: SlotJobRow, ctx: RunContext,
       designed: designedUrl && best?.design ? { imageUrl: designedUrl, design: best.design } : null,
       critic: best?.critic ?? null,
       candidates,
+      photoCredit: photoCredit(brandPhoto),
     }
   } catch (err) {
     console.error(`[autopilot-worker] slot ${job.id}: image generation unexpected error:`, err instanceof Error ? err.message : err)

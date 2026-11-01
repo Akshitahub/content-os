@@ -46,6 +46,8 @@ export function candidSceneDirection(seed = Math.floor(Math.random() * 1000)): s
 /** Templates that show the product itself (a cutout reads right); every other post is a lifestyle post. */
 const PRODUCT_TEMPLATES = new Set(["product_focus", "annotated_product"])
 export const isLifestyleTemplate = (template: string | null | undefined) => !PRODUCT_TEMPLATES.has(template ?? "")
+/** A customer's granted photo (UGC) leads for review cards and lifestyle posts -- every post that isn't about the product itself. */
+export const prefersCustomerPhoto = (template: string | null | undefined) => template === "review_card" || isLifestyleTemplate(template)
 
 /**
  * The post image from the brand photo photo-fit picked: a catalogue shot on

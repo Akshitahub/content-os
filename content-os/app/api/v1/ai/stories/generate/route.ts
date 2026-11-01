@@ -296,6 +296,7 @@ async function assignBrandPhotos(brand: BrandRow, stories: Record<string, unknow
       items: stories.map((s) => photoFitItem(s.visual as VisualBrief | undefined, null, [str(s.big_words), str(s.script_line), str(s.quote), str(s.text), str(s.subtext)])),
       label: "story",
       format: "story",
+      preferUgc: true,
     })
     if (photos.every((p) => !p)) return stories
     const styles = await Promise.all(photos.map(async (p, i) => {
