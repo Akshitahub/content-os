@@ -77,7 +77,7 @@ export const CAROUSEL_HEADLINE_PX = 118
 export async function renderCarouselFrames(
   slides: CarouselFrameSlide[],
   brand: { name: string; logo_url?: string | null; palette: BrandPalette; fontId: FontId } & Partial<FrameLogo>,
-): Promise<{ jpg: Buffer; layout: string }[]> {
+): Promise<{ jpg: Buffer; layout: string; labels: string[] }[]> {
   const n = slides.length
   const logo = frameLogo(brand)
   const spot = logo.logo_position === "auto" ? "bottom-left" : logo.logo_position
@@ -91,7 +91,7 @@ export async function renderCarouselFrames(
     }
     const layers = await renderFrameLayers(frame, FEED_CANVAS)
     const jpg = await sharp(layers.base).composite([{ input: layers.overlay, top: 0, left: 0 }]).jpeg({ quality: 90, mozjpeg: true }).toBuffer()
-    return { jpg, layout: layers.layout === "free" || layers.layout === "full" || layers.layout === "cutout" ? "full" : layers.layout === "band" ? "split" : layers.layout }
+    return { jpg, layout: layers.layout === "free" || layers.layout === "full" || layers.layout === "cutout" ? "full" : layers.layout === "band" ? "split" : layers.layout, labels: layers.labels }
   }
   const out = await Promise.all(slides.map((s, i) => draw(s, i)))
   for (let i = 2; i < n; i++) {

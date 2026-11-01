@@ -901,7 +901,7 @@ async function placeMark(slide: StoryFrameSlide, overlay: Buffer, base: Buffer, 
  * a free corner -- the preferred one when it's free, never over text, the
  * mark or the subject; no free corner = no label.
  */
-async function placeLabel(text: string, prefer: LogoPosition, overlay: Buffer, base: Buffer, subjects: Rect[], cv: FrameCanvas, box: fontkit.Font, fontFiles: string[], arrow = false, region?: Rect): Promise<Buffer> {
+async function placeLabel(text: string, prefer: LogoPosition, overlay: Buffer, base: Buffer, subjects: Rect[], cv: FrameCanvas, box: fontkit.Font, fontFiles: string[], arrow = false, region?: Rect): Promise<{ overlay: Buffer; placed: boolean }> {
   const size = Math.round(cv.w * 0.026)
   const arrowW = arrow ? Math.round(size * 1.3) : 0
   const w = Math.round(measureTextWidth(box, text, size)) + arrowW
@@ -935,7 +935,7 @@ async function placeLabel(text: string, prefer: LogoPosition, overlay: Buffer, b
   // The corners first, then the middle of the top / bottom edge.
   const order = [prefer, "top-right", "bottom-right", "top-left", "bottom-left", "region-top", "region-bottom", "region-bottom-start", "region-top-start", "bottom-center", "top-center"] as (keyof typeof spots)[]
   const pos = order.find((o) => o !== ("auto" as string) && !busy(spots[o]) && !subjects.some((sub) => rectsIntersect(spots[o], sub)))
-  if (!pos) return overlay
+  if (!pos) return { overlay, placed: false }
   const r = spots[pos]
   const under = await regionLuminance(base, { x: r.x0 / cv.w, y: r.y0 / cv.h, w: w / cv.w, h: h / cv.h }).catch(() => null)
   const color = (under?.mean ?? 0.5) < 0.5 ? "#ffffff" : "#1a1a1a"
@@ -943,7 +943,7 @@ async function placeLabel(text: string, prefer: LogoPosition, overlay: Buffer, b
   const arrowSvg = arrow ? `<path d="M${r.x0 + tw + 8} ${r.y0 + h * 0.55} h${arrowW - 14} m-${size * 0.35} -${size * 0.3} l${size * 0.35} ${size * 0.3} l-${size * 0.35} ${size * 0.3}" stroke="${color}" stroke-width="${Math.max(2, size * 0.09)}" fill="none" stroke-linecap="round" stroke-linejoin="round"/>` : ""
   const svg = `<svg width="${cv.w}" height="${cv.h}" xmlns="http://www.w3.org/2000/svg"><text x="${r.x0}" y="${r1(r.y0 + size * 0.95)}" font-family="${family(BOX_FONT)}" font-size="${size}" font-weight="700" fill="${color}" fill-opacity="0.85">${esc(text)}</text>${arrowSvg}</svg>`
   const layer = Buffer.from(new Resvg(svg, { font: { fontFiles, loadSystemFonts: false, defaultFontFamily: FONT_FAMILY_NAME[BOX_FONT] } }).render().asPng())
-  return sharp(overlay).composite([{ input: layer }]).png().toBuffer()
+  return { overlay: await sharp(overlay).composite([{ input: layer }]).png().toBuffer(), placed: true }
 }
 
 /** Ink + stats for the text span [y0, y1]. */
@@ -1322,6 +1322,8 @@ export interface FrameLayers {
   subjects: Rect[]
   region: Rect
   layout: FrameLayout
+  /** The small labels that found a free spot ("counter", "swipe"). */
+  labels: string[]
 }
 
 /** The frame as layers: its background, its text layer, and where the subject and text region are. */
@@ -1377,9 +1379,17 @@ export async function renderFrameLayers(slide: StoryFrameSlide, canvas: FrameCan
   const textLayer = Buffer.from(new Resvg(svg, { font: { fontFiles, loadSystemFonts: false, defaultFontFamily: FONT_FAMILY_NAME[displayId] } }).render().asPng())
   let overlay = wantsMark ? await placeMark(slide, textLayer, base, composed.subjects, cv, displayId, display, fontFiles) : textLayer
   // A carousel's slide counter and the cover's swipe cue, in free corners.
-  if (slide.counter) overlay = await placeLabel(slide.counter, "top-right", overlay, base, composed.subjects, cv, box, fontFiles, false, region)
-  if (slide.swipe_cue) overlay = await placeLabel("Swipe", "bottom-right", overlay, base, composed.subjects, cv, box, fontFiles, true, region)
-  return { base, overlay, subjects: composed.subjects, region, layout }
+  // The cover's swipe cue first -- it's what gets the carousel swiped; the
+  // counter then takes what's left (on a crowded cover it may not fit).
+  const labels: string[] = []
+  const place = async (key: string, text: string, prefer: LogoPosition, arrow: boolean) => {
+    const r = await placeLabel(text, prefer, overlay, base, composed.subjects, cv, box, fontFiles, arrow, region)
+    overlay = r.overlay
+    if (r.placed) labels.push(key)
+  }
+  if (slide.swipe_cue) await place("swipe", "Swipe", "bottom-right", true)
+  if (slide.counter) await place("counter", slide.counter, "top-right", false)
+  return { base, overlay, subjects: composed.subjects, region, layout, labels }
 }
 
 /** Renders one frame on `cv` to a JPEG. Throws only if the canvas itself can't be drawn. */

@@ -51,6 +51,22 @@ async function main() {
     assert.ok(layouts.includes("type"), layouts.join(","))
   })
 
+  await test("the cover always gets its swipe cue, even when crowded", async () => {
+    // The olive cover: the person fills the left half, the headline, script
+    // line and logo the right -- the counter used to take the last free
+    // corner and the swipe cue was dropped.
+    const left = `data:image/png;base64,${(await sharp(Buffer.from(`<svg width="1200" height="1500" xmlns="http://www.w3.org/2000/svg"><rect width="1200" height="1500" fill="#b9b2a5"/><rect x="60" y="40" width="560" height="1440" fill="#4a5a3a"/></svg>`)).png().toBuffer()).toString("base64")}`
+    const cover = (image_url: string | null) => ({ frame: "hook" as const, headline: "Olive chinos", subtext: "Swipe for easy combos", image_url, subject_boxes: image_url ? [{ x: 0.05, y: 0.02, w: 0.47, h: 0.96, label: "person" as const }] : null, seed: 5, brand_mark: true, layout_hint: "full" as const })
+    const rest = [
+      { frame: "slide_photo" as const, headline: "White shirt", subtext: "a line", seed: 6, layout_hint: "split" as const },
+      { frame: "cta" as const, headline: "Choose a look", cta: "Shop olive chinos", seed: 7, brand_mark: true, layout_hint: "full" as const },
+    ]
+    for (const img of [left, null]) {
+      const [first] = await renderCarouselFrames([cover(img), ...rest], { name: "SNITCH", palette, fontId: "anton" })
+      assert.ok(first!.labels.includes("swipe"), `${img ? "photo" : "no photo"} cover: ${first!.labels.join(",") || "no labels"}`)
+    }
+  })
+
   await test(`a photo is assigned only at photo-fit ${MIN_PHOTO_FIT}+`, () => {
     const candidates = [{ id: "a" }, { id: "b" }]
     assert.equal(pickFittingPhoto([{ id: "a", fit: 3, reason: "" }, { id: "b", fit: 2, reason: "" }], candidates).photo, null)
