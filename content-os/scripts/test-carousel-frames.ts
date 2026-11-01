@@ -48,7 +48,7 @@ test("CTA label falls back to the brand's phrase", () => {
 })
 
 test("post design: model words, else the overlay text; null for other templates", () => {
-  assert.equal(initialPostDesign("bold_statement", { post_big_words: "Bday sale is here now", post_script_line: "our biggest one yet" }, 1)?.big_words, "Bday sale is here")
+  assert.equal(initialPostDesign("bold_statement", { post_big_words: "Bday sale is here now and it is big", post_script_line: "our biggest one yet" }, 1)?.big_words, "Bday sale is here now and it")
   assert.equal(initialPostDesign("quote_card", { fallbackWords: ["", "New launch"] }, 1)?.big_words, "New launch")
   assert.equal(initialPostDesign("hard_truth_checklist", { post_big_words: "x" }, 1), null)
   assert.equal(initialPostDesign("minimal", {}, 1), null)
