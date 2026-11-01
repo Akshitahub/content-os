@@ -25,6 +25,10 @@ export interface CarouselFrameSlide {
   layout_hint?: CarouselLayout | null
   /** The photo's subject boxes when already known; else stored / detected at render. */
   subject_boxes?: SubjectBox[] | null
+  /** A listicle item's position (lib/design/carousel-frames.ts) -- its numeral on a type-led slide. */
+  list_index?: number | null
+  /** A type-led slide with no photo of its own: the product photo, shown as a detail. */
+  detail_image_url?: string | null
 }
 
 const KIND: Record<CarouselFrame, FrameKind> = { hook: "hook", slide_photo: "slide_photo", slide_type: "slide_type", cta: "cta" }
@@ -43,6 +47,8 @@ function toFrame(s: CarouselFrameSlide, brand: { name: string; palette: BrandPal
     background_image_url: s.image_url ?? null,
     subject_boxes: s.subject_boxes ?? null,
     layout_hint: s.layout_hint ?? null,
+    list_index: s.list_index ?? null,
+    detail_image_url: s.detail_image_url ?? null,
     palette: brand.palette,
     font_id: isFontId(s.font_id) ? s.font_id : brand.fontId,
     brand_name: brand.name,

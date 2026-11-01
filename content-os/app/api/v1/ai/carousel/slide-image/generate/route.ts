@@ -1,4 +1,4 @@
-import { generateCheckedSlide } from "@/lib/ai/slide-photo-check"
+import { AGREE_MIN, generateCheckedSlide } from "@/lib/ai/slide-photo-check"
 import { recordGeneratedSubjects } from "@/lib/image/subject-boxes"
 import { NextResponse } from "next/server"
 import { noteGenerationBrand } from "@/lib/ai/provider-fallback"
@@ -184,7 +184,7 @@ async function handlePost(request: Request, timer: GenerationTimer) {
     // Text is composited over slide backgrounds, so "low" is enough --
     // raised to "medium" automatically when a product photo is attached.
     quality: "low",
-  }, parsed.data.slideCopy, `carousel role=${role}`, () => Date.now() < deadlineAt - 60_000), deadlineAt - Date.now(), "carousel slide image")).catch((err): Awaited<ReturnType<typeof generateCarouselSlideBackground>> => ({
+  }, parsed.data.slideCopy, `carousel role=${role}`, () => Date.now() < deadlineAt - 60_000, productImageUrl), deadlineAt - Date.now(), "carousel slide image")).catch((err): Awaited<ReturnType<typeof generateCarouselSlideBackground>> => ({
     // Deadline hit (or an unexpected throw): handled exactly like a failed
     // generation below -- logged and refunded.
     success: false,
@@ -262,5 +262,9 @@ async function handlePost(request: Request, timer: GenerationTimer) {
   // computed once here and stored on the slide next to its image_url.
   const textStyle = await computeTextStyleSafe(result.buffer, carouselTextRegion({ x: parsed.data.textPositionX, y: parsed.data.textPositionY }))
 
-  return NextResponse.json({ data: { public_url: uploadResult.publicUrl, role, provider, text_style: textStyle } }, { status: 200 })
+  // A middle slide's photo that still doesn't show its point (after the
+  // retry): the builder makes the slide type-led instead.
+  const agree = "agree" in result ? result.agree : undefined
+  const showsPoint = agree === undefined || agree >= AGREE_MIN
+  return NextResponse.json({ data: { public_url: uploadResult.publicUrl, role, provider, text_style: textStyle, shows_point: showsPoint } }, { status: 200 })
 }

@@ -139,6 +139,10 @@ interface CarouselSlideRich {
   brand_mark?: boolean | null
   /** The slide's planned layout (full-bleed, split, type-led). */
   layout_hint?: "full" | "split" | "type" | null
+  /** A listicle item's position -- its numeral on a type-led slide. */
+  list_index?: number | null
+  /** A type-led slide's product-photo detail when its own photo can't show the point. */
+  detail_image_url?: string | null
   /** A catalogue (studio) brand photo picked for this slide: the product
    * reference for its generated candid scene (lib/ai/catalogue-photos.ts),
    * and the slide's photo -- as a cutout -- if that scene can't be made. */
@@ -303,8 +307,8 @@ async function fetchSlideBackgroundResult(
       body: JSON.stringify({ brandId, vibe, role, productImageUrl: productImageUrl ?? undefined, slideType, customPrompt: customPrompt || undefined, visualBrief, userDirection: userDirection || undefined, textPositionX: textPosition?.x, textPositionY: textPosition?.y, ...(slideCopy?.headline ? { slideCopy } : {}) }),
     })
     if (!res.ok) return { error: slideBackgroundErrorForStatus(res.status) }
-    const json = await readJsonResponse(res) as { data?: { public_url?: string; provider?: "openai"; text_style?: TextStyle | null } }
-    return json.data?.public_url ? { url: json.data.public_url, provider: json.data.provider, text_style: json.data.text_style ?? null } : { error: "failed" }
+    const json = await readJsonResponse(res) as { data?: { public_url?: string; provider?: "openai"; text_style?: TextStyle | null; shows_point?: boolean } }
+    return json.data?.public_url ? { url: json.data.public_url, provider: json.data.provider, text_style: json.data.text_style ?? null, shows_point: json.data.shows_point ?? true } : { error: "failed" }
   } catch {
     return { error: "failed" }
   }
@@ -1107,6 +1111,9 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
       setCarousel((prev) => (prev && prev.id === carouselId
         ? { ...prev, slides: repickCarouselLayouts(prev.slides.map((s, i) => {
             const bg = succeeded.get(i)
+            // A middle slide whose photo can't show its point: type-led, over a
+            // detail of the product photo (else the brand-colour band).
+            if (bg && bg.shows_point === false && i > 0 && i < count - 1) return { ...s, frame: "slide_type" as const, layout_hint: "type" as const, image_url: null, detail_image_url: s.product_reference_url ?? productImage ?? null }
             if (bg) return { ...s, image_url: bg.url, background_image_provider: bg.provider, text_style: bg.text_style ?? null }
             return fallbacks.includes(i) ? { ...s, image_url: s.product_reference_url, background_image_provider: "brand_photo" as const, text_style: null } : s
           }), brand?.vibe) }

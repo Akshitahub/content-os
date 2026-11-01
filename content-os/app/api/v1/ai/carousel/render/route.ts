@@ -83,6 +83,8 @@ const slideSchema = z.object({
   tape: z.boolean().nullish(),
   brand_mark: z.boolean().nullish(),
   layout_hint: z.enum(["full", "split", "type"]).nullish(),
+  list_index: z.number().int().min(1).max(20).nullish(),
+  detail_image_url: z.string().url().max(2000).nullish(),
 })
 // Matches CarouselBuilder.tsx's slideCount cap.
 const schema = z.object({

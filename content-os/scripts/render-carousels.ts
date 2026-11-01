@@ -86,11 +86,13 @@ async function main() {
           visualBrief: ref ? undefined : s.visual as never,
           productImageUrl: ref,
           customPrompt: ref ? `${candidSceneDirection(i)}. This slide's point: ${s.headline} -- ${s.subtext ?? ""}` : undefined,
-        }, { headline: String(s.headline ?? ""), body: (s.subtext as string | null) ?? null }, `carousel ${slug(topic)} slide ${i + 1}`)
+        }, { headline: String(s.headline ?? ""), body: (s.subtext as string | null) ?? null }, `carousel ${slug(topic)} slide ${i + 1}`, () => true, productPhoto)
         if (bg.success && photoMissesPoint(bg.agree, i, slides.length)) {
-          // Doesn't show the point even after the retry: type-led, as in production.
+          // Doesn't show the point even after the retry: type-led over a
+          // detail of the product photo, as in production.
           s.frame = "slide_type"
           s.layout_hint = "type"
+          s.detail_image_url = productPhoto
           agree = bg.agree
         } else if (bg.success) {
           url = `data:${bg.mimeType};base64,${bg.buffer.toString("base64")}`
@@ -98,11 +100,8 @@ async function main() {
           agree = bg.agree
         }
       }
-      // A type-led slide gets a photo crop only when one fits its point (a
-      // brand photo through photo-fit, as in production); none here -> its
-      // colour block.
-      frames.push({ frame: s.frame as never, headline: String(s.headline ?? ""), subtext: (s.subtext as string | null) ?? null, cta: (s.cta as string | null) ?? null, image_url: url, seed: s.seed as number, brand_mark: s.brand_mark as boolean, font_id: s.font_id as string, subject_boxes: boxes, layout_hint: s.layout_hint as never })
-      slideLog.push({ slide: i + 1, frame: s.frame, layout_hint: s.layout_hint, big_words: s.headline, line: s.subtext, photo: url ? (url === productPhoto ? "product photo crop" : "generated for this slide") : "brand colour", photo_agrees: agree ?? null })
+      frames.push({ frame: s.frame as never, headline: String(s.headline ?? ""), subtext: (s.subtext as string | null) ?? null, cta: (s.cta as string | null) ?? null, image_url: url, seed: s.seed as number, brand_mark: s.brand_mark as boolean, font_id: s.font_id as string, subject_boxes: boxes, layout_hint: s.layout_hint as never, list_index: (s.list_index as number | null) ?? null, detail_image_url: (s.detail_image_url as string | null) ?? null })
+      slideLog.push({ slide: i + 1, frame: s.frame, layout_hint: s.layout_hint, list_index: s.list_index ?? null, big_words: s.headline, line: s.subtext, photo: url ? "generated for this slide" : s.detail_image_url ? "detail of the product photo" : "brand-colour band", photo_agrees: agree ?? null })
     }
     const rendered = await renderCarouselFrames(frames, { name: brand.name, ...frameLogo(brand), palette, fontId: typography.heading })
     const thumbs: Buffer[] = []

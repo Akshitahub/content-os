@@ -56,11 +56,17 @@ export interface CarouselExportSlide {
   brand_mark?: boolean | null
   /** The slide's planned layout -- full-bleed, split or type-led (lib/design/carousel-frames.ts). */
   layout_hint?: "full" | "split" | "type" | null
+  /** A listicle item's position; its numeral on a type-led slide. */
+  list_index?: number | null
+  /** A type-led slide's product-photo detail when it has no photo of its own. */
+  detail_image_url?: string | null
 }
 
 /** The frame fields of a saved slide, for an export. */
-export function exportFrameFields(s: { frame?: unknown; seed?: unknown; tape?: unknown; brand_mark?: unknown; layout_hint?: unknown }): Pick<CarouselExportSlide, "frame" | "seed" | "tape" | "brand_mark" | "layout_hint"> {
+export function exportFrameFields(s: { frame?: unknown; seed?: unknown; tape?: unknown; brand_mark?: unknown; layout_hint?: unknown; list_index?: unknown; detail_image_url?: unknown }): Pick<CarouselExportSlide, "frame" | "seed" | "tape" | "brand_mark" | "layout_hint" | "list_index" | "detail_image_url"> {
   return {
+    list_index: typeof s.list_index === "number" ? s.list_index : null,
+    detail_image_url: typeof s.detail_image_url === "string" && /^https:\/\//.test(s.detail_image_url) ? s.detail_image_url : null,
     layout_hint: s.layout_hint === "full" || s.layout_hint === "split" || s.layout_hint === "type" ? s.layout_hint : null,
     frame: s.frame === "hook" || s.frame === "slide_photo" || s.frame === "slide_type" || s.frame === "cta" ? s.frame : null,
     seed: typeof s.seed === "number" ? s.seed : null,

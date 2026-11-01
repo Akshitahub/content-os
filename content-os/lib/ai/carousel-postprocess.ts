@@ -2,7 +2,7 @@
 // -- moved out of app/api/v1/ai/carousel/generate/route.ts so Autopilot
 // (lib/ai/fastlane.ts generateSlotContent) runs the exact same steps on the
 // same generator's output instead of a second, drifting copy.
-import { finalizeCarouselFrames } from "@/lib/design/carousel-frames"
+import { finalizeCarouselFrames, isListicle } from "@/lib/design/carousel-frames"
 import type { BrandRow } from "@/types/database"
 import type { CarouselBackgroundStyle } from "@/lib/design/carousel-slide-styles"
 import { toBrandPreset } from "@/lib/design/color-themes"
@@ -189,7 +189,8 @@ export function finishGeneratedCarousel(
   })
   // The story frame language (lib/design/carousel-frames.ts): hook, photo /
   // type alternating, CTA -- big words + one line of at most 12 words each.
-  const framed = finalizeCarouselFrames(stamped, { ctaPhrase: (brand as BrandRow & { cta_phrase?: string | null }).cta_phrase })
+  const payoff = (d.narrative_plan as { payoff_type?: unknown } | undefined)?.payoff_type
+  const framed = finalizeCarouselFrames(stamped, { ctaPhrase: (brand as BrandRow & { cta_phrase?: string | null }).cta_phrase, listicle: isListicle(payoff) })
   return {
     slides: framed,
     typography,

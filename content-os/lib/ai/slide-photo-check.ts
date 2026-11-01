@@ -16,8 +16,9 @@ export const AGREE_MIN = 5
 
 /**
  * A middle slide whose photo still doesn't show its point after the retry
- * goes type-led instead (its words, a colour block) -- a designed type slide
- * beats a photo that contradicts it. The cover and CTA keep theirs.
+ * goes type-led instead (its words over a close detail of the product photo,
+ * else the brand-colour band) -- a designed type slide beats a photo that
+ * contradicts it. The cover and CTA keep theirs.
  */
 export function photoMissesPoint(agree: number | undefined, index: number, count: number): boolean {
   return agree !== undefined && agree < AGREE_MIN && index > 0 && index < count - 1
@@ -42,20 +43,23 @@ type SlideResult = Awaited<ReturnType<typeof generateCarouselSlideBackground>>
 
 /**
  * generateCarouselSlideBackground, then the per-slide agreement check and
- * at most one regeneration with the fix. `copy` absent = no check. Every
- * billed attempt is kept on the result.
+ * at most one regeneration with the fix: from the slide's own brief and
+ * point, with the product photo (`reference`) as the reference image.
+ * `copy` absent = no check. Every billed attempt is kept on the result.
  */
-export async function generateCheckedSlide(options: SlideOptions, copy: SlideCopy | null | undefined, label: string, canRetry: () => boolean = () => true): Promise<SlideResult & { agree?: number; checkCostUsd?: number | null }> {
+export async function generateCheckedSlide(options: SlideOptions, copy: SlideCopy | null | undefined, label: string, canRetry: () => boolean = () => true, reference?: string | null): Promise<SlideResult & { agree?: number; checkCostUsd?: number | null }> {
   const first = await generateCarouselSlideBackground(options)
   if (!first.success || !copy?.headline?.trim()) return first
   const check = await slidePhotoAgreement(options.brand, first.buffer, first.mimeType, copy, label)
   if (!check || check.agree >= AGREE_MIN || !canRetry()) return { ...first, agree: check?.agree, checkCostUsd: check?.costUsd ?? null }
   console.log(`[slide-photo-check] ${label}: photo doesn't show the slide's point (agree ${check.agree}) -- one more try`)
   const direction = [options.userDirection, `the photo must show exactly this: ${copy.headline}${copy.body ? ` -- ${copy.body}` : ""}. Fix: ${check.fix}`].filter(Boolean).join(". ")
-  // The retry describes the slide's point as the scene itself -- an abstract
-  // or mismatched brief is what made the first photo miss it.
-  const scene = `a real photograph that clearly shows: ${copy.headline}${copy.body ? ` -- ${copy.body}` : ""}`
-  const second = await generateCarouselSlideBackground({ ...options, visualBrief: undefined, customPrompt: options.productImageUrl ? `${options.customPrompt ?? ""} ${scene}`.trim() : scene, userDirection: direction })
+  // The retry describes the slide's point as the scene itself, with what its
+  // own brief must show -- an abstract or mismatched brief is what made the
+  // first photo miss it -- and the real product photo as its reference.
+  const ref = options.productImageUrl ?? reference ?? null
+  const scene = [`a real photograph that clearly shows: ${copy.headline}${copy.body ? ` -- ${copy.body}` : ""}`, options.visualBrief?.must_show && `it must show ${options.visualBrief.must_show}`].filter(Boolean).join(". ")
+  const second = await generateCarouselSlideBackground({ ...options, visualBrief: undefined, productImageUrl: ref, customPrompt: ref ? `${options.customPrompt ?? ""} ${scene}`.trim() : scene, userDirection: direction })
   if (!second.success) return { ...first, attempts: [...first.attempts, ...second.attempts], agree: check.agree, checkCostUsd: check.costUsd }
   const recheck = await slidePhotoAgreement(options.brand, second.buffer, second.mimeType, copy, `${label} retry`)
   const cost = (check.costUsd ?? 0) + (recheck?.costUsd ?? 0)

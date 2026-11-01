@@ -12,13 +12,13 @@ import type { TextStyle } from "@/lib/design/text-style"
  * plan gate (e.g. the CTA slide's AI background), not a failure -- it is
  * neither retried nor reported as failed. */
 export type SlideBackgroundOutcome =
-  | { url: string; provider?: "openai" | "brand_photo"; text_style?: TextStyle | null; photo_id?: string | null }
+  | { url: string; provider?: "openai" | "brand_photo"; text_style?: TextStyle | null; photo_id?: string | null; shows_point?: boolean }
   | { error: "insufficient_credits" | "failed" | "restricted"; message?: string }
 
 export type SlideBackgroundJob<K> = { key: K; run: () => Promise<SlideBackgroundOutcome> }
 
 export type SlideBackgroundRunResult<K> = {
-  succeeded: Map<K, { url: string; provider?: "openai" | "brand_photo"; text_style?: TextStyle | null; photo_id?: string | null }>
+  succeeded: Map<K, { url: string; provider?: "openai" | "brand_photo"; text_style?: TextStyle | null; photo_id?: string | null; shows_point?: boolean }>
   /** Failed twice (first attempt + the automatic retry). */
   failed: K[]
   /** The server's reason for each failed key, when it gave one. */

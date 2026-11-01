@@ -402,7 +402,7 @@ async function prepareSlot(admin: Admin, job: SlotJobRow, ctx: RunContext, track
       const withPhotos = await assignCarouselBrandPhotos(admin, brand, generated.carousel.slides, {
         productId: product?.id ?? null, productName: product?.name ?? null, label: `autopilot slot ${job.id} carousel`,
       })
-      carouselRichSlides = await withCarouselBackgrounds(job, ctx, withPhotos, tracker)
+      carouselRichSlides = await withCarouselBackgrounds(job, ctx, withPhotos, tracker, product?.image_urls?.find(Boolean) ?? null)
       tracker.imageMs += Date.now() - imageStartedAt
       await rememberBrandTypography(admin, brand, generated.carousel.typography)
       // Framed slides (lib/design/carousel-frames.ts) through the frame
@@ -589,7 +589,7 @@ function carouselBgRole(index: number, count: number): "hook" | "cta" | "body" {
  * its text_style; a failed slide keeps its flat background_style. Image
  * cost is tracked like the post image's.
  */
-async function withCarouselBackgrounds(job: SlotJobRow, ctx: RunContext, slides: Record<string, unknown>[], tracker: AutopilotUsageTracker): Promise<Record<string, unknown>[]> {
+async function withCarouselBackgrounds(job: SlotJobRow, ctx: RunContext, slides: Record<string, unknown>[], tracker: AutopilotUsageTracker, productPhoto: string | null): Promise<Record<string, unknown>[]> {
   const { brand, params } = ctx
   return Promise.all(slides.map(async (slide, i) => {
     // A brand photo already placed, or a type-led frame (no photo at all).
@@ -598,8 +598,9 @@ async function withCarouselBackgrounds(job: SlotJobRow, ctx: RunContext, slides:
     // A catalogue brand photo picked for the slide: the product reference for
     // its candid scene; the slide's photo (a cutout) if that fails.
     const ref = typeof slide.product_reference_url === "string" ? slide.product_reference_url : null
-    const keepRef = () => (ref ? { ...slide, image_url: ref, background_image_provider: "brand_photo", text_style: null } : slide)
-    if (!visualBrief && !ref) return slide
+    // No photo made: a type-led slide shows a detail of the product photo.
+    const keepRef = () => (ref ? { ...slide, image_url: ref, background_image_provider: "brand_photo", text_style: null } : { ...slide, detail_image_url: productPhoto })
+    if (!visualBrief && !ref && !productPhoto) return slide
     try {
       // The photo must show this slide's point (lib/ai/slide-photo-check.ts).
       const result = await generateCheckedSlide({
@@ -608,10 +609,11 @@ async function withCarouselBackgrounds(job: SlotJobRow, ctx: RunContext, slides:
         isInternalUnlimitedUser: params.isInternalUnlimitedUser,
         role: carouselBgRole(i, slides.length),
         visualBrief,
-        productImageUrl: ref,
+        // The product's own photo is the reference, so the slide shows the real product.
+        productImageUrl: ref ?? productPhoto,
         userDirection: typeof slide.scene_direction === "string" ? slide.scene_direction : undefined,
         quality: "low",
-      }, { headline: String(slide.headline ?? ""), body: typeof slide.subtext === "string" ? slide.subtext : null }, `autopilot slot ${job.id} slide ${i + 1}`)
+      }, { headline: String(slide.headline ?? ""), body: typeof slide.subtext === "string" ? slide.subtext : null }, `autopilot slot ${job.id} slide ${i + 1}`, () => true, ref ?? productPhoto)
       if (result.checkCostUsd) trackUsage(tracker, undefined, result.checkCostUsd)
       trackUsage(tracker, undefined, attemptsCostUsd(result.attempts))
       if (!result.success) {
@@ -620,7 +622,7 @@ async function withCarouselBackgrounds(job: SlotJobRow, ctx: RunContext, slides:
       }
       if (photoMissesPoint(result.agree, i, slides.length)) {
         console.log(`[autopilot-worker] slot ${job.id}: slide ${i + 1} photo doesn't show its point (agree ${result.agree}) -- type-led instead`)
-        return { ...slide, frame: "slide_type", layout_hint: "type" }
+        return { ...slide, frame: "slide_type", layout_hint: "type", detail_image_url: ref ?? productPhoto }
       }
       const upload = await uploadMediaToStorage({ kind: "buffer", buffer: result.buffer, mimeType: result.mimeType }, `${job.brand_id}/carousel-slides`, { generatedImage: true })
       if ("error" in upload) {

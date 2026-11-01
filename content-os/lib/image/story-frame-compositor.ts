@@ -88,6 +88,23 @@ export interface StoryFrameSlide extends Omit<StoryFrameFields, "frame"> {
   swipe_cue?: boolean | null
   /** The carousel's shared headline size cap, px. */
   type_scale?: number | null
+  /** A listicle carousel's item position (1 = the first tip): its numeral on a type-led slide. Never set on other carousels. */
+  list_index?: number | null
+  /** A type-led slide with no photo of its own: a real product photo the carousel already uses, shown as a close detail. */
+  detail_image_url?: string | null
+}
+
+/** The big index numeral a type-led slide shows: a listicle item's own position ("02"), else none. */
+export function listItemNumeral(slide: Pick<StoryFrameSlide, "list_index">): string | null {
+  const n = slide.list_index
+  return typeof n === "number" && Number.isInteger(n) && n >= 1 ? String(n).padStart(2, "0") : null
+}
+
+/** The type-led slide's colour band: the pop colour when deep ink reads on it, else the accent -- always the brand's own. */
+export function typeBandColor(p: BrandPalette): { fill: string; ink: string } {
+  const inkOn = (fill: string) => bestContrast(fill, [p.deep, p.base])
+  if (hexContrast(p.pop, p.deep) >= AA_BODY) return { fill: p.pop, ink: p.deep }
+  return { fill: p.accent, ink: inkOn(p.accent) }
 }
 
 // ─── Small utilities ────────────────────────────────────────────────────────
@@ -441,48 +458,96 @@ async function compose(slide: StoryFrameSlide, p: BrandPalette, rnd: () => numbe
  * supporting crop of the slide's photo (centred on its subject / face) or,
  * without one, a block in the brand's accent -- never an empty flat page.
  */
-async function composeType(slide: StoryFrameSlide, p: BrandPalette, rnd: () => number, cv: FrameCanvas): Promise<Composed> {
+/** A close detail of a product photo (its fabric, its cut): a window around the product, never the whole shot again. */
+async function detailCrop(url: string, bw: number, bh: number): Promise<Buffer | null> {
+  const raw = await fetchImage(url)
+  if (!raw) return null
+  const { data, info } = await sharp(raw).rotate().png().toBuffer({ resolveWithObject: true })
+  const W = info.width, H = info.height
+  const boxes = await resolveSubjectBoxes(url, data, null)
+  const box = boxes.find((b) => b.label === "product") ?? boxes.find((b) => b.label === "hips") ?? boxes.reduce<SubjectBox | null>((a, b) => (!a || b.w * b.h > a.w * a.h ? b : a), null)
+  const cx = box ? (box.x + box.w / 2) * W : W / 2
+  const cy = box ? (box.y + box.h / 2) * H : H / 2
+  const aspect = bw / bh
+  let cw = Math.max(240, Math.min(W, (box ? box.w * W : W * 0.6) * 1.1))
+  let ch = cw / aspect
+  if (ch > H) { ch = H; cw = ch * aspect }
+  const left = Math.round(Math.max(0, Math.min(W - cw, cx - cw / 2)))
+  const top = Math.round(Math.max(0, Math.min(H - ch, cy - ch / 2)))
+  return sharp(data).extract({ left, top, width: Math.round(cw), height: Math.round(ch) }).resize(bw, bh, { fit: "cover" }).png().toBuffer()
+}
+
+/**
+ * The type-led slide, always designed in the brand's own colours:
+ * - its own photo (generated for this slide's point), as a rounded crop;
+ * - else a close detail of a real product photo the carousel already uses;
+ * - else a full-width band in the brand colour carrying the slide's line
+ *   (and a listicle item's numeral) -- never an empty or neutral box.
+ */
+async function composeType(slide: StoryFrameSlide, p: BrandPalette, rnd: () => number, cv: FrameCanvas): Promise<Composed & { bodyDrawn?: boolean }> {
   const block: Rect = { x0: cv.side, y0: Math.round(cv.h * 0.56), x1: cv.w - cv.side, y1: cv.h - Math.round(cv.safeBottom * 0.8) }
   const bw = rw(block), bh = rh(block), radius = 28
-  const raw = slide.background_image_url ? await fetchImage(slide.background_image_url) : null
+  const m = Math.round(SUBJECT_MARGIN * cv.w)
   let crop: Buffer | null = null
-  if (raw) {
-    try {
+  try {
+    const raw = slide.background_image_url ? await fetchImage(slide.background_image_url) : null
+    if (raw) {
       const oriented = await sharp(raw).rotate().png().toBuffer({ resolveWithObject: true })
       const boxes = await resolveSubjectBoxes(slide.background_image_url, oriented.data, slide.subject_boxes)
-      const placed = await placePhoto(oriented.data, oriented.info.width, oriented.info.height, boxes, { x0: 0, y0: 0, x1: bw, y1: bh }, cv)
-      const mask = Buffer.from(`<svg width="${bw}" height="${bh}" xmlns="http://www.w3.org/2000/svg"><rect width="${bw}" height="${bh}" rx="${radius}" fill="#fff"/></svg>`)
-      crop = await sharp(placed.img).ensureAlpha().composite([{ input: mask, blend: "dest-in" }]).png().toBuffer()
-    } catch {
-      crop = null
+      crop = (await placePhoto(oriented.data, oriented.info.width, oriented.info.height, boxes, { x0: 0, y0: 0, x1: bw, y1: bh }, cv)).img
+    } else if (slide.detail_image_url) {
+      crop = await detailCrop(slide.detail_image_url, bw, bh)
+    }
+  } catch {
+    crop = null
+  }
+  if (crop) {
+    const mask = Buffer.from(`<svg width="${bw}" height="${bh}" xmlns="http://www.w3.org/2000/svg"><rect width="${bw}" height="${bh}" rx="${radius}" fill="#fff"/></svg>`)
+    const rounded = await sharp(crop).ensureAlpha().composite([{ input: mask, blend: "dest-in" }]).png().toBuffer()
+    const canvas = await sharp({ create: { width: cv.w, height: cv.h, channels: 3, background: p.base } }).composite([{ input: rounded, left: block.x0, top: block.y0 }]).png().toBuffer()
+    return {
+      base: await withGrain(canvas, 12, rnd, cv),
+      photo: true,
+      subjects: [{ x0: block.x0, y0: block.y0 - m, x1: block.x1, y1: block.y1 }],
+      region: { x0: 0, y0: 0, x1: cv.w, y1: block.y0 - m },
+      layout: "type",
     }
   }
-  // No photo fits: the colour block carries the point's number (slide 3/5 is
-  // point 02 -- the cover isn't a point) and a pop-colour rule, so it reads
-  // as designed rather than a missing image.
-  const point = Number(slide.counter?.split("/")[0]) - 1
-  const numeral = point >= 1 ? String(point).padStart(2, "0") : ""
-  const numSize = Math.round(bh * 0.62)
-  const blockSvg = crop ? "" : `<rect x="${block.x0}" y="${block.y0}" width="${bw}" height="${bh}" rx="${radius}" fill="${p.accent}"/>`
-    + `<rect x="${block.x0 + 56}" y="${block.y0 + 56}" width="${Math.round(bw * 0.18)}" height="10" rx="5" fill="${p.pop}"/>`
 
-  let blockLayer: Buffer | null = null
-  if (!crop) {
-    const displayId: FontId = frameDisplayFont(isFontId(slide.font_id) ? slide.font_id : DEFAULT_FONT_ID)
-    const { fontFiles } = await loadFonts(displayId)
-    const num = numeral ? `<text x="${block.x1 - 48}" y="${block.y1 - 40}" text-anchor="end" font-family="${family(displayId)}" font-size="${numSize}" font-weight="700" fill="${p.base}" fill-opacity="0.16">${numeral}</text>` : ""
-    blockLayer = Buffer.from(new Resvg(`<svg width="${cv.w}" height="${cv.h}" xmlns="http://www.w3.org/2000/svg">${blockSvg}${num}</svg>`, { font: { fontFiles, loadSystemFonts: false, defaultFontFamily: FONT_FAMILY_NAME[displayId] } }).render().asPng())
-  }
-  const canvas = await sharp({ create: { width: cv.w, height: cv.h, channels: 3, background: p.base } })
-    .composite([crop ? { input: crop, left: block.x0, top: block.y0 } : { input: blockLayer! }])
-    .png().toBuffer()
-  const m = Math.round(SUBJECT_MARGIN * cv.w)
+  // No photo at all: the brand-colour band, edge to edge, with the slide's
+  // own line set large inside it (drawn here -- the frame then skips it).
+  const band: Rect = { x0: 0, y0: Math.round(cv.h * 0.6), x1: cv.w, y1: cv.h }
+  const { fill, ink } = typeBandColor(p)
+  const displayId: FontId = frameDisplayFont(isFontId(slide.font_id) ? slide.font_id : DEFAULT_FONT_ID)
+  const { box, fontFiles } = await loadFonts(displayId)
+  const pad = cv.side + 16
+  const numeral = listItemNumeral(slide)
+  const numSize = Math.round(rh(band) * 0.5)
+  const textW = cv.w - pad * 2 - (numeral ? Math.round(numSize * 1.1) : 0)
+  const line = clean(slide.body)
+  let size = 58
+  let lines = line ? wrap(box, line, size, textW) : []
+  while (size > 40 && lines.length > 3) { size -= 4; lines = wrap(box, line, size, textW) }
+  lines = lines.slice(0, 3)
+  // The rule and the line, centred in the band above the safe bottom.
+  const blockH = 10 + 44 + lines.length * size * 1.22
+  const ruleY = Math.round(band.y0 + Math.max(56, (rh(band) - cv.safeBottom * 0.5 - blockH) / 2))
+  const textTop = ruleY + 10 + 44 - size * 0.2
+  const svg = `<svg width="${cv.w}" height="${cv.h}" xmlns="http://www.w3.org/2000/svg">`
+    + `<rect x="${band.x0}" y="${band.y0}" width="${rw(band)}" height="${rh(band)}" fill="${fill}"/>`
+    + `<rect x="${pad}" y="${ruleY}" width="${Math.round(cv.w * 0.12)}" height="10" rx="5" fill="${ink}"/>`
+    + lines.map((l, i) => `<text x="${pad}" y="${r1(textTop + size + i * size * 1.22)}" font-family="${family(BOX_FONT)}" font-size="${size}" font-weight="700" fill="${ink}">${esc(l)}</text>`).join("")
+    + (numeral ? `<text x="${cv.w - pad}" y="${r1(band.y0 + 64 + numSize * 0.86)}" text-anchor="end" font-family="${family(displayId)}" font-size="${numSize}" font-weight="700" fill="${ink}">${numeral}</text>` : "")
+    + `</svg>`
+  const layer = Buffer.from(new Resvg(svg, { font: { fontFiles, loadSystemFonts: false, defaultFontFamily: FONT_FAMILY_NAME[BOX_FONT] } }).render().asPng())
+  const canvas = await sharp({ create: { width: cv.w, height: cv.h, channels: 3, background: p.base } }).composite([{ input: layer }]).png().toBuffer()
   return {
     base: await withGrain(canvas, 12, rnd, cv),
     photo: true,
-    subjects: [{ x0: block.x0, y0: block.y0 - m, x1: block.x1, y1: block.y1 }],
-    region: { x0: 0, y0: 0, x1: cv.w, y1: block.y0 - m },
+    subjects: [{ x0: 0, y0: band.y0 - m, x1: cv.w, y1: cv.h }],
+    region: { x0: 0, y0: 0, x1: cv.w, y1: band.y0 - m },
     layout: "type",
+    bodyDrawn: true,
   }
 }
 
@@ -1270,6 +1335,8 @@ export async function renderFrameLayers(slide: StoryFrameSlide, canvas: FrameCan
     ? await composeType(slide, p, rnd, cv)
     : await compose(slide, p, rnd, cv, (w, h) => fitHeadline(display, displayId, clean(slide.big_words) || clean(slide.text) || clean(slide.quote), w, h).size)
   const { base, photo, region, layout } = composed
+  // The type-led band already carries the slide's line.
+  const drawSlide = "bodyDrawn" in composed && composed.bodyDrawn ? { ...slide, body: null } : slide
   // The frame draws on its region as if it were the canvas: full = the
   // canvas itself; otherwise a sub-canvas keeping what's left of the safe area.
   const sub: FrameCanvas = layout === "full" ? cv : {
@@ -1301,7 +1368,7 @@ export async function renderFrameLayers(slide: StoryFrameSlide, canvas: FrameCan
   const isPost = slide.frame.startsWith("post_")
   const wantsMark = slide.show_logo !== false && (isPost || (slide.brand_mark ?? (slide.frame === "hook" || slide.frame === "cta"))) && !!(slide.logo_url || slide.brand_name)
   const ctx: Ctx = { cv: sub, f: { displayId, display, script, box }, p, rnd, stats, bands }
-  const raw = (DRAW[slide.frame] ?? hookFrame)(ctx, slide)
+  const raw = (DRAW[slide.frame] ?? hookFrame)(ctx, drawSlide)
   // The tests measure the glyphs themselves, without their soft shadow / glow.
   const drawn = opts.plain ? raw.replace(/ filter="url\(#[a-z]+\)"/g, "") : raw
   // Anything drawn past the region's edge is clipped -- text never reaches the subject.

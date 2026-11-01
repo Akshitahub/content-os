@@ -61,10 +61,18 @@ export function carouselFrameFor(index: number, count: number): CarouselFrame {
   return carouselLayoutFor(index, count) === "type" ? "slide_type" : "slide_photo"
 }
 
-/** A generated photo is made for photo-led slides only -- a type-led slide uses a brand photo crop when one fits, else a colour block. */
+/**
+ * Every slide gets a photo for its point -- a type-led slide shows it as a
+ * crop. Only when that photo can't show the point does a type-led slide fall
+ * back to a detail of the product photo, then to the brand-colour band.
+ */
 export function carouselFrameNeedsPhoto(frame: unknown): boolean {
-  return frame !== "slide_type"
+  return isCarouselFrame(frame) || frame == null
 }
+
+/** Listicles number their items ("02" on the second tip); no other carousel shows numerals. */
+export const LISTICLE_PAYOFFS = ["ways", "mini_guide"] as const
+export const isListicle = (payoffType: unknown): boolean => (LISTICLE_PAYOFFS as readonly unknown[]).includes(payoffType)
 
 const TRAILING = /^(?:and|or|but|the|a|an|of|to|for|with|in|on|at|by|your|our|is|are|that|this)$/i
 
@@ -120,7 +128,7 @@ export function carouselFrameRules(): string {
  * line on the hook / CTA), points emptied (no lists on a frame). `seedBase`
  * keeps a regenerate from drawing the same rotations.
  */
-export function finalizeCarouselFrames(slides: Record<string, unknown>[], opts: { ctaPhrase?: string | null; seedBase?: number } = {}): Record<string, unknown>[] {
+export function finalizeCarouselFrames(slides: Record<string, unknown>[], opts: { ctaPhrase?: string | null; seedBase?: number; listicle?: boolean } = {}): Record<string, unknown>[] {
   const count = slides.length
   const seedBase = opts.seedBase ?? Math.floor(Math.random() * 2 ** 20)
   return slides.map((s, i) => {
@@ -141,6 +149,8 @@ export function finalizeCarouselFrames(slides: Record<string, unknown>[], opts: 
       seed: (seedBase + i * 7919) % 2 ** 30,
       brand_mark: frame === "hook" || frame === "cta",
       layout_hint: carouselLayoutFor(i, count),
+      // A listicle's middle slides are its items, in order: slide 2 is item 1.
+      list_index: opts.listicle && frame !== "hook" && frame !== "cta" ? i : null,
     }
   })
 }
