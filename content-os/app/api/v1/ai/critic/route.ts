@@ -4,6 +4,7 @@ import { createClient, createAdminClient } from "@/lib/supabase/server"
 import { buildError, ErrorCodes } from "@/types/api"
 import type { BrandRow } from "@/types/database"
 import { critiquePost } from "@/lib/ai/critic"
+import { getPerformanceLessons } from "@/lib/ai/performance-learning"
 import { noteGenerationBrand } from "@/lib/ai/provider-fallback"
 import { recordContentEvent } from "@/lib/usage/content-events"
 import { toSavedCritic } from "@/lib/design/critic-scores"
@@ -54,7 +55,9 @@ export async function POST(request: Request) {
     return NextResponse.json(buildError(ErrorCodes.USAGE_LIMIT_EXCEEDED, "That's a lot of scoring for one day -- try again tomorrow."), { status: 429 })
   }
 
-  const result = await critiquePost(brand, { imageUrl, caption, hook, format }, `manual ${format}`)
+  // What the brand's own results say works, as context (lib/ai/performance-learning.ts).
+  const resultsLessons = (await getPerformanceLessons(admin, brand.id)).slice(0, 3).map((l) => l.rule)
+  const result = await critiquePost(brand, { imageUrl, caption, hook, format, resultsLessons }, `manual ${format}`)
   if (!result) {
     return NextResponse.json(buildError(ErrorCodes.AI_GENERATION_FAILED, "Couldn't score this right now."), { status: 503 })
   }

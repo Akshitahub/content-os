@@ -35,6 +35,7 @@ import type { BrandRow, ProductRow, CalendarEntryRow, Json, Database } from "@/t
 import type { ContentSlot, FastlaneResult, Platform, ReelScene, UserPlan } from "@/types/app"
 import { prepareGeneratedImage } from "@/lib/storage/generated-image"
 import { getActiveLessons } from "@/lib/ai/brand-brain"
+import { exploresThisSlot, getPerformanceLessons } from "@/lib/ai/performance-learning"
 import { recordContentEvent } from "@/lib/usage/content-events"
 import { resolveTypography } from "@/lib/design/fonts"
 import { rememberBrandTypography } from "@/lib/design/brand-typography"
@@ -110,6 +111,8 @@ type RunContext = {
   imageColorTheme: ColorTheme
   /** Post candidates per slot, best kept by the critic: 3, or 1 on a trial. */
   bestOf: number
+  /** What the brand's own results say works (lib/ai/performance-learning.ts), top 3 -- the critic's extra context. */
+  resultsLessons: string[]
 }
 
 type PreparedSlot = {
@@ -126,6 +129,8 @@ type PreparedSlot = {
   postDesign: PostDesign | null
   /** The critic's verdict (lib/ai/critic.ts); null when it couldn't score. */
   critic: SavedCritic | null
+  /** Where the post's photo came from -- learned against its results later. */
+  photoSource: "real" | "ugc" | "ai" | null
   carouselHtml: string | null
   carouselSlides: { slide_number: number; headline: string; body: string; kicker?: string | null; highlight?: string | null }[]
   /** The shared generator's typed slides, with their background image_url and
@@ -273,6 +278,7 @@ async function loadRunContext(admin: Admin, job: SlotJobRow): Promise<RunContext
   // Brand art direction (lib/ai/art-direction.ts): derived once and cached in
   // brand_brain -- every slot's briefs and images read it from `brand`. Fail-soft.
   await ensureArtDirection(admin, brand)
+  const resultsLessons = (await getPerformanceLessons(admin, brand.id)).slice(0, 3).map((l) => l.rule)
 
   // Same limit checkAndIncrementUsage would use, from the user's CURRENT
   // plan/trial (they may have upgraded mid-run).
@@ -296,6 +302,7 @@ async function loadRunContext(admin: Admin, job: SlotJobRow): Promise<RunContext
     pLimit,
     imageColorTheme: resolveColorThemes(brand)[0]!,
     bestOf,
+    resultsLessons,
   }
 }
 
@@ -319,9 +326,13 @@ async function prepareSlot(admin: Admin, job: SlotJobRow, ctx: RunContext, track
   // Learned brand lessons for this slot's content: carousels read
   // "carousel", posts/reel captions read "caption". Fail-soft.
   // Posts also read "hook"-scope lessons, for the hook generator.
+  // About 70% of slots lean on what the brand's results say works
+  // (performance lessons); the rest explore without them.
+  const explore = exploresThisSlot(job.slot_index)
+  const lean = <T extends { source?: string }>(ls: T[] | undefined) => (explore ? ls?.filter((l) => l.source !== "performance") : ls)
   const [lessons, hookLessons] = await Promise.all([
-    getActiveLessons(admin, brand.id, isCarousel ? "carousel" : "caption"),
-    isCarousel || isReel ? Promise.resolve(undefined) : getActiveLessons(admin, brand.id, "hook"),
+    getActiveLessons(admin, brand.id, isCarousel ? "carousel" : "caption").then((ls) => lean(ls) ?? []),
+    isCarousel || isReel ? Promise.resolve(undefined) : getActiveLessons(admin, brand.id, "hook").then(lean),
   ])
   const postDate = slotScheduledDate(params.baseDate, slot.day)
   let generated = await generateSlotContent(brand, slot, product, params.totalSlots, tracker, workDeadline - 60_000, lessons, hookLessons, undefined, postDate)
@@ -340,6 +351,7 @@ async function prepareSlot(admin: Admin, job: SlotJobRow, ctx: RunContext, track
   let imageUrl: string | null = null
   let designed: { imageUrl: string; design: PostDesign } | null = null
   let critic: SavedCritic | null = null
+  let photoSource: PreparedSlot["photoSource"] = null
   if (!isReel && !isCarousel) {
     let post = await makeAutopilotPost(admin, job, ctx, tracker, generated, mergedCaption, product, ctx.bestOf)
     let regenerated = false
@@ -361,6 +373,7 @@ async function prepareSlot(admin: Admin, job: SlotJobRow, ctx: RunContext, track
     }
     imageUrl = post.imageUrl
     designed = post.designed
+    photoSource = post.imageUrl ? post.photoSource ?? null : null
     // A customer's photo is credited in the caption ("📸 @handle").
     mergedCaption = withCreditLine(mergedCaption, post.photoCredit)
     critic = post.critic ? toSavedCritic(post.critic, { candidates: post.candidates, regenerated }) : null
@@ -416,7 +429,7 @@ async function prepareSlot(admin: Admin, job: SlotJobRow, ctx: RunContext, track
       if (uploaded.length >= MIN_CAROUSEL_SLIDES) {
         carouselImageUrls = uploaded
         const cover = rendered[0]!
-        const scored = await critiquePost(brand, { imageUrl: `data:${cover.mime};base64,${cover.png.toString("base64")}`, caption: mergedCaption, hook: generated.hook, format: "carousel" }, `autopilot slot ${job.id} carousel`)
+        const scored = await critiquePost(brand, { imageUrl: `data:${cover.mime};base64,${cover.png.toString("base64")}`, caption: mergedCaption, hook: generated.hook, format: "carousel", resultsLessons: ctx.resultsLessons }, `autopilot slot ${job.id} carousel`)
         if (scored) {
           trackUsage(tracker, undefined, scored.costUsd)
           critic = toSavedCritic(scored, { candidates: 1 })
@@ -460,11 +473,11 @@ async function prepareSlot(admin: Admin, job: SlotJobRow, ctx: RunContext, track
   return {
     generated, mergedCaption, product,
     scheduledDate: slotScheduledDate(params.baseDate, slot.day),
-    isCarousel, isReel, imageUrl, designedImageUrl: designed?.imageUrl ?? null, postDesign: designed?.design ?? null, critic, carouselHtml, carouselSlides, carouselRichSlides, carouselImageUrls, reelScenes, reelMusicUrl,
+    isCarousel, isReel, imageUrl, designedImageUrl: designed?.imageUrl ?? null, postDesign: designed?.design ?? null, critic, photoSource, carouselHtml, carouselSlides, carouselRichSlides, carouselImageUrls, reelScenes, reelMusicUrl,
   }
 }
 
-type AutopilotPost = { imageUrl: string | null; designed: { imageUrl: string; design: PostDesign } | null; critic: CriticResult | null; candidates: number; photoCredit?: string | null }
+type AutopilotPost = { imageUrl: string | null; designed: { imageUrl: string; design: PostDesign } | null; critic: CriticResult | null; candidates: number; photoCredit?: string | null; photoSource?: "real" | "ugc" | "ai" | null }
 
 /**
  * One post: a fitting brand photo or a generated image (clean, uploaded),
@@ -539,7 +552,7 @@ async function makeAutopilotPost(admin: Admin, job: SlotJobRow, ctx: RunContext,
       candidates++
       const scored = await critiquePost(brand, {
         imageUrl: jpg ? `data:image/jpeg;base64,${jpg.toString("base64")}` : imageUrl,
-        caption, hook: generated.hook, format: "post",
+        caption, hook: generated.hook, format: "post", resultsLessons: ctx.resultsLessons,
       }, `autopilot slot ${job.id} candidate ${candidates}`)
       if (scored) trackUsage(tracker, undefined, scored.costUsd)
       if (!best || (scored && (!best.critic || scored.overall > best.critic.overall))) best = { jpg, design, critic: scored }
@@ -553,6 +566,7 @@ async function makeAutopilotPost(admin: Admin, job: SlotJobRow, ctx: RunContext,
       critic: best?.critic ?? null,
       candidates,
       photoCredit: photoCredit(brandPhoto),
+      photoSource: brandPhoto ? (brandPhoto.source === "ugc" ? "ugc" : "real") : "ai",
     }
   } catch (err) {
     console.error(`[autopilot-worker] slot ${job.id}: image generation unexpected error:`, err instanceof Error ? err.message : err)
@@ -685,6 +699,14 @@ async function persistSlot(admin: Admin, job: SlotJobRow, ctx: RunContext, p: Pr
     }
 
     const platformData: Record<string, unknown> = {}
+    // What this item had, so its real results can be attributed later
+    // (lib/ai/performance-learning.ts).
+    platformData.learning = {
+      content_angle: slot.content_pillar ?? null,
+      template: p.postDesign?.template ?? null,
+      photo_source: p.photoSource,
+      explored: exploresThisSlot(job.slot_index),
+    }
     if (p.imageUrl) platformData.image_url = p.designedImageUrl ?? p.imageUrl
     // A post's clean image + the hook's content-matched layout (lib/design/
     // text-layouts.ts): the calendar's "Edit text on image" can then put the

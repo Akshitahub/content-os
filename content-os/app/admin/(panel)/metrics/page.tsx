@@ -1,5 +1,6 @@
 import Link from "next/link"
 import { getContentMetrics, METRIC_WINDOWS, type MetricWindow } from "@/lib/admin/metrics"
+import { getLearnedByBrand } from "@/lib/admin/learned"
 
 type PageProps = {
   searchParams: Promise<{ days?: string }>
@@ -22,7 +23,7 @@ const usd = (v: number | null) => (v == null ? "—" : `$${v.toFixed(4)}`)
 export default async function AdminMetricsPage({ searchParams }: PageProps) {
   const { days: daysParam } = await searchParams
   const days: MetricWindow = Number(daysParam) === 30 ? 30 : 7
-  const { rows, since, truncated, error } = await getContentMetrics(days)
+  const [{ rows, since, truncated, error }, learned] = await Promise.all([getContentMetrics(days), getLearnedByBrand()])
 
   return (
     <div className="space-y-6">
@@ -92,6 +93,34 @@ export default async function AdminMetricsPage({ searchParams }: PageProps) {
             ))}
           </tbody>
         </table>
+      </section>
+
+      <section className="space-y-3">
+        <div>
+          <h2 className="text-lg font-semibold tracking-tight">What each brand has learned</h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            From each brand&apos;s own posted results (weekly, once it has 12+ posts with engagement; saves and shares count most).
+          </p>
+        </div>
+        {learned.error ? (
+          <p className="rounded-lg border bg-card p-3 text-sm text-muted-foreground">Couldn&apos;t read lessons ({learned.error}). Migration 070 may not have run yet.</p>
+        ) : learned.brands.length === 0 ? (
+          <p className="rounded-lg border bg-card p-3 text-sm text-muted-foreground">Nothing learned yet -- no brand has enough posted results or edits.</p>
+        ) : (
+          <div className="grid gap-3 md:grid-cols-2">
+            {learned.brands.map((b) => (
+              <div key={b.brandId} className="rounded-xl border bg-card p-4 text-sm">
+                <p className="font-semibold">{b.brandName}</p>
+                {[["Working", b.working], ["Not working", b.notWorking]].map(([label, rules]) => (rules as string[]).length > 0 && (
+                  <div key={label as string} className="mt-2">
+                    <p className="text-xs font-medium text-muted-foreground">{label as string}</p>
+                    <ul className="mt-1 list-disc space-y-0.5 pl-5">{(rules as string[]).map((r) => <li key={r}>{r}</li>)}</ul>
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>
+        )}
       </section>
 
       <div className="space-y-1 text-xs text-muted-foreground">

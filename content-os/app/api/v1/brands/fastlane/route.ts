@@ -1,6 +1,7 @@
 import { NextResponse, after } from "next/server"
 import { noteGenerationBrand } from "@/lib/ai/provider-fallback"
 import { createClient, createAdminClient } from "@/lib/supabase/server"
+import { getPerformanceLessons, winningAngles } from "@/lib/ai/performance-learning"
 import { buildError, ErrorCodes } from "@/types/api"
 import { fastlaneSchema } from "@/lib/validations/fastlane"
 import { estimateAutopilotCreditCost, computeAutopilotSlotCount, generateContentStrategy, type AutopilotUsageTracker } from "@/lib/ai/fastlane"
@@ -297,9 +298,11 @@ async function handlePost(request: Request, timer: GenerationTimer) {
     const { data: products } = await supabase.from("products").select("*").eq("brand_id", brandId).eq("is_active", true).returns<ProductRow[]>()
 
     const tracker: AutopilotUsageTracker = { usage: undefined, costUsd: null, captionMs: 0, imageMs: 0 }
+    // What has worked for this brand leans the mix (lib/ai/performance-learning.ts).
+    const learnedAngles = winningAngles(await getPerformanceLessons(admin, brandId))
     const strategyStartedAt = Date.now()
     const strategy = await timer.step("caption", withDeadline(
-      generateContentStrategy(fullBrand, products ?? [], { frequency, platforms, vibe, focusAreas, totalSlots, plan, isInternalUnlimitedUser: isUnlimited }, tracker),
+      generateContentStrategy(fullBrand, products ?? [], { frequency, platforms, vibe, focusAreas, learnedAngles, totalSlots, plan, isInternalUnlimitedUser: isUnlimited }, tracker),
       STRATEGY_DEADLINE_MS,
       "autopilot strategy"
     ))

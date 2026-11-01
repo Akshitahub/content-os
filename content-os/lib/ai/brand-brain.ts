@@ -26,11 +26,13 @@ export type BrandLesson = {
   rule: string
   evidence_count: number
   last_seen_at: string | null
+  /** feedback_note | low_rating | edits | performance | ... */
+  source?: string
 }
 
 const MAX_ACTIVE_LESSONS = 12
 
-/** Active lessons for `scope` plus brand-wide ('all') ones, strongest evidence first. Fail-soft: [] on any error. */
+/** Active, unexpired lessons for `scope` plus brand-wide ('all') ones, strongest evidence first. Fail-soft: [] on any error. */
 export async function getActiveLessons(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   supabase: any,
@@ -38,15 +40,23 @@ export async function getActiveLessons(
   scope: LessonScope,
 ): Promise<BrandLesson[]> {
   try {
-    const { data, error } = await supabase
-      .from("brand_lessons")
-      .select("id, scope, kind, rule, evidence_count, last_seen_at")
-      .eq("brand_id", brandId)
-      .eq("status", "active")
-      .in("scope", scope === "all" ? ["all"] : [scope, "all"])
-      .order("evidence_count", { ascending: false })
-      .order("last_seen_at", { ascending: false, nullsFirst: false })
-      .limit(MAX_ACTIVE_LESSONS) as { data: BrandLesson[] | null; error: { message: string } | null }
+    const query = (withExpiry: boolean) => {
+      let q = supabase
+        .from("brand_lessons")
+        .select("id, scope, kind, rule, evidence_count, last_seen_at, source")
+        .eq("brand_id", brandId)
+        .eq("status", "active")
+        .in("scope", scope === "all" ? ["all"] : [scope, "all"])
+      // Performance lessons expire (migration 070) unless re-confirmed.
+      if (withExpiry) q = q.or(`expires_at.is.null,expires_at.gt.${new Date().toISOString()}`)
+      return q
+        .order("evidence_count", { ascending: false })
+        .order("last_seen_at", { ascending: false, nullsFirst: false })
+        .limit(MAX_ACTIVE_LESSONS) as Promise<{ data: BrandLesson[] | null; error: { message: string } | null }>
+    }
+    let { data, error } = await query(true)
+    // Before migration 070 there is no expires_at (and nothing expires).
+    if (error && /expires_at/.test(error.message)) ({ data, error } = await query(false))
     if (error) {
       console.error(`[brand-brain] getActiveLessons failed for brand ${brandId} (non-fatal):`, error.message)
       return []

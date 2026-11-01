@@ -127,6 +127,10 @@ export interface AutopilotParams {
   platforms?: string[]
   vibe?: string
   focusAreas?: string[]
+  /** Content angles (pillars) the brand's own results say work
+   * (lib/ai/performance-learning.ts) -- they join the mix's ~70% "lean"
+   * side; every other pillar still gets the ~30% "explore" share. */
+  learnedAngles?: string[]
   /** How many slots this run should plan for — defaults to 30 (the
    * existing full Autopilot run). Starter's smaller tier passes a
    * smaller number (see PLAN_LIMITS[plan].autopilot in types/app.ts). */
@@ -255,7 +259,7 @@ async function buildStrategyUserPrompt(brand: BrandRow, products: ProductRow[], 
     ? `\nUpcoming occasions in next ${totalSlots} days (plan slots around these):\n${upcomingOccasions.map(o => `- ${o.name} ${o.emoji} (${formatLocalDate(o.occurrenceDate)}): ${o.content_angle} — vibe: ${o.vibe}`).join("\n")}`
     : ""
 
-  const mix = buildContentMix(params?.focusAreas, totalSlots)
+  const mix = buildContentMix([...new Set([...(params?.focusAreas ?? []), ...(params?.learnedAngles ?? [])])], totalSlots)
 
   const frequencyNote = params?.frequency
     ? `Posting frequency: ${params.frequency === "3x_week" ? "3 times/week (~13 posts/month)" : params.frequency === "5x_week" ? "5 times/week (~22 posts/month)" : "daily (30 posts/month)"}`

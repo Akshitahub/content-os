@@ -193,25 +193,30 @@ export async function syncEngagementForBrand(
 
     const likeCount = matchedItem.analytics?.likes ?? 0
     const commentsCount = matchedItem.analytics?.comments ?? 0
+    const base = {
+      calendar_entry_id: entry.id,
+      brand_id: brandId,
+      platform: "instagram",
+      platform_post_url: matchedItem.platformPostUrl ?? null,
+      like_count: likeCount,
+      comments_count: commentsCount,
+      // A plain sum, not a weighted formula -- see the migration's own
+      // comment on why this is left simple and honest for now. (The
+      // weighting lives in lib/ai/performance-learning.ts.)
+      engagement_score: likeCount + commentsCount,
+      fetched_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    }
+    // Saves / shares / reach / impressions when Zernio has them (migration 070).
+    const a = matchedItem.analytics
+    const count = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? Math.round(v) : null)
+    const extra = { saves: count(a?.saves), shares: count(a?.shares), reach: count(a?.reach), impressions: count(a?.impressions) }
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { error: upsertError } = await (supabase.from("content_engagement") as any)
-      .upsert(
-        {
-          calendar_entry_id: entry.id,
-          brand_id: brandId,
-          platform: "instagram",
-          platform_post_url: matchedItem.platformPostUrl ?? null,
-          like_count: likeCount,
-          comments_count: commentsCount,
-          // A plain sum, not a weighted formula -- see the migration's own
-          // comment on why this is left simple and honest for now.
-          engagement_score: likeCount + commentsCount,
-          fetched_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: "calendar_entry_id" }
-      )
+    const upsert = (row: Record<string, unknown>) => (supabase.from("content_engagement") as any).upsert(row, { onConflict: "calendar_entry_id" })
+    let { error: upsertError } = await upsert({ ...base, ...extra })
+    // Before migration 070: likes and comments only.
+    if (upsertError && /saves|shares|reach|impressions/.test(upsertError.message)) ({ error: upsertError } = await upsert(base))
 
     if (upsertError) {
       result.errors.push(`entry ${entry.id}: ${upsertError.message}`)

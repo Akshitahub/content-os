@@ -240,7 +240,7 @@ export interface ZernioPostAnalyticsItem {
   publishedAt?: string
   platformPostUrl?: string
   mediaType?: string
-  analytics?: { likes?: number; comments?: number; reach?: number }
+  analytics?: { likes?: number; comments?: number; reach?: number; saves?: number; shares?: number; impressions?: number }
 }
 
 /** Lists an account's posts with per-post analytics — source=all includes

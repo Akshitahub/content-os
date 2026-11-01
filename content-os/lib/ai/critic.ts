@@ -37,6 +37,8 @@ export interface CriticInput {
   caption: string
   hook: string
   format: "post" | "carousel" | "story"
+  /** What the brand's own results say works (top performance lessons) -- context, never a score of its own. */
+  resultsLessons?: string[]
 }
 
 interface ReferencePost { imageUrl: string; caption: string; hook: string; scores: Partial<Record<CriticCriterionId, number>>; note?: string }
@@ -134,7 +136,7 @@ export async function critiquePost(brand: BrandRow, input: CriticInput, label: s
           role: "user",
           content: [
             ...refContent,
-            { type: "text", text: `${refs.length ? "Now score THIS post.\n" : ""}Hook: ${input.hook}\nCaption: ${input.caption.slice(0, 1500)}` },
+            { type: "text", text: `${refs.length ? "Now score THIS post.\n" : ""}${input.resultsLessons?.length ? `What this brand's own past results say (context for your top_fix, not a score):\n${input.resultsLessons.map((l) => `- ${l}`).join("\n")}\n` : ""}Hook: ${input.hook}\nCaption: ${input.caption.slice(0, 1500)}` },
             { type: "image_url", image_url: { url: input.imageUrl } },
           ],
         },
