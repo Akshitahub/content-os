@@ -13,54 +13,59 @@
   },
   "cover_critic": {
     "overall": 7.6,
-    "top_fix": "Add a sharper benefit or CTA, like “5 ways to style them—shop the look, link in bio.”"
+    "top_fix": "Replace empty space with three combo previews to make the swipe benefit instantly obvious."
   },
   "slides": [
     {
       "slide": 1,
       "frame": "hook",
       "layout_hint": "full",
+      "list_index": null,
       "big_words": "Olive Chinos",
-      "line": "Swipe for versatile outfits",
+      "line": "Swipe for easy combos",
       "photo": "generated for this slide",
-      "photo_agrees": 8,
+      "photo_agrees": 10,
       "layout": "split"
     },
     {
       "slide": 2,
-      "frame": "slide_type",
-      "layout_hint": "type",
-      "big_words": "White Tee",
-      "line": "Keeps the look fresh and effortless",
-      "photo": "brand colour",
-      "photo_agrees": 3,
-      "layout": "type"
+      "frame": "slide_photo",
+      "layout_hint": "split",
+      "list_index": 1,
+      "big_words": "White Shirt",
+      "line": "Olive chinos + white shirt + loafers",
+      "photo": "generated for this slide",
+      "photo_agrees": 10,
+      "layout": "split"
     },
     {
       "slide": 3,
       "frame": "slide_type",
       "layout_hint": "type",
-      "big_words": "Smart",
-      "line": "Pick blazer for office or jacket for weekend",
-      "photo": "brand colour",
-      "photo_agrees": null,
+      "list_index": 2,
+      "big_words": "Navy Blazer",
+      "line": "Elevates chinos for office or dinner",
+      "photo": "generated for this slide",
+      "photo_agrees": 10,
       "layout": "type"
     },
     {
       "slide": 4,
       "frame": "slide_photo",
       "layout_hint": "full",
-      "big_words": "Accessories",
-      "line": "Add belt, watch, and shades",
+      "list_index": 3,
+      "big_words": "Black Bomber",
+      "line": "Olive chinos + bomber + tee + sneakers",
       "photo": "generated for this slide",
-      "photo_agrees": 8,
+      "photo_agrees": 10,
       "layout": "split"
     },
     {
       "slide": 5,
       "frame": "cta",
       "layout_hint": "full",
-      "big_words": "Mix tops and accessories",
+      "list_index": null,
+      "big_words": "Choose a look",
       "line": null,
       "photo": "generated for this slide",
       "photo_agrees": 6,
