@@ -209,7 +209,9 @@ async function fetchSlideBackgroundResult(
   // photos the sequence already uses -- the route tries a real photo first.
   productId?: string,
   excludePhotoIds?: string[],
-  referenceIsBrandPhoto?: boolean
+  referenceIsBrandPhoto?: boolean,
+  // The cta frame's product -- its photo shows it whole and recognisable.
+  ctaSubject?: string | null
 ): Promise<SlideBackgroundOutcome> {
   try {
     const res = await fetch("/api/v1/ai/stories/slide-image/generate", {
@@ -221,7 +223,7 @@ async function fetchSlideBackgroundResult(
       // optional, not nullable.
       // visualBrief: this frame's own scene (non-hook frames) -- see
       // lib/ai/story-slide-background.ts. Omitted when the frame has none.
-      body: JSON.stringify({ brandId, vibe, role, productImageUrl: productImageUrl ?? undefined, textPosition, customPrompt: customPrompt || undefined, visualBrief, userDirection: userDirection || undefined, productId, excludePhotoIds: excludePhotoIds?.length ? excludePhotoIds : undefined, ...(referenceIsBrandPhoto ? { referenceIsBrandPhoto: true } : {}) }),
+      body: JSON.stringify({ brandId, vibe, role, productImageUrl: productImageUrl ?? undefined, textPosition, customPrompt: customPrompt || undefined, visualBrief, userDirection: userDirection || undefined, productId, excludePhotoIds: excludePhotoIds?.length ? excludePhotoIds : undefined, ...(referenceIsBrandPhoto ? { referenceIsBrandPhoto: true } : {}), ...(role === "cta" && ctaSubject ? { ctaSubject } : {}) }),
     })
     if (!res.ok) {
       // The server's reason travels with the failure -- shown on the slide, never a silent flat background.
@@ -1204,7 +1206,8 @@ export function StorySequence({ brandId }: { brandId: string }) {
             slide.scene_direction ?? visualPromptSeedRef.current,
             selectedProduct?.id,
             usedPhotoIds,
-            !!ref
+            !!ref,
+            slide.cta_subject ?? null
           ),
         }
       }),

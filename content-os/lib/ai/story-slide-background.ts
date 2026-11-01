@@ -100,10 +100,21 @@ function candidLines(vibe: Vibe, withReference: boolean): string[] {
   ]
 }
 
-function buildStorySlidePrompt(niche: string | null, vibe: Vibe, colors: string[], productImageUrl?: string | null, textPosition?: "top" | "center" | "bottom", customPrompt?: string): string {
+/**
+ * The closing (cta) frame sells a product: its photo shows THAT product
+ * whole and recognisable -- never a close crop of a neck, a collar or the
+ * fabric. Exported for scripts/test-story-cta.ts.
+ */
+export function ctaProductLine(subject: string | null | undefined): string {
+  const s = subject?.trim()
+  return s ? `the ${s} is the clear subject of the photo: the whole ${s}, fully in frame and recognisable at a glance (worn or held as it's meant to be) -- never a close crop of a detail, a collar, a neckline, a sleeve or the fabric` : ""
+}
+
+function buildStorySlidePrompt(niche: string | null, vibe: Vibe, colors: string[], productImageUrl?: string | null, textPosition?: "top" | "center" | "bottom", customPrompt?: string, ctaSubject?: string | null): string {
   const trimmedCustom = customPrompt?.trim()
   const scene = [
     trimmedCustom || (niche ? `${STORY_PHOTO_OPENER} for a ${niche} brand, the product in real everyday use` : STORY_PHOTO_OPENER),
+    ctaProductLine(ctaSubject),
     VERTICAL_COMPOSITION,
     ...candidLines(vibe, !!productImageUrl),
     niche ? `${niche} brand` : "",
@@ -145,10 +156,11 @@ function userDirectionLine(userDirection?: string | null): string {
   return text ? `user direction: ${text}` : ""
 }
 
-function buildBriefStorySlidePrompt(brief: VisualBrief, niche: string | null, vibe: Vibe, colors: string[], productImageUrl?: string | null, textPosition?: "top" | "center" | "bottom", userDirection?: string | null): string {
+function buildBriefStorySlidePrompt(brief: VisualBrief, niche: string | null, vibe: Vibe, colors: string[], productImageUrl?: string | null, textPosition?: "top" | "center" | "bottom", userDirection?: string | null, ctaSubject?: string | null): string {
   const isSplit = brief.kind === "side_by_side" || brief.kind === "before_after"
   const scene = [
     brief.kind === "abstract_mood" ? `${STORY_PHOTO_OPENER} capturing the mood of: ${brief.must_show}` : briefScene(brief),
+    ctaProductLine(ctaSubject),
     brief.composition ? `composition: ${brief.composition}` : "",
     userDirectionLine(userDirection),
     VERTICAL_COMPOSITION,
@@ -220,6 +232,8 @@ export interface GenerateStorySlideBackgroundOptions {
    * passes "low" (text is composited on top); raised to "medium" when
    * productImageUrl is set. */
   quality?: ImageQuality
+  /** The cta frame's product ("linen shirt", lib/ai/story-frames.ts cta_subject): shown whole and recognisable. */
+  ctaSubject?: string | null
 }
 
 /**
@@ -253,7 +267,7 @@ export async function generateStorySlideBackground(
   const brief = options.visualBrief
   if (brief) {
     const productImageUrl = briefUsesProductReference(brief) ? options.productImageUrl : undefined
-    const prompt = withArt(buildBriefStorySlidePrompt(brief, options.brand.niche, vibe, colors, productImageUrl, options.textPosition, options.userDirection))
+    const prompt = withArt(buildBriefStorySlidePrompt(brief, options.brand.niche, vibe, colors, productImageUrl, options.textPosition, options.userDirection, options.role === "cta" ? options.ctaSubject : null))
     const fallbackPrompt = withArtShort(simplifyBriefStorySlidePrompt(brief, vibe, productImageUrl))
     // A split brief with both halves becomes two images composited side by
     // side (lib/ai/split-layer.ts); anything else is the single prompt.
@@ -273,7 +287,7 @@ export async function generateStorySlideBackground(
     })
   }
 
-  const prompt = withArt(buildStorySlidePrompt(options.brand.niche, vibe, colors, options.productImageUrl, options.textPosition, options.customPrompt))
+  const prompt = withArt(buildStorySlidePrompt(options.brand.niche, vibe, colors, options.productImageUrl, options.textPosition, options.customPrompt, options.role === "cta" ? options.ctaSubject : null))
   const fallbackPrompt = withArtShort(simplifyStorySlidePrompt(vibe, options.productImageUrl, options.customPrompt))
 
   return fetchBackgroundImage(prompt, fallbackPrompt, options.plan, options.isInternalUnlimitedUser, STORY_DIMENSIONS, options.productImageUrl, options.quality)

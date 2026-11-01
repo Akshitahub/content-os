@@ -50,7 +50,7 @@ async function main() {
   const { generateCarouselSlideBackground } = await import("@/lib/ai/carousel-slide-background")
   const { requestStorySequence } = await import("@/lib/ai/story-sequence-generator")
   const { finalizeStoryFrames, storyFrameContext } = await import("@/lib/ai/story-frames")
-  const { generateStorySlideBackground } = await import("@/lib/ai/story-slide-background")
+  const { generateCheckedStoryFrame } = await import("@/lib/ai/story-cta-photo")
   const { renderStorySlides } = await import("@/lib/image/story-compositor")
   const { renderPostDesign } = await import("@/lib/image/post-design")
   const { renderCarouselFrame } = await import("@/lib/image/carousel-frames")
@@ -140,14 +140,15 @@ async function main() {
     const slides: Record<string, unknown>[] = []
     for (const [i, s] of stories.entries()) {
       const role = i === 0 ? "hook" : i === stories.length - 1 ? "cta" : "body"
-      const bg = await generateStorySlideBackground({ brand, plan: "pro", isInternalUnlimitedUser: true, role, quality: "low", visualBrief: s.visual as never })
+      // The cta frame shows its product whole (checked, retried once).
+      const bg = await generateCheckedStoryFrame({ brand, plan: "pro", isInternalUnlimitedUser: true, role, quality: "low", visualBrief: s.visual as never, ctaSubject: (s.cta_subject as string | null) ?? null }, `linen story frame ${i + 1}`)
       const url = bg.success ? dataUrl(bg.buffer) : null
       const boxes = bg.success ? await detectSubjects(url!, bg.buffer) : null
       slides.push({ ...s, background_image_url: url, subject_boxes: boxes, palette, font_id: typography.heading, brand_name: brand.name, ...frameLogo(brand) })
     }
     const rendered = await renderStorySlides(slides as never)
     rendered.forEach((r, i) => writeFileSync(join(dir, `story-${i + 1}-${String(slides[i]!.frame)}.jpg`), r.png))
-    log.story = { frames: stories.map((s) => ({ frame: s.frame, big_words: s.big_words, script_line: s.script_line, cta_label: s.cta_label })) }
+    log.story = { frames: stories.map((s) => ({ frame: s.frame, big_words: s.big_words, script_line: s.script_line, cta_label: s.cta_label, cta_subject: s.cta_subject ?? null })) }
   } catch (err) {
     log.story = { error: err instanceof Error ? err.message : String(err) }
     console.error("story failed:", err instanceof Error ? err.message : err)

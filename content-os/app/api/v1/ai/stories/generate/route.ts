@@ -293,7 +293,8 @@ async function assignBrandPhotos(brand: BrandRow, stories: Record<string, unknow
       productId: product?.id ?? null,
       productName: product?.name ?? null,
       kinds: PHOTO_KINDS_FOR.story,
-      items: stories.map((s) => photoFitItem(s.visual as VisualBrief | undefined, null, [str(s.big_words), str(s.script_line), str(s.quote), str(s.text), str(s.subtext)])),
+      // The cta's photo must show its product, whole and recognisable.
+      items: stories.map((s) => ({ ...photoFitItem(s.visual as VisualBrief | undefined, null, [str(s.big_words), str(s.script_line), str(s.quote), str(s.text), str(s.subtext)]), headline: s.frame === "cta" && str(s.cta_subject) ? `the whole ${str(s.cta_subject)}, clearly recognisable` : null })),
       label: "story",
       format: "story",
       preferUgc: true,

@@ -47,6 +47,33 @@ export interface StoryFrameFields {
   tape?: boolean | null
   /** Draw the brand's logo / name on this frame -- the opening hook and the cta, decided once per sequence. */
   brand_mark?: boolean | null
+  /** The cta frame only: the product it sells, in 1-3 words ("linen shirt") -- its photo shows it whole, its button names it. */
+  cta_subject?: string | null
+}
+
+const CTA_VERBS = /^(shop|get|grab|order|buy|try|find|explore|discover|book|claim)$/i
+
+/** A product's short name for a button: "Olive Straight Fit Chinos" -> "olive chinos". */
+export function shortProductName(name: string | null | undefined): string | null {
+  const words = name?.trim().replace(/[^\p{L}\p{N}\s'-]/gu, " ").match(/\S+/g) ?? []
+  if (words.length === 0) return null
+  return (words.length <= 3 ? words : [words[0]!, words[words.length - 1]!]).join(" ").toLowerCase()
+}
+
+/**
+ * The cta button names what it sells: "Shop now" on a linen story becomes
+ * "Shop the linen shirt". A label that already names the subject (its last
+ * word, the head noun) is kept; otherwise its action verb (or "Shop") + the
+ * subject.
+ */
+export function ctaLabelNaming(label: string, subject: string | null | undefined, max = 5): string {
+  const s = subject?.trim().toLowerCase()
+  if (!s) return label
+  const head = s.split(/\s+/).pop()!.replace(/s$/, "")
+  if (label.toLowerCase().includes(head)) return label
+  const verb = label.trim().split(/\s+/)[0] ?? ""
+  const named = `${CTA_VERBS.test(verb) ? verb[0]!.toUpperCase() + verb.slice(1).toLowerCase() : "Shop"} the ${s}`
+  return named.split(/\s+/).slice(0, max).join(" ")
 }
 
 export interface StoryFrameContext {
@@ -117,7 +144,7 @@ export function storyFrameRules(ctx: StoryFrameContext, count: number): string {
   return `FRAMES — every frame is a full-screen photo with a few words layered on it, like a real Instagram story from a good brand. Frame order: ${frameSlots(count, allowed).map((f, i) => `${i + 1}: ${f}`).join(", ")}.
 Each story object has a "frame" and ONLY that frame's fields:
 - hook: "big_words" (1-${BIG_WORDS_MAX} words, huge on screen) + "script_line" (a handwritten aside, max ${SCRIPT_LINE_MAX} words).${ctx.topicCore ? ` The hook's big_words MUST contain the topic's own words "${ctx.topicCore}" (e.g. topic "Bday sale" -> "Bday sale", not just "Birthday").` : ""}
-${allowed.includes("offer") ? `- offer: "badge" (the real number or discount, max ${BADGE_MAX_WORDS} words, e.g. "30% OFF" -- ONLY a number that appears in the topic or product data above) + "big_words" (max ${BIG_WORDS_MAX} words) + optional "script_line".\n` : ""}${allowed.includes("product") ? `- product: "big_words" (max ${BIG_WORDS_MAX} words, e.g. the product's name -- it goes on a tape label) + "callouts": exactly 2 short handwritten notes (max ${CALLOUT_MAX_WORDS} words each) naming real facts from the product / brand context above.\n` : ""}${allowed.includes("proof") ? `- proof: "quote" -- copied word for word from the customer quote in the topic (max ${SENTENCE_MAX} words), never invented or reworded.\n` : ""}- cta: "big_words" (max ${BIG_WORDS_MAX} words) + "cta_label" (the button, max ${CTA_LABEL_MAX} words: the action plus the offer when there is one -- "Shop the sale", "Grab yours at 40% off" -- never a bare "${ctx.ctaPhrase}" when the story has an offer) + optional "script_line" (max ${SCRIPT_LINE_MAX} words).
+${allowed.includes("offer") ? `- offer: "badge" (the real number or discount, max ${BADGE_MAX_WORDS} words, e.g. "30% OFF" -- ONLY a number that appears in the topic or product data above) + "big_words" (max ${BIG_WORDS_MAX} words) + optional "script_line".\n` : ""}${allowed.includes("product") ? `- product: "big_words" (max ${BIG_WORDS_MAX} words, e.g. the product's name -- it goes on a tape label) + "callouts": exactly 2 short handwritten notes (max ${CALLOUT_MAX_WORDS} words each) naming real facts from the product / brand context above.\n` : ""}${allowed.includes("proof") ? `- proof: "quote" -- copied word for word from the customer quote in the topic (max ${SENTENCE_MAX} words), never invented or reworded.\n` : ""}- cta: "big_words" (max ${BIG_WORDS_MAX} words) + "subject" (the product this story sells, 1-3 words, e.g. "linen shirt"${ctx.productName ? ` -- here the ${ctx.productName}` : ""}) + "cta_label" (the button, max ${CTA_LABEL_MAX} words, naming that product: "Shop the linen shirt"; with an offer, the offer too -- "Grab yours at 40% off" -- never a bare "${ctx.ctaPhrase}") + optional "script_line" (max ${SCRIPT_LINE_MAX} words). Its visual shows that product whole and recognisable -- never a close-up of a collar, a sleeve or the fabric.
 Rules:
 - EVERY frame except proof has its own "big_words", and no two frames repeat the same big_words -- each one moves the story on (a detail, a feeling, a reason to care).
 - No sentence over ${SENTENCE_MAX} words anywhere. Fragments beat sentences.
@@ -131,7 +158,7 @@ const EXAMPLE_BY_FRAME: Record<StoryFrame, Record<string, unknown>> = {
   offer: { frame: "offer", badge: "30% OFF", big_words: "Everything", script_line: "till Sunday" },
   product: { frame: "product", big_words: "Meet Glow", callouts: ["hand-poured soy wax", "burns 40 hours"] },
   proof: { frame: "proof", quote: "my room smells like home now" },
-  cta: { frame: "cta", big_words: "Don't miss it", cta_label: "Shop the sale", script_line: "link's right here" },
+  cta: { frame: "cta", big_words: "Don't miss it", subject: "linen shirt", cta_label: "Shop the linen shirt", script_line: "link's right here" },
 }
 
 /** One example frame object for a slot (its first allowed frame). */
@@ -194,6 +221,9 @@ export function finalizeStoryFrames(stories: Record<string, unknown>[], ctx: Sto
       const ok = quote && wordsOf(quote).length <= SENTENCE_MAX && quotes.some((q) => q.includes(normalize(quote)))
       if (!ok) { frame = "hook"; quote = "" }
     }
+    // The cta sells a named product: the picked product's short name, else
+    // the subject the model named for this story.
+    const ctaSubject = frame === "cta" ? shortProductName(ctx.productName) ?? (clampWords(str(s.subject), 3).toLowerCase() || null) : null
     if (frame === "cta") ctaLabel = clampWords(str(s.cta_label), CTA_LABEL_MAX) || clampWords(ctx.ctaPhrase, CTA_LABEL_MAX)
     if (frame === "hook" && !bigWords) bigWords = fallbackWords
     // The first hook says the topic's own words when the topic is short.
@@ -210,6 +240,7 @@ export function finalizeStoryFrames(stories: Record<string, unknown>[], ctx: Sto
       callouts: callouts.length ? callouts : null,
       quote: quote || null,
       cta_label: ctaLabel || null,
+      cta_subject: ctaSubject,
       seed: typeof s.seed === "number" ? s.seed : (baseSeed + i * 7919) % 2 ** 30,
       // Frames carry no poll; text_position stays valid for older readers.
       has_poll: false,
@@ -224,7 +255,12 @@ export function finalizeStoryFrames(stories: Record<string, unknown>[], ctx: Sto
   // badge whose number the label doesn't already carry is appended.
   const offerBadge = out.find((s) => s.frame === "offer" && typeof s.badge === "string")?.badge as string | undefined
   const withOffer = out.map((s) => {
-    if (s.frame !== "cta" || !offerBadge || typeof s.cta_label !== "string") return s
+    if (s.frame !== "cta" || typeof s.cta_label !== "string") return s
+    // No offer: the button names the product it sells ("Shop the linen shirt").
+    if (!offerBadge) {
+      const named = ctaLabelNaming(s.cta_label, s.cta_subject, CTA_LABEL_MAX)
+      return named === s.cta_label ? s : { ...s, cta_label: named, subtext: [named, s.script_line].filter(Boolean).join(", ") }
+    }
     const label = s.cta_label
     if (numbersIn(offerBadge).every((n) => numbersIn(label).includes(n))) return s
     const action = clampWords(label, CTA_LABEL_MAX - wordsOf(offerBadge).length - 1) || "Shop"

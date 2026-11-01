@@ -7,6 +7,7 @@ import { PHOTO_KINDS_FOR, download } from "@/lib/brand-photos"
 import { chooseFittingPhotos, photoFitItem } from "@/lib/ai/photo-fit"
 import { buildError, ErrorCodes } from "@/types/api"
 import { generateStorySlideBackground, type StoryVibe } from "@/lib/ai/story-slide-background"
+import { generateCheckedStoryFrame } from "@/lib/ai/story-cta-photo"
 import { VISUAL_KINDS, briefUsesProductReference, sanitizeVisualBrief } from "@/lib/ai/visual-brief"
 import { attemptsCostUsd } from "@/lib/ai/post-image-pipeline"
 import { uploadMediaToStorage } from "@/lib/storage/upload-media"
@@ -37,6 +38,8 @@ const schema = z.object({
   // productImageUrl is already this frame's catalogue brand photo: generate
   // its scene, don't pick another photo.
   referenceIsBrandPhoto: z.boolean().optional(),
+  // The cta frame's product ("linen shirt", lib/ai/story-frames.ts): its photo shows it whole.
+  ctaSubject: z.string().max(60).optional(),
   // SocioPosts-authored (and possibly user-edited) visual scene from the
   // new prompt-writing stage -- see lib/ai/story-slide-background.ts's
   // GenerateStorySlideBackgroundOptions.customPrompt.
@@ -143,7 +146,8 @@ async function handlePost(request: Request, timer: GenerationTimer) {
   // Otherwise the image is generated from the brief.
   const photo = parsed.data.referenceIsBrandPhoto ? null : (await chooseFittingPhotos(await createAdminClient(), brand, {
     productId: parsed.data.productId ?? null, kinds: PHOTO_KINDS_FOR.story, exclude: parsed.data.excludePhotoIds,
-    items: [photoFitItem(visualBrief, customPrompt, [])], label: `story-frame role=${role}`, format: "story", preferUgc: true,
+    // The cta's photo must show its product, whole and recognisable.
+    items: [{ ...photoFitItem(visualBrief, customPrompt, []), headline: role === "cta" && parsed.data.ctaSubject ? `the whole ${parsed.data.ctaSubject}, clearly recognisable` : null }], label: `story-frame role=${role}`, format: "story", preferUgc: true,
   }))[0]
   // A catalogue shot isn't used full-bleed: it's the product reference for a
   // candid scene (lib/ai/catalogue-photos.ts), and the frame's photo -- as a
@@ -180,7 +184,7 @@ async function handlePost(request: Request, timer: GenerationTimer) {
   }
 
   const startTime = Date.now()
-  const result = await timer.step("image", withDeadline(generateStorySlideBackground({
+  const result = await timer.step("image", withDeadline(generateCheckedStoryFrame({
     vibe: vibe as StoryVibe | undefined,
     brand,
     plan,
@@ -195,7 +199,8 @@ async function handlePost(request: Request, timer: GenerationTimer) {
     // Text is composited over slide backgrounds, so "low" is enough --
     // raised to "medium" automatically when a product photo is attached.
     quality: "low",
-  }), deadlineAt - Date.now(), "story slide image")).catch((err): Awaited<ReturnType<typeof generateStorySlideBackground>> => ({
+    ctaSubject: role === "cta" ? parsed.data.ctaSubject ?? null : null,
+  }, `story-frame role=${role}`, null, () => Date.now() < deadlineAt - 60_000), deadlineAt - Date.now(), "story slide image")).catch((err): Awaited<ReturnType<typeof generateStorySlideBackground>> => ({
     // Deadline hit (or an unexpected throw): handled exactly like a failed
     // generation below -- logged and refunded.
     success: false,
