@@ -825,7 +825,10 @@ async function placeLabel(text: string, prefer: LogoPosition, overlay: Buffer, b
   const w = Math.round(measureTextWidth(box, text, size)) + arrowW
   const h = Math.round(size * 1.2)
   const m = Math.max(Math.round(cv.w * 0.06), 40)
-  const spots: Record<Exclude<LogoPosition, "auto">, Rect> = {
+  const cx = Math.round((cv.w - w) / 2)
+  const spots: Record<Exclude<LogoPosition, "auto"> | "top-center" | "bottom-center", Rect> = {
+    "top-center": { x0: cx, y0: cv.safeTop + 20, x1: cx + w, y1: cv.safeTop + 20 + h },
+    "bottom-center": { x0: cx, y0: cv.h - cv.safeBottom - 20 - h, x1: cx + w, y1: cv.h - cv.safeBottom - 20 },
     "top-left": { x0: m, y0: cv.safeTop + 20, x1: m + w, y1: cv.safeTop + 20 + h },
     "top-right": { x0: cv.w - m - w, y0: cv.safeTop + 20, x1: cv.w - m, y1: cv.safeTop + 20 + h },
     "bottom-left": { x0: m, y0: cv.h - cv.safeBottom - 20 - h, x1: m + w, y1: cv.h - cv.safeBottom - 20 },
@@ -838,7 +841,8 @@ async function placeLabel(text: string, prefer: LogoPosition, overlay: Buffer, b
     }
     return false
   }
-  const order = [prefer, "top-right", "bottom-right", "top-left", "bottom-left"] as Exclude<LogoPosition, "auto">[]
+  // The corners first, then the middle of the top / bottom edge.
+  const order = [prefer, "top-right", "bottom-right", "top-left", "bottom-left", "bottom-center", "top-center"] as (keyof typeof spots)[]
   const pos = order.find((o) => o !== ("auto" as string) && !busy(spots[o]) && !subjects.some((sub) => rectsIntersect(spots[o], sub)))
   if (!pos) return overlay
   const r = spots[pos]
