@@ -6,7 +6,7 @@ import { after } from "next/server"
 import sharp from "sharp"
 import { z } from "zod"
 import type { BrandRow, ProductRow } from "@/types/database"
-import { MODELS, getOpenAIClient } from "@/lib/ai/models"
+import { MODELS, getTextClientFor, visionReasoning } from "@/lib/ai/models"
 
 /**
  * The brand's own real photos, collected automatically -- never an upload
@@ -175,10 +175,10 @@ const classificationSchema = z.object({
 async function classify(url: string, products: Pick<ProductRow, "id" | "name">[]): Promise<{ kind: PhotoKind; quality_ok: boolean; product_id: string | null; description: string | null } | null> {
   const productList = products.length ? products.map((p, i) => `${i}: ${p.name}`).join("\n") : "(none)"
   try {
-    const res = await getOpenAIClient().chat.completions.create({
+    const res = await getTextClientFor(MODELS.vision).chat.completions.create({
       model: MODELS.vision,
-      reasoning_effort: "low",
-      max_completion_tokens: 400,
+      ...visionReasoning("low"),
+      max_completion_tokens: 1200,
       response_format: { type: "json_object" },
       messages: [{
         role: "user",

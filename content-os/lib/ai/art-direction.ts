@@ -2,7 +2,8 @@ import { createHash } from "crypto"
 import { after } from "next/server"
 import type { ChatCompletionContentPart } from "openai/resources/chat/completions"
 import type { BrandRow, ProductRow } from "@/types/database"
-import { MODELS, getOpenAIClient } from "./models"
+import { MODELS, getTextClientFor, visionReasoning } from "./models"
+import { VISION_MAX_IMAGES } from "./vision-image"
 import { createTextCompletion } from "@/lib/ai/provider-fallback"
 import { artDirectionFrom, artDirectionSchema, type ArtDirection } from "./brand-brain"
 import { buildBrandBrainLines, isMissingBrandBrainColumn, parseBrandBrain } from "@/lib/brand-brain-profile"
@@ -169,7 +170,8 @@ function finalize(raw: unknown, colors: string[], sourceHash: string): ArtDirect
 export async function deriveArtDirection(brand: Brandish, products: ProductLite[] = []): Promise<{ artDirection: ArtDirection | null; model: string }> {
   const colors = brandColors(brand)
   const prompt = buildPrompt(brand, colors, products.slice(0, 3))
-  const images = [...products.map((p) => p.image_urls?.[0]).filter((u): u is string => !!u).slice(0, 2), ...(brand.logo_url ? [brand.logo_url] : [])]
+  // Groq vision takes at most 3 images: 2 product photos + the logo.
+  const images = [...products.map((p) => p.image_urls?.[0]).filter((u): u is string => !!u).slice(0, 2), ...(brand.logo_url ? [brand.logo_url] : [])].slice(0, VISION_MAX_IMAGES)
   const sourceHash = artDirectionSourceHash(brand, products)
   try {
     let content: string
@@ -177,8 +179,8 @@ export async function deriveArtDirection(brand: Brandish, products: ProductLite[
     if (images.length) {
       model = MODELS.vision
       const parts: ChatCompletionContentPart[] = [{ type: "text", text: prompt }, ...images.map((url) => ({ type: "image_url" as const, image_url: { url } }))]
-      const res = await getOpenAIClient().chat.completions.create(
-        { model, max_completion_tokens: 900, reasoning_effort: "low", response_format: { type: "json_object" }, messages: [{ role: "user", content: parts }] },
+      const res = await getTextClientFor(model).chat.completions.create(
+        { model, max_completion_tokens: 2000, ...visionReasoning("low"), response_format: { type: "json_object" }, messages: [{ role: "user", content: parts }] },
         { timeout: DERIVE_TIMEOUT_MS, maxRetries: 1 },
       )
       content = res.choices[0]?.message?.content ?? "{}"

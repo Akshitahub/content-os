@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, readdirSync } from "fs"
 import { join } from "path"
-import { MODELS, getOpenAIClient } from "./models"
+import { MODELS, getTextClientFor, visionReasoning } from "./models"
+import { VISION_MAX_IMAGES, visionImageUrl } from "./vision-image"
 import { buildBrandContext } from "./prompts"
 import { textCostUsd, toTextUsage } from "./pricing"
 import type { BrandRow } from "@/types/database"
@@ -117,18 +118,22 @@ function lowestReason(scores: CriticScores): string {
 }
 
 export async function critiquePost(brand: BrandRow, input: CriticInput, label: string): Promise<CriticResult | null> {
-  if (!process.env.OPENAI_API_KEY) return null
+  if (!process.env.GROQ_API_KEY) return null
   const startedAt = Date.now()
   try {
-    const refs = loadReferencePosts()
+    // Groq vision takes at most 3 images: up to 2 calibration posts + this one.
+    const refs = loadReferencePosts().slice(0, VISION_MAX_IMAGES - 1)
+    const refImages = await Promise.all(refs.map((r) => visionImageUrl(r.imageUrl)))
+    const postImage = await visionImageUrl(input.imageUrl)
     const refContent = refs.flatMap((r, i) => [
       { type: "text" as const, text: `Calibration example ${i + 1} (scored by our team${r.note ? ` -- ${r.note}` : ""}): hook "${r.hook}", caption "${r.caption.slice(0, 300)}", scores ${JSON.stringify(r.scores)}` },
-      { type: "image_url" as const, image_url: { url: r.imageUrl } },
+      { type: "image_url" as const, image_url: { url: refImages[i]! } },
     ])
-    const res = await getOpenAIClient().chat.completions.create({
+    const res = await getTextClientFor(MODELS.vision).chat.completions.create({
       model: MODELS.vision,
-      max_completion_tokens: 900,
-      reasoning_effort: "low",
+      // Short hidden thinking for the judgement; the cap leaves room for it.
+      max_completion_tokens: 2000,
+      ...visionReasoning("low"),
       response_format: { type: "json_object" },
       messages: [
         { role: "system", content: buildCriticPrompt(brand, input.format) },
@@ -137,7 +142,7 @@ export async function critiquePost(brand: BrandRow, input: CriticInput, label: s
           content: [
             ...refContent,
             { type: "text", text: `${refs.length ? "Now score THIS post.\n" : ""}${input.resultsLessons?.length ? `What this brand's own past results say (context for your top_fix, not a score):\n${input.resultsLessons.map((l) => `- ${l}`).join("\n")}\n` : ""}Hook: ${input.hook}\nCaption: ${input.caption.slice(0, 1500)}` },
-            { type: "image_url", image_url: { url: input.imageUrl } },
+            { type: "image_url", image_url: { url: postImage } },
           ],
         },
       ],

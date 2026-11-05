@@ -1,6 +1,7 @@
 import sharp from "sharp"
 import { z } from "zod"
-import { MODELS, getOpenAIClient } from "@/lib/ai/models"
+import { MODELS, getTextClientFor, visionReasoning } from "@/lib/ai/models"
+import { visionImageUrl } from "@/lib/ai/vision-image"
 
 /**
  * Where the subject is in a photo -- faces, torsos, hips, the product --
@@ -138,20 +139,21 @@ const visionSchema = z.object({ subjects: z.array(z.object({ label: z.string(), 
 
 /** One vision call: boxes for each face, torso, hips and product. Null when it can't be made. */
 export async function detectSubjectsVision(imageUrl: string): Promise<SubjectBox[] | null> {
-  if (!process.env.OPENAI_API_KEY) return null
+  if (!process.env.GROQ_API_KEY) return null
   try {
-    const res = await getOpenAIClient().chat.completions.create({
+    const url = await visionImageUrl(imageUrl)
+    const res = await getTextClientFor(MODELS.vision).chat.completions.create({
       model: MODELS.vision,
       // No reasoning: boxes are a perception task, and reasoning tokens could
       // use up the budget and leave no answer.
-      reasoning_effort: "none",
+      ...visionReasoning("none"),
       max_completion_tokens: 1200,
       response_format: { type: "json_object" },
       messages: [{
         role: "user",
         content: [
           { type: "text", text: `Text will be set on this photo and must never cover the subject. Return a bounding box for every person's whole body ("person", head to feet as visible), their face, torso and hips (separately), and every product. Boxes are [x, y, width, height] as fractions of the image (0-1), generous rather than tight. JSON only: {"subjects": [{"label": "person | face | torso | hips | product", "box": [x, y, w, h]}]}` },
-          { type: "image_url", image_url: { url: imageUrl } },
+          { type: "image_url", image_url: { url } },
         ],
       }],
     }, { timeout: 25_000, maxRetries: 1 })

@@ -25,6 +25,12 @@ import type OpenAI from "openai"
 const TEXT_PRICES_PER_1M: Record<string, { input: number; cachedInput: number; output: number }> = {
   "gpt-5.5": { input: 5.0, cachedInput: 0.5, output: 30.0 },
   "openai/gpt-oss-120b": { input: 0.15, cachedInput: 0.075, output: 0.6 },
+  // Groq's models page (console.groq.com/docs/models, checked 2026-11-05),
+  // per 1M tokens. No cached rate is listed, so cached input is priced at
+  // the full input rate (an over-estimate, never under).
+  "openai/gpt-oss-20b": { input: 0.075, cachedInput: 0.075, output: 0.3 },
+  // MODELS.vision; each image counts as 2,048 input tokens.
+  "qwen/qwen3.8-27b": { input: 0.8, cachedInput: 0.8, output: 4.0 },
   // The OpenAI stand-ins when Groq can't serve a call (lib/ai/provider-fallback.ts).
   "gpt-5.4": { input: 2.5, cachedInput: 0.25, output: 15.0 },
   "gpt-5.4-mini": { input: 0.75, cachedInput: 0.075, output: 4.5 },

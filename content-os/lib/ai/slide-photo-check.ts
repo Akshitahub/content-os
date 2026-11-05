@@ -1,6 +1,7 @@
 import { z } from "zod"
 import type { BrandRow } from "@/types/database"
-import { MODELS, getOpenAIClient } from "./models"
+import { MODELS, getTextClientFor, visionReasoning } from "./models"
+import { visionImageFromBuffer } from "./vision-image"
 import { textCostUsd, toTextUsage } from "./pricing"
 import { generateCarouselSlideBackground, type SlidePoint } from "./carousel-slide-background"
 
@@ -52,18 +53,18 @@ const checkSchema = z.object({ show_item: z.number(), seen: z.string().optional(
 
 /** How clearly the photo shows the slide's named item (1-10); null when it can't check. */
 export async function slidePhotoAgreement(_brand: BrandRow, image: Buffer, mimeType: string, copy: SlideCopy, label: string): Promise<{ agree: number; fix: string; costUsd: number | null } | null> {
-  if (!process.env.OPENAI_API_KEY) return null
+  if (!process.env.GROQ_API_KEY) return null
   try {
-    const res = await getOpenAIClient().chat.completions.create({
+    const res = await getTextClientFor(MODELS.vision).chat.completions.create({
       model: MODELS.vision,
-      max_completion_tokens: 400,
-      reasoning_effort: "low",
+      max_completion_tokens: 1200,
+      ...visionReasoning("low"),
       response_format: { type: "json_object" },
       messages: [{
         role: "user",
         content: [
           { type: "text", text: buildPointCheckPrompt(copy) },
-          { type: "image_url", image_url: { url: `data:${mimeType};base64,${image.toString("base64")}` } },
+          { type: "image_url", image_url: { url: await visionImageFromBuffer(image) } },
         ],
       }],
     }, { timeout: 30_000, maxRetries: 1 })

@@ -1,4 +1,4 @@
-import { MODELS, getOpenAIClient } from "./models"
+import { MODELS, getTextClientFor, textProviderFor, visionReasoning } from "./models"
 import { buildBrandContext } from "./prompts"
 import { textCostUsd, toTextUsage, type TextUsage } from "./pricing"
 import type { BrandRow } from "@/types/database"
@@ -41,7 +41,7 @@ export async function analyzePhotoForPost(
   photoUrl: string,
   additionalContext?: string,
 ): Promise<PhotoCaptionResult> {
-  const openai = getOpenAIClient()
+  const openai = getTextClientFor(MODELS.vision)
   const brandContext = buildBrandContext(brand)
 
   const systemPrompt = `You are a social media caption writer for an Indian D2C brand. Base everything you write ONLY on what is genuinely visible in the uploaded photo -- the product, colors, setting, any visible text, mood -- combined with the brand context below. Never invent details that aren't in the photo, and never write a generic caption that could apply to any photo.
@@ -73,7 +73,7 @@ Respond with valid JSON only, no markdown, in exactly this shape:
         // lib/ai/captions-generator.ts. `temperature` deliberately
         // omitted, same reasoning as that file.
         max_completion_tokens: 700,
-        reasoning_effort: "none",
+        ...visionReasoning("none"),
         response_format: { type: "json_object" },
         messages: [
           { role: "system", content: systemPrompt },
@@ -97,10 +97,10 @@ Respond with valid JSON only, no markdown, in exactly this shape:
       { timeout: 25_000, maxRetries: 1 }
     )
   } catch (err) {
-    console.error(`[vision] provider=openai model=${MODELS.vision} stage=vision_caption latencyMs=${Date.now() - startTime} success=false:`, err)
+    console.error(`[vision] provider=${textProviderFor(MODELS.vision)} model=${MODELS.vision} stage=vision_caption latencyMs=${Date.now() - startTime} success=false:`, err)
     throw err
   }
-  console.log(`[vision] provider=openai model=${MODELS.vision} stage=vision_caption latencyMs=${Date.now() - startTime} success=true`)
+  console.log(`[vision] provider=${textProviderFor(MODELS.vision)} model=${MODELS.vision} stage=vision_caption latencyMs=${Date.now() - startTime} success=true`)
 
   const raw = res.choices[0]?.message?.content ?? "{}"
   let cleaned = sanitizeJsonString(raw)

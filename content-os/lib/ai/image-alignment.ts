@@ -1,5 +1,6 @@
 import { after } from "next/server"
-import { MODELS, getOpenAIClient } from "./models"
+import { MODELS, getTextClientFor, visionReasoning } from "./models"
+import { visionImageUrl } from "./vision-image"
 import { textCostUsd, toTextUsage, type TextUsage } from "./pricing"
 import { briefScene, type VisualBrief } from "./visual-brief"
 import { insertContentEvents, type ContentEventType } from "@/lib/usage/content-events"
@@ -16,18 +17,19 @@ export type AlignmentResult = { score: number; reason: string; usage: TextUsage 
 export async function checkImageAlignment(params: { imageUrl: string; brief: VisualBrief }): Promise<AlignmentResult | null> {
   const question = `Does this image show: ${briefScene(params.brief, "an abstract atmospheric background")}? Score 1-5 (5 = clearly shows exactly that, 1 = shows something else), and give one short reason. Respond with JSON only: {"score": 1-5, "reason": "..."}`
   try {
-    const res = await getOpenAIClient().chat.completions.create(
+    const imageUrl = await visionImageUrl(params.imageUrl)
+    const res = await getTextClientFor(MODELS.vision).chat.completions.create(
       {
         model: MODELS.vision,
         // Same conventions as lib/ai/vision.ts: max_completion_tokens, no temperature.
         max_completion_tokens: 200,
-        reasoning_effort: "none",
+        ...visionReasoning("none"),
         response_format: { type: "json_object" },
         messages: [{
           role: "user",
           content: [
             { type: "text", text: question },
-            { type: "image_url", image_url: { url: params.imageUrl } },
+            { type: "image_url", image_url: { url: imageUrl } },
           ],
         }],
       },

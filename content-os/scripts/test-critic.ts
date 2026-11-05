@@ -21,10 +21,10 @@ const all = (n: number, over: Record<string, number> = {}) => Object.fromEntries
 ) as never
 
 async function main() {
-  process.env.OPENAI_API_KEY ||= "test-key"
+  process.env.GROQ_API_KEY ||= "test-key"
   const { criticOverall, toSavedCritic, CRITIC_PASS } = await import("@/lib/design/critic-scores")
   const { parseCriticResponse, loadReferencePosts, critiquePost, buildCriticPrompt } = await import("@/lib/ai/critic")
-  const { getOpenAIClient } = await import("@/lib/ai/models")
+  const { MODELS, getTextClientFor } = await import("@/lib/ai/models")
 
   await test("overall is the weighted average", () => {
     assert.equal(criticOverall(all(8)), 8)
@@ -93,13 +93,17 @@ async function main() {
     for (const id of ["stops_scroll", "speaks_to_buyer", "one_message", "image_copy_agree", "craft", "real_indian", "reason_to_act"]) assert.ok(prompt.includes(`"${id}"`), id)
   })
 
-  const client = getOpenAIClient()
+  // The critic runs on Groq vision (MODELS.vision) -- that client is the one stubbed.
+  const client = getTextClientFor(MODELS.vision)
   const create = client.chat.completions.create
   await test("critiquePost on a simulated vision response", async () => {
     let sentImage = ""
     ;(client.chat.completions as unknown as { create: unknown }).create = async (req: { messages: { content: unknown }[] }) => {
       const parts = req.messages[1]!.content as { type: string; image_url?: { url: string } }[]
-      sentImage = parts.find((p) => p.type === "image_url")?.image_url?.url ?? ""
+      const images = parts.filter((p) => p.type === "image_url")
+      // Groq vision takes at most 3 images per request; the post is the last.
+      assert.ok(images.length <= 3, `${images.length} images sent`)
+      sentImage = images[images.length - 1]?.image_url?.url ?? ""
       return { choices: [{ message: { content: JSON.stringify({ scores: all(7, { stops_scroll: 9 }), top_fix: "Show the chinos worn outdoors" }) } }], usage: { prompt_tokens: 1000, completion_tokens: 200, total_tokens: 1200 } }
     }
     const r = await critiquePost(brand, { imageUrl: "https://example.com/post.jpg", caption: "c", hook: "h", format: "post" }, "test")

@@ -62,7 +62,7 @@ export const MODELS = {
   extraction: "openai/gpt-oss-20b",
   generation: "openai/gpt-oss-120b",
   scoring: "openai/gpt-oss-20b",
-  vision: "gpt-5.4-mini",
+  vision: "qwen/qwen3.8-27b",
   caption: "openai/gpt-oss-120b",
   creative: "openai/gpt-oss-120b",
 } as const
@@ -92,9 +92,23 @@ export function getOpenAIClient(): OpenAI {
   return cachedOpenAIClient
 }
 
-/** Groq model ids served through its OpenAI-compatible API. */
+/** Every Groq model id this app calls -- routed to Groq's OpenAI-compatible API by exact id. */
+export const GROQ_MODEL_IDS: ReadonlySet<string> = new Set(["openai/gpt-oss-120b", "openai/gpt-oss-20b", "qwen/qwen3.8-27b"])
+
+/** Groq model ids served through its OpenAI-compatible API (exact match -- a prefix would misroute). */
 export function isGroqTextModel(model: string): boolean {
-  return model.startsWith("openai/gpt-oss")
+  return GROQ_MODEL_IDS.has(model)
+}
+
+/**
+ * Reasoning settings for a MODELS.vision (qwen/qwen3.8-27b) call. "none" is
+ * Qwen's instruct mode (no reasoning tokens) for perception / extraction;
+ * "low" is short thinking for a judgement, with reasoning_format "hidden" --
+ * Groq rejects raw reasoning with JSON mode (400), and hidden keeps the
+ * thinking out of the JSON content. Groq-only field, so cast for the SDK type.
+ */
+export function visionReasoning(effort: "none" | "low"): { reasoning_effort: "none" | "low" } {
+  return (effort === "low" ? { reasoning_effort: "low", reasoning_format: "hidden" } : { reasoning_effort: "none" }) as { reasoning_effort: "none" | "low" }
 }
 
 /** "groq" | "openai" -- for the provider= field in text-call log lines. */
