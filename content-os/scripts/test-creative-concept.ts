@@ -92,12 +92,14 @@ async function main() {
   })
   ;(client.chat.completions as unknown as { create: unknown }).create = create
 
-  await test("in-scene text: only for a text device, <= 6 words, never a handle or URL", async () => {
+  await test("in-scene text: only for a text device, <= 5 plain words, never a handle or URL", async () => {
     const one = (c: Record<string, unknown>, allow = true) => parseConcepts(JSON.stringify({ concepts: [{ story: "s", ...c }] }), allow)[0]!.in_scene_text
-    assert.equal(one({ device: "in-scene text", in_scene_text: "Out for chai, back at 5" }), "Out for chai, back at 5")
+    assert.equal(one({ device: "in-scene text", in_scene_text: "Out for chai, back soon" }), "Out for chai, back soon")
+    assert.equal(one({ device: "in-scene text", in_scene_text: "Out for chai, back at 5" }), null)
+    assert.equal(one({ device: "in-scene text", in_scene_text: "Supercalifragilistic tea" }), null)
     assert.equal(one({ device: "direct address", in_scene_text: "Hi, you." }), "Hi, you.")
     assert.equal(one({ device: "reveal", in_scene_text: "Surprise" }), null)
-    assert.equal(one({ device: "in-scene text", in_scene_text: "one two three four five six seven" }), null)
+    assert.equal(one({ device: "in-scene text", in_scene_text: "one two three four five six" }), null)
     assert.equal(one({ device: "in-scene text", in_scene_text: "follow @brand" }), null)
     assert.equal(one({ device: "in-scene text", in_scene_text: "Sale" }, false), null)
     const { inSceneTextMatches } = await import("@/lib/ai/in-scene-text")

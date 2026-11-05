@@ -55,7 +55,7 @@ export interface CreativeConcept {
 
 /** The devices that may carry their own words in the picture. */
 const TEXT_DEVICES = ["in-scene text", "direct address"]
-const IN_SCENE_TEXT_MAX_WORDS = 6
+const IN_SCENE_TEXT_MAX_WORDS = 5
 const MAX_ROUNDS = 2
 
 export interface ConceptInput {
@@ -114,7 +114,7 @@ Rules:
 - People only when they serve the story, and then the brand's own audience (who they are comes from the brand and audience above, never a fixed default). Product-only concepts are fine when the product is the story.
 - Only products, claims and facts from the brand context and the copy -- never invent an offer, number or result.
 ${allowText
-    ? `- "in_scene_text": ONLY for the in-scene text device, or direct address with a sign or prop: the exact words printed on that real object (max ${IN_SCENE_TEXT_MAX_WORDS} words, spelled correctly, no @handles or URLs). Otherwise null.`
+    ? `- "in_scene_text": ONLY for the in-scene text device, or direct address with a sign or prop: the exact words printed on that real object (max ${IN_SCENE_TEXT_MAX_WORDS} plain, common words -- no brand-new spellings, names or jargon -- spelled correctly, no @handles or URLs). Otherwise null.`
     : `- "in_scene_text": always null (this format's words are added on top).`}
 - Banned: a static "product on a table" or "person smiling at a laptop" stock setup with nothing happening; collages; split frames or two halves; random decorative stickers.
 
@@ -157,11 +157,16 @@ export function weightedScore(scores: Record<CriticCriterionId, number>): number
   return Math.round((sum / total) * 10) / 10
 }
 
-/** The words a concept may carry: only for a text device, capped, no handles / URLs. */
+/**
+ * The words a concept may carry: only for a text device, <= 5 plain words
+ * (letters, digits and simple punctuation), no handles / URLs -- the image
+ * model spells short common words reliably, not long or unusual ones.
+ */
 function sanitizeInSceneText(raw: unknown, device: string): string | null {
   if (typeof raw !== "string" || !TEXT_DEVICES.some((d) => device.includes(d))) return null
   const text = raw.replace(/["“”]/g, "").replace(/\s+/g, " ").trim()
   if (!text || /@|https?:|www\.|\.com\b/i.test(text) || text.split(" ").length > IN_SCENE_TEXT_MAX_WORDS) return null
+  if (!/^[\p{L}\p{N}\s.,!?'&-]+$/u.test(text) || text.split(" ").some((w) => w.length > 12)) return null
   return text
 }
 

@@ -23,7 +23,6 @@ import { sanitizeVisualBrief } from "@/lib/ai/visual-brief"
 import { recordContentEvent } from "@/lib/usage/content-events"
 import { sampleImageAlignment } from "@/lib/ai/image-alignment"
 import { artDirectionForRequest } from "@/lib/ai/art-direction"
-import { withInSceneTextCheck } from "@/lib/ai/in-scene-text"
 
 const BUCKET = "brand-images"
 const FEATURE = "post_image"
@@ -215,12 +214,9 @@ async function handlePost(request: Request, timer: GenerationTimer) {
     visualBrief,
     inSceneText,
   }, brandPhoto?.url ?? null, { lifestyle: brandPhoto?.source !== "ugc" && isLifestyleTemplate(template), label: "post" })
-  // The concept's words: read back by the critic, one regenerate on a mismatch.
-  const result = await timer.step("image", withDeadline(
-    inSceneText
-      ? withInSceneTextCheck({ brand, intendedText: inSceneText, hook: userBrief ?? "", caption: captionText ?? "", label: "post in-scene text", run: makeImage }).then((r) => r.result)
-      : makeImage(),
-    deadlineAt - Date.now(), "post image")).catch((err): Awaited<ReturnType<typeof generatePostImage>> => {
+  // One image. The concept's words are read back by the critic (Full Post's
+  // CriticPanel); a mismatch becomes its top fix, never a regenerate.
+  const result = await timer.step("image", withDeadline(makeImage(), deadlineAt - Date.now(), "post image")).catch((err): Awaited<ReturnType<typeof generatePostImage>> => {
     // Deadline hit (or an unexpected throw): treated exactly like a failed
     // generation below -- logged and refunded.
     timedOut = err instanceof DeadlineExceededError

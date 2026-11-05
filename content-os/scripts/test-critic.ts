@@ -162,6 +162,17 @@ async function main() {
     }
   })
 
+  await test("intended in-scene text: a mismatch is the top fix (never a regenerate); a match keeps the model's fix", async () => {
+    const reply = (imageText: string) => async () => ({ choices: [{ message: { content: JSON.stringify({ scores: all(8), image_text: imageText, top_fix: "Warmer light" }) } }], usage: { prompt_tokens: 10, completion_tokens: 10, total_tokens: 20 } })
+    ;(client.chat.completions as unknown as { create: unknown }).create = reply("OUT FOR CHIA")
+    const wrong = await critiquePost(brand, { imageUrl: "https://example.com/p.jpg", caption: "", hook: "", format: "post", intendedText: "Out for chai" }, "test")
+    assert.equal(wrong?.top_fix, "Text in the image reads 'OUT FOR CHIA'")
+    ;(client.chat.completions as unknown as { create: unknown }).create = reply("Out for chai!")
+    const right = await critiquePost(brand, { imageUrl: "https://example.com/p.jpg", caption: "", hook: "", format: "post", intendedText: "Out for chai" }, "test")
+    assert.equal(right?.top_fix, "Warmer light")
+    assert.match(buildCriticPrompt(brand, "post", null, "Out for chai"), /judge them as part of the design/)
+  })
+
   await test("critiquePost returns null when the call fails (no credits)", async () => {
     ;(client.chat.completions as unknown as { create: unknown }).create = async () => { throw Object.assign(new Error("429 insufficient_quota"), { status: 429 }) }
     assert.equal(await critiquePost(brand, { imageUrl: "https://example.com/p.jpg", caption: "", hook: "", format: "post" }, "test"), null)

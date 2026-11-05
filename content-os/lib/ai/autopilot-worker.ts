@@ -36,7 +36,6 @@ import type { ContentSlot, FastlaneResult, Platform, ReelScene, UserPlan } from 
 import { prepareGeneratedImage } from "@/lib/storage/generated-image"
 import { getActiveLessons, imageLessonRules } from "@/lib/ai/brand-brain"
 import { conceptImagePrompt } from "./creative-concept"
-import { withInSceneTextCheck } from "./in-scene-text"
 import { exploresThisSlot, getPerformanceLessons } from "@/lib/ai/performance-learning"
 import { recordContentEvent } from "@/lib/usage/content-events"
 import { resolveTypography } from "@/lib/design/fonts"
@@ -518,8 +517,9 @@ async function makeAutopilotPost(admin: Admin, job: SlotJobRow, ctx: RunContext,
       constraints: { visualBrief: generated.visual, aspectRatioLabel: "4:5 portrait feed post" },
       label: `autopilot slot ${job.id}`,
     })
-    // The concept's own words in the picture: drawn by the image model,
-    // read back by the critic (one regenerate on a mismatch), no design on top.
+    // The concept's own words in the picture: drawn by the image model, read
+    // back by the critic below (a mismatch is its top fix, never a
+    // regenerate), no design on top.
     const inSceneText = concept?.concept.in_scene_text ?? null
     // A catalogue shot on a lifestyle post -> a candid scene with it as the
     // product reference (lib/ai/catalogue-photos.ts); else the photo as is.
@@ -538,9 +538,7 @@ async function makeAutopilotPost(admin: Admin, job: SlotJobRow, ctx: RunContext,
       // Autopilot post backgrounds get text on top -- "low" is enough.
       quality: "low",
     }, brandPhoto?.url ?? null, { lifestyle: brandPhoto?.source !== "ugc" && isLifestyleTemplate(generated.postDesignFields?.template), label: `autopilot slot ${job.id}` })
-    const imageResult = inSceneText
-      ? (await withInSceneTextCheck({ brand, intendedText: inSceneText, hook: generated.hook, caption, label: `autopilot slot ${job.id} in-scene text`, run: makeImage })).result
-      : await makeImage()
+    const imageResult = await makeImage()
     trackUsage(tracker, undefined, attemptsCostUsd(imageResult.attempts))
     tracker.imageMs += Date.now() - imageStartedAt
     if (!imageResult.success) {

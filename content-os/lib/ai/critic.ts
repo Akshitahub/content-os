@@ -7,6 +7,7 @@ import { textCostUsd, toTextUsage } from "./pricing"
 import type { BrandRow } from "@/types/database"
 import { CRITIC_CRITERIA, CRITIC_HARD_FAIL, CRITIC_PASS, criticOverall, withCurrentCriterionIds, type CriticCriterionId, type CriticFixTarget, type CriticScores } from "@/lib/design/critic-scores"
 import type { TextLayoutId } from "@/lib/design/text-layouts"
+import { inSceneTextMatches } from "./in-scene-text"
 
 /**
  * The critic (one vision call): scores a finished post -- the rendered image
@@ -184,8 +185,15 @@ export async function critiquePost(brand: BrandRow, input: CriticInput, label: s
     const hardFail = !parsed.single_photo && !ownPanel
     if (!parsed.single_photo && ownPanel) console.log(`[critic] ${label}: single_photo ignored on ${input.textLayout}`)
     const overall = hardFail ? Math.min(criticOverall(parsed.scores), CRITIC_HARD_FAIL) : criticOverall(parsed.scores)
-    const topFix = parsed.single_photo || hardFail ? parsed.top_fix : parsed.model_top_fix || lowestReason(parsed.scores)
-    const fixTarget = parsed.single_photo || hardFail ? parsed.fix_target : parsed.model_fix_target
+    let topFix = parsed.single_photo || hardFail ? parsed.top_fix : parsed.model_top_fix || lowestReason(parsed.scores)
+    let fixTarget = parsed.single_photo || hardFail ? parsed.fix_target : parsed.model_fix_target
+    // The concept's words came out wrong: never regenerated automatically
+    // (one image per item) -- it's the fix the user can choose to make.
+    if (input.intendedText && parsed.image_text !== null && !inSceneTextMatches(input.intendedText, parsed.image_text)) {
+      console.log(`[creative-concept] in-scene text mismatch (${label})`)
+      topFix = `Text in the image reads '${parsed.image_text || "nothing legible"}'`
+      fixTarget = "image"
+    }
     const usage = toTextUsage(res.usage)
     console.log(`[critic] ${label}: overall=${overall} latencyMs=${Date.now() - startedAt}`)
     return { scores: parsed.scores, overall, passed: overall >= CRITIC_PASS, top_fix: topFix, fix_target: fixTarget, image_text: parsed.image_text, model: MODELS.vision, costUsd: textCostUsd(MODELS.vision, usage) }
