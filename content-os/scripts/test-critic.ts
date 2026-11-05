@@ -100,7 +100,10 @@ async function main() {
   })
 
   await test("split_panel / bottom_card tell the critic to judge the photograph area only", () => {
-    for (const layout of ["split_panel", "bottom_card"] as const) assert.match(buildCriticPrompt(brand, "post", layout), /Judge single_photo on the photograph area only/)
+    for (const layout of ["split_panel", "bottom_card"] as const) {
+      assert.match(buildCriticPrompt(brand, "post", layout), /Judge single_photo on the photograph area only/)
+      assert.match(buildCriticPrompt(brand, "post", layout), /don't count it against craft or single_photo/)
+    }
     assert.doesNotMatch(buildCriticPrompt(brand, "post", "bold_stack"), /photograph area only/)
     assert.doesNotMatch(buildCriticPrompt(brand, "post"), /photograph area only/)
   })
@@ -125,23 +128,25 @@ async function main() {
     assert.equal(r?.top_fix, "Show the chinos worn outdoors")
   })
 
-  await test("critiquePost caps a single_photo=false image with failing craft at 3", async () => {
-    ;(client.chat.completions as unknown as { create: unknown }).create = async () => ({ choices: [{ message: { content: JSON.stringify({ scores: all(9, { craft: 4 }), single_photo: false, top_fix: "x" }) } }], usage: { prompt_tokens: 10, completion_tokens: 10, total_tokens: 20 } })
+  await test("critiquePost caps a single_photo=false image at 3", async () => {
+    ;(client.chat.completions as unknown as { create: unknown }).create = async () => ({ choices: [{ message: { content: JSON.stringify({ scores: all(9), single_photo: false, top_fix: "x" }) } }], usage: { prompt_tokens: 10, completion_tokens: 10, total_tokens: 20 } })
     const r = await critiquePost(brand, { imageUrl: "https://example.com/p.jpg", caption: "", hook: "", format: "post" }, "test")
     assert.equal(r?.overall, 3)
     assert.equal(r?.passed, false)
     assert.equal(r?.fix_target, "image")
-    // The same hard fail on our own split_panel / bottom_card: a layout fix.
-    const panel = await critiquePost(brand, { imageUrl: "https://example.com/p.jpg", caption: "", hook: "", format: "post", textLayout: "bottom_card" }, "test")
-    assert.equal(panel?.overall, 3)
-    assert.equal(panel?.fix_target, "layout_text")
+    // Not our own panel layout: still a hard fail.
+    const other = await critiquePost(brand, { imageUrl: "https://example.com/p.jpg", caption: "", hook: "", format: "post", textLayout: "bold_stack" }, "test")
+    assert.equal(other?.overall, 3)
   })
 
-  await test("single_photo=false next to craft 7+ is overridden (scored normally, the model's own fix kept)", async () => {
-    ;(client.chat.completions as unknown as { create: unknown }).create = async () => ({ choices: [{ message: { content: JSON.stringify({ scores: all(9), single_photo: false, top_fix: "Bigger headline" }) } }], usage: { prompt_tokens: 10, completion_tokens: 10, total_tokens: 20 } })
-    const r = await critiquePost(brand, { imageUrl: "https://example.com/p.jpg", caption: "", hook: "", format: "post", textLayout: "split_panel" }, "test")
-    assert.equal(r?.overall, criticOverall(all(9)))
-    assert.equal(r?.top_fix, "Bigger headline")
+  await test("on split_panel / bottom_card single_photo is ignored (scored normally, the model's own fix kept)", async () => {
+    ;(client.chat.completions as unknown as { create: unknown }).create = async () => ({ choices: [{ message: { content: JSON.stringify({ scores: all(9, { craft: 3 }), single_photo: false, top_fix: "Bigger headline", fix_target: "layout_text" }) } }], usage: { prompt_tokens: 10, completion_tokens: 10, total_tokens: 20 } })
+    for (const textLayout of ["split_panel", "bottom_card"] as const) {
+      const r = await critiquePost(brand, { imageUrl: "https://example.com/p.jpg", caption: "", hook: "", format: "post", textLayout }, "test")
+      assert.equal(r?.overall, criticOverall(all(9, { craft: 3 })))
+      assert.equal(r?.top_fix, "Bigger headline")
+      assert.equal(r?.fix_target, "layout_text")
+    }
   })
 
   await test("critiquePost returns null when the call fails (no credits)", async () => {

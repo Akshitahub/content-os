@@ -5,7 +5,7 @@ import { VISION_MAX_IMAGES, visionImageUrl } from "./vision-image"
 import { buildBrandContext } from "./prompts"
 import { textCostUsd, toTextUsage } from "./pricing"
 import type { BrandRow } from "@/types/database"
-import { CRITIC_CRITERIA, CRITIC_FAIL_BELOW, CRITIC_HARD_FAIL, CRITIC_PASS, criticOverall, type CriticCriterionId, type CriticFixTarget, type CriticScores } from "@/lib/design/critic-scores"
+import { CRITIC_CRITERIA, CRITIC_HARD_FAIL, CRITIC_PASS, criticOverall, type CriticCriterionId, type CriticFixTarget, type CriticScores } from "@/lib/design/critic-scores"
 import type { TextLayoutId } from "@/lib/design/text-layouts"
 
 /**
@@ -86,7 +86,7 @@ ${buildBrandContext(brand)}
 Score each criterion 1-10 with ONE short reason (max 15 words) about THIS post:
 ${criteria}
 
-Also "single_photo": judge the PHOTOGRAPH only -- the post's own design (its type, a solid brand-colour panel or band beside or above the photo, the logo) is not a panel. false if the photograph itself is a collage, a grid, several photos side by side, or shows the same person more than once (a deliberate two-half comparison with different subjects is fine) -- otherwise true.${textLayout && PANEL_LAYOUTS.has(textLayout) ? "\nThis post's design deliberately places a solid text panel beside/below ONE photograph. Judge single_photo on the photograph area only." : ""}
+Also "single_photo": judge the PHOTOGRAPH only -- the post's own design (its type, a solid brand-colour panel or band beside or above the photo, the logo) is not a panel. false if the photograph itself is a collage, a grid, several photos side by side, or shows the same person more than once (a deliberate two-half comparison with different subjects is fine) -- otherwise true.${textLayout && PANEL_LAYOUTS.has(textLayout) ? "\nThis post's design deliberately places a solid text panel beside/below ONE photograph. Judge single_photo on the photograph area only. The text panel is our deliberate design: don't count it against craft or single_photo." : ""}
 
 Then "top_fix": the single change that would raise the score most, as one plain instruction (max 20 words) -- e.g. "Use a photo of the chinos being worn; the flat studio shot doesn't match the street-style caption".
 
@@ -100,10 +100,10 @@ const clampScore = (n: unknown) => (typeof n === "number" && Number.isFinite(n) 
 
 /**
  * The model's JSON -> scores, or null if any criterion is missing. Exported
- * for scripts/test-critic.ts. model_top_fix is the model's own fix, kept for
- * when critiquePost overrides a single_photo=false.
+ * for scripts/test-critic.ts. model_top_fix / model_fix_target are the
+ * model's own, kept for when critiquePost ignores a single_photo=false.
  */
-export function parseCriticResponse(raw: string): { scores: CriticScores; top_fix: string; fix_target: CriticFixTarget; single_photo: boolean; model_top_fix: string } | null {
+export function parseCriticResponse(raw: string): { scores: CriticScores; top_fix: string; fix_target: CriticFixTarget; single_photo: boolean; model_top_fix: string; model_fix_target: CriticFixTarget } | null {
   try {
     const data = JSON.parse(raw.replace(/```json\n?|```\n?/g, "").trim()) as { scores?: Record<string, { score?: unknown; reason?: unknown }>; top_fix?: unknown; fix_target?: unknown; single_photo?: unknown }
     const scores = {} as CriticScores
@@ -119,9 +119,9 @@ export function parseCriticResponse(raw: string): { scores: CriticScores; top_fi
     // Only an explicit false fails -- a missing field doesn't.
     const singlePhoto = data.single_photo !== false
     if (!singlePhoto) {
-      return { scores, single_photo: false, top_fix: "Use one single photograph of one moment -- this image repeats the same person or is split into panels.", fix_target: "image", model_top_fix: topFix }
+      return { scores, single_photo: false, top_fix: "Use one single photograph of one moment -- this image repeats the same person or is split into panels.", fix_target: "image", model_top_fix: topFix, model_fix_target: fixTarget }
     }
-    return { scores, single_photo: true, top_fix: topFix || lowestReason(scores), fix_target: fixTarget, model_top_fix: topFix }
+    return { scores, single_photo: true, top_fix: topFix || lowestReason(scores), fix_target: fixTarget, model_top_fix: topFix, model_fix_target: fixTarget }
   } catch {
     return null
   }
@@ -168,20 +168,16 @@ export async function critiquePost(brand: BrandRow, input: CriticInput, label: s
       console.error(`[critic] ${label}: unreadable response (scoring skipped)`)
       return null
     }
-    // A collage / repeated subject is a hard fail, whatever else scored well --
-    // but only next to a failing craft score: "panels" with craft 7+ is the
-    // model contradicting itself (usually about our own text panel), so it's
-    // treated as one photo and scored normally.
-    const hardFail = !parsed.single_photo && parsed.scores.craft.score < CRITIC_FAIL_BELOW
-    if (!parsed.single_photo && !hardFail) console.log(`[critic] ${label}: single_photo overridden (craft ${parsed.scores.craft.score})`)
+    // A collage / repeated subject is a hard fail, whatever else scored well
+    // -- except on our own split_panel / bottom_card, where single_photo is
+    // ignored entirely (the model reads our text panel as a second panel)
+    // and the model's own fix is used.
+    const ownPanel = !!input.textLayout && PANEL_LAYOUTS.has(input.textLayout)
+    const hardFail = !parsed.single_photo && !ownPanel
+    if (!parsed.single_photo && ownPanel) console.log(`[critic] ${label}: single_photo ignored on ${input.textLayout}`)
     const overall = hardFail ? Math.min(criticOverall(parsed.scores), CRITIC_HARD_FAIL) : criticOverall(parsed.scores)
-    let topFix = parsed.single_photo || hardFail ? parsed.top_fix : parsed.model_top_fix || lowestReason(parsed.scores)
-    let fixTarget = parsed.fix_target
-    // Our own text panel read as a collage: the fix is the layout, not the photo.
-    if (hardFail && input.textLayout && PANEL_LAYOUTS.has(input.textLayout)) {
-      topFix = "Use a different text layout so the post reads as one photograph, not a photo beside a panel."
-      fixTarget = "layout_text"
-    }
+    const topFix = parsed.single_photo || hardFail ? parsed.top_fix : parsed.model_top_fix || lowestReason(parsed.scores)
+    const fixTarget = parsed.single_photo || hardFail ? parsed.fix_target : parsed.model_fix_target
     const usage = toTextUsage(res.usage)
     console.log(`[critic] ${label}: overall=${overall} latencyMs=${Date.now() - startedAt}`)
     return { scores: parsed.scores, overall, passed: overall >= CRITIC_PASS, top_fix: topFix, fix_target: fixTarget, model: MODELS.vision, costUsd: textCostUsd(MODELS.vision, usage) }
