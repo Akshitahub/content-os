@@ -27,7 +27,7 @@ export async function generateCaption(
   }
 ): Promise<{ caption: import("@/types/app").GeneratedCaption; model: string; usage: TextUsage | undefined; costUsd: number | null }> {
   const model = MODELS.caption
-  // Each call priced at the model that answered (Groq, or OpenAI on a fallback).
+  // Each call priced at the model that answered.
   let usedModel: string = model
   let costUsd: number | null = null
 

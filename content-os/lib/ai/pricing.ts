@@ -1,39 +1,27 @@
 import type OpenAI from "openai"
 
-// Official OpenAI per-token prices used to write ai_generation_logs.cost_usd
-// from each call's real `usage`. Source: OpenAI's pricing page
-// (developers.openai.com/api/docs/pricing), checked 2026-10-25, standard
-// tier, USD per 1M tokens:
-//   gpt-5.5 (<272K context): input $5.00, cached input $0.50, output $30.00
-//     (hidden reasoning tokens are billed as output -- they're already
-//     included in usage.completion_tokens)
-//   gpt-image-2: text input $5.00 (cached $1.25), image input $8.00
-//     (cached $2.00), image output $30.00. The page lists no separate
-//     text-output rate for gpt-image-2, so all output tokens are priced at
-//     the image-output rate.
-// openai/gpt-oss-120b (Groq, on demand): input $0.15, cached input $0.075,
-//   output $0.60 per 1M tokens. Source: Groq's model page
-//   (console.groq.com/docs/model/openai/gpt-oss-120b), checked 2026-10-26 --
-//   groq.com/pricing didn't render its price table that day. Reasoning
-//   tokens are billed as output, same as above.
-//   gpt-5.4 (<272K context): input $2.50, cached input $0.25, output $15.00;
-//   gpt-5.4-mini: input $0.75, cached input $0.075, output $4.50 -- OpenAI's
-//   pricing page, checked 2026-10-31 (the Groq -> OpenAI fallback models).
-// These are list prices, not our invoice -- if a request runs over 272K
-// context, or OpenAI changes prices, these numbers drift. Update this file
-// (and its date) rather than the call sites.
+// Per-token prices used to write ai_generation_logs.cost_usd from each
+// call's real `usage`, USD per 1M tokens (standard / on-demand tier):
+// - Groq (every text and vision call), from Groq's models page
+//   (console.groq.com/docs/models, checked 2026-11-05): openai/gpt-oss-120b
+//   input $0.15 (cached $0.075), output $0.60; openai/gpt-oss-20b $0.075 /
+//   $0.30; qwen/qwen3.8-27b $0.80 / $4.00 (each image counts as 2,048 input
+//   tokens). Reasoning tokens are billed as output.
+// - OpenAI gpt-image-2 (image generation only), from OpenAI's pricing page
+//   (developers.openai.com/api/docs/pricing, checked 2026-10-25): text input
+//   $5.00 (cached $1.25), image input $8.00 (cached $2.00), image output
+//   $30.00. No separate text-output rate is listed, so all output tokens
+//   are priced at the image-output rate.
+// These are list prices, not our invoice -- if a provider changes prices,
+// these numbers drift. Update this file (and its date) rather than the
+// call sites.
 const TEXT_PRICES_PER_1M: Record<string, { input: number; cachedInput: number; output: number }> = {
-  "gpt-5.5": { input: 5.0, cachedInput: 0.5, output: 30.0 },
   "openai/gpt-oss-120b": { input: 0.15, cachedInput: 0.075, output: 0.6 },
-  // Groq's models page (console.groq.com/docs/models, checked 2026-11-05),
-  // per 1M tokens. No cached rate is listed, so cached input is priced at
+  // No cached rate is listed for these two, so cached input is priced at
   // the full input rate (an over-estimate, never under).
   "openai/gpt-oss-20b": { input: 0.075, cachedInput: 0.075, output: 0.3 },
   // MODELS.vision; each image counts as 2,048 input tokens.
   "qwen/qwen3.8-27b": { input: 0.8, cachedInput: 0.8, output: 4.0 },
-  // The OpenAI stand-ins when Groq can't serve a call (lib/ai/provider-fallback.ts).
-  "gpt-5.4": { input: 2.5, cachedInput: 0.25, output: 15.0 },
-  "gpt-5.4-mini": { input: 0.75, cachedInput: 0.075, output: 4.5 },
 }
 
 const IMAGE_PRICES_PER_1M: Record<string, { textInput: number; imageInput: number; output: number }> = {

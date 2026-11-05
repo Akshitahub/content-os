@@ -3,61 +3,25 @@ import OpenAI from "openai"
 
 export const GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 
-// `generation` was "llama-3.3-70b-versatile" until Groq removed the entire
-// Llama 3.x family from their catalog (~2026-08-17 11:37 UTC — confirmed via
-// ai_generation_logs and a live /v1/models check). Every call site using
-// this model is a reasoning model now (same class as `extraction`/
-// `scoring`'s gpt-oss-20b) and MUST set reasoning_effort explicitly and
-// size max_tokens with real headroom for hidden reasoning tokens — see the
-// per-call-site fixes shipped alongside this change. Never leave
-// reasoning_effort unset on a call using this model. STILL GROQ after the
-// Phase 1/1b OpenAI migrations below, and now Groq-ONLY: every remaining
-// reader is a deliberately-kept Groq call site (lib/ai/account-analytics.ts,
-// lib/ai/reel-prompt-optimizer.ts, lib/ai/blog-prompt-optimizer.ts) --
-// every creative stage that used to read it now reads `creative` instead,
-// so it's no longer shared between a Groq and an OpenAI call site.
+// Every text and vision model runs on Groq (2026-11-05); OpenAI is used for
+// image generation only (gpt-image-2, lib/ai/image-provider.ts). Call sites
+// use the OpenAI SDK pointed at Groq's OpenAI-compatible API
+// (getTextClientFor, routed by exact id through GROQ_MODEL_IDS), through
+// lib/ai/provider-fallback.ts's createTextCompletion for text -- which waits
+// out a short per-minute 429 on Groq and otherwise throws; there is no
+// OpenAI fallback.
 //
-// `caption` was the first stage migrated to OpenAI (see
-// lib/ai/captions-generator.ts). `creative` covers the rest. Phase 1:
-// hooks (lib/ai/hooks-generator.ts), blog (lib/ai/blog-generator.ts and
-// the "blog_post"/"reel_script"/"ad_copy" cases inside
-// lib/ai/content-generator.ts), and prompt-authoring
-// (lib/ai/image-prompt-writer.ts). Phase 1b (via
-// lib/ai/creative-completion.ts): story (lib/ai/story-sequence-generator.ts
-// and content-generator.ts's "story" case), carousel
-// (lib/ai/carousel-generator.ts and the "carousel" case), repurpose
-// (lib/ai/repurpose-generator.ts), occasion content
-// (lib/ai/occasion-content-generator.ts), and all three Autopilot text
-// calls in lib/ai/fastlane.ts. "gpt-5.5" per the migration spec; falls
-// back to "gpt-5.4" only if gpt-5.5 turns out not to be available on this
-// account's API key -- verify both IDs are live on the real key before
-// shipping this to production (not independently verifiable from here).
-// Confirmed live against OpenAI's own model page
-// (developers.openai.com/api/docs/models/gpt-5.5, checked 2026-10-25) that
-// gpt-5.5 is real and supports reasoning_effort
-// none/low/medium(default)/high/xhigh. NOT yet in the installed `openai`
-// SDK's own hardcoded ChatModel literal union (which only goes up to
-// gpt-5.4 as of this package version) -- still compiles fine since that
-// type also accepts any plain string, just no autocomplete/typo-checking
-// for this specific literal.
-//
-// 2026-10-26: `caption` and `creative` moved BACK to Groq's
-// openai/gpt-oss-120b (the gpt-5.5 notes above are history). Every call
-// site still uses the OpenAI SDK -- getTextClientFor() below points it at
-// GROQ_BASE_URL for Groq model ids -- so reasoning_effort (low/medium
-// only), max_completion_tokens, response_format json_object and streaming
-// are unchanged.
-//
-// `vision` (critic, slide-photo check, image alignment, subject boxes, art
-// direction, brand photo classification, photo captions) runs on OpenAI
-// gpt-5.4-mini since 2026-11-05 -- moved from gpt-5.5 to cut spend ($0.75 /
-// $4.50 per 1M tokens vs $5 / $30, lib/ai/pricing.ts). Its model page
-// (developers.openai.com/api/docs/models/gpt-5.4-mini) confirms image input,
-// reasoning_effort none / low / medium / high / xhigh and Chat Completions --
-// every vision call uses none or low with max_completion_tokens and no
-// temperature. Kept as its own named key, matching this file's convention
-// of separate named keys per logical stage -- `extraction`/`scoring`
-// already share one value under two names for the same reason.
+// - caption / creative / generation: openai/gpt-oss-120b. Reasoning models:
+//   every call sets reasoning_effort (low / medium) and sizes its token cap
+//   with headroom for hidden reasoning tokens -- never leave it unset.
+// - extraction / scoring: openai/gpt-oss-20b (one value, two names).
+// - vision: qwen/qwen3.8-27b (console.groq.com/docs/model/qwen/qwen3.8-27b,
+//   checked 2026-11-05): text + image in, at most 3 images a request, 20MB
+//   per image URL, 2,048 input tokens per image, 16,384 max output tokens,
+//   JSON mode. reasoning_effort "none" (instruct, no reasoning tokens) for
+//   perception / extraction, "low" (short thinking) for judgements with
+//   reasoning_format "hidden" -- see visionReasoning below. Images go through
+//   lib/ai/vision-image.ts (JPEG, <= 1536px) first.
 export const MODELS = {
   extraction: "openai/gpt-oss-20b",
   generation: "openai/gpt-oss-120b",
@@ -116,11 +80,12 @@ export function textProviderFor(model: string): "groq" | "openai" {
   return isGroqTextModel(model) ? "groq" : "openai"
 }
 
-// The OpenAI SDK pointed at Groq (same API shape), so text call sites keep
-// one code path whichever provider MODELS.caption / MODELS.creative name.
+// The OpenAI SDK pointed at Groq (same API shape): the client for every
+// text and vision call. A non-Groq model id is a bug -- text and vision
+// never go to OpenAI, which serves image generation only (getOpenAIClient).
 let cachedGroqOpenAIClient: OpenAI | null = null
 export function getTextClientFor(model: string): OpenAI {
-  if (!isGroqTextModel(model)) return getOpenAIClient()
+  if (!isGroqTextModel(model)) throw new Error(`[models] ${model} is not a Groq model -- text and vision calls run on Groq only`)
   if (cachedGroqOpenAIClient) return cachedGroqOpenAIClient
   // GROQ_BASE_URL env (optional): a proxy, or a local stand-in for scripts/test-provider-fallback.ts.
   cachedGroqOpenAIClient = new OpenAI({ apiKey: getApiKey(), baseURL: process.env.GROQ_BASE_URL || GROQ_BASE_URL })
@@ -128,10 +93,9 @@ export function getTextClientFor(model: string): OpenAI {
 }
 
 // Classifies a raw OpenAI SDK error into a short, user-facing message --
-// same provider-name-free convention as classifyGroqError below, for any
-// OpenAI-backed call site (captions, images) that forwards an error
-// message toward the user rather than handling it with its own generic
-// fallback.
+// same provider-name-free convention as classifyGroqError below. The SDK
+// object is the same for Groq calls (getTextClientFor), so routes use this
+// for any error they forward toward the user.
 export function classifyOpenAIError(err: unknown): string {
   const message = err instanceof Error ? err.message : String(err)
   const errObj = err as Record<string, unknown>

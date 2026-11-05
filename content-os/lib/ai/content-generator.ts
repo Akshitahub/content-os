@@ -228,7 +228,7 @@ export async function generateContent(
   // again. Captions moved to OpenAI (MODELS.caption).
   if (format === "social_post") {
     const captionModel = MODELS.caption
-    // Each call priced at the model that answered (Groq, or OpenAI on a fallback).
+    // Each call priced at the model that answered.
     let captionAnswered: string = captionModel
     let captionCost: number | null = null
     const b = brand as BrandRow & { cta_phrase?: string | null }

@@ -179,7 +179,7 @@ export async function checkCreative(params: {
       { stage: "quality_gate", timeout: 15_000 },
     )
     const usage = toTextUsage(res.usage)
-    // Priced at the model that answered (Groq, or OpenAI on a fallback).
+    // Priced at the model that answered.
     const costUsd = textCostUsd(answered, usage)
     const parsed = responseSchema.safeParse(JSON.parse(res.choices[0]?.message?.content ?? "{}"))
     if (!parsed.success) {

@@ -70,7 +70,7 @@ export async function generateBlogPost(
     throw err
   }
   const response = first.response
-  // Priced at the model that answered (Groq, or OpenAI on a fallback).
+  // Priced at the model that answered.
   let answeredModel = first.model
   let costUsd = textCostUsd(first.model, toTextUsage(response.usage))
   console.log(`[blog-generator] provider=${first.provider} model=${first.model} stage=blog_post latencyMs=${Date.now() - startTime} success=true`)

@@ -37,7 +37,7 @@ export async function generateHooks(
 
   const count = options.count ?? 3
   const model = MODELS.creative
-  // Each call priced at the model that answered (Groq, or OpenAI on a fallback).
+  // Each call priced at the model that answered.
   let answeredModel: string = model
   let costUsd: number | null = null
 

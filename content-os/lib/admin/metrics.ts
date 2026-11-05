@@ -32,7 +32,7 @@ export interface ContentTypeMetrics {
   specificity: number | null
   /** Average "quality_checked" image-alignment score, 1-5 (lib/ai/image-alignment.ts, sampled). */
   alignment: number | null
-  /** Text calls Groq couldn't serve that OpenAI answered instead ("provider_fallback", lib/ai/provider-fallback.ts). */
+  /** Text calls Groq couldn't serve that OpenAI answered instead ("provider_fallback") -- recorded only before 2026-11-05; text no longer falls back. */
   providerFallbacks: number
   /** Average critic score, 1-10 ("critic_scored", lib/ai/critic.ts) -- Autopilot and manual. */
   criticScore: number | null

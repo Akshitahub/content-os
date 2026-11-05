@@ -186,21 +186,21 @@ Respond with ONLY the prompt text, nothing else.`
 }
 
 /**
- * Prompt-authoring moved from Groq to OpenAI (MODELS.creative) as part of
- * the Phase 1 creative-stages migration. Kicks off the streaming
+ * Prompt-authoring runs on Groq (MODELS.creative, openai/gpt-oss-120b,
+ * through createTextCompletionStream). Kicks off the streaming
  * completion and returns the raw async iterable of chunks -- deliberately
  * NOT wrapped in the route's own ReadableStream here, so a synchronous/
  * early failure (bad API key, unreachable network) surfaces as a normal
  * rejected promise the route can catch and answer with a clean error
  * response, before it has committed to a streaming Response at all.
  * Reasoning-model output lands in delta.content for this streaming
- * endpoint, same shape as Groq's OpenAI-compatible API (hidden reasoning
+ * endpoint of Groq's OpenAI-compatible API (hidden reasoning
  * tokens are a separate, un-streamed field, see lib/ai/models.ts) --
  * confirmed against this file's own non-streaming sibling calls elsewhere
  * in lib/ai, none of which have ever needed to filter one out.
  */
 export async function requestImagePromptStream(input: WriteImagePromptInput) {
-  // Groq first; the stream is opened on OpenAI instead when Groq can't serve it.
+  // On Groq; a short per-minute 429 is waited out once while the stream opens.
   const { response } = await createTextCompletionStream(
     {
       model: MODELS.creative,

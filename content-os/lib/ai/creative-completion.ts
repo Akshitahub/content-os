@@ -50,9 +50,7 @@ export async function createCreativeCompletion(params: CreativeCompletionParams)
   const model = MODELS.creative
   const startTime = Date.now()
   try {
-    // Groq first; the same request on OpenAI when Groq can't serve it
-    // (lib/ai/provider-fallback.ts) -- priced and logged with the model
-    // that actually answered.
+    // On Groq (createTextCompletion: a short per-minute 429 is waited out once).
     const { response, model: usedModel, provider } = await createTextCompletion(
       {
         model,

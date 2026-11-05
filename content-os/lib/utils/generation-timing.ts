@@ -14,8 +14,7 @@ import { runWithGenerationContext } from "@/lib/ai/provider-fallback"
 
 export type GenerationStep = "caption" | "image"
 
-// content_events.content_type each route's Groq -> OpenAI fallbacks are
-// filed under (lib/ai/provider-fallback.ts, /admin/metrics).
+// content_events.content_type for each route's generation context.
 const ROUTE_CONTENT_TYPE: Record<string, string> = {
   stories: "story", "story-slide-image": "story",
   carousel: "carousel", "carousel-slide-image": "carousel",

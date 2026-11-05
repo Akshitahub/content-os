@@ -27,14 +27,10 @@ export interface PhotoCaptionResult {
  * the user's actual uploaded photo (already re-hosted at `photoUrl` by the
  * caller) to a real vision-capable model and asks it to write a caption,
  * hashtags, and hook grounded in what's really visible in it -- not a
- * generic caption that ignores the photo's actual content. Vision moved
- * from Groq's qwen/qwen3.6-27b to OpenAI's gpt-5.5 (MODELS.vision) as part
- * of the Phase 1 creative-stages migration -- confirmed live against
- * OpenAI's own model page (developers.openai.com/api/docs/models/gpt-5.5,
- * checked 2026-10-25) that it accepts image input. reasoning_effort kept
- * at "none" (gpt-5.5 supports it, per the same page) to preserve the
- * original intent of this setting on Groq: speed, not deep reasoning, for
- * a single-photo captioning task.
+ * generic caption that ignores the photo's actual content. Runs on Groq's
+ * vision model (MODELS.vision, qwen/qwen3.8-27b -- see lib/ai/models.ts)
+ * with reasoning_effort "none" (instruct mode): speed, not deep reasoning,
+ * for a single-photo captioning task.
  */
 export async function analyzePhotoForPost(
   brand: BrandRow,
@@ -68,10 +64,9 @@ Respond with valid JSON only, no markdown, in exactly this shape:
     res = await openai.chat.completions.create(
       {
         model: MODELS.vision,
-        // max_completion_tokens (not the deprecated max_tokens) since
-        // gpt-5.5-class models are reasoning models, same convention as
-        // lib/ai/captions-generator.ts. `temperature` deliberately
-        // omitted, same reasoning as that file.
+        // max_completion_tokens (not the deprecated max_tokens), same
+        // convention as lib/ai/captions-generator.ts. `temperature`
+        // deliberately omitted, same reasoning as that file.
         max_completion_tokens: 700,
         ...visionReasoning("none"),
         response_format: { type: "json_object" },
@@ -90,10 +85,7 @@ Respond with valid JSON only, no markdown, in exactly this shape:
           },
         ],
       },
-      // ESTIMATE, not measured live (no working OPENAI_API_KEY in the
-      // environment this was written in) -- see scripts/test-creative-stages.ts.
-      // 25s: a single photo + short JSON output, but image input plus a
-      // reasoning model can be slower than Groq's LPU inference was.
+      // 25s: a single photo + short JSON output.
       { timeout: 25_000, maxRetries: 1 }
     )
   } catch (err) {

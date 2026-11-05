@@ -183,8 +183,7 @@ export async function drainAutopilotQueue(): Promise<{ claimed: number }> {
   if (jobs.length === 0) return { claimed: 0 }
 
   const contexts = new Map<string, Promise<RunContext | null>>()
-  // Each slot is one generation: a Groq -> OpenAI fallback inside it is
-  // recorded against its brand (lib/ai/provider-fallback.ts).
+  // Each slot is one generation (runWithGenerationContext).
   await Promise.allSettled(jobs.map((job) => runWithGenerationContext(
     { route: "autopilot-slot", contentType: "caption", brandId: job.brand_id, userId: job.user_id },
     () => processSlotJob(admin, job, contexts),

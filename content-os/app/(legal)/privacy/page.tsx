@@ -49,9 +49,9 @@ export default function PrivacyPage() {
       <Section title="4. Third-Party Services">
         <p>SocioPosts uses the following third-party services that may process your data:</p>
         <ul>
-          <li><strong>Groq</strong>: AI text generation (hooks, captions, hashtags, reel scripts, content strategy) and AI voice generation (reel voiceovers). This is our primary content-generation engine.</li>
+          <li><strong>Groq</strong>: AI text generation (hooks, captions, hashtags, carousels, stories, reel scripts, content strategy), AI image analysis (reading photos you upload or we collect for your brand, and checking generated images), and AI voice generation (reel voiceovers). This is our primary content-generation engine.</li>
           <li><strong>Razorpay</strong>: Payment processing (PCI-DSS compliant)</li>
-          <li><strong>OpenAI</strong>: AI image generation (gpt-image-2, used for all post images)</li>
+          <li><strong>OpenAI</strong>: AI image generation only (gpt-image-2, used for post, carousel and story images)</li>
           <li><strong>Remove.bg</strong>: Background removal for product images</li>
           <li><strong>PiAPI (Kling)</strong>: AI video generation for reel scenes</li>
           <li><strong>JSON2Video</strong>: Video rendering for reels</li>

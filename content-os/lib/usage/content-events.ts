@@ -8,7 +8,7 @@ import { after } from "next/server"
 // model/cost, a rating, or field NAMES -- never content itself.
 
 export type ContentEventType = "caption" | "hook" | "carousel" | "story" | "ad_copy" | "post_image" | "ad_maker"
-// provider_fallback: a Groq text call answered by OpenAI instead (lib/ai/provider-fallback.ts).
+// provider_fallback: a Groq text call answered by OpenAI instead -- historical only (before 2026-11-05); text no longer falls back.
 export type ContentEventName = "generated" | "regenerated" | "edited" | "saved" | "scheduled" | "rated" | "downloaded" | "quality_checked" | "provider_fallback" | "critic_scored" | "photo_used"
 
 export type ContentEventInput = {

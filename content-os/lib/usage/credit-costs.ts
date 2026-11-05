@@ -112,19 +112,12 @@ export const REEL = 75
 // image generation; this path skips image generation entirely (the
 // user's own photo IS the image) and costs only one vision+caption call.
 //
-// Vision (MODELS.vision) runs on OpenAI's gpt-5.4-mini (since 2026-11-05;
-// it was gpt-5.5 after the 2026-10-25 move off Groq's qwen/qwen3.6-27b, so
-// the old $0.0012/call Groq measurement no longer applies). OpenAI bills
-// image input under the same per-token input rate as text for a chat
-// model ($0.75/1M input tokens, $4.50/1M output for gpt-5.4-mini,
-// lib/ai/pricing.ts) rather than a separate image-generation-style rate --
-// but doesn't publish exactly how many tokens one photo costs at a given
-// detail level, so this is a looser estimate than the old Groq-measured
-// figure: assuming ~1,000 combined image+text input tokens + ~300 output
-// tokens, (1000/1e6*$0.75) + (300/1e6*$4.50) ≈ $0.0021/call ≈ ₹0.18 (at
-// ~₹87/$) -- well under HOOK_OR_CAPTION's ~₹2.02/credit budget, so this
-// stays at 1; revisit once real OpenAI billing data (or a confirmed
-// image-token count for gpt-5.4-mini) exists.
+// Vision (MODELS.vision) runs on Groq's qwen/qwen3.8-27b (since 2026-11-05):
+// $0.80/1M input tokens, $4.00/1M output (lib/ai/pricing.ts), and each image
+// counts as 2,048 input tokens (console.groq.com/docs/vision). One photo
+// caption call is ~2,048 image + ~300 prompt tokens in and ~300 out:
+// (2350/1e6*$0.80) + (300/1e6*$4.00) ≈ $0.0031/call ≈ ₹0.27 (at ~₹87/$) --
+// far under HOOK_OR_CAPTION's ~₹2.02/credit budget, so this stays at 1.
 export const PHOTO_CAPTION = HOOK_OR_CAPTION
 
 // ─── Phase 1 text-stages migration (2026-10-25) ────────────────────────────

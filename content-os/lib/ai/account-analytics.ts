@@ -91,7 +91,7 @@ ${bestPostsLines}
 
 Write the INSIGHTS and SUGGESTIONS now, following the strict honesty rule above.`
 
-  // Groq first, the same request on OpenAI when Groq can't serve it.
+  // On Groq (createTextCompletion: a short per-minute 429 is waited out once).
   const { response, model: answered } = await createTextCompletion({
     model,
     temperature: 0.4,
