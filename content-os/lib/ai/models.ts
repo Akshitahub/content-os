@@ -59,7 +59,7 @@ export const MODELS = {
   extraction: "openai/gpt-oss-20b",
   generation: "openai/gpt-oss-120b",
   scoring: "openai/gpt-oss-20b",
-  vision: "gpt-5.5",
+  vision: "gpt-5.4-mini",
   caption: "openai/gpt-oss-120b",
   creative: "openai/gpt-oss-120b",
 } as const
