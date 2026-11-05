@@ -110,3 +110,29 @@ export function postDesignLooks(d: PostDesign): PostDesignTemplate[] {
   const own = d.quote ? "review_card" : d.badge ? (/^\d+$/.test(d.badge) ? "listicle_cover" : "festive_poster") : null
   return own ? [...POST_DESIGN_LOOKS, own] : [...POST_DESIGN_LOOKS]
 }
+
+export interface PostDesignFields extends PostDesignCaptionFields {
+  template?: string | null
+  hasProduct: boolean
+  fallbackWords: (string | null | undefined)[]
+}
+
+/**
+ * The design for a generated post, or null with no words. Autopilot / the
+ * daily draft had no on-image text before: an undesignable template falls
+ * back to the post's own look. `template` overrides the caption's pick (an
+ * Autopilot candidate in another look).
+ */
+export function postDesignFor(fields: PostDesignFields, template?: PostDesign["template"], seed?: number): PostDesign | null {
+  const picked = template ?? (isPostDesignTemplate(fields.template) ? fields.template : fields.hasProduct ? "product_focus" : "bold_statement")
+  const design = initialPostDesign(picked, fields, seed)
+  return design ? { ...design, aspect: "4:5" } : null
+}
+
+/** Up to `count` designs in different looks -- the caption's pick first. */
+export function candidatePostDesigns(fields: PostDesignFields, count: number): PostDesign[] {
+  const first = postDesignFor(fields)
+  if (!first) return []
+  const others = (["bold_statement", "product_focus", "quote_card"] as const).filter((t) => t !== first.template && (t !== "product_focus" || fields.hasProduct))
+  return [first, ...others.map((t, i) => postDesignFor(fields, t, first.seed + 7919 * (i + 1))!)].slice(0, Math.max(1, count))
+}

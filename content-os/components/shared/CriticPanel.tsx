@@ -19,7 +19,7 @@ export interface CriticVerdict { overall: number; passed: boolean; top_fix: stri
  * layout when the fix is about those). Hidden entirely when scoring isn't
  * available.
  */
-export function CriticPanel({ brandId, resultKey, imageUrl, caption, hook, format, contentType, contentId, textLayout, intendedText, onImprove, improving, onVerdict, recomposites }: {
+export function CriticPanel({ brandId, resultKey, imageUrl, caption, hook, format, contentType, contentId, textLayout, intendedText, onImprove, improving, onVerdict, recomposites, presetVerdict }: {
   brandId: string
   /** Changes when there's a new result to score (a new generation). */
   resultKey: string | null
@@ -40,9 +40,11 @@ export function CriticPanel({ brandId, resultKey, imageUrl, caption, hook, forma
   onVerdict?: (resultKey: string, verdict: CriticVerdict) => void
   /** The caller keeps the photo for a "layout_text" fix (Full Post) -- changes the footnote. */
   recomposites?: boolean
+  /** Already scored by the caller (Full Post's best-of-3 layouts) -- shown without a fetch. */
+  presetVerdict?: CriticVerdict | null
 }) {
   const [verdicts, setVerdicts] = useState<Record<string, CriticVerdict | "unavailable">>({})
-  const verdict = resultKey ? verdicts[resultKey] : undefined
+  const verdict = resultKey ? verdicts[resultKey] ?? presetVerdict ?? undefined : undefined
   const ready = !!resultKey && !!imageUrl && verdict === undefined
 
   useEffect(() => {

@@ -26,10 +26,10 @@ import { PREVIEW_FONT_CLASS } from "@/lib/design/preview-fonts"
 import type { FullPostResult, ContentResult } from "@/hooks/useGeneration"
 import type { ProductRow } from "@/types/database"
 import type { GeneratedHook, GeneratedCaption, ReelScript, CarouselContent, BlogPost, AdCopy } from "@/types/app"
-import { alternateTextLayout, pickTextLayout, type TextLayoutId } from "@/lib/design/text-layouts"
+import { TEXT_LAYOUT_LABELS, alternateTextLayout, pickTextLayout, type TextLayoutId } from "@/lib/design/text-layouts"
 import { TextLayoutPicker } from "@/components/shared/TextLayoutPicker"
 import { defaultBodyFont } from "@/lib/design/fonts"
-import { initialPostDesign, postDesignLooks, type PostDesign } from "@/lib/design/post-design-fields"
+import { candidatePostDesigns, initialPostDesign, postDesignLooks, type PostDesign } from "@/lib/design/post-design-fields"
 import { readJsonResponse } from "@/lib/utils/read-json-response"
 import { isApiError } from "@/types/api"
 
@@ -144,6 +144,9 @@ export function FullPostGenerator({ brandId, products }: Props) {
   // is shown by default; a worse new version never silently replaces it.
   const [versions, setVersions] = useState<PostVersion[]>([])
   const [versionKey, setVersionKey] = useState<string | null>(null)
+  // For async work that must know which version is on screen when it finishes.
+  const versionKeyRef = useRef<string | null>(null)
+  useEffect(() => { versionKeyRef.current = versionKey }, [versionKey])
   const versionCounter = useRef(0)
   // The critic's fix + weaknesses of the version being regenerated, folded into the next image prompt.
   const regenFeedbackRef = useRef<string | null>(null)
@@ -155,6 +158,9 @@ export function FullPostGenerator({ brandId, products }: Props) {
   const [recompositing, setRecompositing] = useState(false)
   // The image on screen carries the concept's own words (no overlay on it).
   const [imageInSceneText, setImageInSceneText] = useState<string | null>(null)
+  // Best of 3 layouts on the SAME image (no extra image call): each new
+  // version's candidates, their critic verdicts, and the one on screen.
+  const [candidatesByVersion, setCandidatesByVersion] = useState<Record<string, { list: PostCandidate[]; index: number; scoring: boolean }>>({})
   const [versionNotice, setVersionNotice] = useState<string | null>(null)
   const [postRenderError, setPostRenderError] = useState<string | null>(null)
   // Canvas vs. in-feed preview toggle (Commit 4) — purely a display mode,
@@ -309,6 +315,22 @@ export function FullPostGenerator({ brandId, products }: Props) {
           setPostDesign(finalDesign)
           // A new version of this session's post (scored by the critic below).
           const key = `${sessionId}:${++versionCounter.current}`
+          // Its words in 3 layouts on this same image, scored; the best is shown.
+          const candidates: PostCandidate[] = ownWords
+            ? []
+            : finalDesign
+              ? [finalDesign, ...candidatePostDesigns({
+                  post_big_words: caption.post_big_words, post_script_line: caption.post_script_line,
+                  fallbackWords: [headlineOverlay, caption.suggested_overlay_text, data.hook.hook_text],
+                  template: finalDesign.template, hasProduct: !!selectedProductId,
+                }, 3).filter((d) => d.template !== finalDesign.template)].slice(0, 3).map((d, i) => ({ design: { ...d, aspect: aspectRatio, ...(i === 0 ? {} : { big_words: finalDesign.big_words, script_line: finalDesign.script_line }) }, layout: null, verdict: null }))
+              : layout && overlay.trim()
+                ? threeLayouts(layout, { brand: { vibe: brand?.vibe }, headingFont: initialOverlayFont, textStyle: imgData.text_style ?? null }).map((l) => ({ design: null, layout: l, verdict: null }))
+                : []
+          if (candidates.length > 1) {
+            setCandidatesByVersion((prev) => ({ ...prev, [key]: { list: candidates, index: 0, scoring: true } }))
+            void scoreCandidates(key, imgData.public_url, candidates, { overlay, font: initialOverlayFont, textStyle: imgData.text_style ?? null, caption: credited })
+          }
           setVersions((prev) => [...prev, {
             key, sessionId, result: credited, imageUrl: imgData.public_url, textStyle: imgData.text_style ?? null,
             overlayText: overlay, overlayFontId: initialOverlayFont, layout, inSceneText: imgData.in_scene_text ?? null, design: finalDesign, score: null, topFix: null, reasons: [],
@@ -327,7 +349,58 @@ export function FullPostGenerator({ brandId, products }: Props) {
         },
       }
     )
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- scoreCandidates reads the latest state through its setters
   }, [brandId, selectedProductId, selectedLayout, effectiveColorThemeId, colorThemes, aspectRatio, visualStyle, headlineOverlay, generatePostImageMutate, promptWriter, brand?.vibe, additionalContext, setFullPostResult])
+
+  // Renders each candidate on the same clean image (a designed post on the
+  // server, an overlay in the browser -- both free, no image call), scores
+  // each with the critic and shows the best. A candidate that can't be
+  // drawn or scored is skipped; none scored = the first, scored by
+  // CriticPanel as before.
+  async function scoreCandidates(key: string, baseImageUrl: string, list: PostCandidate[], ctx: { overlay: string; font: FontId; textStyle: TextStyle | null; caption: FullPostResult }) {
+    const caption = ctx.caption.content.format === "social_post" ? (ctx.caption.content.content as GeneratedCaption).caption_text : ""
+    const scored = await Promise.all(list.map(async (c): Promise<PostCandidate> => {
+      try {
+        let imageUrl: string
+        if (c.design) {
+          const res = await fetch("/api/v1/ai/post-image/render", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ brandId, baseImageUrl, design: c.design }) })
+          const json: unknown = await readJsonResponse(res)
+          if (!res.ok || isApiError(json)) return c
+          imageUrl = (json as { data: { image_url: string } }).data.image_url
+        } else if (c.layout) {
+          imageUrl = await flattenOverlayImage(baseImageUrl, ctx.overlay, undefined, ctx.font, ctx.textStyle, { ...c.layout, body_font_id: defaultBodyFont(ctx.font) })
+        } else return c
+        const res = await fetch("/api/v1/ai/critic", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ brandId, imageUrl, caption: caption.slice(0, 5000), hook: ctx.caption.hook.hook_text.slice(0, 500), format: "post", contentType: "caption", textLayout: c.layout?.text_layout ?? undefined }),
+        })
+        const json: unknown = await readJsonResponse(res)
+        return !res.ok || isApiError(json) ? c : { ...c, verdict: (json as { data: CriticVerdict }).data }
+      } catch {
+        return c
+      }
+    }))
+    const best = scored.reduce((b, c, i) => ((c.verdict?.overall ?? -1) > (scored[b]!.verdict?.overall ?? -1) ? i : b), 0)
+    setCandidatesByVersion((prev) => ({ ...prev, [key]: { list: scored, index: best, scoring: false } }))
+    const winner = scored[best]!
+    // Only while that version is still the one on screen.
+    if (versionKeyRef.current === key) applyCandidate(winner)
+    if (winner.verdict) handleVerdict(key, winner.verdict)
+  }
+
+  function applyCandidate(c: PostCandidate) {
+    if (c.design) setPostDesign(c.design)
+    if (c.layout) setOverlayLayout(c.layout)
+    setFlattenedImageUrl(null)
+  }
+
+  function pickCandidate(i: number) {
+    const entry = versionKey ? candidatesByVersion[versionKey] : undefined
+    const c = entry?.list[i]
+    if (!entry || !c || !versionKey) return
+    setCandidatesByVersion((prev) => ({ ...prev, [versionKey]: { ...entry, index: i } }))
+    applyCandidate(c)
+  }
 
   // Kicks off the prompt-writing stage instead of generating the image
   // immediately -- fired both right after a fresh caption generation
@@ -964,6 +1037,8 @@ export function FullPostGenerator({ brandId, products }: Props) {
             onImprove={handleImprove}
             improving={isPending || recompositing}
             inSceneText={imageInSceneText}
+            candidates={versionKey ? candidatesByVersion[versionKey] ?? null : null}
+            onPickCandidate={pickCandidate}
             previewMode={previewMode}
             onPreviewModeChange={setPreviewMode}
             aspectRatio={aspectRatio}
@@ -1591,6 +1666,49 @@ function PostDesignFields({ design, onChange, error }: { design: PostDesign; onC
   )
 }
 
+/** One of a version's best-of-3 layouts: a designed-post look or an overlay layout, and its critic verdict. */
+interface PostCandidate {
+  design: PostDesign | null
+  layout: OverlayLayout | null
+  verdict: CriticVerdict | null
+}
+
+/** The current layout plus the next two alternates -- three different layouts. */
+function threeLayouts(first: OverlayLayout, opts: Parameters<typeof alternateTextLayout>[1]): OverlayLayout[] {
+  const ids: TextLayoutId[] = [first.text_layout ?? "bold_stack"]
+  while (ids.length < 3) ids.push(alternateTextLayout(ids, opts))
+  return [...new Set(ids)].map((id) => ({ ...first, text_layout: id }))
+}
+
+/** "Layout 1 · 8.2 / Layout 2 · 7.4 / ..." -- the critic's best marked; while scoring, a note. */
+function CandidateSwitcher({ candidates, onPick }: { candidates: { list: PostCandidate[]; index: number; scoring: boolean }; onPick: (i: number) => void }) {
+  if (candidates.scoring) {
+    return <div className="flex items-center gap-2 rounded-lg border bg-card px-3 py-2 text-xs text-muted-foreground"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Trying 3 layouts on this image…</div>
+  }
+  const best = candidates.list.reduce((b, c, i) => ((c.verdict?.overall ?? -1) > (candidates.list[b]!.verdict?.overall ?? -1) ? i : b), 0)
+  return (
+    <div className="flex flex-wrap items-center gap-2 rounded-lg border bg-card px-3 py-2">
+      <span className="text-xs text-muted-foreground">Layouts on this image:</span>
+      {candidates.list.map((c, i) => (
+        <button
+          key={i}
+          type="button"
+          onClick={() => onPick(i)}
+          className={`rounded-full border px-2.5 py-0.5 text-xs ${i === candidates.index ? "border-violet-500 bg-violet-50 text-violet-700" : "border-border text-muted-foreground hover:border-violet-300"}`}
+        >
+          {c.design ? TEMPLATE_LOOK_LABEL[c.design.template] ?? `Look ${i + 1}` : c.layout?.text_layout ? TEXT_LAYOUT_LABELS[c.layout.text_layout] : `Layout ${i + 1}`}
+          {c.verdict ? ` · ${c.verdict.overall}` : ""}{i === best && c.verdict ? " ★" : ""}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+const TEMPLATE_LOOK_LABEL: Partial<Record<PostDesign["template"], string>> = {
+  bold_statement: "Bold", product_focus: "Product", quote_card: "Quote", minimal: "Minimal",
+  listicle_cover: "List", festive_poster: "Festive", review_card: "Review",
+}
+
 /** One finished post of this session: what's on screen, and its critic score once known. */
 interface PostVersion {
   key: string
@@ -1664,6 +1782,8 @@ function FullPostResults({
   onImprove,
   improving,
   inSceneText,
+  candidates,
+  onPickCandidate,
   previewMode,
   onPreviewModeChange,
   aspectRatio,
@@ -1700,6 +1820,8 @@ function FullPostResults({
   onImprove: (fix: string, target: CriticFixTarget) => void
   improving: boolean
   inSceneText: string | null
+  candidates: { list: PostCandidate[]; index: number; scoring: boolean } | null
+  onPickCandidate: (i: number) => void
   previewMode: "canvas" | "feed"
   onPreviewModeChange: (mode: "canvas" | "feed") => void
   aspectRatio: "4:5" | "1:1" | "9:16"
@@ -1768,11 +1890,17 @@ function FullPostResults({
         aspectRatio={aspectRatio}
       />
 
-      {/* The critic: scored once the image as posted is ready. */}
+      {/* Best of 3 layouts on this image: the critic's pick, the other two a click away. */}
+      {candidates && candidates.list.length > 1 && (
+        <CandidateSwitcher candidates={candidates} onPick={onPickCandidate} />
+      )}
+
+      {/* The critic: scored once the image as posted is ready (already scored for a best-of-3 pick). */}
       <CriticPanel
         brandId={brandId}
-        resultKey={postSessionId}
-        imageUrl={!imageGenerating && !flattening ? shareableImageUrl : null}
+        resultKey={postSessionId && candidates ? `${postSessionId}#${candidates.index}` : postSessionId}
+        presetVerdict={candidates?.list[candidates.index]?.verdict ?? null}
+        imageUrl={!imageGenerating && !flattening && !candidates?.scoring ? shareableImageUrl : null}
         caption={scheduleCaption?.text ?? caption.caption_text ?? ""}
         hook={result.hook.hook_text}
         format="post"
@@ -1782,7 +1910,7 @@ function FullPostResults({
         intendedText={inSceneText}
         onImprove={onImprove}
         improving={improving}
-        onVerdict={onVerdict}
+        onVerdict={(key, verdict) => onVerdict(key.split("#")[0]!, verdict)}
       />
 
       <HookSection hook={result.hook} copied={copied} onCopy={onCopy} />

@@ -190,11 +190,12 @@ export function pickTextLayout(input: PickItem & {
  * same one). A busy background keeps a layout with its own backing; the
  * brand's family comes first otherwise.
  */
-export function alternateTextLayout(avoid: TextLayoutId, opts: { brand: { vibe?: string | null }; headingFont: FontId; textStyle?: TextStyle | null }): TextLayoutId {
+export function alternateTextLayout(avoid: TextLayoutId | TextLayoutId[], opts: { brand: { vibe?: string | null }; headingFont: FontId; textStyle?: TextStyle | null }): TextLayoutId {
+  const avoided = new Set(Array.isArray(avoid) ? avoid : [avoid])
   const order: TextLayoutId[] = opts.textStyle?.needs_backing
-    ? ["bottom_card", "split_panel"]
+    ? ["bottom_card", "split_panel", "bold_stack"]
     : [brandLayoutFamily(opts.brand, opts.headingFont), "bold_stack", "editorial", "minimal_caption", "bottom_card"]
-  return order.find((l) => l !== avoid) ?? "bold_stack"
+  return order.find((l) => !avoided.has(l)) ?? "bold_stack"
 }
 
 /** The layouts an editor offers (offer badge only where there's a real offer). */

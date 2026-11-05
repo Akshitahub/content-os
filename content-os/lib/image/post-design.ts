@@ -2,7 +2,7 @@ import type { BrandRow } from "@/types/database"
 import { resolveBrandPalette } from "@/lib/design/color-themes"
 import { resolveTypography } from "@/lib/design/fonts"
 import { FEED_CANVAS, STORY_CANVAS, renderFrame, type FrameCanvas, type PostFrame } from "@/lib/image/story-frame-compositor"
-import { POST_DESIGN_TEMPLATES, clampPostDesign, initialPostDesign, isPostDesignTemplate, type PostDesign, type PostDesignCaptionFields } from "@/lib/design/post-design-fields"
+import { POST_DESIGN_TEMPLATES, clampPostDesign, postDesignFor, type PostDesign, type PostDesignFields } from "@/lib/design/post-design-fields"
 import { uploadMediaToStorage } from "@/lib/storage/upload-media"
 import type { SubjectBox } from "@/lib/image/subject-boxes"
 import { frameLogo } from "@/lib/design/logo-settings"
@@ -60,31 +60,8 @@ export async function renderPostDesign(
   }, canvasForAspect(aspect))
 }
 
-export interface PostDesignFields extends PostDesignCaptionFields {
-  template?: string | null
-  hasProduct: boolean
-  fallbackWords: (string | null | undefined)[]
-}
-
-/**
- * The design for a generated post, or null with no words. Autopilot / the
- * daily draft had no on-image text before: an undesignable template falls
- * back to the post's own look. `template` overrides the caption's pick (an
- * Autopilot candidate in another look).
- */
-export function postDesignFor(fields: PostDesignFields, template?: PostDesign["template"], seed?: number): PostDesign | null {
-  const picked = template ?? (isPostDesignTemplate(fields.template) ? fields.template : fields.hasProduct ? "product_focus" : "bold_statement")
-  const design = initialPostDesign(picked, fields, seed)
-  return design ? { ...design, aspect: "4:5" } : null
-}
-
-/** Up to `count` designs in different looks -- the caption's pick first. */
-export function candidatePostDesigns(fields: PostDesignFields, count: number): PostDesign[] {
-  const first = postDesignFor(fields)
-  if (!first) return []
-  const others = (["bold_statement", "product_focus", "quote_card"] as const).filter((t) => t !== first.template && (t !== "product_focus" || fields.hasProduct))
-  return [first, ...others.map((t, i) => postDesignFor(fields, t, first.seed + 7919 * (i + 1))!)].slice(0, Math.max(1, count))
-}
+// The designs themselves (pure, client-safe) live in lib/design/post-design-fields.ts.
+export { candidatePostDesigns, postDesignFor, type PostDesignFields } from "@/lib/design/post-design-fields"
 
 /** Hosts a rendered post. Null (logged) on failure. */
 export async function uploadDesignedPost(brand: Pick<BrandRow, "id">, jpg: Buffer, label: string): Promise<string | null> {
