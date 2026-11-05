@@ -1583,6 +1583,7 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
                   format="carousel"
                   contentType="carousel"
                   contentId={carousel.id ?? null}
+                  textLayout={allSlides[0]?.text_layout ?? null}
                   onImprove={(fix) => void generate(fix)}
                   improving={loading}
                 />

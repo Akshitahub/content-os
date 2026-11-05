@@ -1819,6 +1819,7 @@ export function StorySequence({ brandId }: { brandId: string }) {
                   format="story"
                   contentType="story"
                   contentId={storyRowId}
+                  textLayout={stories[0]?.text_layout ?? null}
                   onImprove={(fix) => void generate(fix)}
                   improving={loading}
                 />

@@ -93,6 +93,12 @@ async function main() {
     for (const id of ["stops_scroll", "speaks_to_buyer", "one_message", "image_copy_agree", "craft", "real_indian", "reason_to_act"]) assert.ok(prompt.includes(`"${id}"`), id)
   })
 
+  await test("split_panel / bottom_card tell the critic to judge the photograph area only", () => {
+    for (const layout of ["split_panel", "bottom_card"] as const) assert.match(buildCriticPrompt(brand, "post", layout), /Judge single_photo on the photograph area only/)
+    assert.doesNotMatch(buildCriticPrompt(brand, "post", "bold_stack"), /photograph area only/)
+    assert.doesNotMatch(buildCriticPrompt(brand, "post"), /photograph area only/)
+  })
+
   // The critic runs on Groq vision (MODELS.vision) -- that client is the one stubbed.
   const client = getTextClientFor(MODELS.vision)
   const create = client.chat.completions.create
@@ -113,11 +119,18 @@ async function main() {
     assert.equal(r?.top_fix, "Show the chinos worn outdoors")
   })
 
-  await test("critiquePost caps a single_photo=false image at 3", async () => {
-    ;(client.chat.completions as unknown as { create: unknown }).create = async () => ({ choices: [{ message: { content: JSON.stringify({ scores: all(9), single_photo: false, top_fix: "x" }) } }], usage: { prompt_tokens: 10, completion_tokens: 10, total_tokens: 20 } })
+  await test("critiquePost caps a single_photo=false image with failing craft at 3", async () => {
+    ;(client.chat.completions as unknown as { create: unknown }).create = async () => ({ choices: [{ message: { content: JSON.stringify({ scores: all(9, { craft: 4 }), single_photo: false, top_fix: "x" }) } }], usage: { prompt_tokens: 10, completion_tokens: 10, total_tokens: 20 } })
     const r = await critiquePost(brand, { imageUrl: "https://example.com/p.jpg", caption: "", hook: "", format: "post" }, "test")
     assert.equal(r?.overall, 3)
     assert.equal(r?.passed, false)
+  })
+
+  await test("single_photo=false next to craft 7+ is overridden (scored normally, the model's own fix kept)", async () => {
+    ;(client.chat.completions as unknown as { create: unknown }).create = async () => ({ choices: [{ message: { content: JSON.stringify({ scores: all(9), single_photo: false, top_fix: "Bigger headline" }) } }], usage: { prompt_tokens: 10, completion_tokens: 10, total_tokens: 20 } })
+    const r = await critiquePost(brand, { imageUrl: "https://example.com/p.jpg", caption: "", hook: "", format: "post", textLayout: "split_panel" }, "test")
+    assert.equal(r?.overall, criticOverall(all(9)))
+    assert.equal(r?.top_fix, "Bigger headline")
   })
 
   await test("critiquePost returns null when the call fails (no credits)", async () => {

@@ -5,7 +5,8 @@ import { VISION_MAX_IMAGES, visionImageUrl } from "./vision-image"
 import { buildBrandContext } from "./prompts"
 import { textCostUsd, toTextUsage } from "./pricing"
 import type { BrandRow } from "@/types/database"
-import { CRITIC_CRITERIA, CRITIC_HARD_FAIL, CRITIC_PASS, criticOverall, type CriticCriterionId, type CriticScores } from "@/lib/design/critic-scores"
+import { CRITIC_CRITERIA, CRITIC_FAIL_BELOW, CRITIC_HARD_FAIL, CRITIC_PASS, criticOverall, type CriticCriterionId, type CriticScores } from "@/lib/design/critic-scores"
+import type { TextLayoutId } from "@/lib/design/text-layouts"
 
 /**
  * The critic (one vision call): scores a finished post -- the rendered image
@@ -40,7 +41,12 @@ export interface CriticInput {
   format: "post" | "carousel" | "story"
   /** What the brand's own results say works (top performance lessons) -- context, never a score of its own. */
   resultsLessons?: string[]
+  /** The text layout drawn on the image, when known (split_panel / bottom_card add a solid text panel). */
+  textLayout?: TextLayoutId | null
 }
+
+/** Layouts that put a solid text panel beside / below the one photo -- by design, not a collage. */
+const PANEL_LAYOUTS = new Set<TextLayoutId>(["split_panel", "bottom_card"])
 
 interface ReferencePost { imageUrl: string; caption: string; hook: string; scores: Partial<Record<CriticCriterionId, number>>; note?: string }
 
@@ -69,7 +75,7 @@ export function loadReferencePosts(dir = REFERENCE_DIR): ReferencePost[] {
 }
 
 /** The system prompt -- exported for scripts/test-critic.ts. */
-export function buildCriticPrompt(brand: BrandRow, format: CriticInput["format"]): string {
+export function buildCriticPrompt(brand: BrandRow, format: CriticInput["format"], textLayout?: TextLayoutId | null): string {
   const criteria = CRITIC_CRITERIA.map((c) => `- "${c.id}" (${c.label}): ${c.ask}`).join("\n")
   return `You are a demanding Instagram creative director for Indian D2C brands, scoring a finished ${format} before it goes out. Judge the IMAGE exactly as shown together with its hook and caption. Be honest and specific: an ordinary post is a 5 or 6, an 8 is genuinely good, a 10 is rare.
 
@@ -78,7 +84,7 @@ ${buildBrandContext(brand)}
 Score each criterion 1-10 with ONE short reason (max 15 words) about THIS post:
 ${criteria}
 
-Also "single_photo": judge the PHOTOGRAPH only -- the post's own design (its type, a solid brand-colour panel or band beside or above the photo, the logo) is not a panel. false if the photograph itself is a collage, a grid, several photos side by side, or shows the same person more than once (a deliberate two-half comparison with different subjects is fine) -- otherwise true.
+Also "single_photo": judge the PHOTOGRAPH only -- the post's own design (its type, a solid brand-colour panel or band beside or above the photo, the logo) is not a panel. false if the photograph itself is a collage, a grid, several photos side by side, or shows the same person more than once (a deliberate two-half comparison with different subjects is fine) -- otherwise true.${textLayout && PANEL_LAYOUTS.has(textLayout) ? "\nThis post's design deliberately places a solid text panel beside/below ONE photograph. Judge single_photo on the photograph area only." : ""}
 
 Then "top_fix": the single change that would raise the score most, as one plain instruction (max 20 words) -- e.g. "Use a photo of the chinos being worn; the flat studio shot doesn't match the street-style caption".
 
@@ -88,8 +94,12 @@ Respond with valid JSON only, no markdown:
 
 const clampScore = (n: unknown) => (typeof n === "number" && Number.isFinite(n) ? Math.max(1, Math.min(10, Math.round(n))) : null)
 
-/** The model's JSON -> scores, or null if any criterion is missing. Exported for scripts/test-critic.ts. */
-export function parseCriticResponse(raw: string): { scores: CriticScores; top_fix: string; single_photo: boolean } | null {
+/**
+ * The model's JSON -> scores, or null if any criterion is missing. Exported
+ * for scripts/test-critic.ts. model_top_fix is the model's own fix, kept for
+ * when critiquePost overrides a single_photo=false.
+ */
+export function parseCriticResponse(raw: string): { scores: CriticScores; top_fix: string; single_photo: boolean; model_top_fix: string } | null {
   try {
     const data = JSON.parse(raw.replace(/```json\n?|```\n?/g, "").trim()) as { scores?: Record<string, { score?: unknown; reason?: unknown }>; top_fix?: unknown; single_photo?: unknown }
     const scores = {} as CriticScores
@@ -103,9 +113,9 @@ export function parseCriticResponse(raw: string): { scores: CriticScores; top_fi
     // Only an explicit false fails -- a missing field doesn't.
     const singlePhoto = data.single_photo !== false
     if (!singlePhoto) {
-      return { scores, single_photo: false, top_fix: "Use one single photograph of one moment -- this image repeats the same person or is split into panels." }
+      return { scores, single_photo: false, top_fix: "Use one single photograph of one moment -- this image repeats the same person or is split into panels.", model_top_fix: topFix }
     }
-    return { scores, single_photo: true, top_fix: topFix || lowestReason(scores) }
+    return { scores, single_photo: true, top_fix: topFix || lowestReason(scores), model_top_fix: topFix }
   } catch {
     return null
   }
@@ -136,7 +146,7 @@ export async function critiquePost(brand: BrandRow, input: CriticInput, label: s
       ...visionReasoning("low"),
       response_format: { type: "json_object" },
       messages: [
-        { role: "system", content: buildCriticPrompt(brand, input.format) },
+        { role: "system", content: buildCriticPrompt(brand, input.format, input.textLayout) },
         {
           role: "user",
           content: [
@@ -152,11 +162,17 @@ export async function critiquePost(brand: BrandRow, input: CriticInput, label: s
       console.error(`[critic] ${label}: unreadable response (scoring skipped)`)
       return null
     }
-    // A collage / repeated subject is a hard fail, whatever else scored well.
-    const overall = parsed.single_photo ? criticOverall(parsed.scores) : Math.min(criticOverall(parsed.scores), CRITIC_HARD_FAIL)
+    // A collage / repeated subject is a hard fail, whatever else scored well --
+    // but only next to a failing craft score: "panels" with craft 7+ is the
+    // model contradicting itself (usually about our own text panel), so it's
+    // treated as one photo and scored normally.
+    const hardFail = !parsed.single_photo && parsed.scores.craft.score < CRITIC_FAIL_BELOW
+    if (!parsed.single_photo && !hardFail) console.log(`[critic] ${label}: single_photo overridden (craft ${parsed.scores.craft.score})`)
+    const overall = hardFail ? Math.min(criticOverall(parsed.scores), CRITIC_HARD_FAIL) : criticOverall(parsed.scores)
+    const topFix = parsed.single_photo || hardFail ? parsed.top_fix : parsed.model_top_fix || lowestReason(parsed.scores)
     const usage = toTextUsage(res.usage)
     console.log(`[critic] ${label}: overall=${overall} latencyMs=${Date.now() - startedAt}`)
-    return { scores: parsed.scores, overall, passed: overall >= CRITIC_PASS, top_fix: parsed.top_fix, model: MODELS.vision, costUsd: textCostUsd(MODELS.vision, usage) }
+    return { scores: parsed.scores, overall, passed: overall >= CRITIC_PASS, top_fix: topFix, model: MODELS.vision, costUsd: textCostUsd(MODELS.vision, usage) }
   } catch (err) {
     console.error(`[critic] ${label}: couldn't score (behaving as before):`, err instanceof Error ? err.message : err)
     return null

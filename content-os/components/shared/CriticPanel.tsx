@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button"
 import { isApiError } from "@/types/api"
 import { readJsonResponse } from "@/lib/utils/read-json-response"
 import { CRITIC_PASS } from "@/lib/design/critic-scores"
+import type { TextLayoutId } from "@/lib/design/text-layouts"
 
 export interface CriticVerdict { overall: number; passed: boolean; top_fix: string; reasons: string[] }
 
@@ -15,7 +16,7 @@ export interface CriticVerdict { overall: number; passed: boolean; top_fix: stri
  * fix that would lift it most and a "Make it better" button that regenerates
  * with that fix. Hidden entirely when scoring isn't available.
  */
-export function CriticPanel({ brandId, resultKey, imageUrl, caption, hook, format, contentType, contentId, onImprove, improving, onVerdict }: {
+export function CriticPanel({ brandId, resultKey, imageUrl, caption, hook, format, contentType, contentId, textLayout, onImprove, improving, onVerdict }: {
   brandId: string
   /** Changes when there's a new result to score (a new generation). */
   resultKey: string | null
@@ -26,6 +27,8 @@ export function CriticPanel({ brandId, resultKey, imageUrl, caption, hook, forma
   format: "post" | "carousel" | "story"
   contentType?: "caption" | "carousel" | "story"
   contentId?: string | null
+  /** The text layout drawn on the scored image, when there is one. */
+  textLayout?: TextLayoutId | null
   onImprove: (fix: string) => void
   improving?: boolean
   /** Called once with each result's verdict (Full Post keeps a score per version). */
@@ -43,7 +46,7 @@ export function CriticPanel({ brandId, resultKey, imageUrl, caption, hook, forma
       fetch("/api/v1/ai/critic", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ brandId, imageUrl, caption, hook, format, contentType, contentId: contentId ?? undefined }),
+        body: JSON.stringify({ brandId, imageUrl, caption, hook, format, contentType, contentId: contentId ?? undefined, textLayout: textLayout ?? undefined }),
         signal: controller.signal,
       })
         .then(async (res) => {

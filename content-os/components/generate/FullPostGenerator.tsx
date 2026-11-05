@@ -1684,6 +1684,7 @@ function FullPostResults({
         hook={result.hook.hook_text}
         format="post"
         contentType="caption"
+        textLayout={postDesign ? null : overlayLayout?.text_layout ?? null}
         onImprove={onImprove}
         improving={improving}
         onVerdict={onVerdict}
