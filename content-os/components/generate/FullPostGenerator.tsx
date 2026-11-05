@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react"
 import { Sparkles, RefreshCw, Copy, Check, Download, Archive, Loader2, AlertCircle, Heart, MessageCircle, Send } from "lucide-react"
 import { ScheduleAction } from "@/components/shared/ScheduleAction"
-import { CriticPanel, type CriticVerdict } from "@/components/shared/CriticPanel"
+import { CriticPanel, type CriticFixTarget, type CriticVerdict } from "@/components/shared/CriticPanel"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import Link from "next/link"
@@ -26,7 +26,7 @@ import { PREVIEW_FONT_CLASS } from "@/lib/design/preview-fonts"
 import type { FullPostResult, ContentResult } from "@/hooks/useGeneration"
 import type { ProductRow } from "@/types/database"
 import type { GeneratedHook, GeneratedCaption, ReelScript, CarouselContent, BlogPost, AdCopy } from "@/types/app"
-import { pickTextLayout, type TextLayoutId } from "@/lib/design/text-layouts"
+import { alternateTextLayout, pickTextLayout, type TextLayoutId } from "@/lib/design/text-layouts"
 import { TextLayoutPicker } from "@/components/shared/TextLayoutPicker"
 import { defaultBodyFont } from "@/lib/design/fonts"
 import { initialPostDesign, postDesignLooks, type PostDesign } from "@/lib/design/post-design-fields"
@@ -147,6 +147,10 @@ export function FullPostGenerator({ brandId, products }: Props) {
   const versionCounter = useRef(0)
   // The critic's fix + weaknesses of the version being regenerated, folded into the next image prompt.
   const regenFeedbackRef = useRef<string | null>(null)
+  // "Make it better" with an image fix: the last version's layout, never reused by the new one.
+  const avoidLayoutRef = useRef<TextLayoutId | null>(null)
+  // "Make it better" with a layout / text fix: same photo, new words + layout (no image call).
+  const [recompositing, setRecompositing] = useState(false)
   const [versionNotice, setVersionNotice] = useState<string | null>(null)
   const [postRenderError, setPostRenderError] = useState<string | null>(null)
   // Canvas vs. in-feed preview toggle (Commit 4) — purely a display mode,
@@ -200,6 +204,8 @@ export function FullPostGenerator({ brandId, products }: Props) {
     // Regenerate: the critic's top fix and the last version's weak spots go in.
     const feedback = regenFeedbackRef.current
     regenFeedbackRef.current = null
+    const avoidLayout = avoidLayoutRef.current
+    avoidLayoutRef.current = null
     const imagePrompt = feedback ? `${imagePromptText}\n\nFix from the previous version: ${feedback}` : imagePromptText
     // Commit 3: captionText/fontId/textSizeScale are no longer sent here —
     // the image route always returns a clean, text-free background for
@@ -262,15 +268,21 @@ export function FullPostGenerator({ brandId, products }: Props) {
           setPostImageUrl(imgData.public_url)
           setPostTextStyle(imgData.text_style ?? null)
           // A busy image moves an auto layout to one with its own backing.
-          setOverlayLayout(caption.text_layout ? {
-            text_layout: caption.text_layout_source === "user" || !imgData.text_style
-              ? caption.text_layout
-              : pickTextLayout({ format: "post", brand: { vibe: brand?.vibe }, headingFont: initialOverlayFont, visualKind: caption.visual?.kind ?? null, textStyle: imgData.text_style }),
+          const picked = caption.text_layout && (caption.text_layout_source === "user" || !imgData.text_style
+            ? caption.text_layout
+            : pickTextLayout({ format: "post", brand: { vibe: brand?.vibe }, headingFont: initialOverlayFont, visualKind: caption.visual?.kind ?? null, textStyle: imgData.text_style }))
+          // "Make it better" with an image fix: not the layout the last version had.
+          const layoutId = picked && avoidLayout && picked === avoidLayout && caption.text_layout_source !== "user"
+            ? alternateTextLayout(picked, { brand: { vibe: brand?.vibe }, headingFont: initialOverlayFont, textStyle: imgData.text_style ?? null })
+            : picked
+          const layout: OverlayLayout | null = layoutId ? {
+            text_layout: layoutId,
             kicker: caption.kicker ?? null,
             highlight: caption.highlight ?? null,
             text_layout_source: caption.text_layout_source ?? "auto",
             brand_color: caption.accent_color ?? null,
-          } : null)
+          } : null
+          setOverlayLayout(layout)
           setImageSource("ai")
           setOverlayText(initialOverlayText)
           setOverlayFontId(initialOverlayFont)
@@ -288,7 +300,7 @@ export function FullPostGenerator({ brandId, products }: Props) {
           const key = `${sessionId}:${++versionCounter.current}`
           setVersions((prev) => [...prev, {
             key, sessionId, result: credited, imageUrl: imgData.public_url, textStyle: imgData.text_style ?? null,
-            overlayText: initialOverlayText, overlayFontId: initialOverlayFont, design: finalDesign, score: null, topFix: null, reasons: [],
+            overlayText: initialOverlayText, overlayFontId: initialOverlayFont, layout, design: finalDesign, score: null, topFix: null, reasons: [],
           }])
           setVersionKey(key)
           setVersionNotice(null)
@@ -531,7 +543,7 @@ export function FullPostGenerator({ brandId, products }: Props) {
   // caption) are kept with it, then the other one is restored.
   function showVersion(v: PostVersion) {
     if (versionKey && versionKey !== v.key) {
-      setVersions((prev) => prev.map((x) => (x.key === versionKey ? { ...x, design: postDesign, overlayText, overlayFontId, result: fullPostResult ?? x.result } : x)))
+      setVersions((prev) => prev.map((x) => (x.key === versionKey ? { ...x, design: postDesign, overlayText, overlayFontId, layout: overlayLayout, result: fullPostResult ?? x.result } : x)))
     }
     setFullPostResult(v.result)
     setPostSessionId(v.sessionId)
@@ -540,6 +552,7 @@ export function FullPostGenerator({ brandId, products }: Props) {
     setImageSource("ai")
     setOverlayText(v.overlayText)
     setOverlayFontId(v.overlayFontId)
+    setOverlayLayout(v.layout)
     setFlattenedImageUrl(null)
     setPostDesign(v.design)
     setVersionKey(v.key)
@@ -575,9 +588,60 @@ export function FullPostGenerator({ brandId, products }: Props) {
     startGeneration(fullPostResult ? regenerateFeedback() ?? undefined : undefined)
   }
 
-  // "Make it better": a new generation with the critic's fix folded into the brief.
-  function handleImprove(fix: string) {
+  // "Make it better". A layout / text fix on an overlay post keeps the photo
+  // and redoes only the words and layout (recompositeWithFix); anything
+  // else is a new generation with the fix folded into the brief, which
+  // won't redraw the last version's layout.
+  function handleImprove(fix: string, target: CriticFixTarget) {
+    const current = versions.find((v) => v.key === versionKey)
+    if (target === "layout_text" && current && postImageUrl && !postDesign && overlayLayout?.text_layout && overlayText.trim()) {
+      void recompositeWithFix(fix, current, overlayLayout.text_layout)
+      return
+    }
+    avoidLayoutRef.current = overlayLayout?.text_layout ?? null
     startGeneration(fix)
+  }
+
+  // A new version on the same photo: the fix applied to the overlay words
+  // (one short text call, /api/v1/ai/critic/text-fix), a different layout,
+  // re-flattened by the overlay effect and re-scored by the critic (the
+  // version key changes). No image call, no image credits.
+  async function recompositeWithFix(fix: string, current: PostVersion, lastLayout: TextLayoutId) {
+    if (!fullPostResult || !overlayLayout) return
+    setRecompositing(true)
+    let words = { headline: overlayText, kicker: overlayLayout.kicker ?? null, highlight: overlayLayout.highlight ?? null }
+    try {
+      const res = await fetch("/api/v1/ai/critic/text-fix", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          brandId, fix, headline: overlayText.slice(0, 300), kicker: words.kicker, highlight: words.highlight,
+          hook: fullPostResult.hook.hook_text, caption: fullPostResult.content.format === "social_post" ? (fullPostResult.content.content as GeneratedCaption).caption_text : "",
+        }),
+      })
+      const json: unknown = await readJsonResponse(res)
+      // Couldn't rewrite: the new layout alone is still the fix's main change.
+      if (res.ok && !isApiError(json)) words = (json as { data: typeof words }).data
+    } catch {}
+    const layout: OverlayLayout = {
+      ...overlayLayout,
+      text_layout: alternateTextLayout(lastLayout, { brand: { vibe: brand?.vibe }, headingFont: overlayFontId, textStyle: postTextStyle }),
+      text_layout_source: "auto",
+      kicker: words.kicker,
+      highlight: words.highlight,
+    }
+    const key = `${current.sessionId}:${++versionCounter.current}`
+    setVersions((prev) => [
+      // The version on screen keeps any edits made to it.
+      ...prev.map((x) => (x.key === current.key ? { ...x, overlayText, overlayFontId, layout: overlayLayout, result: fullPostResult } : x)),
+      { ...current, key, result: fullPostResult, overlayText: words.headline, overlayFontId, layout, score: null, topFix: null, reasons: [] },
+    ])
+    setOverlayText(words.headline)
+    setOverlayLayout(layout)
+    setFlattenedImageUrl(null)
+    setVersionKey(key)
+    setVersionNotice(null)
+    setRecompositing(false)
   }
 
   function startGeneration(improve?: string) {
@@ -876,7 +940,7 @@ export function FullPostGenerator({ brandId, products }: Props) {
             onShowVersion={(v) => { setVersionNotice(null); showVersion(v) }}
             onVerdict={handleVerdict}
             onImprove={handleImprove}
-            improving={isPending}
+            improving={isPending || recompositing}
             previewMode={previewMode}
             onPreviewModeChange={setPreviewMode}
             aspectRatio={aspectRatio}
@@ -1513,6 +1577,8 @@ interface PostVersion {
   textStyle: TextStyle | null
   overlayText: string
   overlayFontId: FontId
+  /** The overlay headline's layout (null for a designed post). */
+  layout: OverlayLayout | null
   design: PostDesign | null
   score: number | null
   topFix: string | null
@@ -1605,7 +1671,7 @@ function FullPostResults({
   versionNotice: string | null
   onShowVersion: (v: PostVersion) => void
   onVerdict: (key: string, verdict: CriticVerdict) => void
-  onImprove: (fix: string) => void
+  onImprove: (fix: string, target: CriticFixTarget) => void
   improving: boolean
   previewMode: "canvas" | "feed"
   onPreviewModeChange: (mode: "canvas" | "feed") => void
@@ -1685,6 +1751,7 @@ function FullPostResults({
         format="post"
         contentType="caption"
         textLayout={postDesign ? null : overlayLayout?.text_layout ?? null}
+        recomposites={!postDesign && !!overlayLayout?.text_layout && !!overlayText.trim()}
         onImprove={onImprove}
         improving={improving}
         onVerdict={onVerdict}

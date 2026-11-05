@@ -5,7 +5,7 @@ import { VISION_MAX_IMAGES, visionImageUrl } from "./vision-image"
 import { buildBrandContext } from "./prompts"
 import { textCostUsd, toTextUsage } from "./pricing"
 import type { BrandRow } from "@/types/database"
-import { CRITIC_CRITERIA, CRITIC_FAIL_BELOW, CRITIC_HARD_FAIL, CRITIC_PASS, criticOverall, type CriticCriterionId, type CriticScores } from "@/lib/design/critic-scores"
+import { CRITIC_CRITERIA, CRITIC_FAIL_BELOW, CRITIC_HARD_FAIL, CRITIC_PASS, criticOverall, type CriticCriterionId, type CriticFixTarget, type CriticScores } from "@/lib/design/critic-scores"
 import type { TextLayoutId } from "@/lib/design/text-layouts"
 
 /**
@@ -29,6 +29,8 @@ export interface CriticResult {
   passed: boolean
   /** The one change that would lift the score most. */
   top_fix: string
+  /** What top_fix changes: the photograph, or only the words on it and their layout. */
+  fix_target: CriticFixTarget
   model: string
   costUsd: number | null
 }
@@ -88,8 +90,10 @@ Also "single_photo": judge the PHOTOGRAPH only -- the post's own design (its typ
 
 Then "top_fix": the single change that would raise the score most, as one plain instruction (max 20 words) -- e.g. "Use a photo of the chinos being worn; the flat studio shot doesn't match the street-style caption".
 
+And "fix_target": "layout_text" when top_fix only changes the words printed on the image or how they sit (wording, length, size, position, the text panel, contrast of the type) and the photograph can stay; "image" when the photograph itself must change.
+
 Respond with valid JSON only, no markdown:
-{"scores": {${CRITIC_CRITERIA.map((c) => `"${c.id}": {"score": 1-10, "reason": "..."}`).join(", ")}}, "single_photo": true, "top_fix": "..."}`
+{"scores": {${CRITIC_CRITERIA.map((c) => `"${c.id}": {"score": 1-10, "reason": "..."}`).join(", ")}}, "single_photo": true, "top_fix": "...", "fix_target": "image"}`
 }
 
 const clampScore = (n: unknown) => (typeof n === "number" && Number.isFinite(n) ? Math.max(1, Math.min(10, Math.round(n))) : null)
@@ -99,9 +103,9 @@ const clampScore = (n: unknown) => (typeof n === "number" && Number.isFinite(n) 
  * for scripts/test-critic.ts. model_top_fix is the model's own fix, kept for
  * when critiquePost overrides a single_photo=false.
  */
-export function parseCriticResponse(raw: string): { scores: CriticScores; top_fix: string; single_photo: boolean; model_top_fix: string } | null {
+export function parseCriticResponse(raw: string): { scores: CriticScores; top_fix: string; fix_target: CriticFixTarget; single_photo: boolean; model_top_fix: string } | null {
   try {
-    const data = JSON.parse(raw.replace(/```json\n?|```\n?/g, "").trim()) as { scores?: Record<string, { score?: unknown; reason?: unknown }>; top_fix?: unknown; single_photo?: unknown }
+    const data = JSON.parse(raw.replace(/```json\n?|```\n?/g, "").trim()) as { scores?: Record<string, { score?: unknown; reason?: unknown }>; top_fix?: unknown; fix_target?: unknown; single_photo?: unknown }
     const scores = {} as CriticScores
     for (const c of CRITIC_CRITERIA) {
       const entry = data.scores?.[c.id]
@@ -110,12 +114,14 @@ export function parseCriticResponse(raw: string): { scores: CriticScores; top_fi
       scores[c.id] = { score, reason: typeof entry?.reason === "string" ? entry.reason.trim().slice(0, 160) : "" }
     }
     const topFix = typeof data.top_fix === "string" ? data.top_fix.trim().slice(0, 200) : ""
+    // Anything but an explicit "layout_text" is an image fix (today's path).
+    const fixTarget: CriticFixTarget = data.fix_target === "layout_text" ? "layout_text" : "image"
     // Only an explicit false fails -- a missing field doesn't.
     const singlePhoto = data.single_photo !== false
     if (!singlePhoto) {
-      return { scores, single_photo: false, top_fix: "Use one single photograph of one moment -- this image repeats the same person or is split into panels.", model_top_fix: topFix }
+      return { scores, single_photo: false, top_fix: "Use one single photograph of one moment -- this image repeats the same person or is split into panels.", fix_target: "image", model_top_fix: topFix }
     }
-    return { scores, single_photo: true, top_fix: topFix || lowestReason(scores), model_top_fix: topFix }
+    return { scores, single_photo: true, top_fix: topFix || lowestReason(scores), fix_target: fixTarget, model_top_fix: topFix }
   } catch {
     return null
   }
@@ -169,10 +175,16 @@ export async function critiquePost(brand: BrandRow, input: CriticInput, label: s
     const hardFail = !parsed.single_photo && parsed.scores.craft.score < CRITIC_FAIL_BELOW
     if (!parsed.single_photo && !hardFail) console.log(`[critic] ${label}: single_photo overridden (craft ${parsed.scores.craft.score})`)
     const overall = hardFail ? Math.min(criticOverall(parsed.scores), CRITIC_HARD_FAIL) : criticOverall(parsed.scores)
-    const topFix = parsed.single_photo || hardFail ? parsed.top_fix : parsed.model_top_fix || lowestReason(parsed.scores)
+    let topFix = parsed.single_photo || hardFail ? parsed.top_fix : parsed.model_top_fix || lowestReason(parsed.scores)
+    let fixTarget = parsed.fix_target
+    // Our own text panel read as a collage: the fix is the layout, not the photo.
+    if (hardFail && input.textLayout && PANEL_LAYOUTS.has(input.textLayout)) {
+      topFix = "Use a different text layout so the post reads as one photograph, not a photo beside a panel."
+      fixTarget = "layout_text"
+    }
     const usage = toTextUsage(res.usage)
     console.log(`[critic] ${label}: overall=${overall} latencyMs=${Date.now() - startedAt}`)
-    return { scores: parsed.scores, overall, passed: overall >= CRITIC_PASS, top_fix: topFix, model: MODELS.vision, costUsd: textCostUsd(MODELS.vision, usage) }
+    return { scores: parsed.scores, overall, passed: overall >= CRITIC_PASS, top_fix: topFix, fix_target: fixTarget, model: MODELS.vision, costUsd: textCostUsd(MODELS.vision, usage) }
   } catch (err) {
     console.error(`[critic] ${label}: couldn't score (behaving as before):`, err instanceof Error ? err.message : err)
     return null

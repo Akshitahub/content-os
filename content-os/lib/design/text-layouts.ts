@@ -185,6 +185,18 @@ export function pickTextLayout(input: PickItem & {
   return contentLayout(input, family, "post")
 }
 
+/**
+ * Post: a layout other than `avoid` ("Make it better" never redraws the
+ * same one). A busy background keeps a layout with its own backing; the
+ * brand's family comes first otherwise.
+ */
+export function alternateTextLayout(avoid: TextLayoutId, opts: { brand: { vibe?: string | null }; headingFont: FontId; textStyle?: TextStyle | null }): TextLayoutId {
+  const order: TextLayoutId[] = opts.textStyle?.needs_backing
+    ? ["bottom_card", "split_panel"]
+    : [brandLayoutFamily(opts.brand, opts.headingFont), "bold_stack", "editorial", "minimal_caption", "bottom_card"]
+  return order.find((l) => l !== avoid) ?? "bold_stack"
+}
+
 /** The layouts an editor offers (offer badge only where there's a real offer). */
 export function availableLayouts(hasOffer: boolean): TextLayoutId[] {
   return TEXT_LAYOUT_IDS.filter((id) => id !== "offer_badge" || hasOffer)

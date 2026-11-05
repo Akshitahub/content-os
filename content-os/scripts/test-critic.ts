@@ -58,6 +58,12 @@ async function main() {
     assert.equal(parseCriticResponse(JSON.stringify({ scores: all(9) }))?.single_photo, true)
   })
 
+  await test("fix_target: layout_text only when said, image otherwise", () => {
+    assert.equal(parseCriticResponse(JSON.stringify({ scores: all(7), top_fix: "Shorter headline", fix_target: "layout_text" }))?.fix_target, "layout_text")
+    assert.equal(parseCriticResponse(JSON.stringify({ scores: all(7), top_fix: "x" }))?.fix_target, "image")
+    assert.equal(parseCriticResponse(JSON.stringify({ scores: all(7), top_fix: "x", fix_target: "words" }))?.fix_target, "image")
+  })
+
   await test("every image prompt carries the single-photo guard; a deliberate split keeps its halves", async () => {
     const { withSinglePhotoGuard } = await import("@/lib/ai/image-provider")
     assert.match(withSinglePhotoGuard("a man in a cafe"), /not a collage, not multiple panels/)
@@ -124,6 +130,11 @@ async function main() {
     const r = await critiquePost(brand, { imageUrl: "https://example.com/p.jpg", caption: "", hook: "", format: "post" }, "test")
     assert.equal(r?.overall, 3)
     assert.equal(r?.passed, false)
+    assert.equal(r?.fix_target, "image")
+    // The same hard fail on our own split_panel / bottom_card: a layout fix.
+    const panel = await critiquePost(brand, { imageUrl: "https://example.com/p.jpg", caption: "", hook: "", format: "post", textLayout: "bottom_card" }, "test")
+    assert.equal(panel?.overall, 3)
+    assert.equal(panel?.fix_target, "layout_text")
   })
 
   await test("single_photo=false next to craft 7+ is overridden (scored normally, the model's own fix kept)", async () => {

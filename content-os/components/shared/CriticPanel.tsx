@@ -5,18 +5,21 @@ import { Loader2, Sparkles } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { isApiError } from "@/types/api"
 import { readJsonResponse } from "@/lib/utils/read-json-response"
-import { CRITIC_PASS } from "@/lib/design/critic-scores"
+import { CRITIC_PASS, type CriticFixTarget } from "@/lib/design/critic-scores"
 import type { TextLayoutId } from "@/lib/design/text-layouts"
 
-export interface CriticVerdict { overall: number; passed: boolean; top_fix: string; reasons: string[] }
+export type { CriticFixTarget }
+export interface CriticVerdict { overall: number; passed: boolean; top_fix: string; fix_target?: CriticFixTarget; reasons: string[] }
 
 /**
  * The critic's score on a finished post / carousel / story (lib/ai/critic.ts
  * via /api/v1/ai/critic): scored once per result (`resultKey`), with the one
  * fix that would lift it most and a "Make it better" button that regenerates
- * with that fix. Hidden entirely when scoring isn't available.
+ * with that fix (or, where the caller handles it, redoes only the words and
+ * layout when the fix is about those). Hidden entirely when scoring isn't
+ * available.
  */
-export function CriticPanel({ brandId, resultKey, imageUrl, caption, hook, format, contentType, contentId, textLayout, onImprove, improving, onVerdict }: {
+export function CriticPanel({ brandId, resultKey, imageUrl, caption, hook, format, contentType, contentId, textLayout, onImprove, improving, onVerdict, recomposites }: {
   brandId: string
   /** Changes when there's a new result to score (a new generation). */
   resultKey: string | null
@@ -29,10 +32,12 @@ export function CriticPanel({ brandId, resultKey, imageUrl, caption, hook, forma
   contentId?: string | null
   /** The text layout drawn on the scored image, when there is one. */
   textLayout?: TextLayoutId | null
-  onImprove: (fix: string) => void
+  onImprove: (fix: string, target: CriticFixTarget) => void
   improving?: boolean
   /** Called once with each result's verdict (Full Post keeps a score per version). */
   onVerdict?: (resultKey: string, verdict: CriticVerdict) => void
+  /** The caller keeps the photo for a "layout_text" fix (Full Post) -- changes the footnote. */
+  recomposites?: boolean
 }) {
   const [verdicts, setVerdicts] = useState<Record<string, CriticVerdict | "unavailable">>({})
   const verdict = resultKey ? verdicts[resultKey] : undefined
@@ -83,7 +88,7 @@ export function CriticPanel({ brandId, resultKey, imageUrl, caption, hook, forma
           </p>
           <p className="text-xs text-foreground/80">{good ? verdict.top_fix && `One idea: ${verdict.top_fix}` : `Top fix: ${verdict.top_fix}`}</p>
         </div>
-        <Button size="sm" variant={good ? "outline" : "default"} disabled={improving} onClick={() => onImprove(verdict.top_fix)} className="shrink-0">
+        <Button size="sm" variant={good ? "outline" : "default"} disabled={improving} onClick={() => onImprove(verdict.top_fix, verdict.fix_target ?? "image")} className="shrink-0">
           {improving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
           <span className="ml-1.5">Make it better</span>
         </Button>
@@ -93,7 +98,11 @@ export function CriticPanel({ brandId, resultKey, imageUrl, caption, hook, forma
           {verdict.reasons.map((r) => <li key={r}>{r}</li>)}
         </ul>
       )}
-      <p className="text-[10px] text-muted-foreground">Make it better regenerates with this fix (uses credits like a new generation).</p>
+      <p className="text-[10px] text-muted-foreground">
+        {recomposites && verdict.fix_target === "layout_text"
+          ? "Make it better keeps this photo and redoes the words and layout (no image credits)."
+          : "Make it better regenerates with this fix (uses credits like a new generation)."}
+      </p>
     </div>
   )
 }

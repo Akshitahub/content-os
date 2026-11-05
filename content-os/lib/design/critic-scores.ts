@@ -13,6 +13,9 @@ export const CRITIC_CRITERIA = [
   { id: "reason_to_act", label: "Reason to act", weight: 1, ask: "Is there a concrete reason to tap, save, buy or reply now?" },
 ] as const
 
+/** What a critic's top fix changes: the photograph, or only the words on it and their layout. */
+export type CriticFixTarget = "image" | "layout_text"
+
 export type CriticCriterionId = (typeof CRITIC_CRITERIA)[number]["id"]
 export type CriticScores = Record<CriticCriterionId, { score: number; reason: string }>
 

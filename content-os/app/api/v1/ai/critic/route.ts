@@ -8,15 +8,14 @@ import { getPerformanceLessons } from "@/lib/ai/performance-learning"
 import { noteGenerationBrand } from "@/lib/ai/provider-fallback"
 import { recordContentEvent } from "@/lib/usage/content-events"
 import { toSavedCritic } from "@/lib/design/critic-scores"
+import { criticLimitReached } from "@/lib/usage/critic-daily-limit"
 import { textLayoutIdSchema } from "@/lib/design/text-layouts"
 
 // The critic on a finished manual post / carousel cover / story frame
 // (lib/ai/critic.ts): the score, its reasons and the one fix to make. No
 // credit is charged -- it judges, it doesn't generate -- but calls are
-// bounded per user per day (counted from the content events it records).
+// bounded per user per day (lib/usage/critic-daily-limit.ts).
 export const maxDuration = 60
-
-const DAILY_LIMIT = 60
 
 const schema = z.object({
   brandId: z.string().uuid(),
@@ -49,12 +48,7 @@ export async function POST(request: Request) {
   noteGenerationBrand(brand.id, user.id)
 
   const admin = await createAdminClient()
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { count } = await (admin.from("content_events" as any) as any)
-    .select("id", { count: "exact", head: true })
-    .eq("user_id", user.id).eq("event", "critic_scored")
-    .gte("created_at", new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()) as { count: number | null }
-  if ((count ?? 0) >= DAILY_LIMIT) {
+  if (await criticLimitReached(admin, user.id)) {
     return NextResponse.json(buildError(ErrorCodes.USAGE_LIMIT_EXCEEDED, "That's a lot of scoring for one day -- try again tomorrow."), { status: 429 })
   }
 
@@ -69,5 +63,5 @@ export async function POST(request: Request) {
     userId: user.id, brandId, contentType: contentType ?? (format === "post" ? "caption" : format), contentId: contentId ?? null,
     event: "critic_scored", meta: { source: "manual", score: result.overall, needs_approval: saved.needs_approval, cost_usd: result.costUsd },
   })
-  return NextResponse.json({ data: { overall: result.overall, passed: result.passed, top_fix: result.top_fix, reasons: saved.reasons, scores: result.scores } })
+  return NextResponse.json({ data: { overall: result.overall, passed: result.passed, top_fix: result.top_fix, fix_target: result.fix_target, reasons: saved.reasons, scores: result.scores } })
 }
