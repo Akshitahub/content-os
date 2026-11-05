@@ -6,9 +6,10 @@ import type { ContentFormat } from "@/types/app"
  *
  * What a credit pays for: text runs on Groq (gpt-oss-120b / -20b, vision on
  * qwen3.8-27b) at ~₹0.06 a call; an AI image is gpt-image-2 at medium
- * quality, ~₹3.5-6 an image including 18% GST. At the cheapest top-up
- * (Mega Pack, ₹999 for 500 credits = ₹2/credit, lib/usage/credit-packs.ts)
- * an image's 4 credits are ₹8 -- still above its cost.
+ * quality, ~₹3.5-6 an image including 18% GST. The cheapest top-up is now
+ * ~₹3/credit (Mega Pack, ₹1,499 for 500 credits, lib/usage/credit-packs.ts).
+ * Pack prices include GST, so the net is lower (~₹2.54/credit), and an
+ * image's 4 credits still come to ~₹10 net -- above its cost.
  *
  * A "Post" (the Create → Full Post flow: hook + caption text, then a
  * composited AI image) is billed as ONE bundled 5-credit charge (1 text + 4

@@ -24,9 +24,9 @@ export interface CreditPack {
 }
 
 export const CREDIT_PACKS: Record<CreditPackId, CreditPack> = {
-  quick_topup: { id: "quick_topup", name: "Quick Top-Up", credits: 100, price: 249 },
-  power_pack: { id: "power_pack", name: "Power Pack", credits: 200, price: 449 },
-  mega_pack: { id: "mega_pack", name: "Mega Pack", credits: 500, price: 999 },
+  quick_topup: { id: "quick_topup", name: "Quick Top-Up", credits: 100, price: 349 },
+  power_pack: { id: "power_pack", name: "Power Pack", credits: 200, price: 649 },
+  mega_pack: { id: "mega_pack", name: "Mega Pack", credits: 500, price: 1499 },
 }
 
 export const CREDIT_PACK_IDS = Object.keys(CREDIT_PACKS) as CreditPackId[]
