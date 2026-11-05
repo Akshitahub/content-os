@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server"
+import { copyQualityPass } from "@/lib/ai/copy-quality"
+import { sumCostUsd as addCostUsd } from "@/lib/ai/pricing"
 import { createClient } from "@/lib/supabase/server"
 import { generateHooksSchema } from "@/lib/validations/ai"
 import { generateHooks } from "@/lib/ai/hooks-generator"
@@ -71,6 +73,15 @@ export async function POST(request: Request) {
     await refundGenerationUsage(supabase, user.id, HOOK_OR_CAPTION, logId)
     return NextResponse.json(buildError(ErrorCodes.AI_GENERATION_FAILED, "AI generation failed. Please try again."), { status: 500 })
   }
+
+  // The quality pass (lib/ai/copy-quality.ts): scored, one rewrite below 8, the better kept.
+  const hooksPass = await copyQualityPass({
+    brand, kind: "hooks", item: result.hooks,
+    fields: Object.fromEntries(result.hooks.map((h, i) => [`hook_${i + 1}`, h.hook_text])),
+    apply: (hooks, f) => hooks.map((h, i) => ({ ...h, hook_text: f[`hook_${i + 1}`] ?? h.hook_text })),
+    label: "hooks",
+  })
+  result = { ...result, hooks: hooksPass.item, costUsd: addCostUsd(result.costUsd, hooksPass.costUsd) }
 
   const latencyMs = Date.now() - startTime
 

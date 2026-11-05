@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server"
+import { copyQualityPass } from "@/lib/ai/copy-quality"
+import { sumCostUsd as addCostUsd } from "@/lib/ai/pricing"
 import { createClient } from "@/lib/supabase/server"
 import { buildError, ErrorCodes } from "@/types/api"
 import { checkAndIncrementUsage, refundGenerationUsage, logGenerationOutcome } from "@/lib/usage/check-and-increment-usage"
@@ -93,6 +95,15 @@ export async function POST(request: Request) {
     await refundGenerationUsage(supabase, user.id, BLOG_POST, logId)
     return NextResponse.json(buildError(ErrorCodes.AI_GENERATION_FAILED, "AI generation failed. Please try again."), { status: 500 })
   }
+
+  // The quality pass (lib/ai/copy-quality.ts): scored, one rewrite below 8, the better kept.
+  const blogPass = await copyQualityPass({
+    brand, kind: "blog_post", item: result.post,
+    fields: { title: result.post.title, body: result.post.body, ...(result.post.meta_description ? { meta_description: result.post.meta_description } : {}) },
+    apply: (post, f) => ({ ...post, title: f.title ?? post.title, body: f.body ?? post.body, meta_description: f.meta_description ?? post.meta_description }),
+    label: "blog post",
+  })
+  result = { ...result, post: blogPass.item, costUsd: addCostUsd(result.costUsd, blogPass.costUsd) }
 
   const latencyMs = Date.now() - startTime
 

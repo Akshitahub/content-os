@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server"
+import { copyQualityPass } from "@/lib/ai/copy-quality"
+import { sumCostUsd as addCostUsd } from "@/lib/ai/pricing"
 import { createClient } from "@/lib/supabase/server"
 import { generateContentSchema } from "@/lib/validations/ai"
 import { generateContent } from "@/lib/ai/content-generator"
@@ -108,6 +110,36 @@ export async function POST(request: Request) {
     })
     await refundGenerationUsage(supabase, user.id, cost, logId)
     return NextResponse.json(buildError(ErrorCodes.AI_GENERATION_FAILED, "AI generation failed. Please try again."), { status: 500 })
+  }
+
+  // The quality pass (lib/ai/copy-quality.ts) on the text-only formats:
+  // scored, one rewrite below 8, the better kept. No credit change.
+  if (format === "social_post") {
+    const pass = await copyQualityPass({
+      brand, kind: "caption", item: result.data as GeneratedCaption,
+      fields: { caption_text: (result.data as GeneratedCaption).caption_text },
+      apply: (c, f) => ({ ...c, caption_text: f.caption_text ?? c.caption_text, character_count: (f.caption_text ?? c.caption_text).length }),
+      label: "content caption",
+    })
+    result = { ...result, data: pass.item, costUsd: addCostUsd(result.costUsd, pass.costUsd) }
+  } else if (format === "ad_copy") {
+    const ad = result.data as AdCopy
+    const pass = await copyQualityPass({
+      brand, kind: "ad_copy", item: ad,
+      fields: { headline: ad.headline, primary_text: ad.primary_text, ...(ad.description ? { description: ad.description } : {}) },
+      apply: (a, f) => ({ ...a, headline: f.headline ?? a.headline, primary_text: f.primary_text ?? a.primary_text, description: f.description ?? a.description }),
+      label: "ad copy",
+    })
+    result = { ...result, data: pass.item, costUsd: addCostUsd(result.costUsd, pass.costUsd) }
+  } else if (format === "reel_script") {
+    const script = result.data as ReelScript
+    const pass = await copyQualityPass({
+      brand, kind: "reel_script", item: script,
+      fields: { hook: script.hook, ...Object.fromEntries(script.scenes.map((s, i) => [`scene_${i + 1}_voiceover`, s.voiceover_or_text_overlay])), ...(script.caption ? { caption: script.caption } : {}) },
+      apply: (r, f) => ({ ...r, hook: f.hook ?? r.hook, caption: f.caption ?? r.caption, scenes: r.scenes.map((s, i) => ({ ...s, voiceover_or_text_overlay: f[`scene_${i + 1}_voiceover`] ?? s.voiceover_or_text_overlay })) }),
+      label: "reel script",
+    })
+    result = { ...result, data: pass.item, costUsd: addCostUsd(result.costUsd, pass.costUsd) }
   }
 
   const latencyMs = Date.now() - startTime
