@@ -17,25 +17,26 @@ async function test(name: string, fn: () => void | Promise<void>) {
 }
 
 const all = (n: number, over: Record<string, number> = {}) => Object.fromEntries(
-  ["stops_scroll", "speaks_to_buyer", "one_message", "image_copy_agree", "craft", "real_indian", "reason_to_act"].map((id) => [id, { score: over[id] ?? n, reason: `${id} reason` }]),
+  ["stops_scroll", "speaks_to_buyer", "one_message", "image_copy_agree", "craft", "alive_story", "reason_to_act"].map((id) => [id, { score: over[id] ?? n, reason: `${id} reason` }]),
 ) as never
 
 async function main() {
   process.env.GROQ_API_KEY ||= "test-key"
-  const { criticOverall, toSavedCritic, CRITIC_PASS } = await import("@/lib/design/critic-scores")
+  const critics = await import("@/lib/design/critic-scores")
+  const { criticOverall, toSavedCritic, CRITIC_PASS } = critics
   const { parseCriticResponse, loadReferencePosts, critiquePost, buildCriticPrompt } = await import("@/lib/ai/critic")
   const { MODELS, getTextClientFor } = await import("@/lib/ai/models")
 
   await test("overall is the weighted average", () => {
     assert.equal(criticOverall(all(8)), 8)
-    // stops_scroll weighs 2 of 9.5: 10 there and 6 elsewhere = (20 + 6*7.5) / 9.5 = 6.8
+    // stops_scroll weighs 2 of 10: 10 there and 6 elsewhere = (20 + 6*8) / 10 = 6.8
     assert.equal(criticOverall(all(6, { stops_scroll: 10 })), 6.8)
   })
 
   await test("a failing image/copy agreement or craft caps the overall at 6", () => {
     assert.equal(criticOverall(all(9, { image_copy_agree: 4 })), 6)
     assert.equal(criticOverall(all(9, { craft: 3 })), 6)
-    assert.equal(criticOverall(all(9, { real_indian: 3 })) > 6, true)
+    assert.equal(criticOverall(all(9, { alive_story: 3 })) > 6, true)
   })
 
   await test("parses scores, clamps to 1-10, rejects a missing criterion", () => {
@@ -73,6 +74,13 @@ async function main() {
     assert.match(split, /no person appears more than once/)
   })
 
+  await test("an old saved verdict with a real_indian reason still renders as saved", () => {
+    const { isSavedCritic } = critics
+    const old = { overall: 6.2, needs_approval: true, top_fix: "x", reasons: ["Looks real and Indian 5/10: stock-looking"] }
+    assert.ok(isSavedCritic(old))
+    assert.equal(old.reasons[0], "Looks real and Indian 5/10: stock-looking")
+  })
+
   await test("saved verdict: needs approval below the bar, worst reasons first", () => {
     const saved = toSavedCritic({ scores: all(9, { craft: 4, reason_to_act: 6 }), overall: 6, top_fix: "Fix the crop" }, { candidates: 3, regenerated: true })
     assert.equal(saved.needs_approval, true)
@@ -91,12 +99,17 @@ async function main() {
     assert.equal(refs.length, 3)
     assert.match(refs[0]!.imageUrl, /^data:image\/jpeg;base64,/)
     assert.equal(loadReferencePosts(join(dir, "missing")).length, 0)
+    // An old calibration file's real_indian score is read as alive_story.
+    const legacy = mkdtempSync(join(tmpdir(), "refs-legacy-"))
+    writeFileSync(join(legacy, "a.json"), JSON.stringify({ image: "https://example.com/x.jpg", scores: { real_indian: 6, craft: 7 } }))
+    assert.deepEqual(loadReferencePosts(legacy)[0]!.scores, { alive_story: 6, craft: 7 })
   })
 
   const brand = { id: "b", name: "SNITCH", niche: "menswear", description: "Fashion for young Indian men", tone_of_voice: "bold" } as unknown as BrandRow
   await test("the prompt names every criterion", () => {
     const prompt = buildCriticPrompt(brand, "post")
-    for (const id of ["stops_scroll", "speaks_to_buyer", "one_message", "image_copy_agree", "craft", "real_indian", "reason_to_act"]) assert.ok(prompt.includes(`"${id}"`), id)
+    for (const id of ["stops_scroll", "speaks_to_buyer", "one_message", "image_copy_agree", "craft", "alive_story", "reason_to_act"]) assert.ok(prompt.includes(`"${id}"`), id)
+    assert.doesNotMatch(prompt, /real_indian/)
   })
 
   await test("split_panel / bottom_card tell the critic to judge the photograph area only", () => {

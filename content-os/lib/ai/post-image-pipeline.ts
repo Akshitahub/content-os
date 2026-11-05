@@ -246,7 +246,7 @@ export const PHOTOGRAPHY_STYLE = "professional product photography shot on a ful
 // Full Post's visual-direction picker). A flat, styled-composition look
 // rather than a photorealistic studio shot, for brands whose product
 // doesn't suit (or doesn't exist as) a physical photographed scene.
-export const EDITORIAL_GRAPHIC_STYLE = "a FLAT 2D editorial graphic layout, not a photograph: the subject drawn as clean flat shapes and simple objects on a soft paper or fabric texture background, clean geometric shapes, a muted contemporary color palette for the background and shapes (the subject itself keeps its own real colours), generous negative space, magazine-editorial print aesthetic — no photorealism, no photographic lighting, no depth of field, no 3D render"
+export const EDITORIAL_GRAPHIC_STYLE = "a FLAT 2D editorial graphic layout, not a photograph: the subject drawn as clean flat shapes and simple objects on a soft paper or fabric texture background, clean geometric shapes, bold brand colours for the background and shapes with strong contrast (the subject itself keeps its own real colours), one dominant focal point, magazine-editorial print aesthetic — no photorealism, no photographic lighting, no depth of field, no 3D render"
 
 /**
  * What an editorial graphic must depict, faithfully: the post's product as
@@ -273,7 +273,9 @@ export function wrapForEditorialReference(sceneDescription: string): string {
 }
 
 /** Editorial graphic: people only when the user's own brief asks for them. */
-export const EDITORIAL_NO_PEOPLE_GUARD = "no people, no faces, no hands, no bodies -- objects and shapes only"
+// People only when the concept's story needs them (lib/ai/creative-concept.ts);
+// the anatomy guard stays for any that are drawn.
+export const EDITORIAL_NO_PEOPLE_GUARD = "people only when the scene's story needs them, otherwise objects and shapes only; any person drawn as a simple flat figure with anatomically normal proportions: exactly two arms and two hands, five fingers per hand, no extra, duplicated or merged limbs"
 /** Editorial graphic's own quality guard (the photo guard rejects illustration). */
 export const EDITORIAL_QUALITY_GUARD = "no text, no watermarks, no logos, no letters or numbers, crisp clean edges, balanced flat composition, print-quality finish, no visual artifacts"
 

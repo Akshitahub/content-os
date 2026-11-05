@@ -9,7 +9,7 @@ export const CRITIC_CRITERIA = [
   { id: "one_message", label: "One clear message", weight: 1, ask: "Is there exactly one idea, understood in two seconds?" },
   { id: "image_copy_agree", label: "Image and copy agree", weight: 1.5, ask: "Do the picture, the words on it and the caption say the same thing? Wrong product or mismatched scene fails." },
   { id: "craft", label: "Craft", weight: 1.5, ask: "Type, crop, contrast and layout: clean and intentional, nothing cut off, overlapping or illegible." },
-  { id: "real_indian", label: "Looks real and Indian", weight: 1, ask: "Does it feel like a real photo of Indian life and buyers, not stock or obviously AI?" },
+  { id: "alive_story", label: "Feels alive, tells a story", weight: 1.5, ask: "Is something happening — a moment, emotion or idea you get in one second — rather than a static setup? Does it feel real and made for this brand's audience?" },
   { id: "reason_to_act", label: "Reason to act", weight: 1, ask: "Is there a concrete reason to tap, save, buy or reply now?" },
 ] as const
 
@@ -17,6 +17,24 @@ export const CRITIC_CRITERIA = [
 export type CriticFixTarget = "image" | "layout_text"
 
 export type CriticCriterionId = (typeof CRITIC_CRITERIA)[number]["id"]
+
+/**
+ * Retired criterion ids -> their replacement, for data written before the
+ * change (calibration posts in scripts/reference-posts/). Saved verdicts
+ * (SavedCritic) store reasons as text with the label, so an old "Looks real
+ * and Indian 6/10: ..." reason still renders as written.
+ */
+export const LEGACY_CRITERION_IDS: Record<string, CriticCriterionId> = { real_indian: "alive_story" }
+
+/** A scores object with any retired ids renamed to their replacement (a current id wins). */
+export function withCurrentCriterionIds<T>(scores: Record<string, T>): Partial<Record<CriticCriterionId, T>> {
+  const out: Record<string, T> = {}
+  for (const [id, v] of Object.entries(scores)) {
+    const current = LEGACY_CRITERION_IDS[id] ?? id
+    if (!(current in out) || !(id in LEGACY_CRITERION_IDS)) out[current] = v
+  }
+  return out as Partial<Record<CriticCriterionId, T>>
+}
 export type CriticScores = Record<CriticCriterionId, { score: number; reason: string }>
 
 /** At or above this, a post goes out without a second look. */

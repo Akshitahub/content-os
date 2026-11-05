@@ -5,7 +5,7 @@ import { VISION_MAX_IMAGES, visionImageUrl } from "./vision-image"
 import { buildBrandContext } from "./prompts"
 import { textCostUsd, toTextUsage } from "./pricing"
 import type { BrandRow } from "@/types/database"
-import { CRITIC_CRITERIA, CRITIC_HARD_FAIL, CRITIC_PASS, criticOverall, type CriticCriterionId, type CriticFixTarget, type CriticScores } from "@/lib/design/critic-scores"
+import { CRITIC_CRITERIA, CRITIC_HARD_FAIL, CRITIC_PASS, criticOverall, withCurrentCriterionIds, type CriticCriterionId, type CriticFixTarget, type CriticScores } from "@/lib/design/critic-scores"
 import type { TextLayoutId } from "@/lib/design/text-layouts"
 
 /**
@@ -71,7 +71,8 @@ export function loadReferencePosts(dir = REFERENCE_DIR): ReferencePost[] {
       const imageUrl = /^https?:\/\//.test(raw.image)
         ? raw.image
         : `data:image/${raw.image.toLowerCase().endsWith(".png") ? "png" : "jpeg"};base64,${readFileSync(join(dir, raw.image)).toString("base64")}`
-      refs.push({ imageUrl, caption: raw.caption ?? "", hook: raw.hook ?? "", scores: raw.scores as ReferencePost["scores"], note: raw.note })
+      // Older calibration files may still score a retired criterion (real_indian).
+      refs.push({ imageUrl, caption: raw.caption ?? "", hook: raw.hook ?? "", scores: withCurrentCriterionIds(raw.scores), note: raw.note })
     }
     return refs
   } catch (err) {

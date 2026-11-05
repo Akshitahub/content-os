@@ -16,7 +16,7 @@ One example = a JSON file plus its image, side by side:
     "one_message": 9,
     "image_copy_agree": 9,
     "craft": 8,
-    "real_indian": 7,
+    "alive_story": 7,
     "reason_to_act": 6
   },
   "note": "a strong launch post -- what an 8 looks like"
