@@ -3,7 +3,7 @@ import { noteGenerationBrand } from "@/lib/ai/provider-fallback"
 import { createClient, createAdminClient } from "@/lib/supabase/server"
 import { buildError, ErrorCodes } from "@/types/api"
 import { checkAndIncrementUsage, refundGenerationUsage, logGenerationOutcome } from "@/lib/usage/check-and-increment-usage"
-import { AD_MAKER } from "@/lib/usage/credit-costs"
+import { AD_MAKER, IMAGE as IMAGE_CREDIT_COST } from "@/lib/usage/credit-costs"
 
 const FEATURE = "ad_maker"
 import { generateAdMakerBackgroundSchema } from "@/lib/validations/ai"
@@ -285,6 +285,11 @@ async function handlePost(request: Request, { params }: RouteParams, timer: Gene
     await refundGenerationUsage(supabase, user.id, AD_MAKER, logId)
     return NextResponse.json(buildError(ErrorCodes.AI_GENERATION_FAILED, "Couldn't generate a background. Please try again."), { status: 500 })
   }
+
+  // Some variations failed (no image, or an unusable one -- never retried):
+  // their image credits go back; the rest of the ad is delivered.
+  const failedVariations = VARIATION_COUNT - successes.length
+  if (failedVariations > 0) await refundGenerationUsage(supabase, user.id, failedVariations * IMAGE_CREDIT_COST)
 
   const uploaded = (
     await Promise.all(

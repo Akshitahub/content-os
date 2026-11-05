@@ -3,7 +3,7 @@ import { noteGenerationBrand } from "@/lib/ai/provider-fallback"
 import { createClient, createAdminClient } from "@/lib/supabase/server"
 import { buildError, ErrorCodes } from "@/types/api"
 import { checkAndIncrementUsage, refundGenerationUsage } from "@/lib/usage/check-and-increment-usage"
-import { POST as POST_CREDIT_COST, CAROUSEL as CAROUSEL_CREDIT_COST } from "@/lib/usage/credit-costs"
+import { POST as POST_CREDIT_COST, CAROUSEL as CAROUSEL_CREDIT_COST, IMAGE as IMAGE_CREDIT_COST } from "@/lib/usage/credit-costs"
 import { generateContent } from "@/lib/ai/content-generator"
 import { generatePostImage } from "@/lib/ai/post-image-pipeline"
 import { DEFAULT_POST_TEMPLATE_ID } from "@/lib/design/post-templates"
@@ -277,6 +277,8 @@ async function handlePost(request: Request, { params }: RouteParams, timer: Gene
       }
     } else {
       console.error(`[calendar/regenerate] entry ${entryId}: image generation failed, keeping previous image:`, imageResult.error)
+      // The new copy still lands; the image part of the charge doesn't stick (no image, no retry).
+      await refundGenerationUsage(supabase, user.id, IMAGE_CREDIT_COST)
     }
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

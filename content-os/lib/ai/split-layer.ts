@@ -108,6 +108,12 @@ export async function generateWithSplitLayer(options: {
   return fallback([l, r].map((x, i) => (x!.success ? null : `${i ? "right" : "left"}: ${x!.error}`)).filter(Boolean).join("; "))
 
   async function fallback(reason: string): Promise<SplitBackgroundResult> {
+    // One image per item: a half that already made (billed) an image means
+    // no further image -- the caller refunds.
+    if (halfAttempts.some((a) => a.success || (a.costUsd ?? 0) > 0)) {
+      console.error(`[split-layer] a half failed after another was billed, no single-image fallback: ${reason}`)
+      return { success: false, error: `Split image failed: ${reason}`, attempts: halfAttempts, split: { used: false, halfPrompts, fallbackReason: reason } }
+    }
     console.error(`[split-layer] a half failed, falling back to the single-image split prompt: ${reason}`)
     const single = await options.single()
     return { ...single, attempts: [...halfAttempts, ...single.attempts], split: { used: false, halfPrompts, fallbackReason: reason } }

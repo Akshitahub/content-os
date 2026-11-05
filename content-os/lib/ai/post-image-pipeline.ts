@@ -172,7 +172,7 @@ async function checkImageQuality(buffer: Buffer): Promise<{ ok: true } | { error
 // module owns everything about actually talking to OpenAI. `attemptLabel`
 // is for logging only -- there's no seed param in the images API to vary
 // generations by.
-async function fetchAndCheckImage(prompt: string, attemptLabel: string, dimensions: ImageDimensions, productImageUrl: string | null | undefined, imageQuality: ImageQuality): Promise<{ buffer: Buffer; costUsd: number | null } | { error: string; reason: ImageAttemptFailureReason; costUsd: number | null; timedOut?: boolean }> {
+async function fetchAndCheckImage(prompt: string, attemptLabel: string, dimensions: ImageDimensions, productImageUrl: string | null | undefined, imageQuality: ImageQuality): Promise<{ buffer: Buffer; costUsd: number | null } | { error: string; reason: ImageAttemptFailureReason; costUsd: number | null; timedOut?: boolean; billed?: boolean }> {
   console.log(`[post-image-pipeline] attempt=${attemptLabel} dimensions=${dimensions.width}x${dimensions.height} productReference=${productImageUrl ? "yes" : "no"}`)
 
   const result = await generateOpenAIImage(prompt, dimensions, productImageUrl, imageQuality)
@@ -181,7 +181,8 @@ async function fetchAndCheckImage(prompt: string, attemptLabel: string, dimensio
   console.log(`[post-image-pipeline] image buffer: ${result.buffer.length} bytes`)
 
   const quality = await checkImageQuality(result.buffer)
-  if ("error" in quality) return { ...quality, costUsd: result.costUsd }
+  // An image came back (and was billed) but failed the check.
+  if ("error" in quality) return { ...quality, costUsd: result.costUsd, billed: true }
   return { buffer: result.buffer, costUsd: result.costUsd }
 }
 
@@ -577,7 +578,17 @@ export async function fetchBackgroundImage(
     return { success: false, error: `Couldn't generate a usable image. Attempt 1 (primary): ${attempt.error}`, attempts }
   }
 
+  if ("error" in attempt && attempt.billed) {
+    // One image per item: attempt 1 returned an image (billed) that failed
+    // the quality check (near-blank / near-black) -- no second image; the
+    // caller refunds the credits instead.
+    console.error(`[post-image-pipeline] first attempt returned an unusable image, no fallback attempt:`, attempt.error)
+    return { success: false, error: `Couldn't generate a usable image. Attempt 1 (primary): ${attempt.error}`, attempts }
+  }
+
   if ("error" in attempt) {
+    // No image was produced (an error or a policy rejection), so nothing
+    // was billed -- the one case a second attempt is allowed.
     const firstError = attempt.error
     console.error(`[post-image-pipeline] first attempt failed:`, attempt.error)
     attempt = await fetchAndCheckImage(fallbackPrompt, "2-fallback", dimensions, productImageUrl, quality)

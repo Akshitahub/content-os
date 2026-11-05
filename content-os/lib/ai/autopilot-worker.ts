@@ -338,7 +338,7 @@ async function prepareSlot(admin: Admin, job: SlotJobRow, ctx: RunContext, track
     isCarousel || isReel ? Promise.resolve(undefined) : getActiveLessons(admin, brand.id, "hook").then(lean),
   ])
   const postDate = slotScheduledDate(params.baseDate, slot.day)
-  let generated = await generateSlotContent(brand, slot, product, params.totalSlots, tracker, workDeadline - 60_000, lessons, hookLessons, undefined, postDate)
+  const generated = await generateSlotContent(brand, slot, product, params.totalSlots, tracker, workDeadline - 60_000, lessons, hookLessons, undefined, postDate)
   tracker.captionMs += Date.now() - captionStartedAt
 
   // The per-slot prompt has no structural guarantee that `caption` opens
@@ -347,39 +347,23 @@ async function prepareSlot(admin: Admin, job: SlotJobRow, ctx: RunContext, track
   const merge = (g: typeof generated) => (g.caption ? mergeCaptionWithHookAndCta(g.caption, g.hook, g.call_to_action) : g.caption)
   let mergedCaption = merge(generated)
 
-  // Post slots: the image, then the best of bestOf designed candidates by
-  // the critic; below CRITIC_PASS, one regeneration with the critic's
-  // reasons when the lease allows -- the better of the two is kept, and one
-  // still below the bar is flagged for approval on its calendar card.
+  // Post slots: the image (once), then the best of bestOf designed
+  // candidates by the critic (free re-composites); one below CRITIC_PASS is
+  // flagged for approval on its calendar card.
   let imageUrl: string | null = null
   let designed: { imageUrl: string; design: PostDesign } | null = null
   let critic: SavedCritic | null = null
   let photoSource: PreparedSlot["photoSource"] = null
   if (!isReel && !isCarousel) {
-    let post = await makeAutopilotPost(admin, job, ctx, tracker, generated, mergedCaption, product, ctx.bestOf)
-    let regenerated = false
-    if (post.critic && !post.critic.passed && Date.now() < workDeadline - 150_000) {
-      regenerated = true
-      try {
-        const saved = toSavedCritic(post.critic)
-        const feedback = `it scored ${post.critic.overall}/10. Fix: ${post.critic.top_fix}${saved.reasons.length ? `. Weak spots: ${saved.reasons.join("; ")}` : ""}`
-        const regen = await generateSlotContent(brand, slot, product, params.totalSlots, tracker, workDeadline - 60_000, lessons, hookLessons, feedback, postDate)
-        const second = await makeAutopilotPost(admin, job, ctx, tracker, regen, merge(regen), product, 1, post.critic.top_fix)
-        if (second.critic && second.critic.overall > post.critic.overall) {
-          generated = regen
-          mergedCaption = merge(regen)
-          post = second
-        }
-      } catch (err) {
-        console.error(`[autopilot-worker] slot ${job.id}: regeneration after the critic failed, keeping the first draft:`, err instanceof Error ? err.message : err)
-      }
-    }
+    // One image per post: its best design by the critic; one below the bar
+    // is flagged for approval -- never regenerated (a second billed image).
+    const post = await makeAutopilotPost(admin, job, ctx, tracker, generated, mergedCaption, product, ctx.bestOf)
     imageUrl = post.imageUrl
     designed = post.designed
     photoSource = post.imageUrl ? post.photoSource ?? null : null
     // A customer's photo is credited in the caption ("📸 @handle").
     mergedCaption = withCreditLine(mergedCaption, post.photoCredit)
-    critic = post.critic ? toSavedCritic(post.critic, { candidates: post.candidates, regenerated }) : null
+    critic = post.critic ? toSavedCritic(post.critic, { candidates: post.candidates }) : null
   }
 
   // Carousel slots: HTML preview + real PNG slides, uploaded now.
@@ -488,7 +472,7 @@ type AutopilotPost = { imageUrl: string | null; designed: { imageUrl: string; de
  * -- only the best is uploaded. The critic unavailable = the first design,
  * exactly as before. Never throws.
  */
-async function makeAutopilotPost(admin: Admin, job: SlotJobRow, ctx: RunContext, tracker: AutopilotUsageTracker, generated: PreparedSlot["generated"], caption: string, product: ProductRow | null, bestOf: number, criticFix?: string): Promise<AutopilotPost> {
+async function makeAutopilotPost(admin: Admin, job: SlotJobRow, ctx: RunContext, tracker: AutopilotUsageTracker, generated: PreparedSlot["generated"], caption: string, product: ProductRow | null, bestOf: number): Promise<AutopilotPost> {
   const { brand, params } = ctx
   const none: AutopilotPost = { imageUrl: null, designed: null, critic: null, candidates: 0 }
   try {
@@ -505,13 +489,12 @@ async function makeAutopilotPost(admin: Admin, job: SlotJobRow, ctx: RunContext,
       preferUgc: prefersCustomerPhoto(generated.postDesignFields?.template),
     }))[0] ?? null
     // No fitting photo -> the image is generated: the idea first (lib/ai/
-    // creative-concept.ts), written into the prompt; after the critic, its
-    // fix goes in so the regeneration gets a new concept. Fail-soft.
+    // creative-concept.ts), written into the prompt. Fail-soft.
     const concept = brandPhoto ? null : await conceptImagePrompt({
       brand,
       input: {
         product, hook: generated.hook, caption, format: "post",
-        lessons: ctx.imageLessons, fix: criticFix ?? null,
+        lessons: ctx.imageLessons,
       },
       flow: "post", rawInput: generated.imagePrompt || generated.visual_direction || null,
       constraints: { visualBrief: generated.visual, aspectRatioLabel: "4:5 portrait feed post" },
@@ -535,8 +518,7 @@ async function makeAutopilotPost(admin: Admin, job: SlotJobRow, ctx: RunContext,
       logoUrl: brand.logo_url,
       plan: params.plan,
       isInternalUnlimitedUser: params.isInternalUnlimitedUser,
-      // Autopilot post backgrounds get text on top -- "low" is enough.
-      quality: "low",
+      // The default (medium) quality, same as manual generation.
     }, brandPhoto?.url ?? null, { lifestyle: brandPhoto?.source !== "ugc" && isLifestyleTemplate(generated.postDesignFields?.template), label: `autopilot slot ${job.id}` })
     const imageResult = await makeImage()
     trackUsage(tracker, undefined, attemptsCostUsd(imageResult.attempts))
@@ -649,7 +631,7 @@ async function withCarouselBackgrounds(job: SlotJobRow, ctx: RunContext, slides:
         // The product's own photo is the reference, so the slide shows the real product.
         productImageUrl: ref ?? productPhoto,
         userDirection: typeof slide.scene_direction === "string" ? slide.scene_direction : undefined,
-        quality: "low",
+        // The default (medium) quality, same as manual generation.
       }, { headline: String(slide.headline ?? ""), body: typeof slide.subtext === "string" ? slide.subtext : null, productName }, `autopilot slot ${job.id} slide ${i + 1}`)
       if (result.checkCostUsd) trackUsage(tracker, undefined, result.checkCostUsd)
       trackUsage(tracker, undefined, attemptsCostUsd(result.attempts))
