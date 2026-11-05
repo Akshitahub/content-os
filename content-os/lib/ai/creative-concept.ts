@@ -37,7 +37,14 @@ export interface CreativeConcept {
   self_scores: Record<CriticCriterionId, number>
   /** Weighted like the critic's overall (CRITIC_CRITERIA weights). */
   score: number
+  /** Words printed on a real prop in the scene (<= 6), only for the
+   * in-scene text / direct-address-with-a-sign devices on a post. */
+  in_scene_text: string | null
 }
+
+/** The devices that may carry their own words in the picture. */
+const TEXT_DEVICES = new Set(["in-scene text", "direct address"])
+const IN_SCENE_TEXT_MAX_WORDS = 6
 
 export interface ConceptInput {
   product?: Pick<ProductRow, "name" | "description" | "key_benefits"> | null
@@ -73,7 +80,7 @@ const FORMAT_LABEL: Record<ConceptFormat, string> = {
   ad: "a Meta ad image",
 }
 
-function systemPrompt(brand: BrandRow, count: number, variants: boolean): string {
+function systemPrompt(brand: BrandRow, count: number, variants: boolean, allowText: boolean): string {
   const scores = CRITIC_CRITERIA.map((c) => `"${c.id}": 1-10`).join(", ")
   return `You are the creative director of a top Instagram content studio for Indian D2C brands. Before any image is made you invent the IDEA. Great posts are a MOMENT that tells a story with a hook: you get the point in one second and feel something (curiosity, recognition, a laugh, desire). A well-lit picture of nothing happening is a failure.
 
@@ -87,13 +94,16 @@ Rules:
 - One photographable frame: what is happening, who is in it, doing what, at what moment.
 - People only when they serve the story, and then the brand's own audience (who they are comes from the brand and audience above, never a fixed default). Product-only concepts are fine when the product is the story.
 - Only products, claims and facts from the brand context and the copy -- never invent an offer, number or result.
+${allowText
+    ? `- "in_scene_text": ONLY for the in-scene text device, or direct address with a sign or prop: the exact words printed on that real object (max ${IN_SCENE_TEXT_MAX_WORDS} words, spelled correctly, no @handles or URLs). Otherwise null.`
+    : `- "in_scene_text": always null (this format's words are added on top).`}
 - Banned: a static "product on a table" or "person smiling at a laptop" stock setup with nothing happening; collages; split frames or two halves; random decorative stickers.
 - Score each concept honestly 1-10 against: ${CRITIC_CRITERIA.map((c) => `${c.id} (${c.ask})`).join(" ")}
 
 ${variants ? `Write exactly ${count} concepts, concept N for variant N (its own angle and headline), each a different idea.` : `Write ${count} genuinely different concepts (different moments and devices, not rewordings).`}
 
 Respond with valid JSON only, no markdown:
-{"concepts": [{"story": "max 40 words", "hook": "max 15 words", "emotion": "one feeling", "device": "one of the devices", "self_scores": {${scores}}}]}`
+{"concepts": [{"story": "max 40 words", "hook": "max 15 words", "emotion": "one feeling", "device": "one of the devices", "in_scene_text": null, "self_scores": {${scores}}}]}`
 }
 
 function userPrompt(input: ConceptInput): string {
@@ -126,8 +136,16 @@ function weighted(scores: Record<CriticCriterionId, number>): number {
   return Math.round((sum / total) * 10) / 10
 }
 
+/** The words a concept may carry: only for a text device, <= 6 words, no handles / URLs. */
+function sanitizeInSceneText(raw: unknown, device: string): string | null {
+  if (typeof raw !== "string" || ![...TEXT_DEVICES].some((d) => device.includes(d))) return null
+  const text = raw.replace(/["“”]/g, "").replace(/\s+/g, " ").trim()
+  if (!text || /@|https?:|www\.|\.com\b/i.test(text) || text.split(" ").length > IN_SCENE_TEXT_MAX_WORDS) return null
+  return text
+}
+
 /** The model's JSON -> concepts (malformed ones dropped). Exported for tests. */
-export function parseConcepts(raw: string): CreativeConcept[] {
+export function parseConcepts(raw: string, allowText = true): CreativeConcept[] {
   try {
     const data = JSON.parse(raw.replace(/```json\n?|```\n?/g, "").trim()) as { concepts?: unknown }
     if (!Array.isArray(data.concepts)) return []
@@ -139,13 +157,15 @@ export function parseConcepts(raw: string): CreativeConcept[] {
         const n = rawScores[k.id]
         return [k.id, typeof n === "number" && Number.isFinite(n) ? Math.max(1, Math.min(10, Math.round(n))) : 5]
       })) as Record<CriticCriterionId, number>
+      const device = typeof v.device === "string" ? v.device.trim().toLowerCase().slice(0, 40) : ""
       return [{
         story: words(v.story, 40),
         hook: typeof v.hook === "string" ? words(v.hook, 15) : "",
         emotion: typeof v.emotion === "string" ? words(v.emotion, 4) : "",
-        device: typeof v.device === "string" ? v.device.trim().toLowerCase().slice(0, 40) : "",
+        device,
         self_scores,
         score: weighted(self_scores),
+        in_scene_text: allowText ? sanitizeInSceneText(v.in_scene_text, device) : null,
       }]
     })
   } catch {
@@ -161,6 +181,9 @@ export function pickConcept(concepts: CreativeConcept[]): CreativeConcept | null
 /** Concepts for one image (or, with `variants`, one per variant in order). Null on any failure. */
 export async function generateCreativeConcepts(brand: BrandRow, input: ConceptInput, label: string): Promise<CreativeConcept[] | null> {
   const count = input.variants?.length || 3
+  // Words in the picture only on a post (Full Post / Autopilot): every
+  // other format has its own words composited on top.
+  const allowText = input.format === "post"
   try {
     const { response: res } = await createTextCompletion(
       {
@@ -170,13 +193,13 @@ export async function generateCreativeConcepts(brand: BrandRow, input: ConceptIn
         max_completion_tokens: 2500,
         response_format: { type: "json_object" },
         messages: [
-          { role: "system", content: systemPrompt(brand, count, !!input.variants?.length) },
+          { role: "system", content: systemPrompt(brand, count, !!input.variants?.length, allowText) },
           { role: "user", content: userPrompt(input) },
         ],
       },
       { stage: "creative_concept", timeout: 25_000 },
     )
-    const concepts = parseConcepts(res.choices[0]?.message?.content ?? "")
+    const concepts = parseConcepts(res.choices[0]?.message?.content ?? "", allowText)
     if (concepts.length === 0) {
       console.error(`[creative-concept] ${label}: no usable concepts (writing the prompt without one)`)
       return null
@@ -190,7 +213,7 @@ export async function generateCreativeConcepts(brand: BrandRow, input: ConceptIn
 
 /** The chosen concept in the logs: device + story, so we can see what was picked. */
 export function logConcept(label: string, concept: CreativeConcept): void {
-  console.log(`[creative-concept] ${label}: chose device="${concept.device}" score=${concept.score} story="${concept.story}"`)
+  console.log(`[creative-concept] ${label}: chose device="${concept.device}" score=${concept.score} story="${concept.story}"${concept.in_scene_text ? ` in_scene_text="${concept.in_scene_text}"` : ""}`)
 }
 
 /** Generate, pick and log -- the one-image path. */

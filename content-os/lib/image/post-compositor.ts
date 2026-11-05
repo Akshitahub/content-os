@@ -593,6 +593,21 @@ function buildHardTruthChecklist(content: HardTruthChecklistContent, theme: Colo
   return { svg, logoBox: { x: CANVAS_WIDTH - SAFE_X - 62, y: SAFE_X + 8, size: 54 }, overflow: headlineOverflow || !!closingFit?.overflow }
 }
 
+/** The brand logo alone, top-right on the safe margin -- for an image that carries its own words. Unreadable logo = the image unchanged. */
+export async function stampLogo(image: Buffer, logoUrl: string): Promise<Buffer> {
+  const logo = await fetchLogoBuffer(logoUrl)
+  if (!logo) return image
+  try {
+    const { width = CANVAS_WIDTH } = await sharp(image).metadata()
+    const size = Math.round(width * 0.1)
+    const margin = Math.round(width * 0.05)
+    const resized = await sharp(logo).resize(size, size, { fit: "contain", background: { r: 0, g: 0, b: 0, alpha: 0 } }).png().toBuffer()
+    return await sharp(image).composite([{ input: resized, top: margin, left: width - margin - size }]).png().toBuffer()
+  } catch {
+    return image
+  }
+}
+
 async function fetchLogoBuffer(logoUrl: string): Promise<Buffer | null> {
   try {
     const res = await fetch(logoUrl)

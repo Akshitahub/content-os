@@ -117,7 +117,7 @@ Rules:
 - If the user provided their own description, treat it as the creative brief -- keep their intent and refine/complete any vague or underspecified part into something concrete. Do not discard what they asked for.
 - If the user gave no real description, invent one complete, specific scene from scratch using the brand/product context you're given -- never output a generic, vague, or placeholder-sounding scene.
 - Ground the scene in the subject of the user's own description when they gave one (e.g. "our candle brand" -> candles), even if it differs from the brand's niche; only when they gave no real description, ground it in the brand's actual niche and product -- never a generic stock-photo scene that could belong to any company.
-- Never describe or write out any text, words, lettering, captions, logos, watermarks, or labels appearing in the image, no matter how short -- a diffusion model renders text as garbled nonsense, and any real headline is composited on separately in code afterward. This is a hard rule, not a style preference.
+- Never describe or write out any text, words, lettering, captions, logos, watermarks, or labels appearing in the image, no matter how short -- the ONE exception is a CREATIVE CORE that names in-scene text: then describe that real prop and quote its words exactly as given, and no other text anywhere -- a diffusion model renders text as garbled nonsense, and any real headline is composited on separately in code afterward. This is a hard rule, not a style preference.
 - Do not mention camera brands, aspect ratio as a number/ratio, resolution, or megapixels -- describe composition in plain visual language instead (e.g. "wide open space across the top of the frame"); the exact technical values are handled separately in code.
 - If a real product reference photo is noted as attached, describe the SURROUNDING SCENE, setting, and lighting only -- do not redescribe the product's own appearance (color, shape, packaging), since that photo already shows it exactly.
 - Never mention SocioPosts, Groq, OpenAI, gpt-image, or any other AI tool/vendor name anywhere in the scene you write -- this is a plain visual description of a photograph, not a mention of the tools that made it.
@@ -159,7 +159,7 @@ function buildConstraintsLine(constraints: ImagePromptConstraints): string {
   }
   if (constraints.concept) {
     const c = constraints.concept
-    lines.push(`CREATIVE CORE -- the image is this moment: ${c.story}${c.hook ? ` Why a thumb stops: ${c.hook}.` : ""}${c.emotion ? ` The feeling: ${c.emotion}.` : ""}${c.device ? ` Storytelling device: ${c.device}.` : ""} Keep this moment, its action and its feeling; never replace it with a generic scene.`)
+    lines.push(`CREATIVE CORE -- the image is this moment: ${c.story}${c.hook ? ` Why a thumb stops: ${c.hook}.` : ""}${c.emotion ? ` The feeling: ${c.emotion}.` : ""}${c.device ? ` Storytelling device: ${c.device}.` : ""} Keep this moment, its action and its feeling; never replace it with a generic scene.${c.in_scene_text ? ` In-scene text: the words appear on a real prop in the scene, and the text reads exactly "${c.in_scene_text}", spelled correctly -- no other words anywhere in the image.` : ""}`)
   }
   if (constraints.visualBrief) {
     const brief = constraints.visualBrief

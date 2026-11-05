@@ -195,6 +195,9 @@ export const generatePostImageSchema = z.object({
   visualStyle: z.enum(["studio_scene", "editorial_graphic"]).optional(),
   // The user's own brief: an editorial graphic shows people only when it asks for them.
   userBrief: z.string().max(1000).optional(),
+  // The creative concept's words on a real prop (lib/ai/in-scene-text.ts):
+  // drawn in the picture, spelling-checked, and no overlay composited.
+  inSceneText: z.string().max(80).optional().transform((v) => v?.replace(/<[^>]*>/g, "").trim() || undefined),
   // Fully optional -- replaces the old separate headline/ctaText fields.
   // Omitted or empty means no text overlay at all: no auto-filled headline
   // from a picked hook, no auto-filled CTA from brand.cta_phrase. Only

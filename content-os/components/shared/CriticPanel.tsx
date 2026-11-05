@@ -19,7 +19,7 @@ export interface CriticVerdict { overall: number; passed: boolean; top_fix: stri
  * layout when the fix is about those). Hidden entirely when scoring isn't
  * available.
  */
-export function CriticPanel({ brandId, resultKey, imageUrl, caption, hook, format, contentType, contentId, textLayout, onImprove, improving, onVerdict, recomposites }: {
+export function CriticPanel({ brandId, resultKey, imageUrl, caption, hook, format, contentType, contentId, textLayout, intendedText, onImprove, improving, onVerdict, recomposites }: {
   brandId: string
   /** Changes when there's a new result to score (a new generation). */
   resultKey: string | null
@@ -32,6 +32,8 @@ export function CriticPanel({ brandId, resultKey, imageUrl, caption, hook, forma
   contentId?: string | null
   /** The text layout drawn on the scored image, when there is one. */
   textLayout?: TextLayoutId | null
+  /** Words the image deliberately carries in the scene (judged as design). */
+  intendedText?: string | null
   onImprove: (fix: string, target: CriticFixTarget) => void
   improving?: boolean
   /** Called once with each result's verdict (Full Post keeps a score per version). */
@@ -51,7 +53,7 @@ export function CriticPanel({ brandId, resultKey, imageUrl, caption, hook, forma
       fetch("/api/v1/ai/critic", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ brandId, imageUrl, caption, hook, format, contentType, contentId: contentId ?? undefined, textLayout: textLayout ?? undefined }),
+        body: JSON.stringify({ brandId, imageUrl, caption, hook, format, contentType, contentId: contentId ?? undefined, textLayout: textLayout ?? undefined, intendedText: intendedText ?? undefined }),
         signal: controller.signal,
       })
         .then(async (res) => {

@@ -53,6 +53,8 @@ export interface PromptWriterArgs {
 export function usePromptWriter(setPrompt: (value: string) => void) {
   const [stage, setStage] = useState<PromptWriterStage>("idle")
   const [error, setError] = useState<string | null>(null)
+  // The creative concept's words in the picture, when it has any (the write route's X-In-Scene-Text).
+  const [inSceneText, setInSceneText] = useState<string | null>(null)
   const abortRef = useRef<AbortController | null>(null)
 
   const write = useCallback(async (args: PromptWriterArgs) => {
@@ -61,6 +63,7 @@ export function usePromptWriter(setPrompt: (value: string) => void) {
     abortRef.current = controller
     setStage("writing")
     setError(null)
+    setInSceneText(null)
     setPrompt("")
 
     try {
@@ -82,6 +85,8 @@ export function usePromptWriter(setPrompt: (value: string) => void) {
         return
       }
 
+      const words = res.headers.get("X-In-Scene-Text")
+      setInSceneText(words ? decodeURIComponent(words) : null)
       const reader = res.body.getReader()
       const decoder = new TextDecoder()
       let full = ""
@@ -111,8 +116,9 @@ export function usePromptWriter(setPrompt: (value: string) => void) {
     abortRef.current?.abort()
     setStage("idle")
     setError(null)
+    setInSceneText(null)
     setPrompt("")
   }, [setPrompt])
 
-  return { stage, error, write, reset }
+  return { stage, error, inSceneText, write, reset }
 }

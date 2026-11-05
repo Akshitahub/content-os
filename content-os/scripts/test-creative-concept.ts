@@ -41,6 +41,29 @@ async function main() {
     assert.equal(pickConcept([]), null)
   })
 
+  await test("in-scene text: only for a text device, <= 6 words, never a handle or URL", async () => {
+    const one = (c: Record<string, unknown>, allow = true) => parseConcepts(JSON.stringify({ concepts: [{ story: "s", ...c }] }), allow)[0]!.in_scene_text
+    assert.equal(one({ device: "in-scene text", in_scene_text: "Out for chai, back at 5" }), "Out for chai, back at 5")
+    assert.equal(one({ device: "direct address", in_scene_text: "Hi, you." }), "Hi, you.")
+    assert.equal(one({ device: "reveal", in_scene_text: "Surprise" }), null)
+    assert.equal(one({ device: "in-scene text", in_scene_text: "one two three four five six seven" }), null)
+    assert.equal(one({ device: "in-scene text", in_scene_text: "follow @brand" }), null)
+    assert.equal(one({ device: "in-scene text", in_scene_text: "Sale" }, false), null)
+    const { inSceneTextMatches } = await import("@/lib/ai/in-scene-text")
+    assert.ok(inSceneTextMatches("Out for chai, back at 5", "OUT FOR CHAI back at 5!"))
+    assert.ok(inSceneTextMatches("Hi you", "Mug says: hi, you. 250ml"))
+    assert.ok(!inSceneTextMatches("Out for chai", "Out for chia"))
+    assert.ok(!inSceneTextMatches("Hi", null))
+  })
+
+  await test("the text bans come off only for in-scene text; watermarks, handles, URLs and fake UI stay", async () => {
+    const { withoutTextBans, POST_IMAGE_QUALITY_AND_NEGATIVE_GUARD, EDITORIAL_QUALITY_GUARD } = await import("@/lib/ai/post-image-pipeline")
+    const relaxed = withoutTextBans(POST_IMAGE_QUALITY_AND_NEGATIVE_GUARD)
+    assert.doesNotMatch(relaxed, /\bno text\b|illegible text/)
+    for (const kept of ["no watermarks", "no usernames or @handles", "no URLs", "no fake app interface"]) assert.ok(relaxed.includes(kept), kept)
+    assert.doesNotMatch(withoutTextBans(EDITORIAL_QUALITY_GUARD), /no text|no letters/)
+  })
+
   await test("missing self-scores default to 5", () => {
     const [c] = parseConcepts(JSON.stringify({ concepts: [{ story: "x" }] }))
     assert.equal(c!.score, 5)

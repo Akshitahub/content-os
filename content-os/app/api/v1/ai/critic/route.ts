@@ -28,6 +28,8 @@ const schema = z.object({
   contentId: z.string().uuid().nullish(),
   // The text layout drawn on the image (split_panel / bottom_card aren't collages).
   textLayout: textLayoutIdSchema.optional(),
+  // Words the creative concept deliberately put in the picture -- judged as design.
+  intendedText: z.string().max(80).optional(),
 })
 
 export async function POST(request: Request) {
@@ -41,7 +43,7 @@ export async function POST(request: Request) {
   }
   const parsed = schema.safeParse(body)
   if (!parsed.success) return NextResponse.json(buildError(ErrorCodes.VALIDATION_ERROR, "Validation failed.", parsed.error.issues[0]?.message), { status: 400 })
-  const { brandId, imageUrl, caption, hook, format, contentType, contentId, textLayout } = parsed.data
+  const { brandId, imageUrl, caption, hook, format, contentType, contentId, textLayout, intendedText } = parsed.data
 
   const { data: brand } = await supabase.from("brands").select("*").eq("id", brandId).eq("user_id", user.id).single<BrandRow>()
   if (!brand) return NextResponse.json(buildError(ErrorCodes.BRAND_NOT_FOUND, "Brand not found."), { status: 404 })
@@ -54,7 +56,7 @@ export async function POST(request: Request) {
 
   // What the brand's own results say works, as context (lib/ai/performance-learning.ts).
   const resultsLessons = (await getPerformanceLessons(admin, brand.id)).slice(0, 3).map((l) => l.rule)
-  const result = await critiquePost(brand, { imageUrl, caption, hook, format, resultsLessons, textLayout }, `manual ${format}`)
+  const result = await critiquePost(brand, { imageUrl, caption, hook, format, resultsLessons, textLayout, intendedText }, `manual ${format}`)
   if (!result) {
     return NextResponse.json(buildError(ErrorCodes.AI_GENERATION_FAILED, "Couldn't score this right now."), { status: 503 })
   }

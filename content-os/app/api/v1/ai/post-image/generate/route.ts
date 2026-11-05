@@ -23,6 +23,7 @@ import { sanitizeVisualBrief } from "@/lib/ai/visual-brief"
 import { recordContentEvent } from "@/lib/usage/content-events"
 import { sampleImageAlignment } from "@/lib/ai/image-alignment"
 import { artDirectionForRequest } from "@/lib/ai/art-direction"
+import { withInSceneTextCheck } from "@/lib/ai/in-scene-text"
 
 const BUCKET = "brand-images"
 const FEATURE = "post_image"
@@ -102,7 +103,7 @@ async function handlePost(request: Request, timer: GenerationTimer) {
     brandId, productId, imagePrompt, template, colorThemeId, captionText, fontId, textSizeScale,
     postSessionId, contentProjectId, aspectRatio, visualStyle, userBrief,
     checklistHeadline, checklistHighlightedPhrase, checklistWrongItems, checklistRightItems, checklistClosingLine,
-    annotatedHeadline, annotatedKeyword, annotatedCallouts,
+    annotatedHeadline, annotatedKeyword, annotatedCallouts, inSceneText: requestedInSceneText,
   } = parsed.data
   // Re-sanitized server-side. Only affects whether the product reference is
   // sent (see generatePostImage); billing is unchanged -- the POST charge is
@@ -170,7 +171,9 @@ async function handlePost(request: Request, timer: GenerationTimer) {
   // regenerate gets a different one. Not for the checklist card (no photo) or
   // annotated_product (draws the product photo itself). No fit = generated.
   // ...nor for the editorial graphic look (a flat layout, never a photo).
-  const brandPhoto = template === "hard_truth_checklist" || template === "annotated_product" || visualStyle === "editorial_graphic"
+  // Words in the picture only on a generated, untexted photo-led post.
+  const inSceneText = requestedInSceneText && !captionText?.trim() && template !== "hard_truth_checklist" && template !== "annotated_product" ? requestedInSceneText : null
+  const brandPhoto = inSceneText || template === "hard_truth_checklist" || template === "annotated_product" || visualStyle === "editorial_graphic"
     ? null
     : (await chooseFittingPhotos(await createAdminClient(), brand, {
         productId: productId ?? null, productName: product?.name ?? null, kinds: PHOTO_KINDS_FOR.post,
@@ -181,7 +184,7 @@ async function handlePost(request: Request, timer: GenerationTimer) {
   let timedOut = false
   // A catalogue shot on a lifestyle post -> a candid scene with it as the
   // product reference (lib/ai/catalogue-photos.ts); else the photo as is.
-  const result = await timer.step("image", withDeadline(postImageFromBrandPhoto({
+  const makeImage = () => postImageFromBrandPhoto({
     artDirection,
     imagePrompt,
     brandNiche: brand.niche,
@@ -210,7 +213,14 @@ async function handlePost(request: Request, timer: GenerationTimer) {
     brandName: brand.name,
     ctaText: (brand as BrandRow & { cta_phrase?: string | null }).cta_phrase ?? null,
     visualBrief,
-  }, brandPhoto?.url ?? null, { lifestyle: brandPhoto?.source !== "ugc" && isLifestyleTemplate(template), label: "post" }), deadlineAt - Date.now(), "post image")).catch((err): Awaited<ReturnType<typeof generatePostImage>> => {
+    inSceneText,
+  }, brandPhoto?.url ?? null, { lifestyle: brandPhoto?.source !== "ugc" && isLifestyleTemplate(template), label: "post" })
+  // The concept's words: read back by the critic, one regenerate on a mismatch.
+  const result = await timer.step("image", withDeadline(
+    inSceneText
+      ? withInSceneTextCheck({ brand, intendedText: inSceneText, hook: userBrief ?? "", caption: captionText ?? "", label: "post in-scene text", run: makeImage }).then((r) => r.result)
+      : makeImage(),
+    deadlineAt - Date.now(), "post image")).catch((err): Awaited<ReturnType<typeof generatePostImage>> => {
     // Deadline hit (or an unexpected throw): treated exactly like a failed
     // generation below -- logged and refunded.
     timedOut = err instanceof DeadlineExceededError
@@ -371,6 +381,8 @@ async function handlePost(request: Request, timer: GenerationTimer) {
       warnings: result.warnings ?? [],
       // A customer's photo: the caption credits them ("📸 @handle").
       photo_credit: photoCredit(brandPhoto),
+      // The image carries its own words: no overlay is drawn on it.
+      in_scene_text: inSceneText,
     },
   }, { status: 200 })
 }

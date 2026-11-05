@@ -153,6 +153,8 @@ export function FullPostGenerator({ brandId, products }: Props) {
   const conceptFixRef = useRef<string | null>(null)
   // "Make it better" with a layout / text fix: same photo, new words + layout (no image call).
   const [recompositing, setRecompositing] = useState(false)
+  // The image on screen carries the concept's own words (no overlay on it).
+  const [imageInSceneText, setImageInSceneText] = useState<string | null>(null)
   const [versionNotice, setVersionNotice] = useState<string | null>(null)
   const [postRenderError, setPostRenderError] = useState<string | null>(null)
   // Canvas vs. in-feed preview toggle (Commit 4) — purely a display mode,
@@ -219,6 +221,9 @@ export function FullPostGenerator({ brandId, products }: Props) {
     // back in only when actually needed (Download/Schedule).
     const initialOverlayText = headlineOverlay.trim() || caption.suggested_overlay_text?.trim() || ""
     const initialOverlayFont = resolveSuggestedFont(caption.suggested_font_id)
+    // The concept put its own words in the picture (lib/ai/creative-concept.ts):
+    // drawn by the image model, so no overlay or design goes on top.
+    const inSceneText = promptWriter.inSceneText ?? undefined
 
     setImageError(null)
     setFlattenedImageUrl(null)
@@ -259,9 +264,12 @@ export function FullPostGenerator({ brandId, products }: Props) {
         annotatedKeyword: caption.annotated_keyword ?? undefined,
         annotatedCallouts: caption.annotated_callouts ?? undefined,
         visualBrief: caption.visual ?? undefined,
+        inSceneText,
       },
       {
         onSuccess: (imgData) => {
+          const ownWords = !!imgData.in_scene_text
+          setImageInSceneText(imgData.in_scene_text ?? null)
           // A customer's photo: the caption credits them ("📸 @handle").
           const credited = imgData.photo_credit && data.content.format === "social_post"
             ? { ...data, content: { ...data.content, content: { ...data.content.content, caption_text: withCreditLine((data.content.content as GeneratedCaption).caption_text, imgData.photo_credit) } } } as typeof data
@@ -277,7 +285,7 @@ export function FullPostGenerator({ brandId, products }: Props) {
           const layoutId = picked && avoidLayout && picked === avoidLayout && caption.text_layout_source !== "user"
             ? alternateTextLayout(picked, { brand: { vibe: brand?.vibe }, headingFont: initialOverlayFont, textStyle: imgData.text_style ?? null })
             : picked
-          const layout: OverlayLayout | null = layoutId ? {
+          const layout: OverlayLayout | null = layoutId && !ownWords ? {
             text_layout: layoutId,
             kicker: caption.kicker ?? null,
             highlight: caption.highlight ?? null,
@@ -286,9 +294,10 @@ export function FullPostGenerator({ brandId, products }: Props) {
           } : null
           setOverlayLayout(layout)
           setImageSource("ai")
-          setOverlayText(initialOverlayText)
+          const overlay = ownWords ? "" : initialOverlayText
+          setOverlayText(overlay)
           setOverlayFontId(initialOverlayFont)
-          const design = initialPostDesign((caption.suggested_template as PostTemplateId) || selectedLayout, {
+          const design = ownWords ? null : initialPostDesign((caption.suggested_template as PostTemplateId) || selectedLayout, {
             post_big_words: caption.post_big_words,
             post_script_line: caption.post_script_line,
             fallbackWords: [headlineOverlay, caption.suggested_overlay_text, data.hook.hook_text],
@@ -302,7 +311,7 @@ export function FullPostGenerator({ brandId, products }: Props) {
           const key = `${sessionId}:${++versionCounter.current}`
           setVersions((prev) => [...prev, {
             key, sessionId, result: credited, imageUrl: imgData.public_url, textStyle: imgData.text_style ?? null,
-            overlayText: initialOverlayText, overlayFontId: initialOverlayFont, layout, design: finalDesign, score: null, topFix: null, reasons: [],
+            overlayText: overlay, overlayFontId: initialOverlayFont, layout, inSceneText: imgData.in_scene_text ?? null, design: finalDesign, score: null, topFix: null, reasons: [],
           }])
           setVersionKey(key)
           setVersionNotice(null)
@@ -564,6 +573,7 @@ export function FullPostGenerator({ brandId, products }: Props) {
     setOverlayText(v.overlayText)
     setOverlayFontId(v.overlayFontId)
     setOverlayLayout(v.layout)
+    setImageInSceneText(v.inSceneText)
     setFlattenedImageUrl(null)
     setPostDesign(v.design)
     setVersionKey(v.key)
@@ -953,6 +963,7 @@ export function FullPostGenerator({ brandId, products }: Props) {
             onVerdict={handleVerdict}
             onImprove={handleImprove}
             improving={isPending || recompositing}
+            inSceneText={imageInSceneText}
             previewMode={previewMode}
             onPreviewModeChange={setPreviewMode}
             aspectRatio={aspectRatio}
@@ -1591,6 +1602,8 @@ interface PostVersion {
   overlayFontId: FontId
   /** The overlay headline's layout (null for a designed post). */
   layout: OverlayLayout | null
+  /** The image's own words (the creative concept's in-scene text), if any. */
+  inSceneText: string | null
   design: PostDesign | null
   score: number | null
   topFix: string | null
@@ -1650,6 +1663,7 @@ function FullPostResults({
   onVerdict,
   onImprove,
   improving,
+  inSceneText,
   previewMode,
   onPreviewModeChange,
   aspectRatio,
@@ -1685,6 +1699,7 @@ function FullPostResults({
   onVerdict: (key: string, verdict: CriticVerdict) => void
   onImprove: (fix: string, target: CriticFixTarget) => void
   improving: boolean
+  inSceneText: string | null
   previewMode: "canvas" | "feed"
   onPreviewModeChange: (mode: "canvas" | "feed") => void
   aspectRatio: "4:5" | "1:1" | "9:16"
@@ -1764,6 +1779,7 @@ function FullPostResults({
         contentType="caption"
         textLayout={postDesign ? null : overlayLayout?.text_layout ?? null}
         recomposites={!postDesign && !!overlayLayout?.text_layout && !!overlayText.trim()}
+        intendedText={inSceneText}
         onImprove={onImprove}
         improving={improving}
         onVerdict={onVerdict}

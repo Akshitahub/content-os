@@ -1,4 +1,5 @@
 import sharp from "sharp"
+import { stampLogo } from "@/lib/image/post-compositor"
 import { generateOpenAIImage, resolveImageQuality, IMAGE_PROVIDER, type ImageDimensions, type ImageQuality } from "@/lib/ai/image-provider"
 import { sumCostUsd } from "@/lib/ai/pricing"
 import { compositeAnnotatedProduct, compositePostImageWithWarnings, compositeHardTruthChecklistWithWarnings } from "@/lib/image/post-compositor"
@@ -361,6 +362,19 @@ export const REFERENCE_IMAGE_PEOPLE_GUARD = "if the reference photo shows the pr
 // correctness phrasing, which reportedly wasn't enough to reliably prevent
 // extra-limb anomalies (e.g. a woman with three hands). Also adds general
 // surface-cleanliness language the guard previously lacked entirely.
+/**
+ * A guard minus its "no text / no letters" bans, for an image whose concept
+ * puts real words in the scene -- "no watermarks", "no @handles", "no URLs"
+ * and "no fake UI" stay. Exported for scripts/test-creative-concept.ts.
+ */
+export function withoutTextBans(guard: string): string {
+  return guard
+    .replace(/\bno text, /g, "")
+    .replace(/no illegible text or symbols, /g, "")
+    .replace(/no 'link in bio' or similar caption-style text, /g, "")
+    .replace(/no letters or numbers, /g, "")
+}
+
 export const POST_IMAGE_QUALITY_AND_NEGATIVE_GUARD = "no text, no watermarks, no logos, no illegible text or symbols, no social media UI elements, no usernames or @handles, no URLs or website addresses, no 'link in bio' or similar caption-style text, no fake app interface elements, if any people are shown: exactly two arms and two hands per person, five fingers per hand, no extra or duplicated limbs, no merged or fused body parts, no distorted or extra fingers, anatomically normal human proportions, natural hand positioning, authentic unretouched skin texture with natural imperfections, not a 3D render, not CGI, not a digital illustration, not an AI-generated look, avoid airbrushed or over-smoothed skin, avoid plastic or waxy-looking surfaces, avoid unnaturally perfect symmetry, no blemishes, no visual artifacts, no compression artifacts, no random marks or smudges, no color banding, clean unmarked surface, the main subject rendered in crisp sharp focus with clearly resolved fine detail, not soft, hazy, or out of focus, ultra-high-resolution 8K quality, professionally composed and lit, modern and elevated editorial aesthetic, visually striking and scroll-stopping, on-trend for 2026 social media, tightly grounded in and relevant to the specific scene described above, no generic or unrelated stock-photo filler"
 // The candid photo version: the same anatomy / artifact / no-text guards,
 // minus the glossy "8K, professionally lit, editorial" finish that pulls the
@@ -486,10 +500,12 @@ export function wrapForReferenceImage(sceneDescription: string): string {
   return `The attached reference photo shows the real product — replicate its exact appearance (shape, color, packaging, and label) faithfully into a single new photograph of this scene: ${sceneDescription}. The reference product must be clearly visible, in focus, and recognizable as the central subject — do not omit it, crop it out of frame, obscure it behind other objects, or substitute a different item in its place. Output must be ONE seamless photograph only, photographed once from a single camera angle — not a comparison, not a before/after, not a split image, not a side-by-side, not a collage, not multiple panels or frames; one continuous scene with the exact reference product naturally placed in it and clearly visible.`
 }
 
-function simplifyPrompt(prompt: string, brandNiche: string | null, hasReferenceImage: boolean, editorial = false, subject = ""): string {
+function simplifyPrompt(prompt: string, brandNiche: string | null, hasReferenceImage: boolean, editorial = false, subject = "", inSceneText: string | null = null): string {
   const core = prompt.split(",")[0]?.trim() || prompt.slice(0, 150)
+  const quality = editorial ? EDITORIAL_QUALITY_GUARD : CANDID_QUALITY_AND_NEGATIVE_GUARD
   const sceneDescription = [
     core,
+    inSceneText ? `the text reads exactly "${inSceneText}", spelled correctly, on a real object in the scene` : "",
     subject,
     brandNiche ? `${brandNiche} brand` : "",
     resolveNicheSetting(brandNiche),
@@ -497,7 +513,7 @@ function simplifyPrompt(prompt: string, brandNiche: string | null, hasReferenceI
     hasReferenceImage && !editorial ? REFERENCE_IMAGE_PEOPLE_GUARD : editorial ? EDITORIAL_NO_PEOPLE_GUARD : CANDID_PEOPLE_DIRECTION,
     editorial ? CENTERED_COMPOSITION_GUARD : CANDID_COMPOSITION_GUARD,
     editorial ? "" : CANDID_PHOTO_GUARD,
-    editorial ? EDITORIAL_QUALITY_GUARD : CANDID_QUALITY_AND_NEGATIVE_GUARD,
+    inSceneText ? withoutTextBans(quality) : quality,
   ].filter(Boolean).join(", ")
   if (!hasReferenceImage) return sceneDescription
   return editorial ? wrapForEditorialReference(sceneDescription) : wrapForReferenceImage(sceneDescription)
@@ -578,6 +594,12 @@ export async function fetchBackgroundImage(
 
 export interface GeneratePostImageOptions {
   imagePrompt: string
+  /** The concept's words on a real prop (lib/ai/creative-concept.ts, <= 6
+   * words). Only for these images the "no text / no letters" bans are
+   * dropped (watermarks, @handles, URLs and fake UI stay banned), the exact
+   * text is quoted in the prompt, and the brand logo is stamped on the
+   * text-free result instead of an overlay. */
+  inSceneText?: string | null
   brandNiche: string | null
   targetAudience: string | null
   template: PostTemplateId
@@ -805,8 +827,12 @@ export async function generatePostImage(rawOptions: GeneratePostImageOptions): P
   // editorial graphic look keeps its flat, product-only composition.
   const editorial = options.visualStyle === "editorial_graphic"
   const editorialPeople = editorial && asksForPeople(options.userBrief)
+  const inSceneText = options.inSceneText?.trim() || null
+  // The image carries its own words: the text bans come off, the rest stay.
+  const allowText = (guard: string) => (inSceneText ? withoutTextBans(guard) : guard)
   const sceneFor = (core: string, withReference: boolean) => [
     editorial ? editorialCore(core, editorialPeople) : core,
+    inSceneText ? `the text reads exactly "${inSceneText}", spelled correctly, on a real object in the scene` : "",
     // The editorial graphic depicts the post's real product / subject, never a recoloured stand-in.
     editorial ? editorialSubjectLine({ productName: options.productName, hasReference: withReference, topic: options.userBrief ?? options.imagePrompt }) : "",
     options.brandNiche ? `${options.brandNiche} brand` : "",
@@ -822,7 +848,7 @@ export async function generatePostImage(rawOptions: GeneratePostImageOptions): P
     willCompositeText ? "leave the lower third of the frame visually simpler and less busy for a text overlay" : "",
     editorial ? CENTERED_COMPOSITION_GUARD : CANDID_COMPOSITION_GUARD,
     editorial ? "" : CANDID_PHOTO_GUARD,
-    editorial ? EDITORIAL_QUALITY_GUARD : CANDID_QUALITY_AND_NEGATIVE_GUARD,
+    allowText(editorial ? EDITORIAL_QUALITY_GUARD : CANDID_QUALITY_AND_NEGATIVE_GUARD),
     // The editorial look keeps the brand's colours and motifs, never its photo direction.
     artDirectionImageClause(options.artDirection, { photography: !editorial }),
   ].filter(Boolean).join(", ")
@@ -837,7 +863,7 @@ export async function generatePostImage(rawOptions: GeneratePostImageOptions): P
   // the already-wrapped fullPrompt. simplifyPrompt applies the same
   // wrapping itself, once it has the real core.
   const editorialSubject = (withReference: boolean) => (editorial ? editorialSubjectLine({ productName: options.productName, hasReference: withReference, topic: options.userBrief ?? options.imagePrompt }) : "")
-  const retryPrompt = simplifyPrompt(sceneDescription, options.brandNiche, hasReferenceImage, editorial, editorialSubject(hasReferenceImage))
+  const retryPrompt = simplifyPrompt(sceneDescription, options.brandNiche, hasReferenceImage, editorial, editorialSubject(hasReferenceImage), inSceneText)
   const requestedDimensions = resolvePostImageDimensions(options.aspectRatio)
   // A split brief with both halves becomes two images composited side by
   // side (lib/ai/split-layer.ts); otherwise the single prompt, as before.
@@ -875,7 +901,9 @@ export async function generatePostImage(rawOptions: GeneratePostImageOptions): P
   if (!willCompositeText) {
     console.log(`[post-image-pipeline] no caption text provided -- skipping text compositing, returning plain background at ${requestedDimensions.aspectRatio}`)
     try {
-      const normalized = await sharp(result.buffer).resize(requestedDimensions.width, requestedDimensions.height, { fit: "cover" }).png().toBuffer()
+      const resized = await sharp(result.buffer).resize(requestedDimensions.width, requestedDimensions.height, { fit: "cover" }).png().toBuffer()
+      // Words in the picture: no overlay will be drawn, so the logo goes on here.
+      const normalized = inSceneText && options.logoUrl ? await stampLogo(resized, options.logoUrl) : resized
       return { success: true, buffer: normalized, mimeType: "image/png", fullPrompt, provider: result.provider, attempts: result.attempts, textComposited: false, textStyle, warnings: [], split }
     } catch (err) {
       console.error("[post-image-pipeline] normalizing plain background failed:", err instanceof Error ? `${err.name}: ${err.message}` : err)

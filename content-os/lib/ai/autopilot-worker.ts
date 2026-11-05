@@ -36,6 +36,7 @@ import type { ContentSlot, FastlaneResult, Platform, ReelScene, UserPlan } from 
 import { prepareGeneratedImage } from "@/lib/storage/generated-image"
 import { getActiveLessons, imageLessonRules } from "@/lib/ai/brand-brain"
 import { conceptImagePrompt } from "./creative-concept"
+import { withInSceneTextCheck } from "./in-scene-text"
 import { exploresThisSlot, getPerformanceLessons } from "@/lib/ai/performance-learning"
 import { recordContentEvent } from "@/lib/usage/content-events"
 import { resolveTypography } from "@/lib/design/fonts"
@@ -514,9 +515,13 @@ async function makeAutopilotPost(admin: Admin, job: SlotJobRow, ctx: RunContext,
       constraints: { visualBrief: generated.visual, aspectRatioLabel: "4:5 portrait feed post" },
       label: `autopilot slot ${job.id}`,
     })
+    // The concept's own words in the picture: drawn by the image model,
+    // read back by the critic (one regenerate on a mismatch), no design on top.
+    const inSceneText = concept?.concept.in_scene_text ?? null
     // A catalogue shot on a lifestyle post -> a candid scene with it as the
     // product reference (lib/ai/catalogue-photos.ts); else the photo as is.
-    const imageResult = await postImageFromBrandPhoto({
+    const makeImage = () => postImageFromBrandPhoto({
+      inSceneText,
       artDirection: artDirectionFrom(brand),
       imagePrompt: concept?.prompt || generated.imagePrompt || generated.visual_direction || "professional product photography",
       visualBrief: generated.visual,
@@ -530,6 +535,9 @@ async function makeAutopilotPost(admin: Admin, job: SlotJobRow, ctx: RunContext,
       // Autopilot post backgrounds get text on top -- "low" is enough.
       quality: "low",
     }, brandPhoto?.url ?? null, { lifestyle: brandPhoto?.source !== "ugc" && isLifestyleTemplate(generated.postDesignFields?.template), label: `autopilot slot ${job.id}` })
+    const imageResult = inSceneText
+      ? (await withInSceneTextCheck({ brand, intendedText: inSceneText, hook: generated.hook, caption, label: `autopilot slot ${job.id} in-scene text`, run: makeImage })).result
+      : await makeImage()
     trackUsage(tracker, undefined, attemptsCostUsd(imageResult.attempts))
     tracker.imageMs += Date.now() - imageStartedAt
     if (!imageResult.success) {
@@ -551,7 +559,7 @@ async function makeAutopilotPost(admin: Admin, job: SlotJobRow, ctx: RunContext,
     // The post as designed: its 1-4 words and script line in the frame
     // language on the clean image, in up to bestOf looks.
     const f = generated.postDesignFields
-    const designs = candidatePostDesigns({ ...f, template: f?.template, hasProduct: !!product, fallbackWords: [f?.suggested_overlay_text, generated.hook] }, bestOf)
+    const designs = inSceneText ? [] : candidatePostDesigns({ ...f, template: f?.template, hasProduct: !!product, fallbackWords: [f?.suggested_overlay_text, generated.hook] }, bestOf)
     let best: { jpg: Buffer | null; design: PostDesign | null; critic: CriticResult | null } | null = null
     let candidates = 0
     for (const design of designs.length ? designs : [null]) {
@@ -565,7 +573,7 @@ async function makeAutopilotPost(admin: Admin, job: SlotJobRow, ctx: RunContext,
       candidates++
       const scored = await critiquePost(brand, {
         imageUrl: jpg ? `data:image/jpeg;base64,${jpg.toString("base64")}` : imageUrl,
-        caption, hook: generated.hook, format: "post", resultsLessons: ctx.resultsLessons,
+        caption, hook: generated.hook, format: "post", resultsLessons: ctx.resultsLessons, intendedText: inSceneText,
       }, `autopilot slot ${job.id} candidate ${candidates}`)
       if (scored) trackUsage(tracker, undefined, scored.costUsd)
       if (!best || (scored && (!best.critic || scored.overall > best.critic.overall))) best = { jpg, design, critic: scored }

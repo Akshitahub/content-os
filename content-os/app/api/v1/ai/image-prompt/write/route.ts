@@ -185,6 +185,10 @@ export async function POST(request: Request) {
 
   return new Response(body_, {
     status: 200,
-    headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" },
+    headers: {
+      "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store",
+      // The concept's words in the picture, for post-image/generate (lib/ai/in-scene-text.ts).
+      ...(concept?.in_scene_text ? { "X-In-Scene-Text": encodeURIComponent(concept.in_scene_text) } : {}),
+    },
   })
 }

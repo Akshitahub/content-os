@@ -62,6 +62,8 @@ export type GeneratedPostImage = {
   text_style?: TextStyle | null
   /** "📸 @handle" when the image is a customer's (granted) photo -- the caption credits them. */
   photo_credit?: string | null
+  /** The image carries the creative concept's own words -- no overlay is drawn on it. */
+  in_scene_text?: string | null
 }
 
 function throwApiError(json: unknown, fallback: string): never {
