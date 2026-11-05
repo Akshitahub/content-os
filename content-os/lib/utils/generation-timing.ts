@@ -10,7 +10,7 @@
 // separately, so captionMs + imageMs can exceed totalMs. Never logs prompts
 // or generated content.
 
-import { generationFallbackCount, runWithGenerationContext } from "@/lib/ai/provider-fallback"
+import { runWithGenerationContext } from "@/lib/ai/provider-fallback"
 
 export type GenerationStep = "caption" | "image"
 
@@ -48,19 +48,15 @@ export async function timedGenerationRoute(route: string, handler: (timer: Gener
   }
   const steps = () => (Object.entries(totals) as [GenerationStep, number][]).map(([k, v]) => `${k}Ms=${v}`).join(" ")
 
-  // Text calls in this request that fell over from Groq to OpenAI.
-  const fallbacks = () => (generationFallbackCount() > 0 ? ` providerFallbacks=${generationFallbackCount()}` : "")
-
-  // The request runs as one generation: a Groq -> OpenAI fallback inside it
-  // is recorded against it (the route notes its brand, noteGenerationBrand).
+  // The request runs as one generation (the route notes its brand, noteGenerationBrand).
   return runWithGenerationContext({ route, contentType: ROUTE_CONTENT_TYPE[route] ?? "caption" }, async () => {
     console.log(`[gen-timing] route=${route} event=start`)
     try {
       const res = await handler(timer)
-      console.log(`[gen-timing] route=${route} event=end status=${res.status} totalMs=${Date.now() - startedAt} ${steps()}${fallbacks()}`.trimEnd())
+      console.log(`[gen-timing] route=${route} event=end status=${res.status} totalMs=${Date.now() - startedAt} ${steps()}`.trimEnd())
       return res
     } catch (err) {
-      console.log(`[gen-timing] route=${route} event=end status=threw totalMs=${Date.now() - startedAt} ${steps()}${fallbacks()}`.trimEnd())
+      console.log(`[gen-timing] route=${route} event=end status=threw totalMs=${Date.now() - startedAt} ${steps()}`.trimEnd())
       throw err
     }
   })

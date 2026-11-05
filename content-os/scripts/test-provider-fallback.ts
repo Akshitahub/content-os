@@ -1,9 +1,10 @@
-// Dev-only, offline check of lib/ai/provider-fallback.ts: two local
-// stand-in servers play Groq and OpenAI (no real model calls, no database).
-// Simulates Groq's daily token limit and the other failure modes and checks
-// the call completes on OpenAI -- or doesn't fall over when it shouldn't.
-// Run manually: `npx tsx scripts/test-provider-fallback.ts`. Exits non-zero
-// if any case fails.
+// Dev-only, offline check of lib/ai/provider-fallback.ts: text runs on Groq
+// only. A local stand-in plays Groq; a second one listens where OpenAI would
+// be, and every case checks it never receives a request -- daily limits, long
+// waits, 413s, 5xx and timeouts all throw Groq's own error, and only a short
+// per-minute 429 is waited out and retried on Groq. No real model calls, no
+// database. Run manually: `npx tsx scripts/test-provider-fallback.ts`. Exits
+// non-zero if any case fails.
 //
 // NOT reachable in production: a standalone script, never served by
 // Next.js. The NODE_ENV guard is defense-in-depth only, same as
@@ -18,9 +19,8 @@ if (process.env.NODE_ENV === "production") {
 
 type Reply = { status: number; body: unknown; headers?: Record<string, string> }
 const groqQueue: Reply[] = []
-const openaiQueue: Reply[] = []
-const openaiRequests: Record<string, unknown>[] = []
 let groqCalls = 0
+let openaiRequests = 0
 
 const completion = (model: string, content: string) => ({
   id: "x", object: "chat.completion", created: 0, model,
@@ -55,102 +55,82 @@ async function main() {
     groqCalls++
     return groqQueue.shift() ?? { status: 200, body: completion(String(body.model), '{"ok":"groq"}') }
   })
+  // Where OpenAI would be: anything arriving here is a failure.
   const openaiUrl = await server((body) => {
-    openaiRequests.push(body)
-    return openaiQueue.shift() ?? { status: 200, body: completion(String(body.model), '{"ok":"openai"}') }
+    openaiRequests++
+    return { status: 200, body: completion(String(body.model), '{"ok":"openai"}') }
   })
   process.env.GROQ_BASE_URL = groqUrl
   process.env.OPENAI_BASE_URL = openaiUrl
   process.env.GROQ_API_KEY = "test-groq"
   process.env.OPENAI_API_KEY = "test-openai"
 
-  const { createTextCompletion, runWithGenerationContext, generationFallbackCount, suggestedWaitMs } = await import("@/lib/ai/provider-fallback")
+  const { createTextCompletion, suggestedWaitMs, isShortRateLimit } = await import("@/lib/ai/provider-fallback")
   const { createCreativeCompletion } = await import("@/lib/ai/creative-completion")
   const { MODELS } = await import("@/lib/ai/models")
 
   const request = { model: MODELS.creative, messages: [{ role: "user" as const, content: "hi" }], temperature: 0.4, max_tokens: 900, response_format: { type: "json_object" as const } }
-  const reset = () => { groqQueue.length = 0; openaiRequests.length = 0; groqCalls = 0 }
+  const reset = () => { groqQueue.length = 0; groqCalls = 0 }
+  const fails = (p: Promise<unknown>) => p.then(() => "resolved", (e) => ({ status: (e as { status?: number }).status ?? null, message: String((e as Error).message) }))
 
-  // 1. The real failure: Groq's DAILY token limit -> the call completes on OpenAI.
+  // 1. Groq answers -> on Groq.
+  reset()
+  const ok = await createTextCompletion(request, { stage: "story", timeout: 5000 })
+  check("Groq answers -> provider groq", ok.provider === "groq" && ok.model === MODELS.creative && ok.response.choices[0]?.message?.content === '{"ok":"groq"}', ok)
+
+  // 2. The daily token limit -> Groq's own error, nothing sent to OpenAI.
   reset()
   groqQueue.push(groqError(429, "Rate limit reached for model `openai/gpt-oss-120b` in organization `org_x` service tier `on_demand` on tokens per day (TPD): Limit 200000, Used 199500, Requested 6800. Please try again in 7m12.5s.", "433"))
-  const daily = await runWithGenerationContext({ route: "test", contentType: "story" }, async () => {
-    const r = await createTextCompletion(request, { stage: "story", timeout: 5000 })
-    return { ...r, count: generationFallbackCount() }
-  })
-  check("daily limit -> completes on OpenAI", daily.provider === "openai" && daily.response.choices[0]?.message?.content === '{"ok":"openai"}', daily.provider)
-  check("daily limit -> reason daily_limit, model gpt-5.4", daily.fallbackReason === "daily_limit" && daily.model === "gpt-5.4", [daily.fallbackReason, daily.model])
-  check("Groq tried once (no pointless wait on a daily limit)", groqCalls === 1, groqCalls)
-  const sent = openaiRequests[0] ?? {}
-  // 1.5x Groq's budget: the fallback reasons before it answers.
-  check("OpenAI request adapted: max_completion_tokens (1.5x), no temperature / max_tokens", sent.max_completion_tokens === 1350 && !("temperature" in sent) && !("max_tokens" in sent), sent)
-  check("fallback counted in the generation context", daily.count === 1, daily.count)
+  const daily = await fails(createTextCompletion(request, { stage: "story", timeout: 5000 }))
+  check("daily limit -> the Groq 429 is thrown", typeof daily === "object" && daily.status === 429 && /TPD/.test(daily.message) && groqCalls === 1, daily)
 
-  // 2. A short per-minute 429 is waited out on Groq, no fallback.
+  // 3. A short per-minute 429 -> waited out and retried on Groq once.
   reset()
-  groqQueue.push(groqError(429, "Rate limit reached ... on tokens per minute (TPM): Limit 8000, Used 7000, Requested 6000. Please try again in 1.2s.", "1"))
+  groqQueue.push(groqError(429, "Rate limit reached ... on tokens per minute (TPM): Limit 8000, Used 7900, Requested 600. Please try again in 1.2s.", "2"))
   const short = await createTextCompletion(request, { stage: "story", timeout: 5000 })
-  check("short per-minute 429 -> retried on Groq", short.provider === "groq" && groqCalls === 2 && openaiRequests.length === 0, { provider: short.provider, groqCalls })
+  check("short per-minute 429 -> retried on Groq", short.provider === "groq" && groqCalls === 2, { provider: short.provider, groqCalls })
 
-  // 3. Short 429 twice -> falls over.
+  // 4. A short 429 twice -> thrown after the one retry.
   reset()
-  groqQueue.push(groqError(429, "Rate limit ... per minute. Please try again in 1.1s."), groqError(429, "Rate limit ... per minute. Please try again in 1.3s."))
-  const twice = await createTextCompletion(request, { stage: "story", timeout: 5000 })
-  check("short 429 twice -> OpenAI (rate_limit)", twice.provider === "openai" && twice.fallbackReason === "rate_limit", twice.fallbackReason)
+  groqQueue.push(groqError(429, "... tokens per minute (TPM) ... Please try again in 0.5s."), groqError(429, "... tokens per minute (TPM) ... Please try again in 0.5s."))
+  const twice = await fails(createTextCompletion(request, { stage: "story", timeout: 5000 }))
+  check("short 429 twice -> thrown after one retry", typeof twice === "object" && twice.status === 429 && groqCalls === 2, { twice, groqCalls })
 
-  // 4. A long suggested wait (> 20s) falls over at once.
+  // 5. A long per-minute wait -> thrown at once, no waiting.
   reset()
-  groqQueue.push(groqError(429, "Rate limit ... per minute. Please try again in 45.2s."))
-  const long = await createTextCompletion(request, { stage: "story", timeout: 5000 })
-  check("long per-minute wait -> OpenAI at once", long.provider === "openai" && groqCalls === 1, { provider: long.provider, groqCalls })
+  groqQueue.push(groqError(429, "... tokens per minute (TPM) ... Please try again in 45s."))
+  const long = await fails(createTextCompletion(request, { stage: "story", timeout: 5000 }))
+  check("long per-minute wait -> thrown at once", typeof long === "object" && long.status === 429 && groqCalls === 1, { long, groqCalls })
 
-  // 5. One request over the per-minute cap (413) -> OpenAI.
-  reset()
-  groqQueue.push(groqError(413, "Request too large for model `openai/gpt-oss-120b` ... on tokens per minute (TPM): Limit 8000, Requested 8368"))
-  const big = await createTextCompletion(request, { stage: "quality_gate", timeout: 5000 })
-  check("413 request too large -> OpenAI", big.fallbackReason === "request_too_large", big.fallbackReason)
+  // 6. 413, 5xx, a bad request -> thrown, never retried elsewhere.
+  for (const [status, label] of [[413, "413 request too large"], [503, "Groq 503"], [400, "400 bad request"]] as const) {
+    reset()
+    groqQueue.push({ status, body: { error: { message: status === 413 ? "Request too large for model" : status === 503 ? "Service unavailable" : "Invalid JSON schema" } } })
+    const r = await fails(createTextCompletion(request, { stage: "story", timeout: 5000 }))
+    check(`${label} -> thrown`, typeof r === "object" && r.status === status, r)
+  }
 
-  // 6. A Groq 5xx -> OpenAI.
+  // 7. Scoring / extraction (gpt-oss-20b) and vision (qwen) are Groq models too.
   reset()
-  groqQueue.push({ status: 503, body: { error: { message: "Service Unavailable" } } })
-  const down = await createTextCompletion(request, { stage: "story", timeout: 5000 })
-  check("Groq 503 -> OpenAI (server_error)", down.fallbackReason === "server_error", down.fallbackReason)
-
-  // 7. Scoring / extraction map to the mini model.
-  reset()
-  groqQueue.push(groqError(429, "... tokens per day (TPD) ... Please try again in 3h2m"))
   const scoring = await createTextCompletion({ ...request, model: MODELS.scoring }, { stage: "quality_gate", timeout: 5000 })
-  check("scoring model falls over to gpt-5.4-mini", scoring.model === "gpt-5.4-mini", scoring.model)
+  check("scoring model runs on Groq", scoring.provider === "groq" && scoring.model === MODELS.scoring, scoring.model)
 
-  // 8. A bad request is NOT retried on OpenAI.
+  // 8. A non-Groq model id is refused, never sent to OpenAI.
   reset()
-  groqQueue.push({ status: 400, body: { error: { message: "Invalid JSON schema" } } })
-  const bad = await createTextCompletion(request, { stage: "story", timeout: 5000 }).then(() => "resolved", (e) => (e as { status?: number }).status)
-  check("400 bad request -> rethrown, no OpenAI call", bad === 400 && openaiRequests.length === 0, { bad, openai: openaiRequests.length })
+  const foreign = await fails(createTextCompletion({ ...request, model: "gpt-5.4" }, { stage: "story", timeout: 5000 }))
+  check("a non-Groq model is refused", typeof foreign === "object" && /not a Groq model/.test(foreign.message) && groqCalls === 0, foreign)
 
-  // 9. No OPENAI_API_KEY -> today's behaviour (the Groq error).
-  reset()
-  delete process.env.OPENAI_API_KEY
-  groqQueue.push(groqError(429, "... tokens per day (TPD) ..."))
-  const noKey = await createTextCompletion(request, { stage: "story", timeout: 5000 }).then(() => "resolved", (e) => (e as { status?: number }).status)
-  check("no OPENAI_API_KEY -> the Groq 429 is thrown", noKey === 429 && openaiRequests.length === 0, noKey)
-  process.env.OPENAI_API_KEY = "test-openai"
-
-  // 9b. OpenAI failing too (e.g. out of credits) -> the caller still gets Groq's own error.
-  reset()
-  groqQueue.push(groqError(429, "... tokens per day (TPD) ..."))
-  openaiQueue.push({ status: 429, body: { error: { message: "You have no credits remaining.", code: "credit_balance_exhausted" } } }, { status: 429, body: { error: { message: "You have no credits remaining.", code: "credit_balance_exhausted" } } })
-  const bothDown = await createTextCompletion(request, { stage: "story", timeout: 5000 }).then(() => "resolved", (e) => String((e as Error).message))
-  check("OpenAI fails too -> the Groq error is rethrown", /TPD/.test(bothDown), bothDown)
-  openaiQueue.length = 0
-
-  // 10. Through a real call site: createCreativeCompletion (stories / carousels / Autopilot).
+  // 9. Through a real call site: createCreativeCompletion (stories / carousels / Autopilot).
   reset()
   groqQueue.push(groqError(429, "Rate limit reached for model `openai/gpt-oss-120b` ... on tokens per day (TPD) ... Please try again in 12m."))
-  const creative = await createCreativeCompletion({ stage: "story", logPrefix: "test", system: "s", user: "u", reasoningEffort: "medium", maxCompletionTokens: 4000, timeoutMs: 5000 })
-  check("createCreativeCompletion completes on OpenAI, priced at gpt-5.4", creative.model === "gpt-5.4" && creative.content === '{"ok":"openai"}' && creative.costUsd !== null && creative.costUsd > 0, creative)
+  const creative = await fails(createCreativeCompletion({ stage: "story", logPrefix: "test", system: "s", user: "u", reasoningEffort: "medium", maxCompletionTokens: 4000, timeoutMs: 5000 }))
+  check("createCreativeCompletion -> the Groq error, no fallback", typeof creative === "object" && /TPD/.test(creative.message), creative)
 
   check("suggestedWaitMs parses 4m19.2s", suggestedWaitMs(new Error("Please try again in 4m19.2s.")) === 259_200, suggestedWaitMs(new Error("Please try again in 4m19.2s.")))
+  check("isShortRateLimit: per-day is never short", !isShortRateLimit(Object.assign(new Error("tokens per day (TPD) ... try again in 2s"), { status: 429 })))
+
+  // The point of the whole file: OpenAI was never called.
+  check("no request ever reached OpenAI", openaiRequests === 0, openaiRequests)
 
   console.log(`\n[test-provider-fallback] ${failures === 0 ? "all passed" : `${failures} failed`}`)
   process.exit(failures > 0 ? 1 : 0)

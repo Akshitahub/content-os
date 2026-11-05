@@ -224,7 +224,7 @@ export async function requestImagePromptStream(input: WriteImagePromptInput) {
     // environment this was written in) -- see scripts/test-creative-stages.ts.
     // Streaming, so this bounds time-to-first-chunk/overall stream
     // completion, not time-to-first-byte of a single blocking response.
-    { stage: "image_prompt", timeout: 25_000, maxRetries: 1 }
+    { stage: "image_prompt", timeout: 25_000 }
   )
   return response
 }

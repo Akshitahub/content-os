@@ -68,7 +68,7 @@ export async function generateHooks(
         // environment this was written in) -- see scripts/test-creative-stages.ts
         // for the real measurement. 20s is generous headroom over a short,
         // low-effort JSON completion; revisit once real latency data exists.
-        { stage: "hooks", timeout: timeoutMs, maxRetries: 1 }
+        { stage: "hooks", timeout: timeoutMs }
       )
     } catch (err) {
       console.error(`[hooks-generator] model=${model} stage=hooks latencyMs=${Date.now() - startTime} success=false:`, err)

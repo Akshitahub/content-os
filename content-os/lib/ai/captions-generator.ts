@@ -65,7 +65,7 @@ export async function generateCaption(
       // maxDuration, Vercel killed the function, and the client got a
       // non-JSON error page. 40s is the same estimate the other
       // medium-length text calls use (not measured live).
-      const { response: res, model: answered } = await createTextCompletion({ ...requestParams, messages: msgs }, { stage: "caption", timeout: 40_000, maxRetries: 1 })
+      const { response: res, model: answered } = await createTextCompletion({ ...requestParams, messages: msgs }, { stage: "caption", timeout: 40_000 })
       usedModel = answered
       costUsd = sumCostUsd(costUsd, textCostUsd(answered, toTextUsage(res.usage)))
       return { content: res.choices[0]?.message?.content ?? "{}", usage: toTextUsage(res.usage) }

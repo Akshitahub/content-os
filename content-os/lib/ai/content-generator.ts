@@ -259,7 +259,7 @@ export async function generateContent(
         // maxDuration, Vercel killed the function, and the client got a
         // non-JSON error page. 40s is the same estimate the other
         // medium-length text calls use (not measured live).
-        const { response: res, model: answered } = await createTextCompletion({ ...requestParams, messages: msgs }, { stage: "caption", timeout: 40_000, maxRetries: 1 })
+        const { response: res, model: answered } = await createTextCompletion({ ...requestParams, messages: msgs }, { stage: "caption", timeout: 40_000 })
         captionAnswered = answered
         captionCost = sumCostUsd(captionCost, textCostUsd(answered, toTextUsage(res.usage)))
         return { content: res.choices[0]?.message?.content ?? "{}", usage: toTextUsage(res.usage) }
@@ -375,7 +375,7 @@ export async function generateContent(
         // 40s: calendar/[entryId]/regenerate (maxDuration 60) calls it, and
         // a longer timeout would outlive that route. Revisit all of these
         // once real latency data exists.
-        { stage: format, timeout: timeoutMs, maxRetries: 1 }
+        { stage: format, timeout: timeoutMs }
       )
       answeredModel = answered
       formatCost = sumCostUsd(formatCost, textCostUsd(answered, toTextUsage(response.usage)))

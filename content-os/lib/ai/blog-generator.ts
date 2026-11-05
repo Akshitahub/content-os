@@ -63,7 +63,7 @@ export async function generateBlogPost(
       // environment this was written in) -- see scripts/test-creative-stages.ts.
       // 45s: long-form generation with a scaling token budget, plus a
       // reasoning model is generally slower than Groq's LPU inference.
-      { stage: "blog_post", timeout: 45_000, maxRetries: 1 }
+      { stage: "blog_post", timeout: 45_000 }
     )
   } catch (err) {
     console.error(`[blog-generator] model=${model} stage=blog_post latencyMs=${Date.now() - startTime} success=false:`, err)
@@ -101,7 +101,7 @@ export async function generateBlogPost(
             { role: "user", content: correction },
           ],
         },
-        { stage: "blog_post", timeout: timeoutMs, maxRetries: 1 }
+        { stage: "blog_post", timeout: timeoutMs }
       )
       answeredModel = answered
       costUsd = sumCostUsd(costUsd, textCostUsd(answered, toTextUsage(retry.usage)))

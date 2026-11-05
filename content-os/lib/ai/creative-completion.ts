@@ -70,7 +70,7 @@ export async function createCreativeCompletion(params: CreativeCompletionParams)
             : []),
         ],
       },
-      { stage: params.stage, timeout: params.timeoutMs, maxRetries: 1 }
+      { stage: params.stage, timeout: params.timeoutMs }
     )
     const usage = toTextUsage(response.usage)
     const costUsd = textCostUsd(usedModel, usage)
