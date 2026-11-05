@@ -11,8 +11,9 @@ import { visionImageUrl } from "@/lib/ai/vision-image"
  * Detected once per photo: a brand photo at classification time (stored in
  * brand_images.subject_boxes, migration 067), a generated image right after
  * generation (a small JSON sidecar next to it in storage). The detector is
- * one vision call; without one (no key / credits) a local pass finds the
- * subject against a plain studio background, or the busiest part of a scene.
+ * a local pass first -- the subject against a plain studio background, or
+ * the busiest part of a scene -- and one vision call only when that finds
+ * nothing.
  * Boxes are fractions of the source image (0-1).
  */
 
@@ -168,9 +169,15 @@ export async function detectSubjectsVision(imageUrl: string): Promise<SubjectBox
   }
 }
 
-/** The detector: the vision call, else the local pass. Never throws. */
+/**
+ * The detector: the local pass first (no API call); the vision call only
+ * when it finds nothing. Used for every generated image (recordGeneratedSubjects)
+ * and brand photo (lib/brand-photos.ts subjectBoxesFor). Never throws.
+ */
 export async function detectSubjects(imageUrl: string, bytes: Buffer): Promise<SubjectBox[]> {
-  return (await detectSubjectsVision(imageUrl)) ?? detectSubjectsLocal(bytes)
+  const local = await detectSubjectsLocal(bytes)
+  if (local.length > 0) return local
+  return (await detectSubjectsVision(imageUrl)) ?? []
 }
 
 // ─── Stored boxes ─────────────────────────────────────────────────────────
