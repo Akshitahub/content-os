@@ -4,6 +4,7 @@ import { useState } from "react"
 import Link from "next/link"
 import { Check } from "lucide-react"
 import { PLAN_LIMITS } from "@/types/app"
+import { POST as POST_CREDIT_COST } from "@/lib/usage/credit-costs"
 import { REELS_ENABLED, ENABLED_SOCIAL_PLATFORMS } from "@/lib/constants"
 
 type BillingCycle = "monthly" | "annual"
@@ -20,27 +21,16 @@ function formatRupees(amount: number): string {
   return `₹${amount.toLocaleString("en-IN")}`
 }
 
-// Credits, not "generations" — different content types now cost different
-// amounts (a Post costs more than a Hook), so a flat generation count
-// would be misleading on its own. `credits`/`brands`/`autopilot` are read
-// from PLAN_LIMITS directly (not hand-typed) so those parts can never
-// drift out of sync with the real pool size or run cap. The manual-posts
-// figures below are hand-tuned copy targets (a final, approved business
-// decision — see the pricing revision this pairs with in types/app.ts),
-// not re-derived by dividing the whole pool by POST, since that would
-// overstate what's left after also budgeting for Autopilot.
-// Free tier removed (2026-08-26 pricing revision) — Starter/Pro signups
+// Credits, not "generations" -- different content types cost different
+// amounts (a Post costs more than a Hook). Every number on the cards is
+// read from PLAN_LIMITS and the credit weights (lib/usage/credit-costs.ts),
+// never hand-typed. Posts and Autopilot runs draw from the SAME monthly
+// pool, so the cards say "up to N posts" and that Autopilot uses the same
+// credits -- never a sum of both (which would promise more than the pool).
+// Free tier removed (2026-08-26 pricing revision) -- Starter/Pro signups
 // get a 7-day no-card trial; Agency has none and goes straight to
 // checkout (see app/api/auth/callback/route.ts's isAgencyCheckout
 // handling, and the banner above the tier grid below).
-// Starter's target dropped from 40 to 13 to match its resized 150-credit
-// pool at roughly the same credits-per-post ratio the old 450-credit/40-post
-// figure implied (450/40 ≈ 11.25 credits/post; 150/13 ≈ 11.5).
-const MANUAL_POSTS_TARGET: Record<"starter" | "pro" | "agency", number> = {
-  starter: 13,
-  pro: 75,
-  agency: 100,
-}
 
 // Reels are fully parked behind REELS_ENABLED (lib/constants.ts) — not
 // reachable anywhere in the app right now (see CreatePicker.tsx's Reel
@@ -62,33 +52,28 @@ function reelNote(planId: "starter" | "pro" | "agency"): string {
   return ""
 }
 
-// Autopilot's span/output-per-run, straight from PLAN_LIMITS rather than
-// the vague "generate weeks/a month of content in one click" this used to
-// say — concrete numbers instead, and consistent across all three tiers
-// (the old copy also just omitted this bullet for Agency entirely).
-function autopilotSpanNote(planId: "starter" | "pro" | "agency"): string {
-  const { days, slots } = PLAN_LIMITS[planId].autopilot
-  return `Autopilot: ${days}-day plan, ${slots} pieces per run`
+// The Autopilot bullet, straight from PLAN_LIMITS: runs a month, each run's
+// span and output, and that it spends the same credit pool.
+function autopilotNote(planId: "starter" | "pro" | "agency"): string {
+  const { days, slots, maxRunsPerMonth: runs } = PLAN_LIMITS[planId].autopilot
+  const pieces = `${slots} piece${slots === 1 ? "" : "s"}${runs === 1 ? "" : " each"}`
+  return `Up to ${runs} Autopilot run${runs === 1 ? "" : "s"} a month (${days}-day plan, ${pieces}), using the same credits`
 }
 
 // Brand count straight from PLAN_LIMITS rather than hand-typed, so this
 // bullet can't drift from the real gate the next time a plan's brand
-// limit changes — same singular/plural handling as autopilotNote below.
+// limit changes — same singular/plural handling as autopilotNote above.
 function brandsNote(planId: "starter" | "pro" | "agency"): string {
   const { brands } = PLAN_LIMITS[planId]
   return `${brands} brand${brands === 1 ? "" : "s"}`
 }
 
+// The credits bullet: the monthly pool and how many Posts it pays for on
+// its own (pool / POST, rounded down).
 function creditsLine(planId: "starter" | "pro" | "agency"): string {
-  const { generations: credits, brands, autopilot } = PLAN_LIMITS[planId]
-  const posts = MANUAL_POSTS_TARGET[planId]
-  const runs = autopilot.maxRunsPerMonth
-  // Autopilot is capped at a fixed number of runs/month, independent of
-  // brand count (see AutopilotTier.maxRunsPerMonth in types/app.ts) —
-  // Agency's 4 runs against its 5 brands is intentional, not a typo, so
-  // this can't say "all N brands" the way old unlimited-style copy did.
-  const autopilotNote = `${runs} Autopilot run${runs === 1 ? "" : "s"} across your ${brands} brand${brands === 1 ? "" : "s"}`
-  return `${credits.toLocaleString("en-IN")} credits / month: ~${posts} posts + ${autopilotNote}${reelNote(planId)}`
+  const credits = PLAN_LIMITS[planId].generations
+  const posts = Math.floor(credits / POST_CREDIT_COST)
+  return `${credits.toLocaleString("en-IN")} credits a month, enough for up to ${posts} posts${reelNote(planId)}`
 }
 
 // Derived from ENABLED_SOCIAL_PLATFORMS (lib/constants.ts) rather than
@@ -113,7 +98,7 @@ const TIERS: PricingTier[] = [
       brandsNote("starter"),
       creditsLine("starter"),
       "Download-ready posts — publish manually",
-      autopilotSpanNote("starter"),
+      autopilotNote("starter"),
       "Basic analytics & ROI tracking",
     ],
   },
@@ -126,7 +111,7 @@ const TIERS: PricingTier[] = [
       brandsNote("pro"),
       creditsLine("pro"),
       `Auto-post & schedule to ${ENABLED_PLATFORMS_LABEL} (more platforms coming soon)`,
-      autopilotSpanNote("pro"),
+      autopilotNote("pro"),
       "Full analytics: demographics, best-time-to-post",
       "Monthly PDF reports",
     ],
@@ -139,7 +124,7 @@ const TIERS: PricingTier[] = [
       brandsNote("agency"),
       creditsLine("agency"),
       `Auto-post & schedule to ${ENABLED_PLATFORMS_LABEL} (more platforms coming soon)`,
-      autopilotSpanNote("agency"),
+      autopilotNote("agency"),
       "Dedicated support",
     ],
   },
