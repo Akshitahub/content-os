@@ -13,9 +13,13 @@ function test(name: string, fn: () => void) {
 }
 const words = (s: unknown) => (String(s ?? "").match(/\S+/g) ?? []).length
 
-test("hook first, CTA last, middle alternates photo / type", () => {
-  assert.deepEqual([0, 1, 2, 3, 4].map((i) => carouselFrameFor(i, 5)), ["hook", "slide_photo", "slide_type", "slide_photo", "cta"])
-  assert.deepEqual([0, 1].map((i) => carouselFrameFor(i, 2)), ["hook", "cta"])
+test("hook first, CTA last, the middle follows each slide's layout", () => {
+  const layouts = ["full", "full", "type", "split", "full"] as const
+  assert.deepEqual(layouts.map((l, i) => carouselFrameFor(i, 5, l)), ["hook", "slide_photo", "slide_type", "slide_photo", "cta"])
+  assert.deepEqual([0, 1].map((i) => carouselFrameFor(i, 2, "full")), ["hook", "cta"])
+  // Frames come from the content, not the index: no contrast -> full / type alternating.
+  const out = finalizeCarouselFrames(Array.from({ length: 5 }, (_, i) => ({ role: i === 0 ? "hook" : i === 4 ? "cta" : "tip", headline: `Point ${i}` })), { seedBase: 1 })
+  assert.deepEqual(out.map((s) => s.frame), ["hook", "slide_photo", "slide_type", "slide_photo", "cta"])
 })
 
 test("every slide: <= 4 big words, <= 12 body words, no points", () => {

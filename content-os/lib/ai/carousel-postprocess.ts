@@ -187,10 +187,11 @@ export function finishGeneratedCarousel(
     format: "carousel", brand, headingFont: typography.heading, accentColor: getPrimaryColor(brand), headlineKey: "headline",
     toPick: (s) => ({ role: typeof s.role === "string" ? s.role : null, slideType: s.type as "cover" | "content" | "cta", visualKind: (s.visual as { kind?: string } | undefined)?.kind ?? null }),
   })
-  // The story frame language (lib/design/carousel-frames.ts): hook, photo /
-  // type alternating, CTA -- big words + one line of at most 12 words each.
+  // The story frame language (lib/design/carousel-frames.ts): hook, middle
+  // slides laid out by their own role (a split only for a contrast), CTA --
+  // big words + one line of at most 12 words each.
   const payoff = (d.narrative_plan as { payoff_type?: unknown } | undefined)?.payoff_type
-  const framed = finalizeCarouselFrames(stamped, { ctaPhrase: (brand as BrandRow & { cta_phrase?: string | null }).cta_phrase, listicle: isListicle(payoff) })
+  const framed = finalizeCarouselFrames(stamped, { ctaPhrase: (brand as BrandRow & { cta_phrase?: string | null }).cta_phrase, listicle: isListicle(payoff), payoffType: payoff })
   return {
     slides: framed,
     typography,

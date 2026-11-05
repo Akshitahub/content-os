@@ -15,25 +15,55 @@ async function test(name: string, fn: () => void | Promise<void>) {
 }
 
 async function main() {
-  const { carouselLayoutFor, hasLayoutRun, finalizeCarouselFrames } = await import("@/lib/design/carousel-frames")
+  const { carouselLayoutsFor, hasLayoutRun, finalizeCarouselFrames, isContrastSlide } = await import("@/lib/design/carousel-frames")
   const { renderCarouselFrames } = await import("@/lib/image/carousel-frames")
   const { pickFittingPhoto, MIN_PHOTO_FIT } = await import("@/lib/ai/photo-fit")
   const { resolveBrandPalette } = await import("@/lib/design/color-themes")
   const palette = resolveBrandPalette({ primary_color: "#1f4d3a", color_palette: ["#e9dcc6"], brand_brain: null, vibe: null } as never)
 
-  await test("the plan: three layouts, never the same three slides in a row", () => {
-    for (let n = 2; n <= 10; n++) {
-      const plan = Array.from({ length: n }, (_, i) => carouselLayoutFor(i, n))
-      assert.ok(!hasLayoutRun(plan), `${n}: ${plan.join(",")}`)
-      if (n >= 5) assert.deepEqual([...new Set(plan)].sort(), ["full", "split", "type"])
-    }
-    assert.equal(hasLayoutRun(["split", "split", "split"]), true)
-    assert.equal(hasLayoutRun(["split", "type", "split"]), false)
+  const carousel = (roles: string[]) => roles.map((role, i) => ({ role, headline: `Point ${i + 1}`, subtext: "a line" }))
+
+  await test("a 7-slide \"ways\" carousel with no comparison slides gets zero splits", () => {
+    const slides = finalizeCarouselFrames(carousel(["hook", "tip", "tip", "tip", "tip", "tip", "cta"]), { seedBase: 1, payoffType: "ways" })
+    const layouts = slides.map((s) => s.layout_hint)
+    assert.ok(!layouts.includes("split"), layouts.join(","))
+    // Variety still: full / type alternating, "full" on slide 2.
+    assert.deepEqual(layouts, ["full", "full", "type", "full", "type", "full", "full"])
   })
 
-  await test("finalize stamps the layout on every slide", () => {
-    const slides = finalizeCarouselFrames(Array.from({ length: 5 }, (_, i) => ({ headline: `Point ${i}`, subtext: "a line" })), { seedBase: 1 })
-    assert.deepEqual(slides.map((s) => s.layout_hint), ["full", "split", "type", "full", "full"])
+  await test("a slide with role comparison / mistake / myth gets a split; the rest don't", () => {
+    const layouts = finalizeCarouselFrames(carousel(["hook", "problem", "comparison", "step", "mistake", "cta"]), { seedBase: 1 }).map((s) => s.layout_hint)
+    assert.deepEqual(layouts, ["full", "full", "split", "type", "split", "full"])
+    assert.equal(finalizeCarouselFrames(carousel(["hook", "myth", "cta"]), { seedBase: 1 })[1]!.layout_hint, "split")
+  })
+
+  await test("exactly 2 contrast points make a split; 2 ordinary points don't", () => {
+    assert.ok(isContrastSlide({ role: "point", points: ["Before: a 12-step routine", "After: three products"] }))
+    assert.ok(isContrastSlide({ role: "point", points: ["Waiting a week", "Same-day dispatch"] }, "before_after"))
+    assert.ok(!isContrastSlide({ role: "tip", points: ["Wash cold", "Dry flat"] }, "ways"))
+    assert.ok(!isContrastSlide({ role: "tip", points: ["Before: a", "After: b", "c"] }))
+    // Decided before finalize empties the points.
+    const [, s] = finalizeCarouselFrames([{ role: "hook", headline: "a" }, { role: "point", headline: "Old way vs new", points: ["Old way: by hand", "New way: one click"] }, { role: "cta", headline: "c" }], { seedBase: 1 })
+    assert.equal(s!.layout_hint, "split")
+    assert.deepEqual(s!.points, [])
+  })
+
+  await test("no three-in-a-row anywhere, whatever the roles", () => {
+    const pool = ["tip", "comparison", "step", "myth", "problem", "mistake", "proof"]
+    let seed = 7
+    const rand = () => (seed = (seed * 9301 + 49297) % 233280) / 233280
+    for (let trial = 0; trial < 300; trial++) {
+      const n = 2 + Math.floor(rand() * 9)
+      const roles = Array.from({ length: n }, (_, i) => (i === 0 ? "hook" : i === n - 1 ? "cta" : pool[Math.floor(rand() * pool.length)]!))
+      const plan = carouselLayoutsFor(carousel(roles))
+      assert.ok(!hasLayoutRun(plan), `${roles.join(",")}: ${plan.join(",")}`)
+      assert.equal(plan[0], "full")
+      assert.equal(plan[n - 1], "full")
+    }
+    // Three comparison slides in a row: the middle one is type-led, not a fourth split.
+    assert.deepEqual(carouselLayoutsFor(carousel(["hook", "comparison", "comparison", "comparison", "cta"])), ["full", "split", "type", "split", "full"])
+    assert.equal(hasLayoutRun(["split", "split", "split"]), true)
+    assert.equal(hasLayoutRun(["split", "type", "split"]), false)
   })
 
   await test("the batch keeps the rhythm when full-bleed slides fall back to splits", async () => {

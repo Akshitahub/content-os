@@ -21,7 +21,7 @@ export interface CarouselFrameSlide {
   tape?: boolean | null
   brand_mark?: boolean | null
   font_id?: FontId | string | null
-  /** The planned layout (lib/design/carousel-frames.ts carouselLayoutFor). */
+  /** The planned layout (lib/design/carousel-frames.ts carouselLayoutsFor). */
   layout_hint?: CarouselLayout | null
   /** The photo's subject boxes when already known; else stored / detected at render. */
   subject_boxes?: SubjectBox[] | null
@@ -72,7 +72,10 @@ export const CAROUSEL_HEADLINE_PX = 118
  * logo in one spot (the brand's chosen corner, else bottom-left when it's
  * free), a "2/5" counter on every slide, a subtle swipe cue on the cover,
  * and the layout rhythm checked -- if a fallback ever leaves the same
- * layout three slides in a row, the middle one is redrawn type-led.
+ * layout three slides in a row, the middle one is redrawn: type-led, or
+ * (three type-led slides) full-bleed when it has a photo. Never a new split
+ * -- a split is only for a slide whose content is a contrast, or a photo
+ * that leaves the words no room (the compositor's own fallback).
  */
 export async function renderCarouselFrames(
   slides: CarouselFrameSlide[],
@@ -101,10 +104,10 @@ export async function renderCarouselFrames(
     if (hasLayoutRun(out.slice(i - 2, i + 1).map((o) => o.layout))) {
       const mid = slides[i - 1]!
       if (mid.frame === "hook" || mid.frame === "cta") continue
-      // Three type slides: the middle one goes split when it has a photo
-      // to show; otherwise (nothing to show) it stays as it is.
+      // Three type slides: the middle one goes full-bleed when it has a
+      // photo to show; otherwise (nothing to show) it stays as it is.
       if (out[i]!.layout === "type") {
-        if (mid.image_url) out[i - 1] = await draw({ ...mid, frame: "slide_photo", layout_hint: "split" }, i - 1)
+        if (mid.image_url) out[i - 1] = await draw({ ...mid, frame: "slide_photo", layout_hint: "full" }, i - 1)
         continue
       }
       out[i - 1] = await draw({ ...mid, frame: "slide_type", layout_hint: "type" }, i - 1)
