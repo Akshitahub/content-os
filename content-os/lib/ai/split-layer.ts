@@ -6,6 +6,11 @@ import type { ImageDimensions, ImageQuality } from "./image-provider"
 import type { UserPlan } from "@/types/app"
 import { hasSplitHalves, type VisualBrief } from "./visual-brief"
 
+// UNREACHABLE since images stopped being split (feat(ai): no split images):
+// models can no longer choose side_by_side / before_after, and
+// sanitizeVisualBrief maps any incoming split brief to one product_scene
+// without halves, so hasSplitHalves() is never true. Kept for now.
+//
 // Deterministic split layouts (side_by_side / before_after): instead of
 // asking one image for "two halves" -- which round 1 showed can come back
 // as a single, non-split scene -- each half is generated as its own normal

@@ -1,6 +1,6 @@
 import { carouselFrameRules } from "@/lib/design/carousel-frames"
 import type { BrandRow } from "@/types/database"
-import { NO_TEXT_BEARING_SUBJECTS_RULE, VISUAL_KINDS, sanitizeVisualBrief, artDirectionBriefRules } from "./visual-brief"
+import { NO_SPLIT_IMAGES_RULE, NO_TEXT_BEARING_SUBJECTS_RULE, CHOOSABLE_VISUAL_KINDS, sanitizeVisualBrief, artDirectionBriefRules } from "./visual-brief"
 import { buildPastExamplesBlock, buildSuggestedFontField, buildTopicSubjectBlock, QUALITY_BAR } from "./prompts"
 import { createCreativeCompletion } from "./creative-completion"
 import { buildFactSource, guardCopy, stripGuard } from "./fact-guard"
@@ -89,12 +89,12 @@ ${kickerHighlightRule()}
 ${carouselFrameRules()}
 
 VISUAL DIRECTION — every slide object (and cta_slide) gets a "visual" brief for its image:
-- "kind": one of ${VISUAL_KINDS.join(" | ")}.
+- "kind": one of ${CHOOSABLE_VISUAL_KINDS.join(" | ")}.
 - "must_show": 1-2 sentences, concrete and photographable — which objects, in what arrangement, from what angle.
 - "composition": where the subject sits and where the overlaid text goes (e.g. "subject in right two-thirds, left third calm for text").
-- For side_by_side or before_after, also give "left" and "right": what each half alone shows (before / first option on the left), visible things only, under 200 characters each.
+${NO_SPLIT_IMAGES_RULE}
 Rules:
-- The visual must DEMONSTRATE the slide's claim, not decorate it: a sketch step shows a sketch, a comparison shows both things side by side, a materials slide shows the actual material samples or finishes, a process shows its stages.
+- The visual must DEMONSTRATE the slide's claim, not decorate it: a sketch step shows a sketch, a comparison shows the better outcome (the contrast is in the words), a materials slide shows the actual material samples or finishes, a process shows its stages.
 - Brand consistency comes from palette and style, NOT from reusing the same scene. No two consecutive slides may share the same kind AND the same subject; across the carousel vary the subject, the framing (wide / mid / close-up) and the composition.
 - Use "abstract_mood" only for the cover or CTA, and only when no concrete visual fits the brand.
 - must_show describes ONLY visible things. Never put words, labels, headlines, quotes, numbers, logos or captions in it — the image model renders those as garbled text. Comparison labels like "before/after" are overlaid by the app, not drawn.
@@ -196,7 +196,7 @@ Respond with ONLY this JSON (no markdown, no explanation). The values below are 
       "headline": "Shipping shown upfront vs. at payment",
       "points": ["Upfront: they decide before investing any effort", "At payment: the surprise feels like a trick"],
       "background_style": "white_violet",
-      "visual": { "kind": "side_by_side", "must_show": "Two identical parcels side by side on a plain table: the left one neatly sealed on its own, the right one with an unexpected extra box stacked on top, eye-level mid shot", "composition": "two subjects split left and right across the lower two-thirds, top band clear for text", "left": "A neatly sealed parcel alone on a plain table, eye-level mid shot", "right": "The same parcel with an unexpected extra box stacked on top, plain table, eye-level mid shot" }
+      "visual": { "kind": "product_scene", "must_show": "A customer at a doorstep smiling as they take a neatly sealed parcel from a courier, the price they expected already paid, eye-level mid shot", "composition": "subject across the lower two-thirds, top band clear for text" }
     },
     {
       "slide_number": 4,

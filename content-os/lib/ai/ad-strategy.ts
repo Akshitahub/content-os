@@ -22,7 +22,8 @@ export const AD_VARIANT_COUNT = 3
 
 // Ads always keep the product reference photo, so only kinds that show the
 // product itself are allowed -- anything else becomes a product scene.
-const AD_VISUAL_KINDS = new Set<VisualKind>(["product_scene", "detail_closeup", "before_after"])
+// Never a split (sanitizeVisualBrief already maps old split briefs to a product scene).
+const AD_VISUAL_KINDS = new Set<VisualKind>(["product_scene", "detail_closeup"])
 
 const strategySchema = z.object({
   ad_brief: z.object({
@@ -70,7 +71,7 @@ ${kickerHighlightRule()}
 - "primary_text": 125 characters or fewer.
 - "cta_button": a standard Meta CTA matching desired_action (Shop Now, Learn More, Order Now, Get Offer, Book Now, Sign Up, Contact Us, See More).
 - "visual": what the image must show, with the product clearly the hero:
-  - "kind": product_scene | detail_closeup | before_after.
+  - "kind": product_scene | detail_closeup. For a result or comparison, show ONE scene of the better outcome; put the contrast in the words.
   - "must_show": 1-2 sentences, concrete and photographable — the product, its setting and the camera angle. Only visible things: never words, labels, prices, numbers, logos or captions.
   ${NO_TEXT_BEARING_SUBJECTS_RULE.slice(2)} The product's own real packaging (from the product photo) is the one exception.
 ${artDirectionBriefRules(artDirectionFrom(brand))}

@@ -11,15 +11,21 @@ export const VISUAL_KINDS = [
   "sketch_or_drawing", "detail_closeup", "before_after", "abstract_mood",
 ] as const
 export type VisualKind = (typeof VISUAL_KINDS)[number]
+
+// What a model may choose for one image: never a split. side_by_side /
+// before_after stay in VISUAL_KINDS only so older briefs still parse --
+// sanitizeVisualBrief turns them into a single product_scene.
+export const CHOOSABLE_VISUAL_KINDS = VISUAL_KINDS.filter((k) => k !== "side_by_side" && k !== "before_after")
+export const NO_SPLIT_IMAGES_RULE = "- For a comparison or result, show ONE scene of the better outcome; put the contrast in the words. In a carousel, before and after go on consecutive slides. Never a split frame, two halves or a collage."
 export type VisualBrief = {
   kind: VisualKind
   /** Only visible things -- objects, arrangement, angle. Never text. */
   must_show: string
   /** Where the subject sits and where the overlaid text goes. */
   composition: string
-  /** side_by_side / before_after only: what each half shows (visible things
-   * only, <= 200 chars). With both, the halves are generated as two images
-   * and composited (lib/ai/split-layer.ts). */
+  /** side_by_side / before_after only: what each half shows. Legacy --
+   * sanitizeVisualBrief now maps split briefs to one product_scene, so these
+   * never reach the split layer (lib/ai/split-layer.ts). */
   left?: string
   right?: string
 }
@@ -59,8 +65,10 @@ function clampText(text: string, max = VISUAL_TEXT_MAX): string {
 /**
  * Code-side safety for a slide's "visual" brief (the prompt alone isn't
  * trusted): unknown kind -> "product_scene", quoted text stripped, length
- * capped. Returns undefined for a missing/invalid brief so callers fall
- * back to today's background-only behaviour.
+ * capped. A split kind (side_by_side / before_after) becomes one
+ * product_scene of its right half (the after / better outcome) -- images
+ * are never split. Returns undefined for a missing/invalid brief so callers
+ * fall back to today's background-only behaviour.
  */
 export function sanitizeVisualBrief(raw: unknown): VisualBrief | undefined {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined
@@ -71,12 +79,11 @@ export function sanitizeVisualBrief(raw: unknown): VisualBrief | undefined {
     ? (v.kind as VisualKind)
     : "product_scene"
   const composition = typeof v.composition === "string" ? clampText(stripQuoted(v.composition)) : ""
-  // Halves only for split kinds, sanitized like must_show, and only as a
-  // pair -- one half alone can't drive a two-image split.
-  const half = (x: unknown) => (typeof x === "string" ? clampText(stripQuoted(x), HALF_TEXT_MAX) : "")
-  const left = SPLIT_KINDS.has(kind) ? half(v.left) : ""
-  const right = SPLIT_KINDS.has(kind) ? half(v.right) : ""
-  return left && right ? { kind, must_show: mustShow, composition, left, right } : { kind, must_show: mustShow, composition }
+  if (SPLIT_KINDS.has(kind)) {
+    const right = typeof v.right === "string" ? clampText(stripQuoted(v.right), HALF_TEXT_MAX) : ""
+    return { kind: "product_scene", must_show: right || mustShow, composition }
+  }
+  return { kind, must_show: mustShow, composition }
 }
 
 // ─── Turning a brief into an image-prompt scene ────────────────────────────

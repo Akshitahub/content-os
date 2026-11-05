@@ -5,7 +5,7 @@ import { createCreativeCompletion } from "./creative-completion"
 import { buildFactSource, guardCopy, stripGuard } from "./fact-guard"
 import { runQualityGate, type GateReport } from "./quality-gate"
 import { addTextUsage, sumCostUsd, type TextUsage } from "./pricing"
-import { CANDID_PHOTO_RULE, NO_TEXT_BEARING_SUBJECTS_RULE, VISUAL_KINDS, sanitizeVisualBrief, type VisualBrief, artDirectionBriefRules } from "./visual-brief"
+import { CANDID_PHOTO_RULE, NO_SPLIT_IMAGES_RULE, NO_TEXT_BEARING_SUBJECTS_RULE, CHOOSABLE_VISUAL_KINDS, sanitizeVisualBrief, type VisualBrief, artDirectionBriefRules } from "./visual-brief"
 import { allowedMiddleFrames, exampleFrameFields, finalizeStoryFrames, frameSlots, storyFrameContext, storyFrameRules, type StoryFrameContext } from "./story-frames"
 import { withLessons, type BrandLesson, artDirectionFrom } from "./brand-brain"
 import { buildBrandBrainLines, parseBrandBrain } from "@/lib/brand-brain-profile"
@@ -58,7 +58,7 @@ const EXAMPLE_SLIDE_BY_TYPE: Record<string, { text: string; subtext: string; bac
     text_position: "bottom",
     has_poll: true,
     poll_options: ["Manual, always", "Ready to automate"],
-    visual: { kind: "side_by_side", must_show: "Left half a desk buried under unopened parcels and tangled cables, right half the same desk cleared with a single plant, eye level", composition: "both halves fill the upper two-thirds, bottom third calm for text", left: "A desk buried under unopened parcels and tangled cables, eye level", right: "The same desk cleared, a single plant on it, eye level" },
+    visual: { kind: "product_scene", must_show: "A cleared desk at the end of the day, a single plant and a neat stack of packed parcels ready to go, the owner leaning back with a coffee, eye level", composition: "subject fills the upper two-thirds, bottom third calm for text" },
   },
   cta: {
     text: "Your inbox, handled",
@@ -250,14 +250,14 @@ Then write every frame from its arc entry.
 ${storyFrameRules(frameCtx, storyCount)}
 
 VISUAL DIRECTION — every story object gets a "visual" brief for its full-screen 9:16 background image:
-- "kind": one of ${VISUAL_KINDS.join(" | ")}.
+- "kind": one of ${CHOOSABLE_VISUAL_KINDS.join(" | ")}.
 - "must_show": 1-2 sentences, concrete and photographable — which objects, in what arrangement, from what angle.
 - "composition": where the subject sits and which region stays calm for the text.
-- For side_by_side or before_after, also give "left" and "right": what each half alone shows (before / first option on the left), visible things only, under 200 characters each.
+${NO_SPLIT_IMAGES_RULE}
 Rules:
 - Compose for a vertical phone screen: subject stacked vertically, not a wide landscape scene.
 - Keep the frame's text_position region (top / center / bottom) calm — put the subject elsewhere.
-- The visual must DEMONSTRATE the frame's message, not decorate it: a comparison shows both things, a process shows its stages, a material shows the actual material.
+- The visual must DEMONSTRATE the frame's message, not decorate it: a comparison shows the better outcome, a process shows its stages, a material shows the actual material.
 - Consecutive frames vary the subject and the framing (wide / mid / close-up) — never the same scene twice.
 - Use "abstract_mood" only for the hook or cta frame, and only when no concrete visual fits the brand.
 - must_show describes ONLY visible things. Never put words, labels, headlines, quotes, numbers, logos or captions in it — the image model renders those as garbled text.
