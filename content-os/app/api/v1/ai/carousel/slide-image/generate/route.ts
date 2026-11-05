@@ -169,7 +169,7 @@ async function handlePost(request: Request, timer: GenerationTimer) {
   }
 
   const startTime = Date.now()
-  // The photo must show this slide's point: checked, and tried once more if not.
+  // The photo must show this slide's point: checked and scored (shows_point), never regenerated.
   const result = await timer.step("image", withDeadline(generateCheckedSlide({
     vibe: vibe as CarouselVibe | undefined,
     brand,
@@ -184,7 +184,7 @@ async function handlePost(request: Request, timer: GenerationTimer) {
     // Text is composited over slide backgrounds, so "low" is enough --
     // raised to "medium" automatically when a product photo is attached.
     quality: "low",
-  }, parsed.data.slideCopy, `carousel role=${role}`, () => Date.now() < deadlineAt - 60_000, productImageUrl), deadlineAt - Date.now(), "carousel slide image")).catch((err): Awaited<ReturnType<typeof generateCarouselSlideBackground>> => ({
+  }, parsed.data.slideCopy, `carousel role=${role}`), deadlineAt - Date.now(), "carousel slide image")).catch((err): Awaited<ReturnType<typeof generateCarouselSlideBackground>> => ({
     // Deadline hit (or an unexpected throw): handled exactly like a failed
     // generation below -- logged and refunded.
     success: false,

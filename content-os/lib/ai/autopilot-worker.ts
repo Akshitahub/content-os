@@ -613,7 +613,7 @@ async function withCarouselBackgrounds(job: SlotJobRow, ctx: RunContext, slides:
         productImageUrl: ref ?? productPhoto,
         userDirection: typeof slide.scene_direction === "string" ? slide.scene_direction : undefined,
         quality: "low",
-      }, { headline: String(slide.headline ?? ""), body: typeof slide.subtext === "string" ? slide.subtext : null, productName }, `autopilot slot ${job.id} slide ${i + 1}`, () => true, ref ?? productPhoto)
+      }, { headline: String(slide.headline ?? ""), body: typeof slide.subtext === "string" ? slide.subtext : null, productName }, `autopilot slot ${job.id} slide ${i + 1}`)
       if (result.checkCostUsd) trackUsage(tracker, undefined, result.checkCostUsd)
       trackUsage(tracker, undefined, attemptsCostUsd(result.attempts))
       if (!result.success) {
