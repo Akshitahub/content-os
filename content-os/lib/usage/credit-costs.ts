@@ -112,20 +112,19 @@ export const REEL = 75
 // image generation; this path skips image generation entirely (the
 // user's own photo IS the image) and costs only one vision+caption call.
 //
-// Vision moved from Groq's qwen/qwen3.6-27b to OpenAI's gpt-5.5
-// (MODELS.vision) in the Phase 1 text-stages migration (2026-10-25). The
-// old $0.0012/call Groq measurement no longer applies. OpenAI's pricing
-// page (developers.openai.com/api/docs/pricing, checked 2026-10-25) bills
+// Vision (MODELS.vision) runs on OpenAI's gpt-5.4-mini (since 2026-11-05;
+// it was gpt-5.5 after the 2026-10-25 move off Groq's qwen/qwen3.6-27b, so
+// the old $0.0012/call Groq measurement no longer applies). OpenAI bills
 // image input under the same per-token input rate as text for a chat
-// model ($5.00/1M input tokens, $30.00/1M output for gpt-5.5) rather than
-// a separate image-generation-style rate -- but doesn't publish exactly
-// how many tokens one photo costs at a given detail level, so this is a
-// looser estimate than PHOTO_CAPTION's old Groq-measured figure: assuming
-// ~1,000 combined image+text input tokens + ~300 output tokens,
-// (1000/1e6*$5) + (300/1e6*$30) ≈ $0.014/call ≈ ₹1.22 (at ~₹87/$) -- still
-// comfortably under HOOK_OR_CAPTION's ~₹2.02/credit budget, so this stays
-// at 1, but with less confidence than before; revisit once real OpenAI
-// billing data (or a confirmed image-token count for gpt-5.5) exists.
+// model ($0.75/1M input tokens, $4.50/1M output for gpt-5.4-mini,
+// lib/ai/pricing.ts) rather than a separate image-generation-style rate --
+// but doesn't publish exactly how many tokens one photo costs at a given
+// detail level, so this is a looser estimate than the old Groq-measured
+// figure: assuming ~1,000 combined image+text input tokens + ~300 output
+// tokens, (1000/1e6*$0.75) + (300/1e6*$4.50) ≈ $0.0021/call ≈ ₹0.18 (at
+// ~₹87/$) -- well under HOOK_OR_CAPTION's ~₹2.02/credit budget, so this
+// stays at 1; revisit once real OpenAI billing data (or a confirmed
+// image-token count for gpt-5.4-mini) exists.
 export const PHOTO_CAPTION = HOOK_OR_CAPTION
 
 // ─── Phase 1 text-stages migration (2026-10-25) ────────────────────────────

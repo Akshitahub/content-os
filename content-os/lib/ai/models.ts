@@ -46,15 +46,18 @@ export const GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 // site still uses the OpenAI SDK -- getTextClientFor() below points it at
 // GROQ_BASE_URL for Groq model ids -- so reasoning_effort (low/medium
 // only), max_completion_tokens, response_format json_object and streaming
-// are unchanged. `vision` stays on OpenAI gpt-5.5.
+// are unchanged.
 //
-// `vision` migrated from Groq's qwen/qwen3.6-27b to the same gpt-5.5 --
-// confirmed on the same model page that gpt-5.5 accepts image input (text
-// + image in, text out). Kept as its own named key rather than merged into
-// `creative` (even though the value is identical today), matching this
-// file's existing convention of separate named keys per logical stage --
-// `extraction`/`scoring` already share one value under two names for the
-// same reason.
+// `vision` (critic, slide-photo check, image alignment, subject boxes, art
+// direction, brand photo classification, photo captions) runs on OpenAI
+// gpt-5.4-mini since 2026-11-05 -- moved from gpt-5.5 to cut spend ($0.75 /
+// $4.50 per 1M tokens vs $5 / $30, lib/ai/pricing.ts). Its model page
+// (developers.openai.com/api/docs/models/gpt-5.4-mini) confirms image input,
+// reasoning_effort none / low / medium / high / xhigh and Chat Completions --
+// every vision call uses none or low with max_completion_tokens and no
+// temperature. Kept as its own named key, matching this file's convention
+// of separate named keys per logical stage -- `extraction`/`scoring`
+// already share one value under two names for the same reason.
 export const MODELS = {
   extraction: "openai/gpt-oss-20b",
   generation: "openai/gpt-oss-120b",
