@@ -26,7 +26,7 @@ const FAQS = [
   },
   {
     q: "How many credits does one generation use?",
-    a: "It depends on what you're generating. Quick text (a hook, a caption, a blog post) uses 1 credit. A full post with an AI image is heavier, since AI images cost more to produce than text: expect 5-9 credits depending on the format (Post 5, Story 8, Carousel 9). Autopilot (a full month of content in one click) sums the real cost of everything it generates. Your monthly balance is shown in Settings.",
+    a: "One simple rule: 1 credit for each piece of text, 4 credits for each AI image. A hook or a caption uses 1 credit (a blog post 2). Formats with AI images cost more: Post 5, Story 10, Carousel 10, and each extra AI slide background 4. Autopilot (a full month of content in one click) sums the real cost of everything it generates. Your monthly balance is shown in Settings.",
   },
 ]
 

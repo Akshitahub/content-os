@@ -368,12 +368,12 @@ export interface AutopilotTier {
 // to whole rupees — confirmed: 499x12x0.9=5389.2, 1999x12x0.9=21589.2,
 // 4999x12x0.9=53989.2, matching the values below exactly.
 //
-// autopilot.creditCost: the real weighted default for each tier's slot
-// count — computed via lib/ai/fastlane.ts's estimateAutopilotCreditCost
-// (undefined focusAreas, i.e. the default slot mix), not hand-typed.
-// Starter's 74 is that same function's real output for 14 slots (its mix
-// scales proportionally from the 30-slot base); Pro/Agency's 162 for 30
-// slots is unchanged from before this pricing revision.
+// autopilot.creditCost: the weighted default for each tier's slot count —
+// estimateAutopilotCreditCost (lib/ai/autopilot-content-mix.ts) with
+// undefined focusAreas (the default slot mix), rounded to the nearest 10
+// for display. With the 2026-11-05 weights (POST 5, CAROUSEL 10): 78 for
+// Starter's 14 slots -> 80, 171 for 30 slots -> 170 (were 74 / 162). The
+// real charge is still that function's exact sum for the run's slot mix.
 //
 // autopilot.maxRunsPerMonth: a hard per-user monthly cap on Autopilot
 // RUNS, separate from and enforced alongside the creditCost/generations
@@ -402,9 +402,9 @@ export interface AutopilotTier {
 // not a pricing decision), so this field only matters again once that
 // list expands.
 export const PLAN_LIMITS: Record<UserPlan, { price: number; annualPrice: number; generations: number; brands: number; products: number; zernioSocialPlatforms: boolean; reelsPerWeek: number; autopilot: AutopilotTier; carouselCtaAiBackground: boolean }> = {
-  starter: { price: 499,  annualPrice: 5389,   generations: 150,  brands: 1, products: 30,   zernioSocialPlatforms: false, reelsPerWeek: 0, autopilot: { days: 14, slots: 14, creditCost: 74,  maxRunsPerMonth: 1 }, carouselCtaAiBackground: true },
-  pro:     { price: 1999, annualPrice: 21589,  generations: 600,  brands: 2, products: 200,  zernioSocialPlatforms: true,  reelsPerWeek: 1, autopilot: { days: 30, slots: 30, creditCost: 162, maxRunsPerMonth: 3 }, carouselCtaAiBackground: true },
-  agency:  { price: 4999, annualPrice: 53989,  generations: 1600, brands: 5, products: 1000, zernioSocialPlatforms: true,  reelsPerWeek: 4, autopilot: { days: 30, slots: 30, creditCost: 162, maxRunsPerMonth: 4 }, carouselCtaAiBackground: true },
+  starter: { price: 499,  annualPrice: 5389,   generations: 150,  brands: 1, products: 30,   zernioSocialPlatforms: false, reelsPerWeek: 0, autopilot: { days: 14, slots: 14, creditCost: 80,  maxRunsPerMonth: 1 }, carouselCtaAiBackground: true },
+  pro:     { price: 1999, annualPrice: 21589,  generations: 600,  brands: 2, products: 200,  zernioSocialPlatforms: true,  reelsPerWeek: 1, autopilot: { days: 30, slots: 30, creditCost: 170, maxRunsPerMonth: 3 }, carouselCtaAiBackground: true },
+  agency:  { price: 4999, annualPrice: 53989,  generations: 1600, brands: 5, products: 1000, zernioSocialPlatforms: true,  reelsPerWeek: 4, autopilot: { days: 30, slots: 30, creditCost: 170, maxRunsPerMonth: 4 }, carouselCtaAiBackground: true },
 }
 
 // ─── Trending context ────────────────────────────────────────────────────────
