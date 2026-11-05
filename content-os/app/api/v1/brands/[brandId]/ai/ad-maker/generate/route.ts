@@ -18,7 +18,7 @@ import { timedGenerationRoute, type GenerationTimer } from "@/lib/utils/generati
 import { withDeadline, DeadlineExceededError, GENERATION_TIMED_OUT_MESSAGE } from "@/lib/utils/with-deadline"
 import { prepareGeneratedImage } from "@/lib/storage/generated-image"
 import { getActiveLessons, imageLessonRules } from "@/lib/ai/brand-brain"
-import { generateCreativeConcepts, logConcept, writePromptFromConcept } from "@/lib/ai/creative-concept"
+import { generateCreativeConcepts, logConcept, writeReviewedPrompt } from "@/lib/ai/creative-concept"
 import { recordContentEvent } from "@/lib/usage/content-events"
 import { gateEventMeta } from "@/lib/ai/quality-gate"
 import { sampleImageAlignment } from "@/lib/ai/image-alignment"
@@ -222,7 +222,7 @@ async function handlePost(request: Request, { params }: RouteParams, timer: Gene
         const concept = concepts[i]
         if (!concept) return null
         logConcept(`ad maker variant ${i + 1}`, concept)
-        return writePromptFromConcept({
+        return writeReviewedPrompt({
           flow: "ad_maker", brand, product, concept, rawInput: userDirection ?? null,
           constraints: { visualBrief: v.visual, hasProductReference: !!productImageUrl, aspectRatioLabel: format },
           label: `ad maker variant ${i + 1}`,

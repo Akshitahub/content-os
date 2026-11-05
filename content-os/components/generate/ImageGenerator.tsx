@@ -116,6 +116,8 @@ export function ImageGenerator({ brandId, products }: ImageGeneratorProps) {
         brandId,
         productId: selectedProductId ?? undefined,
         rawInput: prompt.trim() || null,
+        // The idea first (lib/ai/creative-concept.ts).
+        concept: { hook: (prompt.trim() || "A scroll-stopping image for this brand").slice(0, 500) },
         constraints: {
           aspectRatioLabel: aspectRatio,
           styleLabel: STYLES.find((s) => s.value === style)?.label,
@@ -168,6 +170,7 @@ export function ImageGenerator({ brandId, products }: ImageGeneratorProps) {
             brandId,
             productId: selectedProductId ?? undefined,
             rawInput: prompt.trim() || null,
+            concept: { hook: (prompt.trim() || "A scroll-stopping image for this brand").slice(0, 500) },
             constraints: {
               aspectRatioLabel: aspectRatio,
               styleLabel: STYLES.find((s) => s.value === style)?.label,

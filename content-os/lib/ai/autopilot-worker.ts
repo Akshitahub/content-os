@@ -115,6 +115,8 @@ type RunContext = {
   bestOf: number
   /** What the brand's own results say works (lib/ai/performance-learning.ts), top 3 -- the critic's extra context. */
   resultsLessons: string[]
+  /** The brand's active image lessons, as plain rules -- the creative concept stage's input. */
+  imageLessons: string[]
 }
 
 type PreparedSlot = {
@@ -304,6 +306,7 @@ async function loadRunContext(admin: Admin, job: SlotJobRow): Promise<RunContext
     imageColorTheme: resolveColorThemes(brand)[0]!,
     bestOf,
     resultsLessons,
+    imageLessons: imageLessonRules(await getActiveLessons(admin, brand.id, "image")),
   }
 }
 
@@ -509,7 +512,7 @@ async function makeAutopilotPost(admin: Admin, job: SlotJobRow, ctx: RunContext,
       brand,
       input: {
         product, hook: generated.hook, caption, format: "post",
-        lessons: imageLessonRules(await getActiveLessons(admin, brand.id, "image")), fix: criticFix ?? null,
+        lessons: ctx.imageLessons, fix: criticFix ?? null,
       },
       flow: "post", rawInput: generated.imagePrompt || generated.visual_direction || null,
       constraints: { visualBrief: generated.visual, aspectRatioLabel: "4:5 portrait feed post" },
@@ -623,13 +626,28 @@ async function withCarouselBackgrounds(job: SlotJobRow, ctx: RunContext, slides:
     const keepRef = () => (ref ? { ...slide, image_url: ref, background_image_provider: "brand_photo", text_style: null } : { ...slide, detail_image_url: productPhoto })
     if (!visualBrief && !ref && !productPhoto) return slide
     try {
+      // The idea first (lib/ai/creative-concept.ts): its reviewed prompt is
+      // the slide's scene. Fail-soft -- no concept keeps the brief.
+      const role = carouselBgRole(i, slides.length)
+      const concept = await conceptImagePrompt({
+        brand,
+        input: {
+          hook: String(slide.headline ?? ""), caption: typeof slide.subtext === "string" ? slide.subtext : null,
+          format: role === "hook" ? "carousel_cover" : "carousel_slide", role, lessons: ctx.imageLessons,
+          product: productName ? { name: productName, description: null, key_benefits: [] } : null,
+        },
+        flow: "carousel", rawInput: typeof slide.scene_direction === "string" ? slide.scene_direction : null,
+        constraints: { visualBrief, role, hasProductReference: !!(ref ?? productPhoto), aspectRatioLabel: "4:5 portrait carousel slide" },
+        label: `autopilot slot ${job.id} slide ${i + 1}`,
+      })
       // The photo must show this slide's point (lib/ai/slide-photo-check.ts).
       const result = await generateCheckedSlide({
         brand,
         plan: params.plan,
         isInternalUnlimitedUser: params.isInternalUnlimitedUser,
-        role: carouselBgRole(i, slides.length),
-        visualBrief,
+        role,
+        visualBrief: concept ? undefined : visualBrief,
+        customPrompt: concept?.prompt,
         // The product's own photo is the reference, so the slide shows the real product.
         productImageUrl: ref ?? productPhoto,
         userDirection: typeof slide.scene_direction === "string" ? slide.scene_direction : undefined,

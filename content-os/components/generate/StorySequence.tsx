@@ -212,7 +212,7 @@ async function fetchSlideBackgroundResult(
   referenceIsBrandPhoto?: boolean,
   // The cta frame's product -- its photo shows it whole and recognisable.
   ctaSubject?: string | null,
-  // The hook frame only: the creative concept stage's input.
+  // The creative concept stage's input (this frame's own copy).
   conceptCopy?: { hook: string; caption?: string; improve?: string }
 ): Promise<SlideBackgroundOutcome> {
   try {
@@ -225,7 +225,7 @@ async function fetchSlideBackgroundResult(
       // optional, not nullable.
       // visualBrief: this frame's own scene (non-hook frames) -- see
       // lib/ai/story-slide-background.ts. Omitted when the frame has none.
-      body: JSON.stringify({ brandId, vibe, role, productImageUrl: productImageUrl ?? undefined, textPosition, customPrompt: customPrompt || undefined, visualBrief, userDirection: userDirection || undefined, productId, excludePhotoIds: excludePhotoIds?.length ? excludePhotoIds : undefined, ...(referenceIsBrandPhoto ? { referenceIsBrandPhoto: true } : {}), ...(role === "cta" && ctaSubject ? { ctaSubject } : {}), ...(role === "hook" && conceptCopy?.hook ? { conceptCopy } : {}) }),
+      body: JSON.stringify({ brandId, vibe, role, productImageUrl: productImageUrl ?? undefined, textPosition, customPrompt: customPrompt || undefined, visualBrief, userDirection: userDirection || undefined, productId, excludePhotoIds: excludePhotoIds?.length ? excludePhotoIds : undefined, ...(referenceIsBrandPhoto ? { referenceIsBrandPhoto: true } : {}), ...(role === "cta" && ctaSubject ? { ctaSubject } : {}), ...(conceptCopy?.hook ? { conceptCopy } : {}) }),
     })
     if (!res.ok) {
       // The server's reason travels with the failure -- shown on the slide, never a silent flat background.
@@ -1017,6 +1017,8 @@ export function StorySequence({ brandId }: { brandId: string }) {
   // field exactly.
   const [visualPrompt, setVisualPrompt] = useState("")
   const promptWriter = usePromptWriter(setVisualPrompt)
+  // The last background run's concept copy, for retrying failed frames.
+  const conceptCopyRef = useRef<{ hook: string; caption?: string; improve?: string } | null>(null)
   // The user's own typed idea, captured ONCE the first time writeVisualPrompt
   // runs for this session -- kept stable and reused as rawInput on every
   // subsequent Rewrite instead of re-reading `visualPrompt` itself (which
@@ -1175,6 +1177,9 @@ export function StorySequence({ brandId }: { brandId: string }) {
   // debounced autosave effect above, like any other slide change. Returns
   // false if a newer generate() superseded this run.
   async function runStoryBackgrounds(genId: number, slides: StorySlide[], indices: number[], conceptCopy?: { hook: string; caption?: string; improve?: string }): Promise<boolean> {
+    // A retry of failed frames reuses the run's copy (and Make it better's fix).
+    if (conceptCopy) conceptCopyRef.current = conceptCopy
+    const copy = conceptCopy ?? conceptCopyRef.current
     const isCurrent = () => generationIdRef.current === genId
     setImagesGenerating(true)
     setBgProgress({ settled: 0, total: indices.length })
@@ -1210,7 +1215,7 @@ export function StorySequence({ brandId }: { brandId: string }) {
             usedPhotoIds,
             !!ref,
             slide.cta_subject ?? null,
-            role === "hook" ? conceptCopy : undefined
+            copy ? { ...copy, hook: (slide.big_words || slide.text || copy.hook).slice(0, 500) } : undefined
           ),
         }
       }),
@@ -1362,7 +1367,7 @@ export function StorySequence({ brandId }: { brandId: string }) {
         const middle = allSlidesAiBg ? indices.filter((i) => storyBgRole(savedStories[i]!) === "body") : []
         // Frames with a catalogue photo always get their scene made.
         const withRef = indices.filter((i) => savedStories[i]!.product_reference_url && !hookAndCta.includes(i) && !middle.includes(i))
-        // The hook frame's idea comes from its copy (and "Make it better"'s fix).
+        // Each frame's idea comes from its own copy, with the caption (and "Make it better"'s fix).
         const hookCopy = { hook: (savedStories[0]?.big_words || savedStories[0]?.text || topic).slice(0, 500), caption: (json.data.caption?.caption_text ?? "").slice(0, 5000), improve: improveFix?.slice(0, 500) }
         void runStoryBackgrounds(genId, savedStories, [...hookAndCta, ...middle, ...withRef], hookCopy).then((finished) => {
           if (!finished) return

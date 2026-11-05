@@ -65,9 +65,9 @@ const schema = z.object({
   // text_style is measured over. Absent = dead center, SlidePreview's default.
   textPositionX: z.number().min(0).max(100).optional(),
   textPositionY: z.number().min(0).max(100).optional(),
-  // The hook slide / frame only: its copy runs the creative concept stage
-  // (lib/ai/creative-concept.ts), and the concept's prompt replaces the
-  // brief as the scene. `improve` is "Make it better"'s critic fix.
+  // Any AI slide / frame: its copy runs the creative concept stage
+  // (lib/ai/creative-concept.ts), and the concept's reviewed prompt replaces
+  // the brief as the scene. `improve` is "Make it better"'s critic fix.
   conceptCopy: z.object({
     hook: z.string().max(500),
     caption: z.string().max(5000).optional(),
@@ -179,18 +179,18 @@ async function handlePost(request: Request, timer: GenerationTimer) {
   }
 
   const startTime = Date.now()
-  // The cover: the idea first. Fail-soft -- no concept keeps the brief as the scene.
-  const conceptCopy = role === "hook" ? parsed.data.conceptCopy : undefined
+  // The idea first, on every AI slide. Fail-soft -- no concept keeps the brief as the scene.
+  const conceptCopy = parsed.data.conceptCopy
   const concept = conceptCopy ? await timer.step("caption", conceptImagePrompt({
     brand,
     input: {
       product: parsed.data.slideCopy?.productName ? { name: parsed.data.slideCopy.productName, description: null, key_benefits: [] } : null,
-      hook: conceptCopy.hook, caption: conceptCopy.caption, format: "carousel_cover",
+      hook: conceptCopy.hook, caption: conceptCopy.caption, format: role === "hook" ? "carousel_cover" : "carousel_slide", role,
       lessons: imageLessonRules(await getActiveLessons(supabase, brandId, "image")), fix: conceptCopy.improve,
     },
     flow: "carousel", rawInput: parsed.data.userDirection ?? null,
-    constraints: { visualBrief, role: "hook", hasProductReference: !!effectiveProductImageUrl, aspectRatioLabel: "4:5 portrait carousel slide" },
-    label: "carousel cover",
+    constraints: { visualBrief, role, hasProductReference: !!effectiveProductImageUrl, aspectRatioLabel: "4:5 portrait carousel slide" },
+    label: `carousel slide role=${role}`,
   })) : null
   // The photo must show this slide's point: checked and scored (shows_point), never regenerated.
   const result = await timer.step("image", withDeadline(generateCheckedSlide({
@@ -202,7 +202,7 @@ async function handlePost(request: Request, timer: GenerationTimer) {
     productImageUrl: effectiveProductImageUrl,
     slideType,
     customPrompt: concept?.prompt ?? customPrompt,
-    // The concept's prompt is the cover's scene; without one, the brief.
+    // The concept's prompt is the slide's scene; without one, the brief.
     visualBrief: concept ? undefined : visualBrief,
     userDirection: parsed.data.userDirection,
     // Text is composited over slide backgrounds, so "low" is enough --

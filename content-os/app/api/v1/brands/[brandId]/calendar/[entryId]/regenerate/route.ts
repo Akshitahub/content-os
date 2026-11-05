@@ -19,7 +19,8 @@ import type { UserPlan, Platform, GeneratedCaption, CarouselContent } from "@/ty
 import { timedGenerationRoute, type GenerationTimer } from "@/lib/utils/generation-timing"
 import { withDeadline, DeadlineExceededError, GENERATION_TIMED_OUT_MESSAGE } from "@/lib/utils/with-deadline"
 import { prepareGeneratedImage } from "@/lib/storage/generated-image"
-import { getActiveLessons } from "@/lib/ai/brand-brain"
+import { getActiveLessons, imageLessonRules } from "@/lib/ai/brand-brain"
+import { conceptImagePrompt } from "@/lib/ai/creative-concept"
 import { resolveTypography } from "@/lib/design/fonts"
 import { rememberBrandTypography } from "@/lib/design/brand-typography"
 import { stampPostLayout } from "@/lib/design/text-layouts"
@@ -232,9 +233,18 @@ async function handlePost(request: Request, { params }: RouteParams, timer: Gene
     // Content-matched layout for the composited text (lib/design/text-layouts.ts).
     const regenTypography = resolveTypography(brand)
     const regenLayout = stampPostLayout(caption, regenCaptionText, { brand, headingFont: regenTypography.heading, visualKind: caption.visual?.kind, accentColor: getPrimaryColor(brand) })
+    // The idea first (lib/ai/creative-concept.ts), its reviewed prompt the
+    // image's scene. Fail-soft and bounded -- no concept keeps the caption's prompt.
+    const concept = await withDeadline(conceptImagePrompt({
+      brand,
+      input: { hook: hook.hook_text, caption: caption.caption_text, format: "post", lessons: imageLessonRules(await getActiveLessons(supabase, brandId, "image")) },
+      flow: "post", rawInput: caption.image_prompt || entry.visual_direction || null,
+      constraints: { visualBrief: caption.visual ?? undefined, aspectRatioLabel: "4:5 portrait feed post" },
+      label: `calendar regenerate ${entryId}`,
+    }), Math.min(90_000, requestStartedAt + ROUTE_DEADLINE_MS - Date.now() - 120_000), "regenerate concept").catch(() => null)
     const imageResult = await timer.step("image", withDeadline(generatePostImage({
       artDirection,
-      imagePrompt: caption.image_prompt || entry.visual_direction || "professional product photography",
+      imagePrompt: concept?.prompt || caption.image_prompt || entry.visual_direction || "professional product photography",
       brandNiche: brand.niche,
       targetAudience: brand.target_audience,
       template: DEFAULT_POST_TEMPLATE_ID,

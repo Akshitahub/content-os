@@ -4,6 +4,7 @@ import type { BrandRow, ProductRow } from "@/types/database"
 import { briefScene, type VisualBrief, artDirectionBriefRules } from "./visual-brief"
 import type { ArtDirection } from "./brand-brain"
 import type { CreativeConcept } from "./creative-concept"
+import { CRITIC_CRITERIA } from "@/lib/design/critic-scores"
 
 // Shared "prompt-authoring" stage inserted in front of every image
 // generation call in this app (Full Post, Story, Carousel, Ad Maker, and
@@ -80,6 +81,8 @@ export interface ImagePromptConstraints {
    * moment the image must capture. The writer turns it into the prompt and
    * never replaces it with a generic scene. Set server-side only. */
   concept?: CreativeConcept | null
+  /** The prompt review's problems with the last draft (lib/ai/creative-concept.ts) -- fixed in this rewrite. */
+  reviewNotes?: string[]
 }
 
 export interface WriteImagePromptInput {
@@ -159,8 +162,9 @@ function buildConstraintsLine(constraints: ImagePromptConstraints): string {
   }
   if (constraints.concept) {
     const c = constraints.concept
-    lines.push(`CREATIVE CORE -- the image is this moment: ${c.story}${c.hook ? ` Why a thumb stops: ${c.hook}.` : ""}${c.emotion ? ` The feeling: ${c.emotion}.` : ""}${c.device ? ` Storytelling device: ${c.device}.` : ""} Keep this moment, its action and its feeling; never replace it with a generic scene.${c.in_scene_text ? ` In-scene text: the words appear on a real prop in the scene, and the text reads exactly "${c.in_scene_text}", spelled correctly -- no other words anywhere in the image.` : ""}`)
+    lines.push(`CREATIVE CORE -- the image is this moment: ${c.story}${c.hook ? ` Why a thumb stops: ${c.hook}.` : ""}${c.emotion ? ` The feeling: ${c.emotion}.` : ""}${c.device ? ` Storytelling device: ${c.device}.` : ""} Keep this moment, its action and its feeling; never replace it with a generic scene. Write a prompt for an image that scores 9+ on each of: ${CRITIC_CRITERIA.map((k) => `${k.label} (${k.ask})`).join(" ")}${c.in_scene_text ? ` In-scene text: the words appear on a real prop in the scene, and the text reads exactly "${c.in_scene_text}", spelled correctly -- no other words anywhere in the image.` : ""}`)
   }
+  if (constraints.reviewNotes?.length) lines.push(`A reviewer rejected the last draft of this prompt. Fix: ${constraints.reviewNotes.join("; ")}`)
   if (constraints.visualBrief) {
     const brief = constraints.visualBrief
     lines.push(`The image MUST show: ${briefScene(brief, "an abstract atmospheric background image")}.${brief.composition ? ` Composition: ${brief.composition}.` : ""} The user's own input sets style and direction but must not replace this subject.`)

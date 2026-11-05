@@ -40,9 +40,9 @@ const schema = z.object({
   // productImageUrl is already this frame's catalogue brand photo: generate
   // its scene, don't pick another photo.
   referenceIsBrandPhoto: z.boolean().optional(),
-  // The hook slide / frame only: its copy runs the creative concept stage
-  // (lib/ai/creative-concept.ts), and the concept's prompt replaces the
-  // brief as the scene. `improve` is "Make it better"'s critic fix.
+  // Any AI slide / frame: its copy runs the creative concept stage
+  // (lib/ai/creative-concept.ts), and the concept's reviewed prompt replaces
+  // the brief as the scene. `improve` is "Make it better"'s critic fix.
   conceptCopy: z.object({
     hook: z.string().max(500),
     caption: z.string().max(5000).optional(),
@@ -194,17 +194,17 @@ async function handlePost(request: Request, timer: GenerationTimer) {
   }
 
   const startTime = Date.now()
-  // The hook frame: the idea first. Fail-soft -- no concept keeps the brief as the scene.
-  const conceptCopy = role === "hook" ? parsed.data.conceptCopy : undefined
+  // The idea first, on every AI frame. Fail-soft -- no concept keeps the brief as the scene.
+  const conceptCopy = parsed.data.conceptCopy
   const concept = conceptCopy ? await timer.step("caption", conceptImagePrompt({
     brand,
     input: {
-      hook: conceptCopy.hook, caption: conceptCopy.caption, format: "story_frame",
+      hook: conceptCopy.hook, caption: conceptCopy.caption, format: "story_frame", role,
       lessons: imageLessonRules(await getActiveLessons(supabase, brandId, "image")), fix: conceptCopy.improve,
     },
     flow: "story", rawInput: parsed.data.userDirection ?? null,
-    constraints: { visualBrief, role: "hook", hasProductReference: !!(catalogueUrl ?? effectiveProductImageUrl), aspectRatioLabel: "9:16 vertical story" },
-    label: "story hook frame",
+    constraints: { visualBrief, role, hasProductReference: !!(catalogueUrl ?? effectiveProductImageUrl), aspectRatioLabel: "9:16 vertical story" },
+    label: `story frame role=${role}`,
   })) : null
   const result = await timer.step("image", withDeadline(generateCheckedStoryFrame({
     vibe: vibe as StoryVibe | undefined,
@@ -216,7 +216,7 @@ async function handlePost(request: Request, timer: GenerationTimer) {
     textPosition,
     customPrompt: concept?.prompt ?? customPrompt,
     // The catalogue scene is ours; a brief whose kind skips the product reference would drop it.
-    // The concept's prompt is the hook frame's scene when there is one.
+    // The concept's prompt is the frame's scene when there is one.
     visualBrief: catalogueUrl || concept ? undefined : visualBrief,
     userDirection: catalogueUrl ? (catalogue ? candidSceneDirection() : parsed.data.userDirection) : parsed.data.userDirection,
     // Text is composited over slide backgrounds, so "low" is enough --

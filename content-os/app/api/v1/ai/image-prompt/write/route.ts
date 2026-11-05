@@ -9,7 +9,7 @@ import type { BrandRow, ProductRow } from "@/types/database"
 import { getActiveLessons, imageLessonRules } from "@/lib/ai/brand-brain"
 import { brandBrainImageConstraints, parseBrandBrain } from "@/lib/brand-brain-profile"
 import { artDirectionFrom } from "@/lib/ai/brand-brain"
-import { chooseCreativeConcept } from "@/lib/ai/creative-concept"
+import { chooseCreativeConcept, writeReviewedPrompt } from "@/lib/ai/creative-concept"
 import { recordContentEvent } from "@/lib/usage/content-events"
 
 const flowEnum = z.enum(["post", "story", "carousel", "ad_maker", "image_tool"])
@@ -123,12 +123,25 @@ export async function POST(request: Request) {
   // The idea before the prompt. Fail-soft: no concept = the prompt as before.
   const concept = conceptInput ? await chooseCreativeConcept(brand, {
     product, angle: conceptInput.angle, hook: conceptInput.hook, caption: conceptInput.caption,
-    format: flow === "ad_maker" ? "ad" : flow === "story" ? "story_frame" : flow === "carousel" ? "carousel_cover" : "post",
+    format: flow === "ad_maker" ? "ad" : flow === "story" ? "story_frame" : flow === "carousel" ? "carousel_cover" : flow === "image_tool" ? "image" : "post",
     lessons: imageLessons, fix: conceptInput.fix,
   }, `${flow} write`) : null
   if (concept) {
     // Only the device and score -- content_events meta never holds generated copy.
-    recordContentEvent(supabase, { userId: user.id, brandId, contentType: "post_image", contentId: null, event: "concept_chosen", meta: { device: concept.device, score: concept.score, flow } })
+    recordContentEvent(supabase, { userId: user.id, brandId, contentType: "post_image", contentId: null, event: "concept_chosen", meta: { device: concept.device, predicted_score: concept.score, flow } })
+  }
+  const writerConstraints = { ...constraints, visualBrief: sanitizeVisualBrief(constraints.visualBrief), lessons: imageLessons, ...brandVisual, artDirection: artDirectionFrom(brainRow), concept } as ImagePromptConstraints
+  const headers = {
+    "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store",
+    // The concept's words in the picture, for post-image/generate (lib/ai/in-scene-text.ts).
+    ...(concept?.in_scene_text ? { "X-In-Scene-Text": encodeURIComponent(concept.in_scene_text) } : {}),
+  }
+
+  // With a concept the prompt is written AND reviewed (one rewrite when the
+  // review fails) before it's sent, so it arrives whole rather than streamed.
+  if (concept) {
+    const reviewed = await writeReviewedPrompt({ flow: flow as ImagePromptFlow, brand, product, concept, rawInput, constraints: writerConstraints, label: `${flow} write` })
+    if (reviewed) return new Response(reviewed, { status: 200, headers })
   }
 
   let modelStream: Awaited<ReturnType<typeof requestImagePromptStream>>
@@ -140,7 +153,7 @@ export async function POST(request: Request) {
       brand,
       product,
       // The client's brief is re-sanitized, never trusted as sent.
-      constraints: { ...constraints, visualBrief: sanitizeVisualBrief(constraints.visualBrief), lessons: imageLessons, ...brandVisual, artDirection: artDirectionFrom(brainRow), concept } as ImagePromptConstraints,
+      constraints: writerConstraints,
     })
   } catch (err) {
     // Logged as explicit fields (not just a bare `console.error(err)`) so
@@ -185,10 +198,6 @@ export async function POST(request: Request) {
 
   return new Response(body_, {
     status: 200,
-    headers: {
-      "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store",
-      // The concept's words in the picture, for post-image/generate (lib/ai/in-scene-text.ts).
-      ...(concept?.in_scene_text ? { "X-In-Scene-Text": encodeURIComponent(concept.in_scene_text) } : {}),
-    },
+    headers,
   })
 }
