@@ -200,7 +200,7 @@ async function handlePost(request: Request, timer: GenerationTimer) {
     // raised to "medium" automatically when a product photo is attached.
     quality: "low",
     ctaSubject: role === "cta" ? parsed.data.ctaSubject ?? null : null,
-  }, `story-frame role=${role}`, null, () => Date.now() < deadlineAt - 60_000), deadlineAt - Date.now(), "story slide image")).catch((err): Awaited<ReturnType<typeof generateStorySlideBackground>> => ({
+  }, `story-frame role=${role}`, null), deadlineAt - Date.now(), "story slide image")).catch((err): Awaited<ReturnType<typeof generateStorySlideBackground>> => ({
     // Deadline hit (or an unexpected throw): handled exactly like a failed
     // generation below -- logged and refunded.
     success: false,
