@@ -14,7 +14,7 @@ const FAQS = [
   },
   {
     q: "What platforms does it support?",
-    a: "SocioPosts can write content tailored for Instagram, LinkedIn, Twitter/X, TikTok, Facebook, and YouTube — you can specify the platform for each generation to get tone and format that matches. Auto-posting and scheduling connects directly to Instagram right now, with more platforms coming as we grow.",
+    a: "SocioPosts can write content tailored for Instagram, LinkedIn, Twitter/X, TikTok, Facebook, and YouTube. Pick the platform for each generation and the tone and format match it. Auto-posting and scheduling connects directly to Instagram right now, with more platforms coming as we grow.",
   },
   {
     q: "Can I cancel anytime?",

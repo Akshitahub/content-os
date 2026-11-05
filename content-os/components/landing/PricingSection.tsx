@@ -97,7 +97,7 @@ const TIERS: PricingTier[] = [
     features: [
       brandsNote("starter"),
       creditsLine("starter"),
-      "Download-ready posts — publish manually",
+      "Download-ready posts to publish yourself",
       autopilotNote("starter"),
       "Basic analytics & ROI tracking",
     ],
@@ -138,7 +138,7 @@ export function PricingSection() {
       <div className="mb-8 text-center">
         <span className="mb-3 inline-block rounded-full bg-violet-50 px-3 py-1 text-xs font-semibold uppercase tracking-widest text-violet-600">Pricing</span>
         <h2 className="text-3xl font-bold tracking-tight text-gray-900 sm:text-4xl">Simple, honest pricing</h2>
-        <p className="mt-2 text-sm font-semibold text-emerald-600">Starter and Pro start with a 7-day free trial — no card required. Agency goes straight to checkout.</p>
+        <p className="mt-2 text-sm font-semibold text-emerald-600">Starter and Pro start with a 7-day free trial. No card required. Agency goes straight to checkout.</p>
       </div>
 
       {/* Monthly / Annual toggle */}
