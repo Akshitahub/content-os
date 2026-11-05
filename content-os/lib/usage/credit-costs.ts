@@ -28,7 +28,10 @@ export const HOOK_OR_CAPTION = 1
 export const BLOG_POST = 2
 export const POST = 5
 export const STORY = 10
-export const AD_MAKER = 5
+// Ad Maker: 3 variations x 4 (IMAGE) -- VARIATION_COUNT gpt-image-2 images
+// per run in app/api/v1/brands/[brandId]/ai/ad-maker/generate/route.ts --
+// plus 3 for the strategy / copy text calls.
+export const AD_MAKER = 15
 export const CAROUSEL = 10
 // The standalone Images tab (lib/ai/image-generator.ts): one raw AI image.
 export const IMAGE = 4
