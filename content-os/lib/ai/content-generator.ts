@@ -237,9 +237,9 @@ export async function generateContent(
     const platform = options.platform ?? "instagram"
 
     // max_completion_tokens (not the deprecated max_tokens), same reasoning
-    // as lib/ai/captions-generator.ts's identical call -- gpt-5.5-class
-    // models are reasoning models. `temperature` deliberately omitted, same
-    // reasoning as that file too.
+    // as lib/ai/captions-generator.ts's identical call -- Groq's
+    // gpt-oss-120b is a reasoning model. `temperature` deliberately omitted,
+    // same reasoning as that file too.
     const requestParams = {
       model: captionModel,
       reasoning_effort: reasoningEffort,
@@ -360,7 +360,7 @@ export async function generateContent(
           model,
           reasoning_effort: reasoningEffort,
           // max_completion_tokens (not the deprecated max_tokens) since
-          // gpt-5.5-class models are reasoning models, same convention as
+          // Groq's gpt-oss-120b is a reasoning model, same convention as
           // lib/ai/captions-generator.ts. `temperature` deliberately
           // omitted, same reasoning as that file.
           max_completion_tokens: maxTokens,

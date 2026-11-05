@@ -334,9 +334,9 @@ function carouselCallParams(prompt: string, slideCount: number) {
     system: "You are an expert carousel content creator for Indian D2C brands on Instagram and LinkedIn. CRITICAL: Respond with ONLY valid JSON. No markdown code fences, no explanation text before or after, no trailing commas. The response must be parseable by JSON.parse() directly.",
     user: prompt,
     // Structured multi-slide JSON genuinely benefits from real reasoning
-    // -- same "medium" as on Groq (measured there: a 7-slide carousel
-    // spent 828 of 1499 completion tokens on hidden reasoning). Budget
-    // unchanged; reasoning tokens count against it on gpt-5.5 too.
+    // -- "medium" on Groq's gpt-oss-120b (measured: a 7-slide carousel
+    // spent 828 of 1499 completion tokens on hidden reasoning, which counts
+    // against the budget).
     reasoningEffort: "medium" as const,
     // Raised from max(4000, slideCount * 500) for the narrative_plan and
     // the per-slide visual briefs the model now writes -- an ESTIMATE, not

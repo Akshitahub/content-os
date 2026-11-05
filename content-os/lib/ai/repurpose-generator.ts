@@ -91,8 +91,8 @@ export async function generateRepurposedContent(content: string, brand: BrandRow
       user: buildRepurposePrompt(content, brand),
       // The widest single output of any generation surface -- 5 hooks, 3
       // carousel outlines, 2 reel scripts, 5 tweets and a 200-400 word
-      // LinkedIn post in one JSON blob -- same "medium" and budget as on
-      // Groq (reasoning tokens count against it on gpt-5.5 too).
+      // LinkedIn post in one JSON blob -- "medium" on Groq's gpt-oss-120b
+      // (reasoning tokens count against the budget).
       reasoningEffort: "medium",
       maxCompletionTokens: 4500,
       // ESTIMATE, not measured (no OPENAI_API_KEY where this was written) --

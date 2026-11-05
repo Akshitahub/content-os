@@ -38,9 +38,8 @@ export async function generateBlogPost(
   // English prose, PLUS hidden reasoning tokens that count against this
   // same budget on a reasoning model. Floored at 1800 so a short target
   // still has room to finish the JSON structure cleanly rather than
-  // getting cut off mid-object. (The Groq-era comment this replaced had
-  // measured reasoning overhead specifically for openai/gpt-oss-120b --
-  // not re-measured yet for gpt-5.5, see scripts/test-creative-stages.ts.)
+  // getting cut off mid-object. (Runs on Groq's openai/gpt-oss-120b, a
+  // reasoning model -- see scripts/test-creative-stages.ts.)
   const maxTokens = Math.max(1800, Math.round(options.wordLimit * 3))
 
   const startTime = Date.now()
@@ -49,8 +48,8 @@ export async function generateBlogPost(
     first = await createTextCompletion(
       {
         model,
-        // Long-form -- "medium" (gpt-5.5's own default) per the migration
-        // spec's "default for long-form blog/reel scripts" guidance.
+        // Long-form -- "medium", the effort gpt-oss-120b gets for
+        // long-form blog / reel scripts.
         reasoning_effort: "medium",
         max_completion_tokens: maxTokens,
         response_format: { type: "json_object" },

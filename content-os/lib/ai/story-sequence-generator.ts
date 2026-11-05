@@ -334,9 +334,9 @@ export async function requestStorySequence(
 ${QUALITY_BAR}`,
     user: withLessons(buildStoriesPrompt(brand, topic, storyCount, vibe, pastExamples, frameCtx), lessons),
     // Structured multi-slide JSON needs real reasoning to keep the
-    // narrative arc coherent across slides -- same "medium" as on Groq.
-    // Budget scales with storyCount (up to 10), unchanged from Groq: hidden
-    // reasoning tokens count against it on gpt-5.5 too.
+    // narrative arc coherent across slides -- "medium" on Groq's
+    // gpt-oss-120b. Budget scales with storyCount (up to 10); hidden
+    // reasoning tokens count against it.
     reasoningEffort: "medium" as const,
     // Raised from max(3000, storyCount * 350) for the story_plan and the
     // per-frame visual briefs the normal prompt now asks for -- an

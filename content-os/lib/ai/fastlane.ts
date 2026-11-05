@@ -201,11 +201,10 @@ Respond with this exact JSON:
  * unlike executeFastlane below, which this function never touches.
  */
 export async function generateStrategyOverview(brand: BrandRow, params?: AutopilotParams): Promise<StrategyOverview> {
-  // Moved from Groq to OpenAI (MODELS.creative) in the Phase 1b migration.
-  // Short structured preview (goal + frequency + 4 week themes) that still
-  // benefits from real reasoning about the brand's specific strategy --
-  // "medium", same effort and budget as on Groq (reasoning tokens count
-  // against it on gpt-5.5 too).
+  // On Groq's gpt-oss-120b (MODELS.creative). Short structured preview
+  // (goal + frequency + 4 week themes) that still benefits from real
+  // reasoning about the brand's specific strategy -- "medium" (reasoning
+  // tokens count against the budget).
   const { content } = await createCreativeCompletion({
     stage: "autopilot_strategy_overview",
     logPrefix: "fastlane",
@@ -458,12 +457,10 @@ export async function generateContentStrategy(brand: BrandRow, products: Product
     user: userPrompt,
     reasoningEffort: "medium",
     maxCompletionTokens: 12000,
-    // ESTIMATE, not measured (no OPENAI_API_KEY where this was written) --
-    // see scripts/test-creative-stages.ts. The single slowest text call in
-    // the app (~4-5k completion tokens at medium effort); generous, but
-    // still well inside app/api/v1/brands/fastlane/route.ts's
-    // maxDuration=300 for the run as a whole. 60s since the 2026-10-26 move
-    // back to Groq gpt-oss-120b, which is much faster than gpt-5.5 was.
+    // The single slowest text call in the app (~4-5k completion tokens at
+    // medium effort on Groq's gpt-oss-120b); 60s is generous, and well
+    // inside app/api/v1/brands/fastlane/route.ts's maxDuration=300 for the
+    // run as a whole.
     timeoutMs: 60_000,
   })
 

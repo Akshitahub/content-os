@@ -42,8 +42,8 @@ const schema = z.object({
   // "Visual scene") -- was capped at 500, matching (and inherited from) the
   // old UI cap on Post's own textarea. Raised to 5000 so a genuinely long
   // brief reaches the model in full instead of being rejected outright; the
-  // model itself (gpt-5.5, 1.05M token context) has more than
-  // enough headroom for 5000 chars (~1250 tokens) of input alongside the
+  // model itself (Groq's openai/gpt-oss-120b, 131K token context) has
+  // plenty of headroom for 5000 chars (~1250 tokens) of input alongside the
   // system prompt and this call's own max_completion_tokens budget.
   rawInput: z.string().max(5000, "Your brief is too long -- please keep it under 5000 characters.").nullable().optional().transform((v) => v?.replace(/<[^>]*>/g, "").trim() || null),
   // True for an explicit "Rewrite"/"Regenerate" request -- see

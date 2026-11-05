@@ -115,9 +115,9 @@ async function main() {
   const scoring = await createTextCompletion({ ...request, model: MODELS.scoring }, { stage: "quality_gate", timeout: 5000 })
   check("scoring model runs on Groq", scoring.provider === "groq" && scoring.model === MODELS.scoring, scoring.model)
 
-  // 8. A non-Groq model id is refused, never sent to OpenAI.
+  // 8. A non-Groq model id (here OpenAI's image model) is refused, never sent to OpenAI.
   reset()
-  const foreign = await fails(createTextCompletion({ ...request, model: "gpt-5.4" }, { stage: "story", timeout: 5000 }))
+  const foreign = await fails(createTextCompletion({ ...request, model: "gpt-image-2" }, { stage: "story", timeout: 5000 }))
   check("a non-Groq model is refused", typeof foreign === "object" && /not a Groq model/.test(foreign.message) && groqCalls === 0, foreign)
 
   // 9. Through a real call site: createCreativeCompletion (stories / carousels / Autopilot).

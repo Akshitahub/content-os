@@ -2,14 +2,12 @@ import { MODELS } from "./models"
 import { createTextCompletion } from "./provider-fallback"
 import { textCostUsd, toTextUsage, type TextUsage } from "./pricing"
 
-// Shared OpenAI call for the Phase 1b creative-stages migration (story,
-// carousel, repurpose, occasion-content, Autopilot) -- same API style as
-// the Phase 1 call sites (lib/ai/hooks-generator.ts, content-generator.ts):
-// max_completion_tokens instead of the deprecated max_tokens (gpt-5.5 is a
-// reasoning model, hidden reasoning tokens count against it), no
-// `temperature` (not verified live that this reasoning model accepts a
-// non-default one), JSON mode, an explicit per-call timeout and
-// maxRetries: 1. Exists only so those 8 new call sites share one
+// Shared creative text call (story, carousel, repurpose, occasion-content,
+// Autopilot) on Groq's openai/gpt-oss-120b (MODELS.creative) -- same API
+// style as lib/ai/hooks-generator.ts and content-generator.ts:
+// max_completion_tokens instead of the deprecated max_tokens (a reasoning
+// model, hidden reasoning tokens count against it), no `temperature` (left
+// at the model's default), JSON mode and an explicit per-call timeout. Exists only so those 8 new call sites share one
 // provider/model/stage/latency/success log line instead of each
 // duplicating it; the Phase 1 call sites are deliberately left as they are.
 //

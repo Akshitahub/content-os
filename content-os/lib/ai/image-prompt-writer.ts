@@ -207,11 +207,10 @@ export async function requestImagePromptStream(input: WriteImagePromptInput) {
       // Speed matters here (this fires automatically on entering every
       // image-generation flow) -- "low" per the migration spec.
       reasoning_effort: "low",
-      // max_completion_tokens (not the deprecated max_tokens) since
-      // gpt-5.5-class models are reasoning models, same convention as
-      // lib/ai/captions-generator.ts. Was 400 on Groq for an 80-150 word
-      // (~110-200 token) completion plus hidden reasoning tokens; kept the
-      // same headroom here since the target output length is unchanged.
+      // max_completion_tokens (not the deprecated max_tokens) since Groq's
+      // gpt-oss-120b is a reasoning model, same convention as
+      // lib/ai/captions-generator.ts. Sized for an 80-150 word (~110-200
+      // token) completion plus hidden reasoning tokens.
       // `temperature` deliberately omitted, same reasoning as that file.
       max_completion_tokens: 400,
       stream: true,

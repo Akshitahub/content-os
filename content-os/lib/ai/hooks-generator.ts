@@ -56,10 +56,9 @@ export async function generateHooks(
           // this stage already used on Groq) -- "low" per the migration spec.
           reasoning_effort: "low",
           // max_completion_tokens (not the deprecated max_tokens) since
-          // gpt-5.5-class models are reasoning models, same convention as
+          // Groq's gpt-oss-120b is a reasoning model, same convention as
           // lib/ai/captions-generator.ts. `temperature` deliberately omitted,
-          // same reasoning as that file: not verified live whether this
-          // reasoning model accepts a non-default sampling temperature.
+          // same reasoning as that file.
           max_completion_tokens: 1000,
           response_format: { type: "json_object" },
           messages: msgs,

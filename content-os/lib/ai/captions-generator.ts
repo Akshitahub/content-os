@@ -44,11 +44,8 @@ export async function generateCaption(
   // tokens count against the completion budget for a reasoning-class
   // model) -- "low" is plenty for short, punchy copywriting, no need for
   // deeper reasoning here. max_completion_tokens (not the deprecated
-  // max_tokens) since gpt-5.5-class models are reasoning models.
-  // `temperature` deliberately omitted -- not verified live whether this
-  // reasoning model accepts a non-default sampling temperature the way
-  // Groq's gpt-oss models did; left at the model's own default rather than
-  // guessing and risking a rejected request.
+  // max_tokens) since Groq's gpt-oss-120b is a reasoning model.
+  // `temperature` deliberately omitted -- left at the model's own default.
   const requestParams = {
     model,
     reasoning_effort: "low" as const,

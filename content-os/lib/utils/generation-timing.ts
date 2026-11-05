@@ -1,5 +1,6 @@
-// Start/end timing lines for generation routes, so real gpt-5.5 (caption /
-// copy) and gpt-image-2 (image) latencies show up in Vercel's logs:
+// Start/end timing lines for generation routes, so real text (Groq
+// gpt-oss-120b / -20b, vision on qwen/qwen3.8-27b) and gpt-image-2 (image,
+// OpenAI) latencies show up in Vercel's logs:
 //
 //   [gen-timing] route=post-image event=start
 //   [gen-timing] route=post-image event=end status=200 totalMs=41234 imageMs=40876
