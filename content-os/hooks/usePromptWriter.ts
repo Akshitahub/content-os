@@ -35,6 +35,8 @@ export interface PromptWriterArgs {
    * asks for variety, not a changed input. */
   isRewrite?: boolean
   constraints?: PromptWriterConstraints
+  /** The post's copy -- runs the creative concept stage first (see the write route). */
+  concept?: { hook: string; caption?: string; angle?: string; fix?: string }
 }
 
 /**

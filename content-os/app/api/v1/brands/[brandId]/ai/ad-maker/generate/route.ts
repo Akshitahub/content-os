@@ -17,7 +17,8 @@ import type { UserPlan } from "@/types/app"
 import { timedGenerationRoute, type GenerationTimer } from "@/lib/utils/generation-timing"
 import { withDeadline, DeadlineExceededError, GENERATION_TIMED_OUT_MESSAGE } from "@/lib/utils/with-deadline"
 import { prepareGeneratedImage } from "@/lib/storage/generated-image"
-import { getActiveLessons } from "@/lib/ai/brand-brain"
+import { getActiveLessons, imageLessonRules } from "@/lib/ai/brand-brain"
+import { generateCreativeConcepts, logConcept, writePromptFromConcept } from "@/lib/ai/creative-concept"
 import { recordContentEvent } from "@/lib/usage/content-events"
 import { gateEventMeta } from "@/lib/ai/quality-gate"
 import { sampleImageAlignment } from "@/lib/ai/image-alignment"
@@ -179,8 +180,8 @@ async function handlePost(request: Request, { params }: RouteParams, timer: Gene
   // brand_brain; the strategy's briefs and every background use it. Fail-soft.
   const artDirection = await artDirectionForRequest(supabase, brand)
   let strategy: AdStrategyResult | null = null
+  let product: ProductRow | null = null
   try {
-    let product: ProductRow | null = null
     if (productId) {
       const { data: prod } = await supabase.from("products").select("*").eq("id", productId).eq("brand_id", brandId).single<ProductRow>()
       product = prod
@@ -204,6 +205,35 @@ async function handlePost(request: Request, { params }: RouteParams, timer: Gene
     console.error("[ai/ad-maker/generate] ad strategy failed, falling back to brief-less variations:", err instanceof Error ? err.message : err)
   }
 
+  // One creative concept per variant (lib/ai/creative-concept.ts) -- all 3
+  // used, concept N for variant N -- each written into that variant's scene
+  // by the image-prompt writer. Fail-soft and bounded: no concepts = the
+  // variants' briefs as before.
+  const conceptPrompts: (string | null)[] = strategy
+    ? await timer.step("caption", withDeadline((async () => {
+      const variants = strategy!.variants.slice(0, VARIATION_COUNT)
+      const concepts = await generateCreativeConcepts(brand, {
+        product, hook: variants.map((v) => v.headline).join(" / "), caption: variants[0]?.primary_text, format: "ad",
+        lessons: imageLessonRules(await getActiveLessons(supabase, brandId, "image")),
+        variants: variants.map((v) => ({ angle: v.angle, headline: v.headline })),
+      }, "ad maker")
+      if (!concepts) return []
+      return Promise.all(variants.map((v, i) => {
+        const concept = concepts[i]
+        if (!concept) return null
+        logConcept(`ad maker variant ${i + 1}`, concept)
+        return writePromptFromConcept({
+          flow: "ad_maker", brand, product, concept, rawInput: userDirection ?? null,
+          constraints: { visualBrief: v.visual, hasProductReference: !!productImageUrl, aspectRatioLabel: format },
+          label: `ad maker variant ${i + 1}`,
+        })
+      }))
+    })(), Math.min(45_000, deadlineAt - Date.now() - 60_000), "ad maker concepts").catch((err) => {
+      console.error("[ai/ad-maker/generate] creative concepts failed, using the variants' briefs:", err instanceof Error ? err.message : err)
+      return []
+    }))
+    : []
+
   const backgroundOptions = {
     scene,
     customScene,
@@ -219,7 +249,7 @@ async function handlePost(request: Request, { params }: RouteParams, timer: Gene
   const results = await timer.step("image", Promise.all(
     Array.from({ length: VARIATION_COUNT }, async (_, i): Promise<Awaited<ReturnType<typeof generateAdMakerBackground>>> => {
       if (i > 0) await sleep(i * STAGGER_MS)
-      return withDeadline(generateAdMakerBackground({ ...backgroundOptions, visualBrief: strategy?.variants[i]?.visual }), deadlineAt - Date.now(), "ad maker variation").catch((err) => ({
+      return withDeadline(generateAdMakerBackground({ ...backgroundOptions, visualBrief: strategy?.variants[i]?.visual, conceptPrompt: conceptPrompts[i] ?? null }), deadlineAt - Date.now(), "ad maker variation").catch((err) => ({
         success: false as const,
         error: err instanceof DeadlineExceededError ? GENERATION_TIMED_OUT_MESSAGE : (err instanceof Error ? err.message : "Image generation failed"),
         attempts: [],

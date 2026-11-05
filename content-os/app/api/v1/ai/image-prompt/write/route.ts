@@ -9,6 +9,8 @@ import type { BrandRow, ProductRow } from "@/types/database"
 import { getActiveLessons, imageLessonRules } from "@/lib/ai/brand-brain"
 import { brandBrainImageConstraints, parseBrandBrain } from "@/lib/brand-brain-profile"
 import { artDirectionFrom } from "@/lib/ai/brand-brain"
+import { chooseCreativeConcept } from "@/lib/ai/creative-concept"
+import { recordContentEvent } from "@/lib/usage/content-events"
 
 const flowEnum = z.enum(["post", "story", "carousel", "ad_maker", "image_tool"])
 
@@ -52,6 +54,15 @@ const schema = z.object({
   // previous attempt to differ from on its own).
   isRewrite: z.boolean().optional(),
   constraints: constraintsSchema.default({}),
+  // The post's copy, once it exists: runs the creative concept stage
+  // (lib/ai/creative-concept.ts) first, and its winning concept becomes the
+  // prompt's creative core. `fix` is "Make it better"'s critic fix.
+  concept: z.object({
+    hook: z.string().max(500),
+    caption: z.string().max(5000).optional(),
+    angle: z.string().max(40).optional(),
+    fix: z.string().max(500).optional(),
+  }).optional(),
 })
 
 // This route deliberately never calls checkAndIncrementUsage/charges a
@@ -79,14 +90,14 @@ export async function POST(request: Request) {
   // the convention already used elsewhere (e.g. carousel/generate/route.ts).
   if (!parsed.success) return Response.json(buildError(ErrorCodes.VALIDATION_ERROR, "Validation failed.", parsed.error.issues[0]?.message), { status: 400 })
 
-  const { flow, brandId, productId, product: inlineProduct, rawInput, isRewrite, constraints } = parsed.data
+  const { flow, brandId, productId, product: inlineProduct, rawInput, isRewrite, constraints, concept: conceptInput } = parsed.data
 
   const { data: brand } = await supabase
     .from("brands")
-    .select("name, niche, target_audience, tone_of_voice, vibe")
+    .select("*")
     .eq("id", brandId)
     .eq("user_id", user.id)
-    .single<Pick<BrandRow, "name" | "niche" | "target_audience" | "tone_of_voice" | "vibe">>()
+    .single<BrandRow>()
   if (!brand) return Response.json(buildError(ErrorCodes.BRAND_NOT_FOUND, "Brand not found."), { status: 404 })
 
   let product: Pick<ProductRow, "name" | "description" | "key_benefits"> | null = null
@@ -109,6 +120,17 @@ export async function POST(request: Request) {
   const { data: brainRow } = await supabase.from("brands").select("brand_brain").eq("id", brandId).maybeSingle() as { data: { brand_brain?: unknown } | null }
   const brandVisual = brandBrainImageConstraints(parseBrandBrain(brainRow?.brand_brain))
 
+  // The idea before the prompt. Fail-soft: no concept = the prompt as before.
+  const concept = conceptInput ? await chooseCreativeConcept(brand, {
+    product, angle: conceptInput.angle, hook: conceptInput.hook, caption: conceptInput.caption,
+    format: flow === "ad_maker" ? "ad" : flow === "story" ? "story_frame" : flow === "carousel" ? "carousel_cover" : "post",
+    lessons: imageLessons, fix: conceptInput.fix,
+  }, `${flow} write`) : null
+  if (concept) {
+    // Only the device and score -- content_events meta never holds generated copy.
+    recordContentEvent(supabase, { userId: user.id, brandId, contentType: "post_image", contentId: null, event: "concept_chosen", meta: { device: concept.device, score: concept.score, flow } })
+  }
+
   let modelStream: Awaited<ReturnType<typeof requestImagePromptStream>>
   try {
     modelStream = await requestImagePromptStream({
@@ -118,7 +140,7 @@ export async function POST(request: Request) {
       brand,
       product,
       // The client's brief is re-sanitized, never trusted as sent.
-      constraints: { ...constraints, visualBrief: sanitizeVisualBrief(constraints.visualBrief), lessons: imageLessons, ...brandVisual, artDirection: artDirectionFrom(brainRow) } as ImagePromptConstraints,
+      constraints: { ...constraints, visualBrief: sanitizeVisualBrief(constraints.visualBrief), lessons: imageLessons, ...brandVisual, artDirection: artDirectionFrom(brainRow), concept } as ImagePromptConstraints,
     })
   } catch (err) {
     // Logged as explicit fields (not just a bare `console.error(err)`) so

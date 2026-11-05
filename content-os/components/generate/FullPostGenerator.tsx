@@ -149,6 +149,8 @@ export function FullPostGenerator({ brandId, products }: Props) {
   const regenFeedbackRef = useRef<string | null>(null)
   // "Make it better" with an image fix: the last version's layout, never reused by the new one.
   const avoidLayoutRef = useRef<TextLayoutId | null>(null)
+  // "Make it better"'s critic fix, for the creative concept stage (a new concept, not a reworded prompt).
+  const conceptFixRef = useRef<string | null>(null)
   // "Make it better" with a layout / text fix: same photo, new words + layout (no image call).
   const [recompositing, setRecompositing] = useState(false)
   const [versionNotice, setVersionNotice] = useState<string | null>(null)
@@ -369,12 +371,21 @@ export function FullPostGenerator({ brandId, products }: Props) {
     setImageSource(null)
     setImageError(null)
     const seed = additionalContext.trim() || caption.image_prompt?.trim() || null
+    const fix = conceptFixRef.current
+    conceptFixRef.current = null
     promptWriter.write({
       flow: "post",
       brandId,
       productId: selectedProductId ?? undefined,
       rawInput: seed,
       isRewrite,
+      // The idea first (lib/ai/creative-concept.ts): a moment that tells this post's story.
+      concept: {
+        hook: data.hook.hook_text.slice(0, 500),
+        caption: caption.caption_text?.slice(0, 5000),
+        angle: contentAngle,
+        fix: fix?.slice(0, 500) || undefined,
+      },
       constraints: {
         aspectRatioLabel: aspectRatio,
         styleLabel: visualStyle,
@@ -384,7 +395,7 @@ export function FullPostGenerator({ brandId, products }: Props) {
         visualBrief: caption.visual ?? undefined,
       },
     })
-  }, [brandId, selectedProductId, aspectRatio, visualStyle, promptWriter, additionalContext, runImageGeneration])
+  }, [brandId, selectedProductId, aspectRatio, visualStyle, promptWriter, additionalContext, runImageGeneration, contentAngle])
 
   const handleConfirmGenerateImage = useCallback(() => {
     if (!pendingImageGen || !aiImagePrompt.trim()) return
@@ -599,6 +610,7 @@ export function FullPostGenerator({ brandId, products }: Props) {
       return
     }
     avoidLayoutRef.current = overlayLayout?.text_layout ?? null
+    conceptFixRef.current = fix
     startGeneration(fix)
   }
 

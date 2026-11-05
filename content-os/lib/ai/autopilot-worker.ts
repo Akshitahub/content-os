@@ -34,7 +34,8 @@ import { PLAN_LIMITS } from "@/types/app"
 import type { BrandRow, ProductRow, CalendarEntryRow, Json, Database } from "@/types/database"
 import type { ContentSlot, FastlaneResult, Platform, ReelScene, UserPlan } from "@/types/app"
 import { prepareGeneratedImage } from "@/lib/storage/generated-image"
-import { getActiveLessons } from "@/lib/ai/brand-brain"
+import { getActiveLessons, imageLessonRules } from "@/lib/ai/brand-brain"
+import { conceptImagePrompt } from "./creative-concept"
 import { exploresThisSlot, getPerformanceLessons } from "@/lib/ai/performance-learning"
 import { recordContentEvent } from "@/lib/usage/content-events"
 import { resolveTypography } from "@/lib/design/fonts"
@@ -360,7 +361,7 @@ async function prepareSlot(admin: Admin, job: SlotJobRow, ctx: RunContext, track
         const saved = toSavedCritic(post.critic)
         const feedback = `it scored ${post.critic.overall}/10. Fix: ${post.critic.top_fix}${saved.reasons.length ? `. Weak spots: ${saved.reasons.join("; ")}` : ""}`
         const regen = await generateSlotContent(brand, slot, product, params.totalSlots, tracker, workDeadline - 60_000, lessons, hookLessons, feedback, postDate)
-        const second = await makeAutopilotPost(admin, job, ctx, tracker, regen, merge(regen), product, 1)
+        const second = await makeAutopilotPost(admin, job, ctx, tracker, regen, merge(regen), product, 1, post.critic.top_fix)
         if (second.critic && second.critic.overall > post.critic.overall) {
           generated = regen
           mergedCaption = merge(regen)
@@ -484,7 +485,7 @@ type AutopilotPost = { imageUrl: string | null; designed: { imageUrl: string; de
  * -- only the best is uploaded. The critic unavailable = the first design,
  * exactly as before. Never throws.
  */
-async function makeAutopilotPost(admin: Admin, job: SlotJobRow, ctx: RunContext, tracker: AutopilotUsageTracker, generated: PreparedSlot["generated"], caption: string, product: ProductRow | null, bestOf: number): Promise<AutopilotPost> {
+async function makeAutopilotPost(admin: Admin, job: SlotJobRow, ctx: RunContext, tracker: AutopilotUsageTracker, generated: PreparedSlot["generated"], caption: string, product: ProductRow | null, bestOf: number, criticFix?: string): Promise<AutopilotPost> {
   const { brand, params } = ctx
   const none: AutopilotPost = { imageUrl: null, designed: null, critic: null, candidates: 0 }
   try {
@@ -500,11 +501,24 @@ async function makeAutopilotPost(admin: Admin, job: SlotJobRow, ctx: RunContext,
       label: `autopilot slot ${job.id}`, format: "post",
       preferUgc: prefersCustomerPhoto(generated.postDesignFields?.template),
     }))[0] ?? null
+    // No fitting photo -> the image is generated: the idea first (lib/ai/
+    // creative-concept.ts), written into the prompt; after the critic, its
+    // fix goes in so the regeneration gets a new concept. Fail-soft.
+    const concept = brandPhoto ? null : await conceptImagePrompt({
+      brand,
+      input: {
+        product, hook: generated.hook, caption, format: "post",
+        lessons: imageLessonRules(await getActiveLessons(admin, brand.id, "image")), fix: criticFix ?? null,
+      },
+      flow: "post", rawInput: generated.imagePrompt || generated.visual_direction || null,
+      constraints: { visualBrief: generated.visual, aspectRatioLabel: "4:5 portrait feed post" },
+      label: `autopilot slot ${job.id}`,
+    })
     // A catalogue shot on a lifestyle post -> a candid scene with it as the
     // product reference (lib/ai/catalogue-photos.ts); else the photo as is.
     const imageResult = await postImageFromBrandPhoto({
       artDirection: artDirectionFrom(brand),
-      imagePrompt: generated.imagePrompt || generated.visual_direction || "professional product photography",
+      imagePrompt: concept?.prompt || generated.imagePrompt || generated.visual_direction || "professional product photography",
       visualBrief: generated.visual,
       brandNiche: brand.niche,
       targetAudience: brand.target_audience,

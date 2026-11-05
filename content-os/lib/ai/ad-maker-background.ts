@@ -77,6 +77,11 @@ export interface GenerateAdMakerBackgroundOptions {
   userDirection?: string | null
   /** The brand's art direction (lib/ai/brand-brain.ts). Omitted = unchanged. */
   artDirection?: ArtDirection | null
+  /** This variant's creative concept, written into a scene by the
+   * image-prompt writer (lib/ai/creative-concept.ts). When present it IS
+   * the creative core -- the brief and scene preset only shaped it -- and
+   * every guard below still applies. Omitted = the brief, as before. */
+  conceptPrompt?: string | null
 }
 
 /**
@@ -94,6 +99,7 @@ export async function generateAdMakerBackground(
   // used (its invented props cluttered every variation); the user's own
   // typed text rides along as direction. Without a brief: unchanged.
   const brief = options.visualBrief
+  const conceptPrompt = options.conceptPrompt?.trim() || null
   const sceneDesc = brief
     ? resolveSceneDescription(options.scene, options.customScene)
     : options.customPrompt?.trim() || resolveSceneDescription(options.scene, options.customScene)
@@ -110,7 +116,7 @@ export async function generateAdMakerBackground(
   // quality/composition guards layered on top of the scene description,
   // wrapped for a real product reference photo when one's attached.
   const sceneDescription = [
-    brief ? `${briefCore}, set in: ${sceneDesc}` : sceneDesc,
+    conceptPrompt ?? (brief ? `${briefCore}, set in: ${sceneDesc}` : sceneDesc),
     `${niche} brand`,
     PHOTOGRAPHY_STYLE,
     hasReferenceImage ? REFERENCE_IMAGE_PEOPLE_GUARD : NO_PEOPLE_BY_DEFAULT_GUARD,

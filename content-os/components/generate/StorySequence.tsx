@@ -211,7 +211,9 @@ async function fetchSlideBackgroundResult(
   excludePhotoIds?: string[],
   referenceIsBrandPhoto?: boolean,
   // The cta frame's product -- its photo shows it whole and recognisable.
-  ctaSubject?: string | null
+  ctaSubject?: string | null,
+  // The hook frame only: the creative concept stage's input.
+  conceptCopy?: { hook: string; caption?: string; improve?: string }
 ): Promise<SlideBackgroundOutcome> {
   try {
     const res = await fetch("/api/v1/ai/stories/slide-image/generate", {
@@ -223,7 +225,7 @@ async function fetchSlideBackgroundResult(
       // optional, not nullable.
       // visualBrief: this frame's own scene (non-hook frames) -- see
       // lib/ai/story-slide-background.ts. Omitted when the frame has none.
-      body: JSON.stringify({ brandId, vibe, role, productImageUrl: productImageUrl ?? undefined, textPosition, customPrompt: customPrompt || undefined, visualBrief, userDirection: userDirection || undefined, productId, excludePhotoIds: excludePhotoIds?.length ? excludePhotoIds : undefined, ...(referenceIsBrandPhoto ? { referenceIsBrandPhoto: true } : {}), ...(role === "cta" && ctaSubject ? { ctaSubject } : {}) }),
+      body: JSON.stringify({ brandId, vibe, role, productImageUrl: productImageUrl ?? undefined, textPosition, customPrompt: customPrompt || undefined, visualBrief, userDirection: userDirection || undefined, productId, excludePhotoIds: excludePhotoIds?.length ? excludePhotoIds : undefined, ...(referenceIsBrandPhoto ? { referenceIsBrandPhoto: true } : {}), ...(role === "cta" && ctaSubject ? { ctaSubject } : {}), ...(role === "hook" && conceptCopy?.hook ? { conceptCopy } : {}) }),
     })
     if (!res.ok) {
       // The server's reason travels with the failure -- shown on the slide, never a silent flat background.
@@ -1172,7 +1174,7 @@ export function StorySequence({ brandId }: { brandId: string }) {
   // credits) and writes each success onto its slide. Saved by the
   // debounced autosave effect above, like any other slide change. Returns
   // false if a newer generate() superseded this run.
-  async function runStoryBackgrounds(genId: number, slides: StorySlide[], indices: number[]): Promise<boolean> {
+  async function runStoryBackgrounds(genId: number, slides: StorySlide[], indices: number[], conceptCopy?: { hook: string; caption?: string; improve?: string }): Promise<boolean> {
     const isCurrent = () => generationIdRef.current === genId
     setImagesGenerating(true)
     setBgProgress({ settled: 0, total: indices.length })
@@ -1207,7 +1209,8 @@ export function StorySequence({ brandId }: { brandId: string }) {
             selectedProduct?.id,
             usedPhotoIds,
             !!ref,
-            slide.cta_subject ?? null
+            slide.cta_subject ?? null,
+            role === "hook" ? conceptCopy : undefined
           ),
         }
       }),
@@ -1359,7 +1362,9 @@ export function StorySequence({ brandId }: { brandId: string }) {
         const middle = allSlidesAiBg ? indices.filter((i) => storyBgRole(savedStories[i]!) === "body") : []
         // Frames with a catalogue photo always get their scene made.
         const withRef = indices.filter((i) => savedStories[i]!.product_reference_url && !hookAndCta.includes(i) && !middle.includes(i))
-        void runStoryBackgrounds(genId, savedStories, [...hookAndCta, ...middle, ...withRef]).then((finished) => {
+        // The hook frame's idea comes from its copy (and "Make it better"'s fix).
+        const hookCopy = { hook: (savedStories[0]?.big_words || savedStories[0]?.text || topic).slice(0, 500), caption: (json.data.caption?.caption_text ?? "").slice(0, 5000), improve: improveFix?.slice(0, 500) }
+        void runStoryBackgrounds(genId, savedStories, [...hookAndCta, ...middle, ...withRef], hookCopy).then((finished) => {
           if (!finished) return
           setShowSuccess(true)
           setTimeout(() => setShowSuccess(false), 4000)

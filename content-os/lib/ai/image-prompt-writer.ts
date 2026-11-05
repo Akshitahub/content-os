@@ -3,6 +3,7 @@ import { createTextCompletionStream } from "./provider-fallback"
 import type { BrandRow, ProductRow } from "@/types/database"
 import { briefScene, type VisualBrief, artDirectionBriefRules } from "./visual-brief"
 import type { ArtDirection } from "./brand-brain"
+import type { CreativeConcept } from "./creative-concept"
 
 // Shared "prompt-authoring" stage inserted in front of every image
 // generation call in this app (Full Post, Story, Carousel, Ad Maker, and
@@ -75,6 +76,10 @@ export interface ImagePromptConstraints {
   avoidVisuals?: string[]
   /** The brand's art direction (lib/ai/brand-brain.ts), fetched server-side. */
   artDirection?: ArtDirection | null
+  /** The chosen creative concept (lib/ai/creative-concept.ts) -- the
+   * moment the image must capture. The writer turns it into the prompt and
+   * never replaces it with a generic scene. Set server-side only. */
+  concept?: CreativeConcept | null
 }
 
 export interface WriteImagePromptInput {
@@ -108,6 +113,7 @@ Rules:
   4. Composition matched to the requested canvas shape, naming where to leave calm, uncluttered negative space for a headline to be overlaid afterward.
   5. Style and camera language matched to the requested visual direction (e.g. a photorealistic studio product shot with specific lens/lighting language, versus a flat editorial graphic composition with no camera or DSLR language at all).
   6. A short closing clause ruling out text, logos, watermarks, and distorted hands appearing anywhere in the image.
+- When a CREATIVE CORE is given, it IS the image: describe exactly that moment -- who, doing what, the instant it captures, the feeling -- and build the subject, setting, light and composition around it. Never swap it for a generic, static or stock scene (a product on a table, a person smiling at a laptop); the user's own description and the visual brief then shape style and setting, not a different idea.
 - If the user provided their own description, treat it as the creative brief -- keep their intent and refine/complete any vague or underspecified part into something concrete. Do not discard what they asked for.
 - If the user gave no real description, invent one complete, specific scene from scratch using the brand/product context you're given -- never output a generic, vague, or placeholder-sounding scene.
 - Ground the scene in the subject of the user's own description when they gave one (e.g. "our candle brand" -> candles), even if it differs from the brand's niche; only when they gave no real description, ground it in the brand's actual niche and product -- never a generic stock-photo scene that could belong to any company.
@@ -150,6 +156,10 @@ function buildConstraintsLine(constraints: ImagePromptConstraints): string {
   if (constraints.artDirection) lines.push(artDirectionBriefRules(constraints.artDirection).replace("every visual brief must follow it", "the scene must follow it"))
   if (constraints.lessons?.length) {
     lines.push(`Avoid/Do for this brand's images (learned from its own feedback): ${constraints.lessons.join("; ")}`)
+  }
+  if (constraints.concept) {
+    const c = constraints.concept
+    lines.push(`CREATIVE CORE -- the image is this moment: ${c.story}${c.hook ? ` Why a thumb stops: ${c.hook}.` : ""}${c.emotion ? ` The feeling: ${c.emotion}.` : ""}${c.device ? ` Storytelling device: ${c.device}.` : ""} Keep this moment, its action and its feeling; never replace it with a generic scene.`)
   }
   if (constraints.visualBrief) {
     const brief = constraints.visualBrief

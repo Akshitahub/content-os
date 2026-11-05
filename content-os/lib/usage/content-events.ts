@@ -9,7 +9,7 @@ import { after } from "next/server"
 
 export type ContentEventType = "caption" | "hook" | "carousel" | "story" | "ad_copy" | "post_image" | "ad_maker"
 // provider_fallback: a Groq text call answered by OpenAI instead -- historical only (before 2026-11-05); text no longer falls back.
-export type ContentEventName = "generated" | "regenerated" | "edited" | "saved" | "scheduled" | "rated" | "downloaded" | "quality_checked" | "provider_fallback" | "critic_scored" | "photo_used"
+export type ContentEventName = "generated" | "regenerated" | "edited" | "saved" | "scheduled" | "rated" | "downloaded" | "quality_checked" | "provider_fallback" | "critic_scored" | "photo_used" | "concept_chosen"
 
 export type ContentEventInput = {
   userId: string | null

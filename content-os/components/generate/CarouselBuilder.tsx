@@ -292,7 +292,9 @@ async function fetchSlideBackgroundResult(
   visualBrief?: CarouselVisualBrief,
   userDirection?: string | null,
   textPosition?: { x?: number; y?: number },
-  slideCopy?: { headline: string; body?: string | null; productName?: string | null }
+  slideCopy?: { headline: string; body?: string | null; productName?: string | null },
+  // The cover only: the creative concept stage's input.
+  conceptCopy?: { hook: string; caption?: string; improve?: string }
 ): Promise<SlideBackgroundOutcome> {
   try {
     const res = await fetch("/api/v1/ai/carousel/slide-image/generate", {
@@ -304,7 +306,7 @@ async function fetchSlideBackgroundResult(
       // lib/ai/carousel-slide-background.ts. Omitted when the slide has none.
       // textPositionX/Y: where the text block sits, so the server measures
       // text_style over the right region.
-      body: JSON.stringify({ brandId, vibe, role, productImageUrl: productImageUrl ?? undefined, slideType, customPrompt: customPrompt || undefined, visualBrief, userDirection: userDirection || undefined, textPositionX: textPosition?.x, textPositionY: textPosition?.y, ...(slideCopy?.headline ? { slideCopy } : {}) }),
+      body: JSON.stringify({ brandId, vibe, role, productImageUrl: productImageUrl ?? undefined, slideType, customPrompt: customPrompt || undefined, visualBrief, userDirection: userDirection || undefined, textPositionX: textPosition?.x, textPositionY: textPosition?.y, ...(slideCopy?.headline ? { slideCopy } : {}), ...(conceptCopy?.hook ? { conceptCopy } : {}) }),
     })
     if (!res.ok) return { error: slideBackgroundErrorForStatus(res.status) }
     const json = await readJsonResponse(res) as { data?: { public_url?: string; provider?: "openai"; text_style?: TextStyle | null; shows_point?: boolean } }
@@ -1076,7 +1078,7 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
   // credits) and writes each success onto its slide. Saved by the
   // debounced autosave effect above, like any other slide change. Returns
   // false if a newer generate() superseded this run.
-  async function runCarouselBackgrounds(carouselId: string | null, slides: CarouselSlideRich[], indices: number[]): Promise<boolean> {
+  async function runCarouselBackgrounds(carouselId: string | null, slides: CarouselSlideRich[], indices: number[], conceptCopy?: { hook: string; caption?: string; improve?: string }): Promise<boolean> {
     const count = slides.length
     const runId = bgRunRef.current
     const isCurrent = () => bgRunRef.current === runId
@@ -1093,7 +1095,7 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
         // reference, with a candid real-life scene direction.
         const ref = slides[i]?.product_reference_url ?? null
         const product = ref ?? productImage
-        return { key: i, run: () => fetchSlideBackgroundResult(brandId, vibe, role, product ?? undefined, product ? SLIDE_TYPE_FOR_BG_ROLE[role] : undefined, visualPrompt, slides[i]?.visual, slides[i]?.scene_direction ?? visualPromptSeedRef.current, { x: slides[i]?.text_position_x, y: slides[i]?.text_position_y }, { headline: slides[i]?.headline ?? "", body: slides[i]?.subtext ?? null, productName: selectedProduct?.name ?? null }) }
+        return { key: i, run: () => fetchSlideBackgroundResult(brandId, vibe, role, product ?? undefined, product ? SLIDE_TYPE_FOR_BG_ROLE[role] : undefined, visualPrompt, slides[i]?.visual, slides[i]?.scene_direction ?? visualPromptSeedRef.current, { x: slides[i]?.text_position_x, y: slides[i]?.text_position_y }, { headline: slides[i]?.headline ?? "", body: slides[i]?.subtext ?? null, productName: selectedProduct?.name ?? null }, role === "hook" ? conceptCopy : undefined) }
       }),
       { onProgress: (settled, total) => { if (isCurrent()) setBgProgress({ settled, total }) }, isCancelled: () => !isCurrent() }
     )
@@ -1218,7 +1220,9 @@ export function CarouselBuilder({ brandId }: { brandId: string }) {
         const toGenerate = framed
           ? indices.filter((i) => carouselFrameNeedsPhoto(merged.slides[i]?.frame) && !merged.slides[i]?.image_url)
           : [...hookAndCta, ...middle]
-        void runCarouselBackgrounds(merged.id ?? null, merged.slides, toGenerate).then((finished) => {
+        // The cover's idea comes from its copy (and "Make it better"'s fix).
+        const coverCopy = { hook: (merged.slides[0]?.headline ?? merged.title ?? "").slice(0, 500), caption: (merged.cover_hook ?? "").slice(0, 5000), improve: improveFix?.slice(0, 500) }
+        void runCarouselBackgrounds(merged.id ?? null, merged.slides, toGenerate, coverCopy).then((finished) => {
           if (!finished) return
           setShowSuccess(true)
           setTimeout(() => setShowSuccess(false), 4000)
