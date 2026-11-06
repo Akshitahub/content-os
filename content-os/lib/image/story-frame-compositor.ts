@@ -200,9 +200,12 @@ function paletteGradient(p: BrandPalette, cv: FrameCanvas): Buffer {
 /**
  * The photo covering `area`, cropped so its subject stays in frame (centred
  * on it); without a subject, sharp's attention crop. Returns the image and
- * the subject boxes in canvas pixels, margin added.
+ * the subject boxes in canvas pixels, margin added. `whole`: when that crop
+ * would cut a subject, the photo is fitted (contained) instead, the
+ * leftover filled with a blurred, darkened extension of the same photo --
+ * a subject is never cut.
  */
-async function placePhoto(src: Buffer, srcW: number, srcH: number, allBoxes: SubjectBox[], area: Rect, cv: FrameCanvas): Promise<{ img: Buffer; subjects: Rect[] }> {
+async function placePhoto(src: Buffer, srcW: number, srcH: number, allBoxes: SubjectBox[], area: Rect, cv: FrameCanvas, opts: { whole?: boolean } = {}): Promise<{ img: Buffer; subjects: Rect[]; fitted?: boolean }> {
   const aw = rw(area), ah = rh(area)
   // The subject, not a bystander: a person box far smaller than the main
   // one is background (a passer-by); products always count.
@@ -223,8 +226,12 @@ async function placePhoto(src: Buffer, srcW: number, srcH: number, allBoxes: Sub
   const cxFrac = face ? face.x + face.w / 2 : (ux0 + ux1) / 2
   const left = Math.max(0, Math.min(sw - aw, Math.round(cxFrac * sw - aw / 2)))
   const top = Math.max(0, Math.min(sh - ah, Math.round(((uy0 + uy1) / 2) * sh - ah / 2)))
-  const img = await sharp(src).resize(sw, sh).extract({ left, top, width: aw, height: ah }).removeAlpha().png().toBuffer()
   const m = Math.round(SUBJECT_MARGIN * cv.w)
+  // Would the crop cut a subject? (a hair of tolerance for box rounding)
+  const tol = 0.01
+  const cut = boxes.some((b) => b.x * sw < left - tol * sw || (b.x + b.w) * sw > left + aw + tol * sw || b.y * sh < top - tol * sh || (b.y + b.h) * sh > top + ah + tol * sh)
+  if (opts.whole && cut) return fitWhole(src, srcW, srcH, boxes, area, m)
+  const img = await sharp(src).resize(sw, sh).extract({ left, top, width: aw, height: ah }).removeAlpha().png().toBuffer()
   const subjects = boxes
     .map((b) => ({
       x0: Math.max(area.x0, area.x0 + b.x * sw - left - m),
@@ -235,6 +242,42 @@ async function placePhoto(src: Buffer, srcW: number, srcH: number, allBoxes: Sub
     .filter((r) => r.x1 > r.x0 && r.y1 > r.y0)
     .map((r) => ({ x0: Math.round(r.x0), y0: Math.round(r.y0), x1: Math.round(r.x1), y1: Math.round(r.y1) }))
   return { img, subjects }
+}
+
+/** The whole photo fitted into `area` over a blurred, darkened cover of itself -- every subject in view. */
+async function fitWhole(src: Buffer, srcW: number, srcH: number, boxes: SubjectBox[], area: Rect, m: number): Promise<{ img: Buffer; subjects: Rect[]; fitted: boolean }> {
+  const aw = rw(area), ah = rh(area)
+  const scale = Math.min(aw / srcW, ah / srcH)
+  const fw = Math.max(1, Math.round(srcW * scale)), fh = Math.max(1, Math.round(srcH * scale))
+  const ox = Math.round((aw - fw) / 2), oy = Math.round((ah - fh) / 2)
+  const backdrop = await sharp(src).resize(aw, ah, { fit: "cover" }).blur(40).modulate({ brightness: 0.62 }).removeAlpha().png().toBuffer()
+  const fg = await sharp(src).resize(fw, fh).removeAlpha().png().toBuffer()
+  const img = await sharp(backdrop).composite([{ input: fg, left: ox, top: oy }]).png().toBuffer()
+  const subjects = boxes.map((b) => ({
+    x0: Math.round(Math.max(area.x0, area.x0 + ox + b.x * fw - m)),
+    y0: Math.round(Math.max(area.y0, area.y0 + oy + b.y * fh - m)),
+    x1: Math.round(Math.min(area.x1, area.x0 + ox + (b.x + b.w) * fw + m)),
+    y1: Math.round(Math.min(area.y1, area.y0 + oy + (b.y + b.h) * fh + m)),
+  })).filter((r) => r.x1 > r.x0 && r.y1 > r.y0)
+  return { img, subjects, fitted: true }
+}
+
+/**
+ * A soft gradient in the brand's deep colour over the calmer half of a
+ * full-bleed frame, so words set over the photo there stay readable
+ * (the feed-post frames' calmZone / inkFor approach, plus the scrim).
+ * The half is measured exactly where the frame functions look.
+ */
+async function withCalmScrim(base: Buffer, p: BrandPalette, cv: FrameCanvas): Promise<Buffer> {
+  const top = await regionLuminance(base, { x: 0.05, y: cv.safeTop / cv.h, w: 0.9, h: 0.36 }).catch(() => null)
+  const bottom = await regionLuminance(base, { x: 0.05, y: 0.5, w: 0.9, h: 0.36 }).catch(() => null)
+  const zoneTop = !!top && (!bottom || top.std <= bottom.std)
+  const id = "scrim"
+  const grad = zoneTop
+    ? `<linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${p.deep}" stop-opacity="0.78"/><stop offset="0.5" stop-color="${p.deep}" stop-opacity="0.32"/><stop offset="0.62" stop-color="${p.deep}" stop-opacity="0"/></linearGradient>`
+    : `<linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1"><stop offset="0.38" stop-color="${p.deep}" stop-opacity="0"/><stop offset="0.5" stop-color="${p.deep}" stop-opacity="0.32"/><stop offset="1" stop-color="${p.deep}" stop-opacity="0.78"/></linearGradient>`
+  const svg = `<svg width="${cv.w}" height="${cv.h}" xmlns="http://www.w3.org/2000/svg"><defs>${grad}</defs><rect width="${cv.w}" height="${cv.h}" fill="url(#${id})"/></svg>`
+  return sharp(base).composite([{ input: Buffer.from(new Resvg(svg).render().asPng()) }]).png().toBuffer()
 }
 
 /** The part of a region text may use: inside the safe area. */
@@ -430,7 +473,18 @@ async function compose(slide: StoryFrameSlide, p: BrandPalette, rnd: () => numbe
     return { base, photo: true, subjects: placed.subjects, region: free, layout: placed.subjects.length ? "free" : "full" }
   }
 
-  // No room beside the subject (or a planned split): re-lay the frame out around it.
+  // No room beside the subject, and not a planned split: the photo stays
+  // full-bleed with every subject whole, and the words go in its calmer
+  // half over a soft scrim in the brand's deep colour -- never an unplanned
+  // panel or band, never a squeezed (cut) subject.
+  if (slide.layout_hint !== "split") {
+    const whole = await placePhoto(src, W, H, boxes, full, cv, { whole: true })
+    const base = await withGrain(await withCalmScrim(whole.img, p, cv), 22, rnd, cv)
+    return { base, photo: true, subjects: whole.subjects, region: full, layout: "full" }
+  }
+
+  // A planned split (a contrast slide): the photo on one side, the type on
+  // the other -- the photo's subjects all whole in their side.
   const subs = placed.subjects.length ? placed.subjects : [{ x0: cv.w * 0.3, y0: 0, x1: cv.w * 0.7, y1: cv.h }]
   const ux0 = Math.min(...subs.map((r) => r.x0)), ux1 = Math.max(...subs.map((r) => r.x1))
   const uy0 = Math.min(...subs.map((r) => r.y0)), uy1 = Math.max(...subs.map((r) => r.y1))
@@ -447,7 +501,7 @@ async function compose(slide: StoryFrameSlide, p: BrandPalette, rnd: () => numbe
     panel = bandTop ? { x0: 0, y0: 0, x1: cv.w, y1: bh } : { x0: 0, y0: cv.h - bh, x1: cv.w, y1: cv.h }
     area = bandTop ? { x0: 0, y0: bh, x1: cv.w, y1: cv.h } : { x0: 0, y0: 0, x1: cv.w, y1: cv.h - bh }
   }
-  const inArea = await placePhoto(src, W, H, boxes, area, cv)
+  const inArea = await placePhoto(src, W, H, boxes, area, cv, { whole: true })
   const canvas = await sharp({ create: { width: cv.w, height: cv.h, channels: 3, background: p.base } })
     .composite([{ input: inArea.img, left: area.x0, top: area.y0 }]).png().toBuffer()
   return { base: await withGrain(canvas, 18, rnd, cv), photo: true, subjects: inArea.subjects, region: panel, layout: tall ? "split" : "band" }

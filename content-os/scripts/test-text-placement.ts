@@ -1,5 +1,7 @@
-// Text never sits on the subject (lib/image/story-frame-compositor.ts +
-// lib/image/subject-boxes.ts): every frame kind, on the story and the feed
+// Text never sits on the subject when there's room beside it
+// (lib/image/story-frame-compositor.ts + lib/image/subject-boxes.ts) -- with
+// no room, the frame stays full-bleed and the words sit in the calmer half
+// over a scrim, never an unplanned panel / band: every frame kind, on the story and the feed
 // canvas, over synthetic photos -- a tall model on a studio background, a
 // small product, a wide subject, a busy scene with given boxes, a scene left
 // to the local detector. Fails if any visible glyph pixel of the text layer
@@ -99,7 +101,7 @@ async function main() {
     "busy scene, detected": await scene({ x: 0.3, y: 0.25, w: 0.4, h: 0.5 }),
   }
   // Studio shots are cut out onto the brand colour by default (catalogue
-  // photography); "full" keeps them full-bleed to exercise the split / band layouts.
+  // photography); "full" keeps them full-bleed to exercise the no-room fallback.
   const cutoutPhoto = { name: "tall model, studio, cut out", url: photos["tall model, studio"] }
   const given = { url: await scene(), boxes: [{ x: 0.5, y: 0.1, w: 0.18, h: 0.14, label: "face" as const }, { x: 0.42, y: 0.24, w: 0.34, h: 0.4, label: "torso" as const }, { x: 0.44, y: 0.62, w: 0.3, h: 0.16, label: "hips" as const }] }
 
@@ -112,10 +114,15 @@ async function main() {
           const layers = await renderFrameLayers({ ...f, seed: 11 + i * 31, palette, brand_name: "SNITCH", background_image_url: url, ...treatment, ...(url === given.url ? { subject_boxes: given.boxes } : {}) } as never, cv, { plain: true })
           layouts.add(layers.layout)
           assert.ok(layers.subjects.length > 0, `${f.frame}: no subject found`)
-          assert.ok(!layers.subjects.some((s) => rectsIntersect(s, layers.region)), `${f.frame}: the text region overlaps the subject`)
           assert.ok(await visible(layers.overlay) > 500, `${f.frame}: nothing drawn`)
-          const hits = await overlap(layers.overlay, layers.subjects)
-          assert.equal(hits, 0, `${f.frame} (${layers.layout}): ${hits} text pixels on the subject`)
+          // No room beside the subject: full-bleed with the words over a scrim
+          // by design. Otherwise the words keep off the subject.
+          const overScrim = layers.layout === "full"
+          if (!overScrim) {
+            assert.ok(!layers.subjects.some((s) => rectsIntersect(s, layers.region)), `${f.frame}: the text region overlaps the subject`)
+            const hits = await overlap(layers.overlay, layers.subjects)
+            assert.equal(hits, 0, `${f.frame} (${layers.layout}): ${hits} text pixels on the subject`)
+          }
           const safe = cvName === "story" ? { x0: 34, y0: 250, x1: cv.w - 34, y1: cv.h - 250 } : { x0: 34, y0: 24, x1: cv.w - 34, y1: cv.h - 24 }
           const out = await outsideSafe(layers.overlay, safe)
           assert.equal(out, 0, `${f.frame} (${layers.layout}): ${out} text pixels outside the safe area`)
@@ -124,9 +131,10 @@ async function main() {
     }
   }
 
-  await test("a tall subject with no room beside it gets the split layout, a wide one the band", async () => {
-    assert.ok(layouts.has("split"), [...layouts].join(","))
-    assert.ok(layouts.has("band") || layouts.has("free"), [...layouts].join(","))
+  await test("no room beside the subject: full-bleed over a scrim -- never an unplanned split or band", async () => {
+    assert.ok(!layouts.has("split") && !layouts.has("band"), [...layouts].join(","))
+    assert.ok(layouts.has("full"), [...layouts].join(","))
+    assert.ok(layouts.has("free"), [...layouts].join(","))
     assert.ok(layouts.has("cutout"), [...layouts].join(","))
   })
 

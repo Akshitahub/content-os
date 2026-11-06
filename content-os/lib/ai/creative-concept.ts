@@ -100,7 +100,11 @@ const ROLE_LABEL = { hook: "the opening -- it must stop the scroll", cta: "the c
 
 const criteriaList = () => CRITIC_CRITERIA.map((c) => `${c.id} (${c.label}): ${c.ask}`).join("\n")
 
-function conceptSystemPrompt(brand: BrandRow, count: number, variants: boolean, allowText: boolean): string {
+/** Carousel and story slides carry overlaid words: the image must leave them calm space. */
+const NEEDS_TEXT_SPACE = new Set<ConceptFormat>(["carousel_cover", "carousel_slide", "story_frame"])
+const TEXT_SPACE_RULE = "the moment must NOT fill the whole frame: leave calm, uncluttered negative space (about a third of the frame, top or bottom) for the slide's words, which are overlaid on it"
+
+function conceptSystemPrompt(brand: BrandRow, count: number, variants: boolean, allowText: boolean, textSpace = false): string {
   return `You are the creative director of a top Instagram content studio for Indian D2C brands. Before any image is made you invent the IDEA. Great posts are a MOMENT that tells a story with a hook: you get the point in one second and feel something (curiosity, recognition, a laugh, desire). A well-lit picture of nothing happening is a failure.
 
 ${buildBrandContext(brand)}
@@ -110,7 +114,7 @@ ${ANGLE_GUIDANCE}
 Storytelling devices (a toolbox, none mandatory): ${CONCEPT_DEVICES.join(", ")}.
 
 Rules:
-- One photographable frame: ONE subject, ONE action, ONE moment -- who is in it, doing what, at what instant.
+- One photographable frame: ONE subject, ONE action, ONE moment -- who is in it, doing what, at what instant.${textSpace ? `\n- This is a slide with words on it: ${TEXT_SPACE_RULE}.` : ""}
 - People only when they serve the story, and then the brand's own audience (who they are comes from the brand and audience above, never a fixed default). Product-only concepts are fine when the product is the story.
 - Only products, claims and facts from the brand context and the copy -- never invent an offer, number or result.
 ${allowText
@@ -232,7 +236,7 @@ async function generateRound(brand: BrandRow, input: ConceptInput, feedback: str
       max_completion_tokens: 2500,
       response_format: { type: "json_object" },
       messages: [
-        { role: "system", content: conceptSystemPrompt(brand, count, !!input.variants?.length, allowText) },
+        { role: "system", content: conceptSystemPrompt(brand, count, !!input.variants?.length, allowText, NEEDS_TEXT_SPACE.has(input.format)) },
         { role: "user", content: conceptUserPrompt(input, feedback) },
       ],
     },
@@ -391,7 +395,7 @@ export function parsePromptReview(raw: string): { pass: boolean; problems: strin
 }
 
 /** One Groq call: does the written prompt deliver the concept, and would its image score high? */
-async function reviewImagePrompt(prompt: string, concept: CreativeConcept, label: string): Promise<{ pass: boolean; problems: string[] }> {
+async function reviewImagePrompt(prompt: string, concept: CreativeConcept, label: string, textSpace: boolean): Promise<{ pass: boolean; problems: string[] }> {
   try {
     const { response: res } = await createTextCompletion(
       {
@@ -402,7 +406,7 @@ async function reviewImagePrompt(prompt: string, concept: CreativeConcept, label
         messages: [
           {
             role: "system",
-            content: `You review an image-generation prompt before the (single, paid) image is made. It must deliver the concept: ONE subject, ONE action, ONE moment; a clear focal point; the concept's moment and feeling kept; nothing generic, static or stock-like; no collage or split frame. Would the image score 9+ on each of:
+            content: `You review an image-generation prompt before the (single, paid) image is made. It must deliver the concept: ONE subject, ONE action, ONE moment; a clear focal point; the concept's moment and feeling kept; nothing generic, static or stock-like; no collage or split frame.${textSpace ? ` This image is a slide with words overlaid on it: ${TEXT_SPACE_RULE} -- the prompt must ask for that calm negative space, or it fails.` : ""} Would the image score 9+ on each of:
 ${criteriaList()}
 
 Respond with valid JSON only, no markdown: {"pass": true, "problems": ["what to fix, if anything"]}`,
@@ -423,7 +427,8 @@ Respond with valid JSON only, no markdown: {"pass": true, "problems": ["what to 
 export async function writeReviewedPrompt(params: WriteParams): Promise<string | null> {
   const first = await writePromptFromConcept(params)
   if (!first) return null
-  const review = await reviewImagePrompt(first, params.concept, params.label)
+  // Carousel / story slides: the prompt must keep calm space for the words.
+  const review = await reviewImagePrompt(first, params.concept, params.label, params.flow === "carousel" || params.flow === "story")
   if (review.pass) return first
   console.log(`[creative-concept] ${params.label}: prompt review failed, rewriting once (${review.problems.join("; ") || "no detail"})`)
   return (await writePromptFromConcept({ ...params, reviewNotes: review.problems.length ? review.problems : ["make it one subject, one action, one moment with a clear focal point"] })) ?? first
