@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server"
 import { createAdminClient } from "@/lib/supabase/server"
 import { publishViaZernio } from "@/lib/social/zernio-client"
+import { publishCarousel, publishImage, publishReel, publishStory, type PublishResult } from "@/lib/social/meta-instagram-client"
+import { decryptToken } from "@/lib/social/token-crypto"
+import { ensureJpegUrl } from "@/lib/social/publish-jpeg"
 import { scheduledEntryDueAt } from "@/lib/utils/ist"
 import { uploadMediaToStorage } from "@/lib/storage/upload-media"
 import type { SupabaseClient } from "@supabase/supabase-js"
@@ -101,6 +104,121 @@ async function isBrandPaused(admin: AdminClient, brandId: string): Promise<boole
   return !!data?.autopost_paused_at
 }
 
+/**
+ * A direct Instagram connection (provider 'meta') whose token can't be used:
+ * the entry is marked missed straight away (retrying won't help) and the
+ * connection deactivated, so the owner sees it needs reconnecting.
+ */
+async function failForReconnect(admin: AdminClient, entry: CalendarEntryRow, connectionId: string, reason: string): Promise<"failed"> {
+  const { error } = await calendarEntriesTable(admin)
+    .update({ publish_attempts: entry.publish_attempts + 1, status: "missed", error_message: reason, updated_at: new Date().toISOString() })
+    .eq("id", entry.id)
+  if (error) console.error(`[cron/publish-scheduled] entry ${entry.id}: failed to record failure state:`, error.message)
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { error: connError } = await (admin as any).from("social_connections").update({ is_active: false }).eq("id", connectionId)
+  if (connError) console.error(`[cron/publish-scheduled] entry ${entry.id}: failed to deactivate instagram connection:`, connError.message)
+
+  console.error(`[cron/publish-scheduled] entry ${entry.id}: ${reason} -- now missed, connection deactivated`)
+  return "failed"
+}
+
+async function markPublished(admin: AdminClient, entry: CalendarEntryRow, platformSpecificData: Record<string, unknown>): Promise<void> {
+  const publishedAt = new Date().toISOString()
+  const { error: updateError } = await calendarEntriesTable(admin)
+    .update({ status: "published", platform_specific_data: platformSpecificData, error_message: null, updated_at: publishedAt })
+    .eq("id", entry.id)
+  if (updateError) {
+    console.error(`[cron/publish-scheduled] entry ${entry.id}: published on instagram but failed to update calendar entry:`, updateError.message)
+  }
+  if (entry.content_project_id) {
+    const { error: projectError } = await contentProjectsTable(admin)
+      .update({ status: "published", published_at: publishedAt, updated_at: publishedAt })
+      .eq("id", entry.content_project_id)
+    if (projectError) {
+      console.error(`[cron/publish-scheduled] entry ${entry.id}: failed to update linked content_project:`, projectError.message)
+    }
+  }
+}
+
+/**
+ * Instagram through Meta directly (provider 'meta'): images made JPEG
+ * first, then the same shapes as the Zernio path -- one post, a carousel,
+ * a reel, or a story sequence published one frame at a time. The real
+ * Instagram media id and permalink go on the entry (ig_media_id /
+ * ig_permalink) so engagement can be matched exactly.
+ */
+async function publishViaMeta(
+  admin: AdminClient,
+  entry: CalendarEntryRow,
+  account: { igUserId: string; token: string },
+  media: { platformData: Record<string, unknown>; caption: string; isStory: boolean; isCarousel: boolean; isVideo: boolean; imageUrl: string | null; imageUrls: string[] | null; videoUrl: string | null }
+): Promise<"published" | "failed"> {
+  const { platformData, caption, isStory, isCarousel, isVideo } = media
+
+  const jpegUrls: string[] = []
+  if (!isVideo) {
+    const sources = isStory || isCarousel ? media.imageUrls! : [media.imageUrl!]
+    for (let i = 0; i < sources.length; i++) {
+      const jpeg = await ensureJpegUrl(sources[i]!, entry.brand_id)
+      if (!jpeg.ok) {
+        console.error(`[cron/publish-scheduled] entry ${entry.id}: JPEG conversion failed for image ${i + 1}/${sources.length}:`, jpeg.error)
+        return await recordFailure(admin, entry, `Failed to prepare image ${i + 1} of ${sources.length} for Instagram: ${jpeg.error}`)
+      }
+      jpegUrls.push(jpeg.url)
+    }
+  }
+
+  if (isStory) {
+    const mediaIds: string[] = []
+    let firstPermalink: string | null = null
+    for (let i = 0; i < jpegUrls.length; i++) {
+      const frame = await publishStory(account.igUserId, account.token, { imageUrl: jpegUrls[i]! })
+      if (!frame.ok) {
+        console.error(
+          `[cron/publish-scheduled] entry ${entry.id}: story sequence publish failed at slide ${i + 1}/${jpegUrls.length} (${mediaIds.length} published, via meta) — ${frame.error}`
+        )
+        return await recordFailure(admin, entry, `Story ${i + 1} of ${jpegUrls.length} failed to publish (${mediaIds.length} published successfully): ${frame.error}`)
+      }
+      mediaIds.push(frame.mediaId)
+      firstPermalink ??= frame.permalink
+      if (i < jpegUrls.length - 1) await sleep(DELAY_BETWEEN_POSTS_MS)
+    }
+
+    console.log(`[cron/publish-scheduled] entry ${entry.id}: published — instagram story sequence via meta, ${mediaIds.length} slides`)
+    await markPublished(admin, entry, {
+      ...platformData,
+      hosted_image_urls: media.imageUrls,
+      instagram_story_media_ids: mediaIds,
+      ig_media_id: mediaIds[0],
+      ig_media_ids: mediaIds,
+      ig_permalink: firstPermalink,
+    })
+    return "published"
+  }
+
+  const result: PublishResult = isCarousel
+    ? await publishCarousel(account.igUserId, account.token, { imageUrls: jpegUrls, caption })
+    : isVideo
+      ? await publishReel(account.igUserId, account.token, { videoUrl: media.videoUrl!, caption })
+      : await publishImage(account.igUserId, account.token, { imageUrl: jpegUrls[0]!, caption })
+
+  if (!result.ok) {
+    console.error(`[cron/publish-scheduled] entry ${entry.id}: publish failed (via meta) — ${result.error}`)
+    return await recordFailure(admin, entry, result.error)
+  }
+
+  console.log(`[cron/publish-scheduled] entry ${entry.id}: published — instagram via meta, media id ${result.mediaId}`)
+  await markPublished(admin, entry, {
+    ...platformData,
+    ...(isCarousel ? { hosted_image_urls: media.imageUrls } : isVideo ? { video_url: media.videoUrl } : { hosted_image_url: media.imageUrl }),
+    instagram_media_id: result.mediaId,
+    ig_media_id: result.mediaId,
+    ig_permalink: result.permalink,
+  })
+  return "published"
+}
+
 async function processEntry(admin: AdminClient, entry: CalendarEntryRow): Promise<"published" | "failed" | "skipped"> {
   // Facebook has no Zernio connection of its own — it used to piggyback on
   // Instagram's direct-OAuth Facebook Page token, but Instagram now connects
@@ -128,11 +246,31 @@ async function processEntry(admin: AdminClient, entry: CalendarEntryRow): Promis
     return "skipped"
   }
 
+  // Instagram connected directly (provider 'meta', lib/social/meta-instagram-client.ts):
+  // we hold its token, so it needs the account id and a usable, unexpired token.
+  const isMeta = entry.platform === "instagram" && connection.provider === "meta"
+  let metaAccount: { igUserId: string; token: string } | null = null
+  if (isMeta) {
+    if (!connection.ig_business_account_id || !connection.access_token) {
+      console.error(`[cron/publish-scheduled] entry ${entry.id}: brand ${entry.brand_id}'s direct instagram connection is missing its account id or token`)
+      return await recordFailure(admin, entry, "instagram not connected for this brand.")
+    }
+    if (connection.token_expires_at && new Date(connection.token_expires_at).getTime() <= Date.now()) {
+      return await failForReconnect(admin, entry, connection.id, "Instagram connection expired -- reconnect")
+    }
+    const token = decryptToken(connection.access_token)
+    if (!token.ok) {
+      console.error(`[cron/publish-scheduled] entry ${entry.id}: couldn't decrypt the instagram token: ${token.error}`)
+      return await failForReconnect(admin, entry, connection.id, "Instagram connection can't be used -- reconnect")
+    }
+    metaAccount = { igUserId: connection.ig_business_account_id, token: token.value }
+  }
+
   // Every remaining platform (instagram/threads/pinterest/linkedin/youtube/
   // twitter) is connected via Zernio, which holds and refreshes the
   // underlying platform token on its side — so the only thing to check
   // locally is that a Zernio account was actually linked.
-  if (!connection.zernio_account_id) {
+  if (!isMeta && !connection.zernio_account_id) {
     console.error(`[cron/publish-scheduled] entry ${entry.id}: brand ${entry.brand_id}'s ${entry.platform} connection is missing a zernio_account_id`)
     return await recordFailure(admin, entry, `${entry.platform} not connected for this brand.`)
   }
@@ -258,6 +396,10 @@ async function processEntry(admin: AdminClient, entry: CalendarEntryRow): Promis
   if (await isBrandPaused(admin, entry.brand_id)) {
     console.log(`[cron/publish-scheduled] entry ${entry.id}: brand ${entry.brand_id} paused autoposting mid-run -- skipped, left scheduled`)
     return "skipped"
+  }
+
+  if (metaAccount) {
+    return await publishViaMeta(admin, entry, metaAccount, { platformData, caption, isStory, isCarousel, isVideo, imageUrl, imageUrls, videoUrl })
   }
 
   if (isStory) {
