@@ -12,9 +12,10 @@ export type { CriticFixTarget }
 export interface CriticVerdict { overall: number; passed: boolean; top_fix: string; fix_target?: CriticFixTarget; reasons: string[] }
 
 /**
- * The critic's score on a finished post / carousel / story (lib/ai/critic.ts
- * via /api/v1/ai/critic): scored once per result (`resultKey`), with the one
- * fix that would lift it most and a "Make it better" button that regenerates
+ * The critic's review of a finished post / carousel / story (lib/ai/critic.ts
+ * via /api/v1/ai/critic): scored once per result (`resultKey`) -- the number
+ * itself is never shown, only whether it looks ready and the one fix that
+ * would lift it most and a "Make it better" button that regenerates
  * with that fix (or, where the caller handles it, redoes only the words and
  * layout when the fix is about those). Hidden entirely when scoring isn't
  * available.
@@ -77,31 +78,24 @@ export function CriticPanel({ brandId, resultKey, imageUrl, caption, hook, forma
   if (!verdict) {
     return imageUrl ? (
       <div className="flex items-center gap-2 rounded-lg border bg-card px-3 py-2 text-xs text-muted-foreground">
-        <Loader2 className="h-3.5 w-3.5 animate-spin" /> Scoring this {format}…
+        <Loader2 className="h-3.5 w-3.5 animate-spin" /> Reviewing this {format}…
       </div>
     ) : null
   }
 
   const good = verdict.overall >= CRITIC_PASS
   return (
-    <div className={`rounded-lg border px-3 py-2.5 space-y-2 ${good ? "border-green-200 bg-green-50 dark:border-green-900 dark:bg-green-950/30" : "border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/30"}`}>
+    <div className="rounded-lg border bg-card px-3 py-2.5 space-y-2">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 space-y-0.5">
-          <p className={`text-sm font-semibold ${good ? "text-green-800 dark:text-green-300" : "text-amber-900 dark:text-amber-200"}`}>
-            Score {verdict.overall}/10{good ? " — ready to post" : ""}
-          </p>
-          <p className="text-xs text-foreground/80">{good ? verdict.top_fix && `One idea: ${verdict.top_fix}` : `Top fix: ${verdict.top_fix}`}</p>
+          <p className="text-sm font-semibold">{good ? "Looks ready to post" : "One way to make it stronger"}</p>
+          {verdict.top_fix && <p className="text-xs text-foreground/80">{verdict.top_fix}</p>}
         </div>
         <Button size="sm" variant={good ? "outline" : "default"} disabled={improving} onClick={() => onImprove(verdict.top_fix, verdict.fix_target ?? "image")} className="shrink-0">
           {improving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
           <span className="ml-1.5">Make it better</span>
         </Button>
       </div>
-      {!good && verdict.reasons.length > 0 && (
-        <ul className="space-y-0.5 text-[11px] text-muted-foreground">
-          {verdict.reasons.map((r) => <li key={r}>{r}</li>)}
-        </ul>
-      )}
       <p className="text-[10px] text-muted-foreground">
         {recomposites && verdict.fix_target === "layout_text"
           ? "Make it better keeps this photo and redoes the words and layout (no image credits)."

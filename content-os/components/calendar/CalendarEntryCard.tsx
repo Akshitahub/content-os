@@ -138,7 +138,8 @@ export function CalendarEntryCard({ title, scheduledTime, platform, contentType,
   const statusClasses = !isMissed && status ? STATUS_COLORS[status] : null
   // Only while it's still waiting on the user -- once scheduled, the verdict is history.
   const flagged = critic?.needs_approval && status === "content_ready" ? critic : null
-  const criticTip = flagged ? `Score ${flagged.overall}/10 -- ${[flagged.top_fix, ...flagged.reasons].join("\n")}` : null
+  // The critic's number is never shown -- only that it needs a look, and why.
+  const criticTip = flagged ? `Needs a look: ${flagged.top_fix}` : null
 
   if (compact) {
     return (
@@ -217,7 +218,7 @@ export function CalendarEntryCard({ title, scheduledTime, platform, contentType,
         )}
         {flagged && (
           <p className="line-clamp-3 rounded-md bg-amber-50 px-1.5 py-1 text-[10px] leading-snug text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
-            <span className="font-semibold">Score {flagged.overall}/10.</span> {flagged.top_fix}
+            <span className="font-semibold">Needs a look:</span> {flagged.top_fix}
           </p>
         )}
       </div>

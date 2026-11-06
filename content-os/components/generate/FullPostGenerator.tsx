@@ -662,7 +662,7 @@ export function FullPostGenerator({ brandId, products }: Props) {
       const best = scored.reduce<PostVersion | null>((a, b) => (!a || (b.score ?? 0) > (a.score ?? 0) ? b : a), null)
       if (newest && newest.key === key && best && best.key !== key && (newest.score ?? 0) < (best.score ?? 0)) {
         const n = (v: PostVersion) => next.indexOf(v) + 1
-        setVersionNotice(`Version ${n(newest)} (score ${newest.score}), your best is Version ${n(best)} (score ${best.score}).`)
+        setVersionNotice(`We kept your stronger version (Version ${n(best)}) on screen instead of Version ${n(newest)} -- use the arrows to compare.`)
         // On the next tick, so this update finishes first.
         setTimeout(() => showVersion(best), 0)
       }
@@ -1680,12 +1680,11 @@ function threeLayouts(first: OverlayLayout, opts: Parameters<typeof alternateTex
   return [...new Set(ids)].map((id) => ({ ...first, text_layout: id }))
 }
 
-/** "Layout 1 · 8.2 / Layout 2 · 7.4 / ..." -- the critic's best marked; while scoring, a note. */
+/** The layouts tried on this image, by name -- the critic's pick is the one on screen; while scoring, a note. */
 function CandidateSwitcher({ candidates, onPick }: { candidates: { list: PostCandidate[]; index: number; scoring: boolean }; onPick: (i: number) => void }) {
   if (candidates.scoring) {
     return <div className="flex items-center gap-2 rounded-lg border bg-card px-3 py-2 text-xs text-muted-foreground"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Trying 3 layouts on this image…</div>
   }
-  const best = candidates.list.reduce((b, c, i) => ((c.verdict?.overall ?? -1) > (candidates.list[b]!.verdict?.overall ?? -1) ? i : b), 0)
   return (
     <div className="flex flex-wrap items-center gap-2 rounded-lg border bg-card px-3 py-2">
       <span className="text-xs text-muted-foreground">Layouts on this image:</span>
@@ -1697,7 +1696,6 @@ function CandidateSwitcher({ candidates, onPick }: { candidates: { list: PostCan
           className={`rounded-full border px-2.5 py-0.5 text-xs ${i === candidates.index ? "border-violet-500 bg-violet-50 text-violet-700" : "border-border text-muted-foreground hover:border-violet-300"}`}
         >
           {c.design ? TEMPLATE_LOOK_LABEL[c.design.template] ?? `Look ${i + 1}` : c.layout?.text_layout ? TEXT_LAYOUT_LABELS[c.layout.text_layout] : `Layout ${i + 1}`}
-          {c.verdict ? ` · ${c.verdict.overall}` : ""}{i === best && c.verdict ? " ★" : ""}
         </button>
       ))}
     </div>
@@ -1728,23 +1726,19 @@ interface PostVersion {
   reasons: string[]
 }
 
-/** "‹ Version 2 of 3 · score 6 ›", the best marked; the notice when a new version scored below the best. */
+/** "‹ Version 2 of 3 ›"; the notice when a new version was weaker and the stronger one was kept on screen. */
 function VersionSwitcher({ versions, versionKey, notice, onShow }: { versions: PostVersion[]; versionKey: string | null; notice: string | null; onShow: (v: PostVersion) => void }) {
   const i = Math.max(0, versions.findIndex((v) => v.key === versionKey))
-  const current = versions[i]!
-  const best = versions.filter((v) => v.score != null).reduce<PostVersion | null>((a, b) => (!a || (b.score ?? 0) > (a.score ?? 0) ? b : a), null)
   return (
     <div className="space-y-1.5">
       <div className="flex items-center justify-between gap-2 rounded-lg border bg-card px-3 py-2">
         <button type="button" aria-label="Previous version" disabled={i === 0} onClick={() => onShow(versions[i - 1]!)} className="rounded px-2 py-0.5 text-sm hover:bg-muted disabled:opacity-30">‹</button>
         <span className="text-xs font-medium">
           Version {i + 1} of {versions.length}
-          {current.score != null ? ` · score ${current.score}` : " · scoring…"}
-          {best && best.key === current.key && versions.length > 1 ? " · your best" : ""}
         </span>
         <button type="button" aria-label="Next version" disabled={i === versions.length - 1} onClick={() => onShow(versions[i + 1]!)} className="rounded px-2 py-0.5 text-sm hover:bg-muted disabled:opacity-30">›</button>
       </div>
-      {notice && <p className="text-xs text-amber-800 dark:text-amber-300">{notice} Showing your best -- use the arrows to compare.</p>}
+      {notice && <p className="text-xs text-amber-800 dark:text-amber-300">{notice}</p>}
     </div>
   )
 }
