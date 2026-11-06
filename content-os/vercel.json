@@ -3,6 +3,10 @@
   "fluid": true,
   "crons": [
     {
+      "path": "/api/v1/cron/refresh-instagram-tokens",
+      "schedule": "30 2 * * *"
+    },
+    {
       "path": "/api/v1/cron/publish-scheduled",
       "schedule": "0 3 * * *"
     },
