@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import { buildError, ErrorCodes } from "@/types/api"
+import { isInstagramDirectEnabled } from "@/lib/social/instagram-direct"
 import type { SupabaseClient } from "@supabase/supabase-js"
 import type { Database } from "@/types/database"
 
@@ -169,6 +170,22 @@ export async function GET(_request: Request, { params }: RouteParams) {
   const twitter_connected = Boolean(twitterData?.zernio_account_id)
   const twitter_username = twitterData?.twitter_username ?? null
 
+  // The direct Instagram connector (allowlisted users only): whether this
+  // user's Connect goes direct, and how the current connection is held.
+  // provider is read on its own and non-fatally -- until migration 072 runs
+  // the column doesn't exist, and Instagram status must not break over it.
+  const instagram_direct_enabled = isInstagramDirectEnabled(result.user!.id)
+  let instagram_provider: "zernio" | "meta" | null = null
+  if (data) {
+    const { data: providerData, error: providerError } = await socialConnectionsTable(result.supabase!)
+      .select("provider")
+      .eq("brand_id", brandId)
+      .eq("platform", "instagram")
+      .maybeSingle() as { data: { provider: "zernio" | "meta" } | null; error: { message: string } | null }
+    if (providerError) console.error(`[brands/${brandId}/social-connections] GET provider error:`, providerError.message)
+    instagram_provider = providerData?.provider ?? "zernio"
+  }
+
   if (!data) {
     return NextResponse.json({
       data: {
@@ -187,6 +204,8 @@ export async function GET(_request: Request, { params }: RouteParams) {
         youtube_channel_name,
         twitter_connected,
         twitter_username,
+        instagram_direct_enabled,
+        instagram_provider,
       },
     })
   }
@@ -215,6 +234,8 @@ export async function GET(_request: Request, { params }: RouteParams) {
       youtube_channel_name,
       twitter_connected,
       twitter_username,
+      instagram_direct_enabled,
+      instagram_provider,
     },
   })
 }
@@ -229,10 +250,23 @@ export async function DELETE(_request: Request, { params }: RouteParams) {
   if (result.error === "not_found") return NextResponse.json(buildError(ErrorCodes.BRAND_NOT_FOUND, "Brand not found."), { status: 404 })
   if (result.error === "unauthorized") return NextResponse.json(buildError(ErrorCodes.UNAUTHORIZED, "You do not have access to this brand."), { status: 403 })
 
+  // Local only, for both providers -- no Zernio call. A direct ('meta')
+  // connection also drops its stored token: nothing should hold it once
+  // the owner has disconnected.
   const { error } = await socialConnectionsTable(result.supabase!)
     .update({ is_active: false })
     .eq("brand_id", brandId)
     .eq("platform", "instagram") as { error: { message: string } | null }
+
+  if (!error) {
+    const { error: tokenError } = await socialConnectionsTable(result.supabase!)
+      .update({ access_token: null })
+      .eq("brand_id", brandId)
+      .eq("platform", "instagram")
+      .eq("provider", "meta") as { error: { message: string } | null }
+    // Before migration 072 there are no 'meta' rows (and no column): nothing to clear.
+    if (tokenError) console.error(`[brands/${brandId}/social-connections] DELETE token clear error:`, tokenError.message)
+  }
 
   if (error) {
     console.error(`[brands/${brandId}/social-connections] DELETE error:`, error)

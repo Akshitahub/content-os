@@ -28,6 +28,9 @@ interface ConnectionStatus {
   youtube_channel_name: string | null
   twitter_connected: boolean
   twitter_username: string | null
+  /** This user connects Instagram directly (no Zernio) -- decided server-side. */
+  instagram_direct_enabled?: boolean
+  instagram_provider?: "zernio" | "meta" | null
 }
 
 const ERROR_MESSAGES: Record<string, string> = {
@@ -36,6 +39,7 @@ const ERROR_MESSAGES: Record<string, string> = {
   no_boards: "No Pinterest board was found for your account. Create a board first, then try again.",
   server_error: "Something went wrong connecting your account. Please try again.",
   plan_restricted: "This platform is available on Pro and Agency plans. Upgrade to connect it.",
+  session_expired: "The connection took too long or was started in another browser. Please try again.",
 }
 
 interface PlatformTile {
@@ -187,6 +191,8 @@ export function SocialConnections({ brandId }: { brandId: string }) {
         youtube_channel_name: prev?.youtube_channel_name ?? null,
         twitter_connected: prev?.twitter_connected ?? false,
         twitter_username: prev?.twitter_username ?? null,
+        instagram_direct_enabled: prev?.instagram_direct_enabled,
+        instagram_provider: null,
       }))
       setConfirmDisconnect(false)
     } catch {
@@ -203,9 +209,13 @@ export function SocialConnections({ brandId }: { brandId: string }) {
       Icon: FaInstagram,
       iconColor: "#E1306C",
       connected: !!status?.connected,
-      handle: status?.connected ? `@${status.ig_username ?? "unknown"}` : null,
+      handle: status?.connected
+        ? `@${status.ig_username ?? "unknown"}${status.instagram_provider === "meta" ? " · Connected directly" : ""}`
+        : null,
       description: "Connect an Instagram Business or Creator account to schedule and publish posts there.",
-      connectHref: `/api/v1/social/instagram/connect?brandId=${brandId}`,
+      connectHref: status?.instagram_direct_enabled
+        ? `/api/v1/social/instagram-direct/connect?brandId=${brandId}`
+        : `/api/v1/social/instagram/connect?brandId=${brandId}`,
       showDisconnect: true,
     },
     {
