@@ -118,10 +118,10 @@ async function websiteSources(websiteUrl: string): Promise<Source[]> {
 }
 
 async function instagramCaptions(db: Db, brandId: string): Promise<string[]> {
-  const { data: conn } = await db.from("social_connections").select("zernio_account_id").eq("brand_id", brandId).eq("platform", "instagram").eq("is_active", true).maybeSingle() as { data: { zernio_account_id: string | null } | null }
-  if (!conn?.zernio_account_id) return []
-  const { listZernioPostAnalytics } = await import("@/lib/social/zernio-client")
-  const res = await listZernioPostAnalytics(conn.zernio_account_id, "instagram", 30)
+  const { loadInstagramSource, listInstagramPosts } = await import("@/lib/social/instagram-source")
+  const source = await loadInstagramSource(db, brandId)
+  if (!source) return []
+  const res = await listInstagramPosts(source, 30)
   if (!res.ok) return []
   return res.items.map((i) => i.content?.trim() ?? "").filter((c) => c.length > 10).slice(0, 30)
 }

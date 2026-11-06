@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js"
-import { listZernioPostAnalytics, type ZernioPostAnalyticsItem } from "./zernio-client"
+import type { ZernioPostAnalyticsItem } from "./zernio-client"
+import { listInstagramPosts, type InstagramPostItem, type InstagramSource } from "./instagram-source"
 import type { CalendarEntryRow } from "@/types/database"
 
 // Fetches this brand's real Instagram post analytics (via
@@ -131,15 +132,22 @@ function findMatchingAnalyticsItem(
  * lib/ai/fastlane.ts's executeFastlane already uses. Never throws -- a
  * Zernio failure or an empty match set is a normal, loggable outcome.
  */
+/** A direct (Meta) connection: the entry's own published media id, exactly -- no caption / time guessing. */
+function findByMediaId(entry: { platform_specific_data?: unknown }, items: InstagramPostItem[]): InstagramPostItem | null {
+  const id = (entry.platform_specific_data as { ig_media_id?: unknown } | null)?.ig_media_id
+  return typeof id === "string" && id ? items.find((i) => i.igMediaId === id) ?? null : null
+}
+
 export async function syncEngagementForBrand(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   supabase: SupabaseClient<any>,
   brandId: string,
-  zernioAccountId: string
+  source: InstagramSource
 ): Promise<EngagementSyncResult> {
   const result: EngagementSyncResult = { matched: 0, refreshed: 0, unmatched: 0, errors: [] }
+  const direct = source.kind === "meta"
 
-  const analyticsResult = await listZernioPostAnalytics(zernioAccountId, "instagram", ANALYTICS_LIMIT)
+  const analyticsResult = await listInstagramPosts(source, ANALYTICS_LIMIT)
   if (!analyticsResult.ok) {
     result.errors.push(analyticsResult.error)
     return result
@@ -150,12 +158,12 @@ export async function syncEngagementForBrand(
 
   const { data: publishedEntries, error: entriesError } = await supabase
     .from("calendar_entries")
-    .select("id, caption_text, updated_at")
+    .select(direct ? "id, caption_text, updated_at, platform_specific_data" : "id, caption_text, updated_at")
     .eq("brand_id", brandId)
     .eq("platform", "instagram")
     .eq("status", "published")
     .gte("updated_at", sinceDate) as {
-      data: Pick<CalendarEntryRow, "id" | "caption_text" | "updated_at">[] | null
+      data: (Pick<CalendarEntryRow, "id" | "caption_text" | "updated_at"> & { platform_specific_data?: unknown })[] | null
       error: { message: string } | null
     }
 
@@ -183,8 +191,13 @@ export async function syncEngagementForBrand(
     // the stored permalink instead of re-running the caption/time
     // heuristic (which could, in principle, drift onto a different post if
     // the brand has since published something with very similar text).
-    let matchedItem = existingUrl ? items.find((i) => i.platformPostUrl === existingUrl) ?? null : null
-    if (!matchedItem) matchedItem = findMatchingAnalyticsItem(entry, items)
+    let matchedItem: ZernioPostAnalyticsItem | null
+    if (direct) {
+      matchedItem = findByMediaId(entry, items)
+    } else {
+      matchedItem = existingUrl ? items.find((i) => i.platformPostUrl === existingUrl) ?? null : null
+      if (!matchedItem) matchedItem = findMatchingAnalyticsItem(entry, items)
+    }
 
     if (!matchedItem) {
       result.unmatched++

@@ -186,7 +186,7 @@ export interface ZernioAnalyticsResponse {
   unavailableMetrics?: { metric?: string; reason?: string; message?: string }[]
 }
 
-type ZernioAnalyticsFetchResult =
+export type ZernioAnalyticsFetchResult =
   | { ok: true; data: ZernioAnalyticsResponse }
   | { ok: false; error: string }
 

@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server"
 import { createAdminClient } from "@/lib/supabase/server"
 import { syncEngagementForBrand } from "@/lib/social/engagement-sync"
+import { instagramSourceFor } from "@/lib/social/instagram-source"
+import type { SocialConnectionRow } from "@/types/database"
 import { runPerformanceLearning } from "@/lib/ai/performance-learning"
 
 // Weekly (vercel.json): for every brand with an active Instagram connection,
@@ -26,8 +28,8 @@ export async function GET(request: Request) {
   const startedAt = Date.now()
   const admin = await createAdminClient()
   const { data: connections, error } = await admin.from("social_connections")
-    .select("brand_id, zernio_account_id").eq("platform", "instagram").eq("is_active", true)
-    .returns<{ brand_id: string; zernio_account_id: string | null }[]>()
+    .select("*").eq("platform", "instagram").eq("is_active", true)
+    .returns<SocialConnectionRow[]>()
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
   const summary = { brands: 0, learned: 0, notEnough: 0, lessons: 0, skippedForTime: 0 }
@@ -38,8 +40,9 @@ export async function GET(request: Request) {
     }
     summary.brands++
     try {
-      if (c.zernio_account_id) {
-        const sync = await syncEngagementForBrand(admin, c.brand_id, c.zernio_account_id)
+      const source = instagramSourceFor(c)
+      if (source) {
+        const sync = await syncEngagementForBrand(admin, c.brand_id, source)
         if (sync.errors.length) console.error(`[cron/learn-from-results] brand ${c.brand_id} engagement sync:`, sync.errors.slice(0, 3).join("; "))
       }
       const report = await runPerformanceLearning(admin, c.brand_id)

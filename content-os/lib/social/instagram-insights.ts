@@ -1,9 +1,5 @@
-import {
-  getZernioInstagramAccountInsights,
-  getZernioInstagramFollowerHistory,
-  listZernioPostAnalytics,
-  type ZernioInsightMetric,
-} from "./zernio-client"
+import type { ZernioAnalyticsFetchResult, ZernioInsightMetric } from "./zernio-client"
+import { instagramAccountInsights, instagramFollowerHistory, listInstagramPosts, type InstagramSource } from "./instagram-source"
 
 const INSIGHTS_WINDOW_DAYS = 30
 const MEDIA_LIMIT = 25
@@ -69,7 +65,7 @@ function seriesFromMetric(metric: ZernioInsightMetric | undefined): InsightsSeri
 }
 
 function buildReachMetric(
-  result: Awaited<ReturnType<typeof getZernioInstagramAccountInsights>>
+  result: ZernioAnalyticsFetchResult
 ): AccountInsightsData["reach"] {
   if (!result.ok) return { available: false, value: null, note: result.error }
   const metric = result.data.metrics?.reach
@@ -82,7 +78,7 @@ function buildReachMetric(
 }
 
 function buildEngagementMetric(
-  result: Awaited<ReturnType<typeof getZernioInstagramAccountInsights>>
+  result: ZernioAnalyticsFetchResult
 ): AccountInsightsData["engagement"] {
   if (!result.ok) return { available: false, value: null, note: result.error }
   const totalInteractions = result.data.metrics?.total_interactions?.total
@@ -99,7 +95,7 @@ function buildEngagementMetric(
 }
 
 function buildFollowerGrowthMetric(
-  result: Awaited<ReturnType<typeof getZernioInstagramFollowerHistory>>
+  result: ZernioAnalyticsFetchResult
 ): AccountInsightsData["followerGrowth"] {
   if (!result.ok) return { available: false, value: null, note: result.error }
   const series = seriesFromMetric(result.data.metrics?.follower_count)
@@ -115,22 +111,24 @@ function buildFollowerGrowthMetric(
 }
 
 async function fetchAccountMedia(
-  zernioAccountId: string
+  source: InstagramSource
 ): Promise<{ ok: true; data: AccountMedia[] } | { ok: false; error: string }> {
-  const result = await listZernioPostAnalytics(zernioAccountId, "instagram", MEDIA_LIMIT)
+  const result = await listInstagramPosts(source, MEDIA_LIMIT)
   if (!result.ok) return { ok: false, error: result.error }
+  const accountKey = source.kind === "zernio" ? source.accountId : source.igUserId
+  const direct = source.kind === "meta"
 
   const media: AccountMedia[] = result.items
     .filter((item): item is typeof item & { publishedAt: string } => typeof item.publishedAt === "string")
     .map((item, i) => ({
-      id: item.platformPostUrl ?? `${zernioAccountId}-${i}`,
+      id: (direct ? item.igMediaId : undefined) ?? item.platformPostUrl ?? `${accountKey}-${i}`,
       caption: item.content ?? null,
       like_count: typeof item.analytics?.likes === "number" ? item.analytics.likes : 0,
       comments_count: typeof item.analytics?.comments === "number" ? item.analytics.comments : 0,
       timestamp: item.publishedAt,
       media_type: item.mediaType ?? "UNKNOWN",
       permalink: item.platformPostUrl ?? "",
-      media_url: null,
+      media_url: direct ? item.mediaUrl ?? null : null,
     }))
 
   return { ok: true, data: media }
@@ -140,7 +138,8 @@ async function fetchAccountMedia(
  * Fetches real account-level Instagram Insights (reach, follower growth,
  * engagement) plus the account's own recent posts for best-performing-post
  * calculations — via Zernio's analytics endpoints (the account's real Meta
- * access token lives on Zernio's side, not this app's). Never throws. Each
+ * access token lives on Zernio's side, not this app's), or Meta's own API
+ * for a direct connection (lib/social/instagram-source.ts). Never throws. Each
  * metric group is fetched independently — if one fails or isn't available
  * for this account, it's marked unavailable with an explanatory note rather
  * than showing a zero that looks like real data.
@@ -149,16 +148,16 @@ async function fetchAccountMedia(
  * equivalent — confirmed against Zernio's full API reference — so that
  * field is always returned unavailable with an honest note, not fetched.
  */
-export async function getAccountInsights(zernioAccountId: string): Promise<AccountInsightsResult> {
+export async function getAccountInsights(source: InstagramSource): Promise<AccountInsightsResult> {
   try {
     const until = toDateStr(new Date())
     const since = toDateStr(new Date(Date.now() - INSIGHTS_WINDOW_DAYS * 24 * 60 * 60 * 1000))
 
     const [reachResult, engagementResult, followerResult, mediaResult] = await Promise.all([
-      getZernioInstagramAccountInsights(zernioAccountId, "reach", "time_series", since, until),
-      getZernioInstagramAccountInsights(zernioAccountId, "accounts_engaged,total_interactions", "total_value", since, until),
-      getZernioInstagramFollowerHistory(zernioAccountId, since, until),
-      fetchAccountMedia(zernioAccountId),
+      instagramAccountInsights(source, "reach", "time_series", since, until),
+      instagramAccountInsights(source, "accounts_engaged,total_interactions", "total_value", since, until),
+      instagramFollowerHistory(source, since, until),
+      fetchAccountMedia(source),
     ])
 
     return {

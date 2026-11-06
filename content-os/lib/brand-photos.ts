@@ -6,6 +6,7 @@ import { after } from "next/server"
 import sharp from "sharp"
 import { z } from "zod"
 import type { BrandRow, ProductRow } from "@/types/database"
+import type { InstagramSource } from "@/lib/social/instagram-source"
 import { MODELS, getTextClientFor, visionReasoning } from "@/lib/ai/models"
 
 /**
@@ -105,15 +106,24 @@ type TaggedMedia = { externalId: string; url: string; publishedAt: string | null
 export const UGC_UNAVAILABLE = "Instagram is connected through Zernio, which keeps the Meta token and has no listing of media the account is tagged or mentioned in (its mentions inbox is LinkedIn-only) -- so there is no /tags or mentions call SocioPosts can make yet"
 
 /**
- * Customer photos (UGC): Instagram media the brand is tagged or mentioned in
- * (Graph API /{ig-user-id}/tags, plus mentions). Not reachable today -- see
- * UGC_UNAVAILABLE; the sync reports it and moves on (owners are never asked
- * to reconnect for it). When a source exists it returns its items here and
- * syncBrandPhotos stores them as source 'ugc', rights_status 'none'.
+ * Customer photos (UGC): Instagram media the brand is tagged in (the /tags
+ * edge). Only a direct connection (provider 'meta') can read it -- a Zernio
+ * one reports UGC_UNAVAILABLE; either way the sync reports it and moves on
+ * (owners are never asked to reconnect for it). Items are stored as source
+ * 'ugc', rights_status 'none'. Images only, and only with a creator handle
+ * to credit.
  */
-// eslint-disable-next-line @typescript-eslint/no-unused-vars -- the account a future source reads
-async function taggedMedia(_zernioAccountId: string): Promise<{ ok: true; items: TaggedMedia[] } | { ok: false; skipped: string }> {
-  return { ok: false, skipped: UGC_UNAVAILABLE }
+async function taggedMedia(source: InstagramSource): Promise<{ ok: true; items: TaggedMedia[] } | { ok: false; skipped: string }> {
+  if (source.kind === "zernio") return { ok: false, skipped: UGC_UNAVAILABLE }
+  const { instagramTaggedMedia } = await import("@/lib/social/instagram-source")
+  const res = await instagramTaggedMedia(source)
+  if (!res.ok) return { ok: false, skipped: `Instagram didn't return the media this account is tagged in: ${res.error}` }
+  const items: TaggedMedia[] = []
+  for (const m of res.items) {
+    if (!m.media_url || !m.username || m.media_type.toUpperCase().includes("VIDEO")) continue
+    items.push({ externalId: `ugc-${hash(m.id)}`, url: m.media_url, publishedAt: m.timestamp, creatorHandle: m.username, permalink: m.permalink })
+  }
+  return { ok: true, items }
 }
 
 /** The brand's website images (absolute URLs), from its home page. */
@@ -128,13 +138,13 @@ type InstagramImage = { externalId: string; url: string; publishedAt: string | n
 
 /**
  * The brand's own recent Instagram images: images and carousel children,
- * never videos. Read through the account's Zernio connection (the Meta
- * token lives there); the image URL is read from whichever field Zernio's
- * item carries it in.
+ * never videos. Read through the account's connection -- Zernio (the Meta
+ * token lives there) or Meta directly (lib/social/instagram-source.ts); the
+ * image URL is read from whichever field the item carries it in.
  */
-async function instagramImages(zernioAccountId: string): Promise<InstagramImage[]> {
-  const { listZernioPostAnalytics } = await import("@/lib/social/zernio-client")
-  const res = await listZernioPostAnalytics(zernioAccountId, "instagram", INSTAGRAM_MEDIA_LIMIT)
+async function instagramImages(source: InstagramSource): Promise<InstagramImage[]> {
+  const { listInstagramPosts } = await import("@/lib/social/instagram-source")
+  const res = await listInstagramPosts(source, INSTAGRAM_MEDIA_LIMIT)
   if (!res.ok) throw new Error(res.error)
   const out: InstagramImage[] = []
   for (const raw of res.items as Record<string, unknown>[]) {
@@ -368,14 +378,15 @@ export async function syncBrandPhotos(db: Db, brandId: string, opts: { website?:
       }
     }
     if (opts.instagram) {
-      const { data: conn } = await db.from("social_connections").select("zernio_account_id").eq("brand_id", brandId).eq("platform", "instagram").eq("is_active", true).maybeSingle() as { data: { zernio_account_id: string | null } | null }
-      if (conn?.zernio_account_id) {
+      const { loadInstagramSource } = await import("@/lib/social/instagram-source")
+      const source = await loadInstagramSource(db, brandId)
+      if (source) {
         try {
-          for (const img of await instagramImages(conn.zernio_account_id)) candidates.push({ ...img, source: "instagram" })
+          for (const img of await instagramImages(source)) candidates.push({ ...img, source: "instagram" })
         } catch (err) {
           report.errors.push(`instagram: ${err instanceof Error ? err.message : String(err)}`)
         }
-        const tagged = await taggedMedia(conn.zernio_account_id)
+        const tagged = await taggedMedia(source)
         if (tagged.ok) {
           for (const m of tagged.items) candidates.push({ ...m, source: "ugc" })
           report.ugc = { found: tagged.items.length }

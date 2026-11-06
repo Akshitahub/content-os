@@ -3,6 +3,7 @@ import { renderToBuffer } from "@react-pdf/renderer"
 import { createClient } from "@/lib/supabase/server"
 import { buildError, ErrorCodes } from "@/types/api"
 import { getAccountInsights } from "@/lib/social/instagram-insights"
+import { instagramSourceFor } from "@/lib/social/instagram-source"
 import { calculateBestPerformingPosts, generateAccountInsights } from "@/lib/ai/account-analytics"
 import { getRoiTracking, currentMonthRange } from "@/lib/analytics/roi-tracking"
 import { buildMonthlyReportDocument, type MonthlyReportData } from "@/lib/reports/monthly-report-pdf"
@@ -36,7 +37,8 @@ export async function GET(_request: Request, { params }: RouteParams) {
     .eq("is_active", true)
     .maybeSingle<SocialConnectionRow>()
 
-  if (!connection || !connection.zernio_account_id) {
+  const source = instagramSourceFor(connection)
+  if (!source) {
     return NextResponse.json(
       buildError(ErrorCodes.VALIDATION_ERROR, "Connect Instagram first to generate a report."),
       { status: 400 }
@@ -45,7 +47,7 @@ export async function GET(_request: Request, { params }: RouteParams) {
 
   // Same functions as the live analytics route — the numbers in this PDF
   // must never be able to silently disagree with the dashboard.
-  const insightsResult = await getAccountInsights(connection.zernio_account_id)
+  const insightsResult = await getAccountInsights(source)
   if (!insightsResult.success) {
     console.error(`[reports/monthly] insights fetch failed for brand ${brandId}:`, insightsResult.error)
     return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, insightsResult.error), { status: 500 })

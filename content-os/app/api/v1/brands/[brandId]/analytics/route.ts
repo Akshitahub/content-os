@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import { buildError, ErrorCodes } from "@/types/api"
 import { getAccountInsights } from "@/lib/social/instagram-insights"
+import { instagramSourceFor } from "@/lib/social/instagram-source"
 import { calculateBestPerformingPosts, generateAccountInsights } from "@/lib/ai/account-analytics"
 import { getRoiTracking, currentMonthRange } from "@/lib/analytics/roi-tracking"
 import type { BrandRow, SocialConnectionRow } from "@/types/database"
@@ -34,14 +35,15 @@ export async function GET(_request: Request, { params }: RouteParams) {
     .eq("is_active", true)
     .maybeSingle<SocialConnectionRow>()
 
-  if (!connection || !connection.zernio_account_id) {
+  const source = instagramSourceFor(connection)
+  if (!source) {
     return NextResponse.json(
       buildError(ErrorCodes.VALIDATION_ERROR, "Connect Instagram first to see analytics."),
       { status: 400 }
     )
   }
 
-  const insightsResult = await getAccountInsights(connection.zernio_account_id)
+  const insightsResult = await getAccountInsights(source)
   if (!insightsResult.success) {
     console.error(`[analytics] insights fetch failed for brand ${brandId}:`, insightsResult.error)
     return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, insightsResult.error), { status: 500 })

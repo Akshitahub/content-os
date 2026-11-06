@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import { buildError, ErrorCodes } from "@/types/api"
 import { syncEngagementForBrand } from "@/lib/social/engagement-sync"
+import { instagramSourceFor } from "@/lib/social/instagram-source"
 import type { SocialConnectionRow } from "@/types/database"
 
 type RouteParams = { params: Promise<{ brandId: string }> }
@@ -55,14 +56,15 @@ export async function POST(_request: Request, { params }: RouteParams) {
     .eq("is_active", true)
     .maybeSingle<SocialConnectionRow>()
 
-  if (!connection || !connection.zernio_account_id) {
+  const source = instagramSourceFor(connection)
+  if (!source) {
     return NextResponse.json(
       buildError(ErrorCodes.VALIDATION_ERROR, "Connect Instagram first to sync engagement data."),
       { status: 400 }
     )
   }
 
-  const result = await syncEngagementForBrand(supabase, brandId, connection.zernio_account_id)
+  const result = await syncEngagementForBrand(supabase, brandId, source)
 
   if (result.errors.length > 0) {
     console.error(`[engagement/sync] brand ${brandId} finished with errors:`, result.errors)
