@@ -1,6 +1,7 @@
 // CI guard (.github/workflows/ci.yml): fails if any file reachable from a
 // "use client" component imports a server-only module -- sharp, fs, path,
-// child_process, or lib/image/text-contrast.ts (which loads sharp).
+// child_process, lib/image/text-contrast.ts (which loads sharp), or
+// lib/social/token-crypto.ts (the stored-token key must never ship).
 // Bundling one of those into the browser build fails the production
 // build; that is what broke every Vercel deploy from c0bd043 to cef3240
 // while tsc stayed green. Run: `npx tsx scripts/check-client-imports.ts`.
@@ -16,7 +17,7 @@ import ts from "typescript"
 const ROOT = resolve(__dirname, "..")
 const SOURCE_DIRS = ["app", "components", "hooks", "lib", "stores"]
 const FORBIDDEN_PACKAGES = new Set(["sharp", "fs", "path", "child_process"])
-const FORBIDDEN_FILES = new Set([join(ROOT, "lib/image/text-contrast.ts")])
+const FORBIDDEN_FILES = new Set([join(ROOT, "lib/image/text-contrast.ts"), join(ROOT, "lib/social/token-crypto.ts")])
 const EXTENSIONS = [".ts", ".tsx", ".js", ".jsx", ".mjs"]
 
 function listSourceFiles(dir: string, out: string[] = []): string[] {

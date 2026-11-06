@@ -20,6 +20,22 @@ const REQUIRED_ENV_VARS = [
   "GROQ_API_KEY",
 ] as const
 
+/**
+ * Read where used, never validated here -- the build and CI run without
+ * them. The direct Instagram connector (lib/social/meta-instagram-client.ts,
+ * lib/social/token-crypto.ts):
+ *   SOCIAL_TOKEN_KEY          32 random bytes, base64 -- encrypts stored tokens
+ *   INSTAGRAM_APP_ID          Instagram app id (Business Login for Instagram)
+ *   INSTAGRAM_APP_SECRET      its secret
+ *   INSTAGRAM_DIRECT_USER_IDS comma-separated user ids who connect directly
+ */
+export const OPTIONAL_ENV_VARS = [
+  "SOCIAL_TOKEN_KEY",
+  "INSTAGRAM_APP_ID",
+  "INSTAGRAM_APP_SECRET",
+  "INSTAGRAM_DIRECT_USER_IDS",
+] as const
+
 export function validateRequiredEnv(): void {
   const missing = REQUIRED_ENV_VARS.filter((name) => !process.env[name])
   if (missing.length > 0) {

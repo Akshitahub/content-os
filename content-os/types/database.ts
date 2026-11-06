@@ -935,9 +935,10 @@ export type Database = {
           linkedin_username: string | null
           youtube_channel_name: string | null
           twitter_username: string | null
-          access_token: string
+          provider: "zernio" | "meta"
+          access_token: string | null
           refresh_token: string | null
-          token_expires_at: string
+          token_expires_at: string | null
           connected_at: string
           last_refreshed_at: string
           is_active: boolean
@@ -960,6 +961,7 @@ export type Database = {
           linkedin_username?: string | null
           youtube_channel_name?: string | null
           twitter_username?: string | null
+          provider?: "zernio" | "meta"
           access_token: string | null
           refresh_token?: string | null
           token_expires_at: string | null
@@ -981,6 +983,7 @@ export type Database = {
           zernio_account_id?: string | null
           linkedin_username?: string | null
           twitter_username?: string | null
+          provider?: "zernio" | "meta"
           access_token?: string | null
           refresh_token?: string | null
           token_expires_at?: string | null
