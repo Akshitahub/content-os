@@ -3,12 +3,25 @@ import { z } from "zod"
 import { createAdminClient } from "@/lib/supabase/server"
 import { verifyPassword } from "@/lib/admin/password"
 import { signAdminSession, ADMIN_SESSION_COOKIE } from "@/lib/admin/session"
+import { decryptTotpSecret } from "@/lib/admin/totp-crypto"
+import { checkRateLimit } from "@/lib/security/rate-limit"
 import { buildError, ErrorCodes } from "@/types/api"
+import { verify as verifyTotp } from "otplib"
 
 const schema = z.object({
   email: z.string().email("Please enter a valid email address"),
   password: z.string().min(1, "Password is required"),
+  totp: z.string().trim().optional(),
 })
+
+// Lockout (migration 074): this many wrong attempts in a row lock the
+// account for LOCKOUT_MINUTES. Per-IP: IP_LIMIT attempts per IP_WINDOW_SECONDS.
+const MAX_FAILED_ATTEMPTS = 5
+const LOCKOUT_MINUTES = 15
+const IP_LIMIT = 10
+const IP_WINDOW_SECONDS = 900
+// One 30-second TOTP step either side of now ("window 1").
+const TOTP_TOLERANCE_SECONDS = 30
 
 // Same 7-day window signAdminSession itself signs the JWT for -- kept in
 // sync here since the cookie's own maxAge is what actually controls when
@@ -30,6 +43,45 @@ interface AdminUserRow {
   id: string
   email: string
   password_hash: string
+  // Migration 074 -- absent before it runs (no lockout / TOTP then).
+  failed_attempts?: number
+  locked_until?: string | null
+  totp_secret_enc?: string | null
+  totp_enabled?: boolean
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type AdminDb = any
+
+const invalidCredentials = () => NextResponse.json(buildError(ErrorCodes.UNAUTHENTICATED, "Invalid credentials"), { status: 401 })
+
+function clientIp(request: Request): string {
+  return request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || request.headers.get("x-real-ip")?.trim() || "unknown"
+}
+
+/** The admin row, with the 074 columns when they exist. */
+async function loadAdmin(admin: AdminDb, email: string): Promise<AdminUserRow | null> {
+  const full = await admin.from("admin_users")
+    .select("id, email, password_hash, failed_attempts, locked_until, totp_secret_enc, totp_enabled")
+    .eq("email", email)
+    .maybeSingle() as { data: AdminUserRow | null; error: { message: string } | null }
+  if (!full.error) return full.data
+  // Before migration 074: the columns don't exist yet.
+  const base = await admin.from("admin_users").select("id, email, password_hash").eq("email", email).maybeSingle() as { data: AdminUserRow | null }
+  return base.data
+}
+
+/** One more failed attempt; the fifth in a row locks the account and resets the count. Returns whether it locked. */
+async function recordFailedAttempt(admin: AdminDb, user: AdminUserRow): Promise<boolean> {
+  if (user.failed_attempts === undefined) return false // before migration 074
+  const attempts = user.failed_attempts + 1
+  const locks = attempts >= MAX_FAILED_ATTEMPTS
+  const { error } = await admin.from("admin_users")
+    .update(locks ? { failed_attempts: 0, locked_until: new Date(Date.now() + LOCKOUT_MINUTES * 60_000).toISOString() } : { failed_attempts: attempts })
+    .eq("id", user.id)
+  if (error) console.error("[admin/auth/login] failed-attempt update failed:", error.message)
+  if (locks) console.error(`[admin/auth/login] admin ${user.id} locked for ${LOCKOUT_MINUTES} minutes after ${MAX_FAILED_ATTEMPTS} failed attempts`)
+  return locks
 }
 
 /**
@@ -49,32 +101,74 @@ export async function POST(request: Request) {
   if (!parsed.success) {
     return NextResponse.json(buildError(ErrorCodes.VALIDATION_ERROR, "Validation failed.", parsed.error.issues[0]?.message), { status: 400 })
   }
-  const { email, password } = parsed.data
+  const { email, password, totp } = parsed.data
 
-  const admin = await createAdminClient()
+  if (!(await checkRateLimit(`admin-login:${clientIp(request)}`, IP_LIMIT, IP_WINDOW_SECONDS))) {
+    await sleep(FAILURE_DELAY_MS)
+    return NextResponse.json(
+      buildError(ErrorCodes.RATE_LIMITED, "Too many sign-in attempts. Try again in a few minutes."),
+      { status: 429, headers: { "Retry-After": String(IP_WINDOW_SECONDS) } }
+    )
+  }
+
   // admin_users isn't in the generated Database type (a hand-run
   // migration, not one supabase gen types has ever seen) -- same `as any`
   // pattern already used elsewhere in this codebase for tables in that
   // situation.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data: adminUser } = await (admin.from("admin_users") as any)
-    .select("id, email, password_hash")
-    .eq("email", email)
-    .single() as { data: AdminUserRow | null }
+  const admin: AdminDb = await createAdminClient()
+  const adminUser = await loadAdmin(admin, email)
+
+  // Locked: the same generic failure, without even checking the password.
+  if (adminUser?.locked_until && new Date(adminUser.locked_until).getTime() > Date.now()) {
+    await sleep(FAILURE_DELAY_MS)
+    return invalidCredentials()
+  }
 
   const passwordValid = adminUser ? await verifyPassword(password, adminUser.password_hash) : false
 
   if (!adminUser || !passwordValid) {
+    if (adminUser) await recordFailedAttempt(admin, adminUser)
     await sleep(FAILURE_DELAY_MS)
-    return NextResponse.json(buildError(ErrorCodes.UNAUTHENTICATED, "Invalid credentials"), { status: 401 })
+    return invalidCredentials()
+  }
+
+  // Password correct from here on.
+  if (process.env.ADMIN_REQUIRE_TOTP === "true" && !adminUser.totp_enabled) {
+    console.error(`[admin/auth/login] admin ${adminUser.id} refused: ADMIN_REQUIRE_TOTP is on and they have no TOTP enrolled`)
+    await sleep(FAILURE_DELAY_MS)
+    return NextResponse.json(
+      buildError(ErrorCodes.UNAUTHORIZED, "Two-factor sign-in is required. Ask an admin to enrol you (scripts/admin-enroll-totp.ts)."),
+      { status: 403 }
+    )
+  }
+
+  if (adminUser.totp_enabled) {
+    if (!totp) {
+      // Counts as an attempt, so the password step alone can't be hammered.
+      await recordFailedAttempt(admin, adminUser)
+      return NextResponse.json({ totpRequired: true })
+    }
+    let secret: string
+    try {
+      secret = decryptTotpSecret(adminUser.totp_secret_enc ?? "")
+    } catch (err) {
+      console.error("[admin/auth/login] TOTP secret unusable:", err instanceof Error ? err.message : err)
+      return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Admin sign-in is misconfigured."), { status: 500 })
+    }
+    const result = /^\d{6}$/.test(totp) ? await verifyTotp({ secret, token: totp, epochTolerance: TOTP_TOLERANCE_SECONDS }).catch(() => ({ valid: false })) : { valid: false }
+    if (!result.valid) {
+      await recordFailedAttempt(admin, adminUser)
+      await sleep(FAILURE_DELAY_MS)
+      return invalidCredentials()
+    }
   }
 
   const token = await signAdminSession({ id: adminUser.id, email: adminUser.email })
 
   // Best-effort -- a failed write here shouldn't block a successful login.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { error: touchError } = await (admin.from("admin_users") as any)
-    .update({ last_login_at: new Date().toISOString() })
+  // A successful sign-in clears the failed-attempt count and any lock.
+  const { error: touchError } = await admin.from("admin_users")
+    .update({ last_login_at: new Date().toISOString(), ...(adminUser.failed_attempts !== undefined ? { failed_attempts: 0, locked_until: null } : {}) })
     .eq("id", adminUser.id)
   if (touchError) {
     console.error("[admin/auth/login] last_login_at update failed:", touchError.message)

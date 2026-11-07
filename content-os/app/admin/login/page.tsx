@@ -30,6 +30,9 @@ type LoginFormData = z.infer<typeof loginSchema>
 export default function AdminLoginPage() {
   const router = useRouter()
   const [serverError, setServerError] = useState<string | null>(null)
+  // Shown once the API confirms the password and asks for the authenticator code.
+  const [totpRequired, setTotpRequired] = useState(false)
+  const [totp, setTotp] = useState("")
 
   const {
     register,
@@ -41,15 +44,23 @@ export default function AdminLoginPage() {
 
   async function onSubmit(data: LoginFormData) {
     setServerError(null)
+    if (totpRequired && !/^\d{6}$/.test(totp)) {
+      setServerError("Enter the 6-digit code from your authenticator app.")
+      return
+    }
     try {
       const res = await fetch("/api/admin/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
+        body: JSON.stringify(totpRequired ? { ...data, totp } : data),
       })
       const json: unknown = await res.json()
       if (!res.ok || isApiError(json)) {
         setServerError(isApiError(json) ? json.error.message : "Something went wrong. Please try again.")
+        return
+      }
+      if ((json as { totpRequired?: boolean }).totpRequired) {
+        setTotpRequired(true)
         return
       }
       router.push("/admin")
@@ -104,6 +115,24 @@ export default function AdminLoginPage() {
                 <p className="text-xs text-destructive">{errors.password.message}</p>
               )}
             </div>
+
+            {totpRequired && (
+              <div className="space-y-2">
+                <Label htmlFor="totp">Authenticator code</Label>
+                <Input
+                  id="totp"
+                  inputMode="numeric"
+                  pattern="[0-9]{6}"
+                  maxLength={6}
+                  placeholder="6-digit code"
+                  autoComplete="one-time-code"
+                  autoFocus
+                  value={totp}
+                  onChange={(e) => setTotp(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                />
+                <p className="text-xs text-muted-foreground">From the authenticator app you enrolled with.</p>
+              </div>
+            )}
 
             <Button type="submit" className="w-full" disabled={isSubmitting}>
               {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
