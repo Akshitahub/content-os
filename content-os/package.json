@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "security:isolation": "npx tsx scripts/security/cross-account-test.ts"
   },
   "dependencies": {
     "@fontsource/anton": "^5.2.7",
