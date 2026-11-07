@@ -147,6 +147,66 @@ async function collectPrefixedPaths(admin: AdminClient, brandIds: string[], fold
   }
 }
 
+/**
+ * Every file under `prefix` in `bucket`, at any depth. Storage lists one
+ * folder level at a time (a folder comes back with no id), paged. `search`
+ * narrows the top level to names starting with it. Listing errors are
+ * logged and skipped -- the DB-driven collection above still runs.
+ */
+async function collectAllUnder(admin: AdminClient, bucket: string, prefix: string, out: Set<string>, search?: string): Promise<void> {
+  const PAGE = 1000
+  for (let offset = 0; ; offset += PAGE) {
+    const { data, error } = await admin.storage.from(bucket).list(prefix, { limit: PAGE, offset, ...(search ? { search } : {}) })
+    if (error) {
+      console.error(`[user/account] failed to list ${bucket}/${prefix}:`, error.message)
+      return
+    }
+    for (const item of data ?? []) {
+      if (!item.name) continue
+      const path = prefix ? `${prefix}/${item.name}` : item.name
+      // A folder has no id (and no metadata); a file has both.
+      if (item.id === null || item.id === undefined) await collectAllUnder(admin, bucket, path, out)
+      else out.add(path)
+    }
+    if (!data || data.length < PAGE) return
+  }
+}
+
+/**
+ * Sweeps every storage prefix that belongs to this user, so nothing is
+ * missed that no DB row points at (brand photo copies, uploaded logos,
+ * product reference uploads, subject-box sidecars, publish-time JPEG
+ * copies, rendered carousels / stories, re-hosted scheduled media):
+ *   brand-images:    <userId>/**   (every upload there is keyed by user id first)
+ *   published-media: <brandId>/** and publish-jpeg/<brandId>/** for each brand,
+ *                    carousel-renders/<userId>-* and story-renders/<userId>-*
+ */
+async function collectUserPrefixes(admin: AdminClient, userId: string, brandIds: string[], paths: CollectedPaths): Promise<void> {
+  await Promise.all([
+    collectAllUnder(admin, BRAND_IMAGES_BUCKET, userId, paths.brandImages),
+    ...brandIds.flatMap((brandId) => [
+      collectAllUnder(admin, PUBLISHED_MEDIA_BUCKET, brandId, paths.publishedMedia),
+      collectAllUnder(admin, PUBLISHED_MEDIA_BUCKET, `publish-jpeg/${brandId}`, paths.publishedMedia),
+    ]),
+    collectAllUnder(admin, PUBLISHED_MEDIA_BUCKET, "carousel-renders", paths.publishedMedia, `${userId}-`),
+    collectAllUnder(admin, PUBLISHED_MEDIA_BUCKET, "story-renders", paths.publishedMedia, `${userId}-`),
+  ])
+}
+
+/** Removes `list` from `bucket` in batches; the paths that failed. */
+async function removeInBatches(admin: AdminClient, bucket: string, list: string[], userId: string): Promise<string[]> {
+  const failed: string[] = []
+  for (let i = 0; i < list.length; i += 1000) {
+    const batch = list.slice(i, i + 1000)
+    const { error } = await admin.storage.from(bucket).remove(batch)
+    if (error) {
+      console.error(`[user/account] storage cleanup: ${bucket} removal failed for user ${userId}:`, error.message)
+      failed.push(...batch)
+    }
+  }
+  return failed
+}
+
 interface StorageCleanupResult {
   attempted: number
   failed: string[]
@@ -161,11 +221,11 @@ interface StorageCleanupResult {
  * `failed` for the caller to log, not raised, since a storage cleanup
  * problem must never block the account deletion itself.
  *
- * Deliberately NOT covered (confirmed while building this, not assumed):
- * brands.logo_url, brand_images.image_urls, and products.image_urls are
- * always external URLs scraped from the brand's own website/product page
- * (lib/ai/url-extractor.ts) — never uploaded to our Storage, so there's
- * nothing of ours to delete for them.
+ * Then sweeps every storage prefix that belongs to the user (see
+ * collectUserPrefixes), which also catches what no DB row points at:
+ * uploaded logos, brand photo copies, product reference uploads, sidecars
+ * and publish-time copies. A scraped logo_url / product image that's an
+ * external URL isn't ours and isn't touched.
  */
 async function deleteUserStorageObjects(admin: AdminClient, userId: string): Promise<StorageCleanupResult> {
   const { data: brands, error: brandsError } = await table(admin, "brands")
@@ -178,11 +238,11 @@ async function deleteUserStorageObjects(admin: AdminClient, userId: string): Pro
   }
 
   const brandIds = (brands ?? []).map((b) => b.id)
-  if (brandIds.length === 0) return { attempted: 0, failed: [] }
-
   const paths: CollectedPaths = { publishedMedia: new Set(), brandImages: new Set() }
 
-  await Promise.all([
+  // No brands left: still sweep the user's own prefixes.
+  await collectUserPrefixes(admin, userId, brandIds, paths)
+  if (brandIds.length > 0) await Promise.all([
     collectGeneratedImagePaths(admin, brandIds, paths),
     collectReelVideoJobPaths(admin, brandIds, paths),
     collectCalendarEntryPaths(admin, brandIds, paths),
@@ -197,21 +257,13 @@ async function deleteUserStorageObjects(admin: AdminClient, userId: string): Pro
   if (paths.publishedMedia.size > 0) {
     const list = [...paths.publishedMedia]
     attempted += list.length
-    const { error } = await admin.storage.from(PUBLISHED_MEDIA_BUCKET).remove(list)
-    if (error) {
-      console.error(`[user/account] storage cleanup: ${PUBLISHED_MEDIA_BUCKET} removal failed for user ${userId}:`, error.message)
-      failed.push(...list)
-    }
+    failed.push(...await removeInBatches(admin, PUBLISHED_MEDIA_BUCKET, list, userId))
   }
 
   if (paths.brandImages.size > 0) {
     const list = [...paths.brandImages]
     attempted += list.length
-    const { error } = await admin.storage.from(BRAND_IMAGES_BUCKET).remove(list)
-    if (error) {
-      console.error(`[user/account] storage cleanup: ${BRAND_IMAGES_BUCKET} removal failed for user ${userId}:`, error.message)
-      failed.push(...list)
-    }
+    failed.push(...await removeInBatches(admin, BRAND_IMAGES_BUCKET, list, userId))
   }
 
   return { attempted, failed }
