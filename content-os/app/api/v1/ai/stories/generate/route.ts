@@ -32,6 +32,7 @@ import { createAdminClient } from "@/lib/supabase/server"
 import { computeTextStyleSafe } from "@/lib/image/text-contrast"
 import { storyTextRegion } from "@/lib/design/text-style"
 import { ShortGenerationError, generationErrorMessage, regenerateIfShort } from "@/lib/ai/generation-retry"
+import { enforceRateLimits } from "@/lib/security/rate-limit"
 
 const schema = z.object({
   brandId: z.string().uuid(),
@@ -334,6 +335,8 @@ async function handlePost(request: Request, timer: GenerationTimer) {
   if (authError || !user) {
     return NextResponse.json(buildError(ErrorCodes.UNAUTHENTICATED, "You must be logged in."), { status: 401 })
   }
+  const rateLimited = await enforceRateLimits(user.id, "generate")
+  if (rateLimited) return rateLimited
 
   const usageCheck = await checkAndIncrementUsage(user.id, STORY, "story")
   if (!usageCheck.ok) {

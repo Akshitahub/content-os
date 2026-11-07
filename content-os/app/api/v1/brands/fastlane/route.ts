@@ -17,6 +17,7 @@ import { getUserCreditSummary } from "@/lib/usage/get-user-credit-summary"
 import { getISTDateString } from "@/lib/utils/ist"
 import { timedGenerationRoute, type GenerationTimer } from "@/lib/utils/generation-timing"
 import { withDeadline, DeadlineExceededError, GENERATION_TIMED_OUT_MESSAGE } from "@/lib/utils/with-deadline"
+import { enforceRateLimits } from "@/lib/security/rate-limit"
 
 // Starts an Autopilot run and returns 202 straight away. This request only
 // checks limits, plans the month (one strategy call) and enqueues one job
@@ -86,6 +87,8 @@ async function handlePost(request: Request, timer: GenerationTimer) {
   if (authError || !user) {
     return NextResponse.json(buildError(ErrorCodes.UNAUTHENTICATED, "You must be logged in."), { status: 401 })
   }
+  const rateLimited = await enforceRateLimits(user.id, "generate")
+  if (rateLimited) return rateLimited
 
   let body: unknown
   try { body = await request.json() } catch {

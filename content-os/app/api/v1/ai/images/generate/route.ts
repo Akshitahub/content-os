@@ -9,6 +9,7 @@ import { isInternalUnlimited } from "@/lib/usage/is-internal-unlimited"
 import type { BrandRow, ProductRow } from "@/types/database"
 import type { UserPlan } from "@/types/app"
 import { prepareGeneratedImage } from "@/lib/storage/generated-image"
+import { enforceRateLimits } from "@/lib/security/rate-limit"
 
 const BUCKET = "brand-images"
 const FEATURE = "images"
@@ -17,6 +18,8 @@ export async function POST(request: Request) {
   const supabase = await createClient()
   const { data: { user }, error: authError } = await supabase.auth.getUser()
   if (authError || !user) return NextResponse.json(buildError(ErrorCodes.UNAUTHENTICATED, "You must be logged in."), { status: 401 })
+  const rateLimited = await enforceRateLimits(user.id, "image")
+  if (rateLimited) return rateLimited
 
   const usageCheck = await checkAndIncrementUsage(user.id, IMAGE, FEATURE)
   if (!usageCheck.ok) {

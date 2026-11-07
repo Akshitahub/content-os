@@ -7,6 +7,7 @@ import { buildError, ErrorCodes } from "@/types/api"
 import { generateOccasionContent, type OccasionContent } from "@/lib/ai/occasion-content-generator"
 import { z } from "zod"
 import type { BrandRow } from "@/types/database"
+import { enforceRateLimits } from "@/lib/security/rate-limit"
 
 type RouteParams = { params: Promise<{ brandId: string }> }
 
@@ -31,6 +32,8 @@ export async function POST(request: Request, { params }: RouteParams) {
   if (authError || !user) {
     return NextResponse.json(buildError(ErrorCodes.UNAUTHENTICATED, "You must be logged in."), { status: 401 })
   }
+  const rateLimited = await enforceRateLimits(user.id, "generate")
+  if (rateLimited) return rateLimited
 
   const { data: brand } = await supabase
     .from("brands")

@@ -13,6 +13,7 @@ import { timedGenerationRoute, type GenerationTimer } from "@/lib/utils/generati
 import { stampPostLayout } from "@/lib/design/text-layouts"
 import { getPrimaryColor } from "@/lib/design/post-card-generator"
 import { resolveTypography } from "@/lib/design/fonts"
+import { enforceRateLimits } from "@/lib/security/rate-limit"
 
 const FEATURE = "fullpost_photo_upload"
 
@@ -42,6 +43,8 @@ async function handlePost(request: Request, timer: GenerationTimer) {
   const supabase = await createClient()
   const { data: { user }, error: authError } = await supabase.auth.getUser()
   if (authError || !user) return NextResponse.json(buildError(ErrorCodes.UNAUTHENTICATED, "You must be logged in."), { status: 401 })
+  const rateLimited = await enforceRateLimits(user.id, "generate")
+  if (rateLimited) return rateLimited
 
   let body: unknown
   try { body = await request.json() } catch {

@@ -9,6 +9,7 @@ import { isMissingBrandBrainColumn, parseBrandBrain } from "@/lib/brand-brain-pr
 import { scheduleArtDirection } from "@/lib/ai/art-direction"
 import { scheduleBrandPhotoSync } from "@/lib/brand-photos"
 import { scheduleBrandBrainDerivation } from "@/lib/ai/brand-brain-derive"
+import { enforceRateLimits } from "@/lib/security/rate-limit"
 
 const importSchema = z.object({
   url: z.string().url("Enter a valid URL (include https://)"),
@@ -29,6 +30,8 @@ export async function POST(request: Request) {
   if (authError || !user) {
     return NextResponse.json(buildError(ErrorCodes.UNAUTHENTICATED, "You must be logged in."), { status: 401 })
   }
+  const rateLimited = await enforceRateLimits(user.id, "extract")
+  if (rateLimited) return rateLimited
 
   let body: unknown
   try { body = await request.json() } catch {

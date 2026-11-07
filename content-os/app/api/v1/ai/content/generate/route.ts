@@ -15,6 +15,7 @@ import type { BrandRow, ProductRow } from "@/types/database"
 import type { GeneratedCaption, ReelScript, CarouselContent, AdCopy, ContentFormat } from "@/types/app"
 import { getActiveLessons, LESSON_SCOPE_FOR_FORMAT } from "@/lib/ai/brand-brain"
 import { recordContentEvent, type ContentEventType } from "@/lib/usage/content-events"
+import { enforceRateLimits } from "@/lib/security/rate-limit"
 
 /**
  * "How this compares to what's worked before" — a rough, honest keyword
@@ -55,6 +56,8 @@ export async function POST(request: Request) {
 
   const { data: { user }, error: authError } = await supabase.auth.getUser()
   if (authError || !user) return NextResponse.json(buildError(ErrorCodes.UNAUTHENTICATED, "You must be logged in."), { status: 401 })
+  const rateLimited = await enforceRateLimits(user.id, "generate")
+  if (rateLimited) return rateLimited
 
   let body: unknown
   try { body = await request.json() } catch {

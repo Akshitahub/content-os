@@ -21,6 +21,7 @@ import { layoutCarouselText, overflowingSlides } from "@/lib/design/slide-text-l
 import { artDirectionForRequest } from "@/lib/ai/art-direction"
 import { onTopicOrRegenerate } from "@/lib/ai/quality-gate"
 import { generationErrorMessage, regenerateIfShort } from "@/lib/ai/generation-retry"
+import { enforceRateLimits } from "@/lib/security/rate-limit"
 
 const schema = z.object({
   brandId: z.string().uuid(),
@@ -58,6 +59,8 @@ async function handlePost(request: Request, timer: GenerationTimer) {
   if (authError || !user) {
     return NextResponse.json(buildError(ErrorCodes.UNAUTHENTICATED, "You must be logged in."), { status: 401 })
   }
+  const rateLimited = await enforceRateLimits(user.id, "generate")
+  if (rateLimited) return rateLimited
 
   const usageCheck = await checkAndIncrementUsage(user.id, CAROUSEL, "carousel")
   if (!usageCheck.ok) {

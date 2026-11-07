@@ -133,6 +133,17 @@ async function cleanupAdMakerVariations(admin: AdminClient, cutoff: string): Pro
   return removed?.length ?? stalePaths.length
 }
 
+/** Rate-limit counters (migration 073) older than a day -- no limit window is longer than an hour. Before 073: nothing to delete. */
+async function cleanupRateLimits(admin: AdminClient): Promise<number> {
+  const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+  const { error, count } = await table(admin, "rate_limits").delete({ count: "exact" }).lt("window_start", dayAgo) as { error: { message: string } | null; count: number | null }
+  if (error) {
+    console.error("[cron/cleanup-abandoned-drafts] rate_limits cleanup error (non-fatal):", error.message)
+    return 0
+  }
+  return count ?? 0
+}
+
 export async function GET(request: Request) {
   if (!isAuthorized(request)) {
     console.error("[cron/cleanup-abandoned-drafts] unauthorized request")
@@ -174,6 +185,13 @@ export async function GET(request: Request) {
     console.error("[cron/cleanup-abandoned-drafts] brand photo refresh error (non-fatal):", err instanceof Error ? err.message : err)
   }
 
-  console.log("[cron/cleanup-abandoned-drafts] done:", { deleted, storageFilesRemoved, perTable, photoBrands })
-  return NextResponse.json({ data: { deleted, storageFilesRemoved, perTable, photoBrands } })
+  let rateLimitRows = 0
+  try {
+    rateLimitRows = await cleanupRateLimits(admin)
+  } catch (err) {
+    console.error("[cron/cleanup-abandoned-drafts] rate_limits cleanup unexpected error:", err instanceof Error ? err.message : err)
+  }
+
+  console.log("[cron/cleanup-abandoned-drafts] done:", { deleted, storageFilesRemoved, perTable, photoBrands, rateLimitRows })
+  return NextResponse.json({ data: { deleted, storageFilesRemoved, perTable, photoBrands, rateLimitRows } })
 }

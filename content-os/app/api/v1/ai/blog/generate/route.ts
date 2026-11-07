@@ -11,6 +11,7 @@ import { generateBlogPost } from "@/lib/ai/blog-generator"
 import { MODELS } from "@/lib/ai/models"
 import { z } from "zod"
 import type { BrandRow, ProductRow } from "@/types/database"
+import { enforceRateLimits } from "@/lib/security/rate-limit"
 
 const schema = z.object({
   brandId: z.string().uuid(),
@@ -37,6 +38,8 @@ export async function POST(request: Request) {
 
   const { data: { user }, error: authError } = await supabase.auth.getUser()
   if (authError || !user) return NextResponse.json(buildError(ErrorCodes.UNAUTHENTICATED, "You must be logged in."), { status: 401 })
+  const rateLimited = await enforceRateLimits(user.id, "generate")
+  if (rateLimited) return rateLimited
 
   const usageCheck = await checkAndIncrementUsage(user.id, BLOG_POST, FEATURE)
   if (!usageCheck.ok) {

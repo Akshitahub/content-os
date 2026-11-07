@@ -30,6 +30,7 @@ import { pickTextLayout } from "@/lib/design/text-layouts"
 import { getPrimaryColor } from "@/lib/design/post-card-generator"
 import { artDirectionForRequest } from "@/lib/ai/art-direction"
 import { OffTopicError, offTopicMessage } from "@/lib/ai/quality-gate"
+import { enforceRateLimits } from "@/lib/security/rate-limit"
 
 const BUCKET = "brand-images"
 
@@ -102,6 +103,8 @@ async function handlePost(request: Request, { params }: RouteParams, timer: Gene
 
   const { data: { user }, error: authError } = await supabase.auth.getUser()
   if (authError || !user) return NextResponse.json(buildError(ErrorCodes.UNAUTHENTICATED, "You must be logged in."), { status: 401 })
+  const rateLimited = await enforceRateLimits(user.id, "generate")
+  if (rateLimited) return rateLimited
 
   const { data: brand } = await supabase.from("brands").select("*").eq("id", brandId).eq("user_id", user.id).single<BrandRow>()
   if (!brand) return NextResponse.json(buildError(ErrorCodes.BRAND_NOT_FOUND, "Brand not found."), { status: 404 })

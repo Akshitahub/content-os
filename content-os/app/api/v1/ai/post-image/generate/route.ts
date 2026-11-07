@@ -23,6 +23,7 @@ import { sanitizeVisualBrief } from "@/lib/ai/visual-brief"
 import { recordContentEvent } from "@/lib/usage/content-events"
 import { sampleImageAlignment } from "@/lib/ai/image-alignment"
 import { artDirectionForRequest } from "@/lib/ai/art-direction"
+import { enforceRateLimits } from "@/lib/security/rate-limit"
 
 const BUCKET = "brand-images"
 const FEATURE = "post_image"
@@ -86,6 +87,8 @@ async function handlePost(request: Request, timer: GenerationTimer) {
   const supabase = await createClient()
   const { data: { user }, error: authError } = await supabase.auth.getUser()
   if (authError || !user) return NextResponse.json(buildError(ErrorCodes.UNAUTHENTICATED, "You must be logged in."), { status: 401 })
+  const rateLimited = await enforceRateLimits(user.id, "image")
+  if (rateLimited) return rateLimited
 
   let body: unknown
   try { body = await request.json() } catch {

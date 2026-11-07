@@ -10,6 +10,7 @@ import { recordContentEvent } from "@/lib/usage/content-events"
 import { toSavedCritic } from "@/lib/design/critic-scores"
 import { criticLimitReached } from "@/lib/usage/critic-daily-limit"
 import { textLayoutIdSchema } from "@/lib/design/text-layouts"
+import { enforceRateLimits } from "@/lib/security/rate-limit"
 
 // The critic on a finished manual post / carousel cover / story frame
 // (lib/ai/critic.ts): the score, its reasons and the one fix to make. No
@@ -36,6 +37,8 @@ export async function POST(request: Request) {
   const supabase = await createClient()
   const { data: { user }, error: authError } = await supabase.auth.getUser()
   if (authError || !user) return NextResponse.json(buildError(ErrorCodes.UNAUTHENTICATED, "You must be logged in."), { status: 401 })
+  const rateLimited = await enforceRateLimits(user.id, "generate")
+  if (rateLimited) return rateLimited
 
   let body: unknown
   try { body = await request.json() } catch {

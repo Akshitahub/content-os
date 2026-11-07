@@ -5,6 +5,7 @@ import { fetchPage, PageFetchError } from "@/lib/web/fetch-page"
 import { extractProductFromPage, ExtractionError } from "@/lib/ai/url-extractor"
 import { buildError, ErrorCodes } from "@/types/api"
 import { checkAndIncrementUrlExtractionUsage } from "@/lib/usage/check-and-increment-abuse-limits"
+import { enforceRateLimits } from "@/lib/security/rate-limit"
 
 export async function POST(request: Request) {
   const supabase = await createClient()
@@ -12,6 +13,8 @@ export async function POST(request: Request) {
   if (authError || !user) {
     return NextResponse.json(buildError(ErrorCodes.UNAUTHENTICATED, "You must be logged in."), { status: 401 })
   }
+  const rateLimited = await enforceRateLimits(user.id, "extract")
+  if (rateLimited) return rateLimited
 
   const usageCheck = await checkAndIncrementUrlExtractionUsage(user.id)
   if (!usageCheck.ok) {

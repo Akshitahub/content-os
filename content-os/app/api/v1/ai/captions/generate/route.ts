@@ -14,6 +14,7 @@ import { getRecurringFeedbackNotes } from "@/lib/ai/feedback-notes"
 import type { BrandRow, ProductRow } from "@/types/database"
 import { getActiveLessons } from "@/lib/ai/brand-brain"
 import { recordContentEvent } from "@/lib/usage/content-events"
+import { enforceRateLimits } from "@/lib/security/rate-limit"
 
 export async function POST(request: Request) {
   console.log("[ai/captions/generate] POST called")
@@ -28,6 +29,8 @@ export async function POST(request: Request) {
 
   const { data: { user }, error: authError } = await supabase.auth.getUser()
   if (authError || !user) return NextResponse.json(buildError(ErrorCodes.UNAUTHENTICATED, "You must be logged in."), { status: 401 })
+  const rateLimited = await enforceRateLimits(user.id, "generate")
+  if (rateLimited) return rateLimited
 
   const usageCheck = await checkAndIncrementUsage(user.id, HOOK_OR_CAPTION, FEATURE)
   if (!usageCheck.ok) {

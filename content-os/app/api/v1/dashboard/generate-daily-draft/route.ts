@@ -29,6 +29,7 @@ import { artDirectionForRequest } from "@/lib/ai/art-direction"
 import { chooseFittingPhotos, photoFitItem } from "@/lib/ai/photo-fit"
 import { PHOTO_KINDS_FOR } from "@/lib/brand-photos"
 import { designAndUploadPost } from "@/lib/image/post-design"
+import { enforceRateLimits } from "@/lib/security/rate-limit"
 
 const BUCKET = "brand-images"
 
@@ -85,6 +86,8 @@ async function handlePost(request: Request, timer: GenerationTimer) {
   const supabase = await createClient()
   const { data: { user }, error: authError } = await supabase.auth.getUser()
   if (authError || !user) return NextResponse.json(buildError(ErrorCodes.UNAUTHENTICATED, "You must be logged in."), { status: 401 })
+  const rateLimited = await enforceRateLimits(user.id, "generate")
+  if (rateLimited) return rateLimited
 
   let body: unknown
   try { body = await request.json() } catch {

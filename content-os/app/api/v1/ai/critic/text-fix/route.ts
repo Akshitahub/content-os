@@ -6,6 +6,7 @@ import type { BrandRow } from "@/types/database"
 import { applyFixToOverlayText } from "@/lib/ai/overlay-text-fix"
 import { noteGenerationBrand } from "@/lib/ai/provider-fallback"
 import { criticLimitReached } from "@/lib/usage/critic-daily-limit"
+import { enforceRateLimits } from "@/lib/security/rate-limit"
 
 // Full Post's "Make it better" for a layout / text fix (fix_target
 // "layout_text"): the critic's fix applied to the overlay words only, so
@@ -27,6 +28,8 @@ export async function POST(request: Request) {
   const supabase = await createClient()
   const { data: { user }, error: authError } = await supabase.auth.getUser()
   if (authError || !user) return NextResponse.json(buildError(ErrorCodes.UNAUTHENTICATED, "You must be logged in."), { status: 401 })
+  const rateLimited = await enforceRateLimits(user.id, "generate")
+  if (rateLimited) return rateLimited
 
   let body: unknown
   try { body = await request.json() } catch {

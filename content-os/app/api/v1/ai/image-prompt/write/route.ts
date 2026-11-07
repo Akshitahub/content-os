@@ -11,6 +11,7 @@ import { brandBrainImageConstraints, parseBrandBrain } from "@/lib/brand-brain-p
 import { artDirectionFrom } from "@/lib/ai/brand-brain"
 import { chooseCreativeConcept, writeReviewedPrompt } from "@/lib/ai/creative-concept"
 import { recordContentEvent } from "@/lib/usage/content-events"
+import { enforceRateLimits } from "@/lib/security/rate-limit"
 
 const flowEnum = z.enum(["post", "story", "carousel", "ad_maker", "image_tool"])
 
@@ -76,6 +77,8 @@ export async function POST(request: Request) {
   const supabase = await createClient()
   const { data: { user }, error: authError } = await supabase.auth.getUser()
   if (authError || !user) return Response.json(buildError(ErrorCodes.UNAUTHENTICATED, "You must be logged in."), { status: 401 })
+  const rateLimited = await enforceRateLimits(user.id, "generate")
+  if (rateLimited) return rateLimited
 
   let body: unknown
   try { body = await request.json() } catch {

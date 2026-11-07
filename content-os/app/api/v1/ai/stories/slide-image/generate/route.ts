@@ -25,6 +25,7 @@ import { storyTextRegion } from "@/lib/design/text-style"
 
 import { conceptImagePrompt } from "@/lib/ai/creative-concept"
 import { getActiveLessons, imageLessonRules } from "@/lib/ai/brand-brain"
+import { enforceRateLimits } from "@/lib/security/rate-limit"
 const STORY_VIBES = ["fun_playful", "clean_minimal", "bold_dramatic", "warm_cozy", "professional", "trendy_genz"] as const
 
 const schema = z.object({
@@ -125,6 +126,8 @@ async function handlePost(request: Request, timer: GenerationTimer) {
   const supabase = await createClient()
   const { data: { user }, error: authError } = await supabase.auth.getUser()
   if (authError || !user) return NextResponse.json(buildError(ErrorCodes.UNAUTHENTICATED, "You must be logged in."), { status: 401 })
+  const rateLimited = await enforceRateLimits(user.id, "image")
+  if (rateLimited) return rateLimited
 
   let body: unknown
   try { body = await request.json() } catch {

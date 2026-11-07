@@ -28,6 +28,7 @@ import { getPrimaryColor } from "@/lib/design/post-card-generator"
 import { generatePostCopy } from "@/lib/ai/post-copy"
 import { artDirectionForRequest } from "@/lib/ai/art-direction"
 import { generationErrorMessage } from "@/lib/ai/generation-retry"
+import { enforceRateLimits } from "@/lib/security/rate-limit"
 
 // Mirrors components/generate/FullPostGenerator.tsx's former client-side
 // ANGLE_HINT map verbatim -- moved server-side so the angle is a real,
@@ -60,6 +61,8 @@ async function handlePost(request: Request, timer: GenerationTimer) {
   const supabase = await createClient()
   const { data: { user }, error: authError } = await supabase.auth.getUser()
   if (authError || !user) return NextResponse.json(buildError(ErrorCodes.UNAUTHENTICATED, "You must be logged in."), { status: 401 })
+  const rateLimited = await enforceRateLimits(user.id, "generate")
+  if (rateLimited) return rateLimited
 
   let body: unknown
   try { body = await request.json() } catch {
