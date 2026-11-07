@@ -7,6 +7,7 @@ import { decryptTotpSecret } from "@/lib/admin/totp-crypto"
 import { checkRateLimit } from "@/lib/security/rate-limit"
 import { buildError, ErrorCodes } from "@/types/api"
 import { verify as verifyTotp } from "otplib"
+import { logAudit, requestIp } from "@/lib/security/audit"
 
 const schema = z.object({
   email: z.string().email("Please enter a valid email address"),
@@ -103,7 +104,12 @@ export async function POST(request: Request) {
   }
   const { email, password, totp } = parsed.data
 
-  if (!(await checkRateLimit(`admin-login:${clientIp(request)}`, IP_LIMIT, IP_WINDOW_SECONDS))) {
+  const ip = clientIp(request)
+  const audit = (action: string, actorId: string | null, meta: Record<string, unknown>) =>
+    logAudit({ actorType: "admin", actorId, action, targetType: "admin_user", targetId: actorId, meta: { email, ...meta }, ip })
+
+  if (!(await checkRateLimit(`admin-login:${ip}`, IP_LIMIT, IP_WINDOW_SECONDS))) {
+    await audit("admin.login.failure", null, { reason: "ip_rate_limited" })
     await sleep(FAILURE_DELAY_MS)
     return NextResponse.json(
       buildError(ErrorCodes.RATE_LIMITED, "Too many sign-in attempts. Try again in a few minutes."),
@@ -120,6 +126,7 @@ export async function POST(request: Request) {
 
   // Locked: the same generic failure, without even checking the password.
   if (adminUser?.locked_until && new Date(adminUser.locked_until).getTime() > Date.now()) {
+    await audit("admin.login.failure", adminUser.id, { reason: "locked" })
     await sleep(FAILURE_DELAY_MS)
     return invalidCredentials()
   }
@@ -127,7 +134,9 @@ export async function POST(request: Request) {
   const passwordValid = adminUser ? await verifyPassword(password, adminUser.password_hash) : false
 
   if (!adminUser || !passwordValid) {
-    if (adminUser) await recordFailedAttempt(admin, adminUser)
+    const locked = adminUser ? await recordFailedAttempt(admin, adminUser) : false
+    await audit("admin.login.failure", adminUser?.id ?? null, { reason: adminUser ? "bad_password" : "unknown_email" })
+    if (locked) await audit("admin.login.lockout", adminUser!.id, { minutes: LOCKOUT_MINUTES })
     await sleep(FAILURE_DELAY_MS)
     return invalidCredentials()
   }
@@ -135,6 +144,7 @@ export async function POST(request: Request) {
   // Password correct from here on.
   if (process.env.ADMIN_REQUIRE_TOTP === "true" && !adminUser.totp_enabled) {
     console.error(`[admin/auth/login] admin ${adminUser.id} refused: ADMIN_REQUIRE_TOTP is on and they have no TOTP enrolled`)
+    await audit("admin.login.failure", adminUser.id, { reason: "totp_not_enrolled" })
     await sleep(FAILURE_DELAY_MS)
     return NextResponse.json(
       buildError(ErrorCodes.UNAUTHORIZED, "Two-factor sign-in is required. Ask an admin to enrol you (scripts/admin-enroll-totp.ts)."),
@@ -145,7 +155,7 @@ export async function POST(request: Request) {
   if (adminUser.totp_enabled) {
     if (!totp) {
       // Counts as an attempt, so the password step alone can't be hammered.
-      await recordFailedAttempt(admin, adminUser)
+      if (await recordFailedAttempt(admin, adminUser)) await audit("admin.login.lockout", adminUser.id, { minutes: LOCKOUT_MINUTES })
       return NextResponse.json({ totpRequired: true })
     }
     let secret: string
@@ -157,13 +167,16 @@ export async function POST(request: Request) {
     }
     const result = /^\d{6}$/.test(totp) ? await verifyTotp({ secret, token: totp, epochTolerance: TOTP_TOLERANCE_SECONDS }).catch(() => ({ valid: false })) : { valid: false }
     if (!result.valid) {
-      await recordFailedAttempt(admin, adminUser)
+      const locked = await recordFailedAttempt(admin, adminUser)
+      await audit("admin.login.failure", adminUser.id, { reason: "bad_totp" })
+      if (locked) await audit("admin.login.lockout", adminUser.id, { minutes: LOCKOUT_MINUTES })
       await sleep(FAILURE_DELAY_MS)
       return invalidCredentials()
     }
   }
 
   const token = await signAdminSession({ id: adminUser.id, email: adminUser.email })
+  await audit("admin.login.success", adminUser.id, { second_factor: !!adminUser.totp_enabled })
 
   // Best-effort -- a failed write here shouldn't block a successful login.
   // A successful sign-in clears the failed-attempt count and any lock.

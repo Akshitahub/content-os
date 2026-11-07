@@ -3,6 +3,7 @@ import { cookies } from "next/headers"
 import { ADMIN_SESSION_COOKIE, verifyAdminSession } from "@/lib/admin/session"
 import { getAdminUserDetail } from "@/lib/admin/get-user-detail"
 import { buildError, ErrorCodes } from "@/types/api"
+import { logAudit, requestIp } from "@/lib/security/audit"
 
 type RouteParams = { params: Promise<{ id: string }> }
 
@@ -17,7 +18,7 @@ type RouteParams = { params: Promise<{ id: string }> }
  * has no relationship to the customer-facing auth system at all (see
  * lib/admin/session.ts's doc comment).
  */
-export async function GET(_request: Request, { params }: RouteParams) {
+export async function GET(request: Request, { params }: RouteParams) {
   const { id } = await params
 
   const cookieStore = await cookies()
@@ -32,5 +33,6 @@ export async function GET(_request: Request, { params }: RouteParams) {
     return NextResponse.json(buildError(ErrorCodes.NOT_FOUND, "User not found."), { status: 404 })
   }
 
+  await logAudit({ actorType: "admin", actorId: session.id, action: "admin.user.view", targetType: "user", targetId: id, ip: requestIp(request) })
   return NextResponse.json({ data: detail })
 }

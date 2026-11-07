@@ -8,6 +8,7 @@ import type { Database } from "@/types/database"
 import { isMissingBrandBrainColumn } from "@/lib/brand-brain-profile"
 import { scheduleArtDirection } from "@/lib/ai/art-direction"
 import { scheduleBrandPhotoSync } from "@/lib/brand-photos"
+import { logAudit, requestIp } from "@/lib/security/audit"
 
 type RouteParams = { params: Promise<{ brandId: string }> }
 
@@ -142,7 +143,7 @@ export async function PUT(request: Request, { params }: RouteParams) {
   }
 }
 
-export async function DELETE(_request: Request, { params }: RouteParams) {
+export async function DELETE(request: Request, { params }: RouteParams) {
   const { brandId } = await params
   console.log(`[brands/${brandId}] DELETE called`)
   const result = await getAuthorizedBrand(brandId)
@@ -162,6 +163,7 @@ export async function DELETE(_request: Request, { params }: RouteParams) {
       return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Failed to delete brand.", error.message), { status: 500 })
     }
 
+    await logAudit({ actorType: "user", actorId: result.user!.id, action: "brand.delete", targetType: "brand", targetId: brandId, ip: requestIp(request) })
     return NextResponse.json({ data: { deleted: true } })
   } catch (err) {
     console.error(`[brands/${brandId}] DELETE unexpected error:`, err)

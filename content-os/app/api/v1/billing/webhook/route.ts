@@ -7,6 +7,7 @@ import { applyCreditTopup } from "@/lib/billing/apply-credit-topup"
 import { CREDIT_PACKS, type CreditPackId } from "@/lib/usage/credit-packs"
 import { sendPaymentConfirmationEmail } from "@/lib/email/resend"
 import { buildError, ErrorCodes } from "@/types/api"
+import { logAudit, requestIp } from "@/lib/security/audit"
 
 interface RazorpayWebhookPayload {
   event?: string
@@ -151,6 +152,15 @@ export async function POST(request: Request) {
     console.error("[billing/webhook] plan upgrade failed:", error)
     return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Failed to apply plan upgrade."), { status: 500 })
   }
+
+  await logAudit({
+    actorType: "system",
+    action: "billing.plan_change",
+    targetType: "user",
+    targetId: String(orderUserId),
+    meta: { plan: orderPlan, billing_period: billingPeriod, order_id: orderId, payment_id: paymentId ?? null, source: "razorpay_webhook" },
+    ip: requestIp(request),
+  })
 
   // Best-effort receipt — never lets an email-provider hiccup fail this
   // response or undo the plan upgrade that already succeeded above. This

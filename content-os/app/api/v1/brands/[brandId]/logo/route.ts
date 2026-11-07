@@ -3,6 +3,7 @@ import { createClient, createAdminClient } from "@/lib/supabase/server"
 import { buildError, ErrorCodes } from "@/types/api"
 import type { BrandRow } from "@/types/database"
 import { LOGO_MAX_BYTES, LOGO_TYPES, processLogo } from "@/lib/image/logo-upload"
+import { logAudit, requestIp } from "@/lib/security/audit"
 
 // Brand settings -> "Brand logo": the uploaded file (PNG / JPG / SVG) is
 // processed (lib/image/logo-upload.ts: background removed from a JPG,
@@ -68,6 +69,7 @@ export async function POST(request: Request, { params }: RouteParams) {
     console.error(`[brands/${brandId}/logo] update failed:`, error.message)
     return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Couldn't save the logo. Please try again."), { status: 500 })
   }
+  await logAudit({ actorType: "user", actorId: user.id, action: "brand.logo_upload", targetType: "brand", targetId: brandId, meta: { background_removed: logo.backgroundRemoved }, ip: requestIp(request) })
   return NextResponse.json({
     data: {
       logo_url: mainUrl,

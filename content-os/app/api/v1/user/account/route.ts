@@ -3,6 +3,7 @@ import { createClient, createAdminClient } from "@/lib/supabase/server"
 import { buildError, ErrorCodes } from "@/types/api"
 import type { SupabaseClient } from "@supabase/supabase-js"
 import type { Database, Json } from "@/types/database"
+import { logAudit, requestIp } from "@/lib/security/audit"
 
 type AdminClient = SupabaseClient<Database>
 
@@ -216,7 +217,7 @@ async function deleteUserStorageObjects(admin: AdminClient, userId: string): Pro
   return { attempted, failed }
 }
 
-export async function DELETE() {
+export async function DELETE(request: Request) {
   console.log("[user/account] DELETE called")
   let supabase
   try {
@@ -265,6 +266,16 @@ export async function DELETE() {
       console.error("[user/account] DELETE admin.deleteUser error:", deleteError)
       return NextResponse.json(buildError(ErrorCodes.INTERNAL_ERROR, "Failed to delete account."), { status: 500 })
     }
+
+    await logAudit({
+      actorType: "user",
+      actorId: user.id,
+      action: "account.delete",
+      targetType: "user",
+      targetId: user.id,
+      meta: { storage_objects: storageResult.attempted, storage_failed: storageResult.failed.length },
+      ip: requestIp(request),
+    })
 
     // Best-effort cookie cleanup — the account is already gone server-side
     // at this point regardless of whether this succeeds.

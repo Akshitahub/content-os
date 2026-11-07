@@ -5,6 +5,7 @@ import { PLAN_LIMITS, type UserPlan } from "@/types/app"
 import { isInternalUnlimited } from "@/lib/usage/is-internal-unlimited"
 import type { SupabaseClient } from "@supabase/supabase-js"
 import type { Database, SocialConnectionInsert } from "@/types/database"
+import { logAudit, requestIp } from "@/lib/security/audit"
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function socialConnectionsTable(supabase: SupabaseClient<Database>): any {
@@ -122,6 +123,7 @@ export async function GET(request: Request) {
     return redirectToBrand(appUrl, brandId, { pinterest_error: "server_error" })
   }
 
+  await logAudit({ actorType: "user", actorId: user.id, action: "social.connect", targetType: "brand", targetId: brandId, meta: { platform: "pinterest", provider: "zernio", zernio_account_id: accountId }, ip: requestIp(request) })
   const response = redirectToBrand(appUrl, brandId, { pinterest_success: "1" })
   response.cookies.delete("zernio_profile_id")
   return response

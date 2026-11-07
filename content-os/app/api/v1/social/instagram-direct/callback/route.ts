@@ -8,6 +8,7 @@ import { PLAN_LIMITS, type UserPlan } from "@/types/app"
 import { isInternalUnlimited } from "@/lib/usage/is-internal-unlimited"
 import type { SupabaseClient } from "@supabase/supabase-js"
 import type { Database, SocialConnectionInsert } from "@/types/database"
+import { logAudit, requestIp } from "@/lib/security/audit"
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function socialConnectionsTable(supabase: SupabaseClient<Database>): any {
@@ -132,5 +133,14 @@ export async function GET(request: Request) {
     console.log(`[instagram-direct] remove this account in the Zernio dashboard: zernio_account_id ${previous.zernio_account_id} (brand ${brandId} now connects Instagram directly)`)
   }
 
+  await logAudit({
+    actorType: "user",
+    actorId: user.id,
+    action: "social.connect",
+    targetType: "brand",
+    targetId: brandId,
+    meta: { platform: "instagram", provider: "meta", ig_user_id: exchanged.igUserId, replaced_zernio_account_id: previous?.zernio_account_id ?? null },
+    ip: requestIp(request),
+  })
   return redirectToBrand(appUrl, brandId, { ig_success: "1" })
 }

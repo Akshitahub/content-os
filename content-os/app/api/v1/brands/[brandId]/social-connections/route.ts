@@ -4,6 +4,7 @@ import { buildError, ErrorCodes } from "@/types/api"
 import { isInstagramDirectEnabled } from "@/lib/social/instagram-direct"
 import type { SupabaseClient } from "@supabase/supabase-js"
 import type { Database } from "@/types/database"
+import { logAudit, requestIp } from "@/lib/security/audit"
 
 type RouteParams = { params: Promise<{ brandId: string }> }
 
@@ -240,7 +241,7 @@ export async function GET(_request: Request, { params }: RouteParams) {
   })
 }
 
-export async function DELETE(_request: Request, { params }: RouteParams) {
+export async function DELETE(request: Request, { params }: RouteParams) {
   const { brandId } = await params
   console.log(`[brands/${brandId}/social-connections] DELETE called`)
   const result = await getAuthorizedBrand(brandId)
@@ -266,6 +267,7 @@ export async function DELETE(_request: Request, { params }: RouteParams) {
       .eq("provider", "meta") as { error: { message: string } | null }
     // Before migration 072 there are no 'meta' rows (and no column): nothing to clear.
     if (tokenError) console.error(`[brands/${brandId}/social-connections] DELETE token clear error:`, tokenError.message)
+    await logAudit({ actorType: "user", actorId: result.user!.id, action: "social.disconnect", targetType: "brand", targetId: brandId, meta: { platform: "instagram" }, ip: requestIp(request) })
   }
 
   if (error) {

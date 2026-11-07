@@ -144,6 +144,17 @@ async function cleanupRateLimits(admin: AdminClient): Promise<number> {
   return count ?? 0
 }
 
+/** Audit log rows (migration 075) past their 365-day retention. Before 075: nothing to delete. */
+async function cleanupAuditLogs(admin: AdminClient): Promise<number> {
+  const yearAgo = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString()
+  const { error, count } = await table(admin, "audit_logs").delete({ count: "exact" }).lt("created_at", yearAgo) as { error: { message: string } | null; count: number | null }
+  if (error) {
+    console.error("[cron/cleanup-abandoned-drafts] audit_logs cleanup error (non-fatal):", error.message)
+    return 0
+  }
+  return count ?? 0
+}
+
 export async function GET(request: Request) {
   if (!isAuthorized(request)) {
     console.error("[cron/cleanup-abandoned-drafts] unauthorized request")
@@ -192,6 +203,13 @@ export async function GET(request: Request) {
     console.error("[cron/cleanup-abandoned-drafts] rate_limits cleanup unexpected error:", err instanceof Error ? err.message : err)
   }
 
-  console.log("[cron/cleanup-abandoned-drafts] done:", { deleted, storageFilesRemoved, perTable, photoBrands, rateLimitRows })
-  return NextResponse.json({ data: { deleted, storageFilesRemoved, perTable, photoBrands, rateLimitRows } })
+  let auditRows = 0
+  try {
+    auditRows = await cleanupAuditLogs(admin)
+  } catch (err) {
+    console.error("[cron/cleanup-abandoned-drafts] audit_logs cleanup unexpected error:", err instanceof Error ? err.message : err)
+  }
+
+  console.log("[cron/cleanup-abandoned-drafts] done:", { deleted, storageFilesRemoved, perTable, photoBrands, rateLimitRows, auditRows })
+  return NextResponse.json({ data: { deleted, storageFilesRemoved, perTable, photoBrands, rateLimitRows, auditRows } })
 }

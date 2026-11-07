@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { createAdminClient } from "@/lib/supabase/server"
 import { refreshLongLivedToken } from "@/lib/social/meta-instagram-client"
 import { decryptToken, encryptToken } from "@/lib/social/token-crypto"
+import { logAudit } from "@/lib/security/audit"
 import type { SupabaseClient } from "@supabase/supabase-js"
 import type { Database } from "@/types/database"
 
@@ -36,29 +37,36 @@ function isAuthorized(request: Request): boolean {
 
 type ConnectionRow = { id: string; brand_id: string; access_token: string | null; token_expires_at: string | null }
 
+const auditRefresh = (row: ConnectionRow, action: string, reason: string) =>
+  logAudit({ actorType: "system", action, targetType: "brand", targetId: row.brand_id, meta: { platform: "instagram", provider: "meta", connection_id: row.id, reason } })
+
 async function refreshOne(admin: AdminClient, row: ConnectionRow, now: number): Promise<"refreshed" | "deactivated" | "failed"> {
   if (row.token_expires_at && new Date(row.token_expires_at).getTime() <= now) {
     const { error } = await socialConnectionsTable(admin).update({ is_active: false }).eq("id", row.id)
     if (error) console.error(`[cron/refresh-instagram-tokens] brand ${row.brand_id}: failed to deactivate expired connection:`, error.message)
     console.error(`[cron/refresh-instagram-tokens] brand ${row.brand_id}: token already expired -- connection deactivated`)
+    await auditRefresh(row, "social.token_expired", "expired before refresh -- connection deactivated")
     return "deactivated"
   }
 
   const current = row.access_token ? decryptToken(row.access_token) : null
   if (!current?.ok) {
     console.error(`[cron/refresh-instagram-tokens] brand ${row.brand_id}: stored token unusable (${current ? current.error : "missing"}) -- left as is`)
+    await auditRefresh(row, "social.token_refresh_failed", current ? current.error : "missing")
     return "failed"
   }
 
   const refreshed = await refreshLongLivedToken(current.value)
   if (!refreshed.ok) {
     console.error(`[cron/refresh-instagram-tokens] brand ${row.brand_id}: refresh failed -- ${refreshed.error}`)
+    await auditRefresh(row, "social.token_refresh_failed", refreshed.error)
     return "failed"
   }
 
   const encrypted = encryptToken(refreshed.token)
   if (!encrypted.ok) {
     console.error(`[cron/refresh-instagram-tokens] brand ${row.brand_id}: could not encrypt refreshed token -- ${encrypted.error}`)
+    await auditRefresh(row, "social.token_refresh_failed", encrypted.error)
     return "failed"
   }
 
@@ -67,6 +75,7 @@ async function refreshOne(admin: AdminClient, row: ConnectionRow, now: number): 
     .eq("id", row.id)
   if (error) {
     console.error(`[cron/refresh-instagram-tokens] brand ${row.brand_id}: refreshed but failed to save:`, error.message)
+    await auditRefresh(row, "social.token_refresh_failed", "refreshed but not saved")
     return "failed"
   }
   return "refreshed"

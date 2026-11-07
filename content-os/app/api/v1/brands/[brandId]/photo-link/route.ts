@@ -3,6 +3,7 @@ import QRCode from "qrcode"
 import { createClient } from "@/lib/supabase/server"
 import { createPhotoLinkToken } from "@/lib/photo-link-token"
 import { buildError, ErrorCodes } from "@/types/api"
+import { logAudit, requestIp } from "@/lib/security/audit"
 
 type Params = { params: Promise<{ brandId: string }> }
 
@@ -19,6 +20,7 @@ export async function POST(request: Request, { params }: Params) {
   if (!brand) return NextResponse.json(buildError(ErrorCodes.BRAND_NOT_FOUND, "Brand not found."), { status: 404 })
 
   const { token, expiresAt } = createPhotoLinkToken(brandId)
+  await logAudit({ actorType: "user", actorId: user.id, action: "brand.photo_link_created", targetType: "brand", targetId: brandId, meta: { expires_at: expiresAt }, ip: requestIp(request) })
   const url = `${new URL(request.url).origin}/send-photos/${token}`
   const qrSvg = await QRCode.toString(url, { type: "svg", margin: 1, errorCorrectionLevel: "M" })
   const message = `Send ${brand.name}'s photos to SocioPosts from this phone (link works for 7 days): ${url}`
