@@ -73,7 +73,7 @@ export default function PrivacyPage() {
         <p>We keep your data for as long as your account is active.</p>
         <p>When you delete your account, we delete your brand data, generated content, and the files in our storage (uploaded photos, logos, and generated images) within 30 days. Copies in our providers&rsquo; backups roll off on those providers&rsquo; own backup schedules.</p>
         <p>Security audit logs (for example sign-ins to admin tools, account and brand deletions, and social account connections) are kept for 12 months.</p>
-        <p>We keep records we&rsquo;re legally required to keep, such as billing records, which we retain for 7 years as required under Indian tax law.</p>
+        <p>We keep records we&rsquo;re legally required to keep, such as billing and payment records, for as long as the law requires.</p>
       </Section>
 
       <Section title="6. Your Rights">
