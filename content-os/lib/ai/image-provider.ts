@@ -2,6 +2,7 @@ import OpenAI, { APIError } from "openai"
 import { toFile } from "openai/core/uploads"
 import { getOpenAIClient } from "./models"
 import { imageCostUsd } from "./pricing"
+import { safeFetch } from "@/lib/web/safe-fetch"
 
 // The only provider for AI image generation in this codebase -- every
 // caller (Post, Story, Carousel, Ad Maker, the standalone Images tab,
@@ -140,10 +141,10 @@ function isModerationError(err: unknown): boolean {
 }
 
 async function fetchReferenceImageFile(url: string) {
-  const res = await fetch(url)
+  // safeFetch: the reference photo's URL comes from the database / request (SSRF).
+  const { res, body } = await safeFetch(url, { maxBytes: 20 * 1024 * 1024, timeoutMs: 15_000, accept: (type) => !type || type.startsWith("image/") })
   if (!res.ok) throw new Error(`Failed to fetch the reference photo (${res.status}).`)
-  const buffer = Buffer.from(await res.arrayBuffer())
-  return toFile(buffer, "reference.png", { type: "image/png" })
+  return toFile(body, "reference.png", { type: "image/png" })
 }
 
 /** Per-call gpt-image-2 quality. "low" is for backgrounds that get text

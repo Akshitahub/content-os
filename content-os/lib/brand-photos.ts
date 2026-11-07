@@ -2,6 +2,7 @@ import { insertContentEvents } from "@/lib/usage/content-events"
 export { photoCredit, withPhotoCredit } from "@/lib/photo-credit"
 import { detectSubjects, type SubjectBox } from "@/lib/image/subject-boxes"
 import { createHash } from "crypto"
+import { safeFetch } from "@/lib/web/safe-fetch"
 import { after } from "next/server"
 import sharp from "sharp"
 import { z } from "zod"
@@ -75,12 +76,15 @@ const hash = (s: string) => createHash("sha1").update(s).digest("hex").slice(0, 
  * by generation routes to read a picked photo (text style, compositing). */
 export async function download(url: string): Promise<Buffer | null> {
   try {
-    const res = await fetch(url, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS), headers: { "User-Agent": "Mozilla/5.0 (SocioPosts photo collector)" } })
+    // safeFetch: website / Instagram URLs are outside our control (SSRF).
+    const { res, body } = await safeFetch(url, {
+      maxBytes: 20 * 1024 * 1024,
+      timeoutMs: FETCH_TIMEOUT_MS,
+      accept: (type) => !type || type.startsWith("image/"),
+      headers: { "User-Agent": "Mozilla/5.0 (SocioPosts photo collector)" },
+    })
     if (!res.ok) return null
-    const type = res.headers.get("content-type") ?? ""
-    if (type && !type.startsWith("image/")) return null
-    const buf = Buffer.from(await res.arrayBuffer())
-    return buf.length > 0 && buf.length <= 20 * 1024 * 1024 ? buf : null
+    return body.length > 0 ? body : null
   } catch {
     return null
   }

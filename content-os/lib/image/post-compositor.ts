@@ -1,3 +1,4 @@
+import { safeFetch } from "@/lib/web/safe-fetch"
 import sharp from "sharp"
 import { readFileSync, writeFileSync, existsSync } from "fs"
 import { join } from "path"
@@ -610,9 +611,8 @@ export async function stampLogo(image: Buffer, logoUrl: string): Promise<Buffer>
 
 async function fetchLogoBuffer(logoUrl: string): Promise<Buffer | null> {
   try {
-    const res = await fetch(logoUrl)
-    if (!res.ok) return null
-    return Buffer.from(await res.arrayBuffer())
+    const { res, body } = await safeFetch(logoUrl, { maxBytes: 20 * 1024 * 1024, timeoutMs: 20_000, accept: (type) => !type || type.startsWith("image/") })
+    return res.ok ? body : null
   } catch {
     return null
   }

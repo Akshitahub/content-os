@@ -1,3 +1,4 @@
+import { safeFetch } from "@/lib/web/safe-fetch"
 import { readFileSync, writeFileSync, existsSync } from "fs"
 import { join } from "path"
 import { tmpdir } from "os"
@@ -332,9 +333,8 @@ async function fetchRichImageBuffer(source: string): Promise<Buffer | null> {
       const base64 = source.split(",")[1]
       return base64 ? Buffer.from(base64, "base64") : null
     }
-    const res = await fetch(source)
-    if (!res.ok) return null
-    return Buffer.from(await res.arrayBuffer())
+    const { res, body } = await safeFetch(source, { maxBytes: 20 * 1024 * 1024, timeoutMs: 20_000, accept: (type) => !type || type.startsWith("image/") })
+    return res.ok ? body : null
   } catch {
     return null
   }

@@ -1,3 +1,4 @@
+import { safeFetch } from "@/lib/web/safe-fetch"
 import sharp from "sharp"
 import { Resvg } from "@resvg/resvg-js"
 import type * as fontkit from "fontkit"
@@ -138,8 +139,8 @@ async function fetchImage(source: string): Promise<Buffer | null> {
       const b64 = source.split(",")[1]
       return b64 ? Buffer.from(b64, "base64") : null
     }
-    const res = await fetch(source, { signal: AbortSignal.timeout(20_000) })
-    return res.ok ? Buffer.from(await res.arrayBuffer()) : null
+    const { res, body } = await safeFetch(source, { maxBytes: 20 * 1024 * 1024, timeoutMs: 20_000, accept: (type) => !type || type.startsWith("image/") })
+    return res.ok ? body : null
   } catch {
     return null
   }

@@ -1,5 +1,6 @@
 import { createAdminClient } from "@/lib/supabase/server"
 import { prepareGeneratedImage } from "@/lib/storage/generated-image"
+import { safeFetch } from "@/lib/web/safe-fetch"
 
 const BUCKET = "published-media"
 
@@ -68,23 +69,25 @@ export async function uploadMediaToStorage(
       // showed most scenes failing with 429s under the shorter backoff.
       const backoffDelaysMs = [1000, 2000, 4000, 8000]
       const maxRetries = 4
-      let res: Response
+      let fetched: Awaited<ReturnType<typeof safeFetch>>
       let attempt = 0
       for (;;) {
         try {
-          res = await fetch(input.url)
+          // safeFetch: the URL comes from a request body / the database (SSRF).
+          fetched = await safeFetch(input.url, { maxBytes: MAX_UPLOAD_BYTES, timeoutMs: 60_000 })
         } catch (err) {
           return { error: err instanceof Error ? err.message : "Failed to fetch source image." }
         }
+        const res = fetched.res
         if (res.status !== 429 || attempt >= maxRetries) break
         const delay = backoffDelaysMs[attempt] ?? backoffDelaysMs[backoffDelaysMs.length - 1]
         console.log(`[upload-media] Remote fetch rate limited (429), retrying in ${delay}ms (attempt ${attempt + 1}/${maxRetries})...`)
         await new Promise((resolve) => setTimeout(resolve, delay))
         attempt++
       }
-      if (!res.ok) return { error: `Failed to fetch source image (${res.status}).` }
-      mimeType = (res.headers.get("content-type") ?? "image/jpeg").split(";")[0]!.trim()
-      buffer = Buffer.from(await res.arrayBuffer())
+      if (!fetched.res.ok) return { error: `Failed to fetch source image (${fetched.res.status}).` }
+      mimeType = (fetched.res.headers.get("content-type") ?? "image/jpeg").split(";")[0]!.trim()
+      buffer = fetched.body
     }
 
     if (!ALLOWED_MIME_TYPES.has(mimeType)) {

@@ -1,5 +1,6 @@
 import sharp from "sharp"
 import { uploadMediaToStorage } from "@/lib/storage/upload-media"
+import { safeFetch } from "@/lib/web/safe-fetch"
 
 /**
  * Instagram's API with Instagram Login accepts only JPEG images. Our hosted
@@ -27,9 +28,9 @@ export async function ensureJpegUrl(url: string, brandId: string): Promise<JpegU
 
   let source: Buffer
   try {
-    const res = await fetch(url, { signal: AbortSignal.timeout(20_000) })
+    const { res, body } = await safeFetch(url, { maxBytes: 20 * 1024 * 1024, timeoutMs: 20_000, accept: (type) => !type || type.startsWith("image/") })
     if (!res.ok) return { ok: false, error: `Failed to fetch image (${res.status})` }
-    source = Buffer.from(await res.arrayBuffer())
+    source = body
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : "Failed to fetch image" }
   }

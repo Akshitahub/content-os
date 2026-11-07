@@ -1,3 +1,4 @@
+import { safeFetch } from "@/lib/web/safe-fetch"
 import sharp from "sharp"
 import { stampLogo } from "@/lib/image/post-compositor"
 import { generateOpenAIImage, resolveImageQuality, IMAGE_PROVIDER, type ImageDimensions, type ImageQuality } from "@/lib/ai/image-provider"
@@ -706,9 +707,8 @@ export interface GeneratePostImageOptions {
 
 async function annotatedProductImage(options: GeneratePostImageOptions, photoUrl: string, callouts: string[]): Promise<PostImagePipelineResult> {
   try {
-    const res = await fetch(photoUrl, { signal: AbortSignal.timeout(20_000) })
+    const { res, body: photo } = await safeFetch(photoUrl, { maxBytes: 20 * 1024 * 1024, timeoutMs: 20_000, accept: (type) => !type || type.startsWith("image/") })
     if (!res.ok) throw new Error(`product photo fetch failed (${res.status})`)
-    const photo = Buffer.from(await res.arrayBuffer())
     let cutout: Buffer | null = null
     try {
       cutout = await removeBackground(new Blob([new Uint8Array(photo)], { type: res.headers.get("content-type") ?? "image/png" }), { timeoutMs: 30_000 })
