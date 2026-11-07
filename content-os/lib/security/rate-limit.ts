@@ -27,7 +27,7 @@ export async function checkRateLimit(key: string, limit: number, windowSeconds: 
   }
 }
 
-export type RateLimitBucket = "generate" | "image" | "extract"
+export type RateLimitBucket = "generate" | "image" | "extract" | "slide"
 
 type Limit = { counter: string; limit: number; windowSeconds: number }
 
@@ -42,6 +42,14 @@ const BUCKETS: Record<RateLimitBucket, Limit[]> = {
   extract: [
     { counter: "extract", limit: 10, windowSeconds: 60 },
     { counter: "extract", limit: 60, windowSeconds: 3600 },
+  ],
+  // Per-slide images: CarouselBuilder / StorySequence call these once per
+  // slide (up to 10 back to back), and the parent carousel / stories call
+  // already counted against "generate" -- so their own counter only, not
+  // generate or image. Credits still cap the cost.
+  slide: [
+    { counter: "slide", limit: 40, windowSeconds: 60 },
+    { counter: "slide", limit: 300, windowSeconds: 3600 },
   ],
 }
 

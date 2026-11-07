@@ -126,7 +126,7 @@ async function handlePost(request: Request, timer: GenerationTimer) {
   const supabase = await createClient()
   const { data: { user }, error: authError } = await supabase.auth.getUser()
   if (authError || !user) return NextResponse.json(buildError(ErrorCodes.UNAUTHENTICATED, "You must be logged in."), { status: 401 })
-  const rateLimited = await enforceRateLimits(user.id, "image")
+  const rateLimited = await enforceRateLimits(user.id, "slide")
   if (rateLimited) return rateLimited
 
   let body: unknown
